@@ -1,5 +1,6 @@
 import { execa } from "execa";
-import { access } from "node:fs/promises";
+import { access, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
 import { inspectInterfaceOverview } from "#typepeek/inspection";
@@ -103,6 +104,81 @@ it("follows installed workspace links across Package Module boundaries", async (
     result: {
       moduleExports: [{ name: "workspaceDependencyExport" }],
     },
+  });
+});
+
+it("selects the declaration Resolution Variant for the requested Access Style", async () => {
+  const [importOutcome, requireOutcome] = await Promise.all([
+    inspectInterfaceOverview({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/conditional",
+      accessStyle: "import",
+    }),
+    inspectInterfaceOverview({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/conditional",
+      accessStyle: "require",
+    }),
+  ]);
+
+  expect([importOutcome.status, requireOutcome.status]).toEqual(["success", "success"]);
+  if (importOutcome.status !== "success" || requireOutcome.status !== "success") {
+    return;
+  }
+  expect([
+    importOutcome.result.moduleExports.map(({ name }) => name),
+    requireOutcome.result.moduleExports.map(({ name }) => name),
+  ]).toEqual([["importExport"], ["requireExport"]]);
+});
+
+it("rejects malformed Package Identity evidence explicitly", async () => {
+  await writeFile(
+    join(
+      fixture.resolutionContext,
+      "node_modules",
+      "@typepeek-fixture",
+      "malformed-manifest",
+      "package.json",
+    ),
+    "{",
+  );
+
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/malformed-manifest",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "unsupported",
+    message: "The installed package has no valid Package Identity.",
+  });
+});
+
+it("rejects a non-string declared Package Identity version", async () => {
+  await writeFile(
+    join(
+      fixture.resolutionContext,
+      "node_modules",
+      "@typepeek-fixture",
+      "invalid-version",
+      "package.json",
+    ),
+    JSON.stringify({
+      name: "@typepeek-fixture/invalid-version",
+      version: 42,
+      type: "module",
+      types: "./dist/index.d.ts",
+    }),
+  );
+
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/invalid-version",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "unsupported",
+    message: "The installed package has no valid Package Identity.",
   });
 });
 

@@ -1,6 +1,9 @@
+export type AccessStyle = "import" | "require";
+
 export interface InterfaceOverviewRequest {
   readonly resolutionContext: string;
   readonly specifier: string;
+  readonly accessStyle?: AccessStyle;
 }
 
 export interface ModuleExportIndexEntry {

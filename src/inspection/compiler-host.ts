@@ -22,9 +22,15 @@ export function createBoundedCompilerHost(
   compilerOptions: ts.CompilerOptions,
 ): ts.CompilerHost {
   const defaultHost = ts.createCompilerHost(compilerOptions, true);
+  const canonicalPackageRoot = canonicalPath(packageRoot);
+  if (canonicalPackageRoot === undefined) {
+    throw new UnsupportedInspectionError(
+      "The installed package boundary could not be canonicalized.",
+    );
+  }
   const state: CompilerHostState = {
     defaultHost,
-    allowedPackageRoots: new Set([realpathSync(packageRoot)]),
+    allowedPackageRoots: new Set([canonicalPackageRoot]),
     sourceFileCount: 0,
     sourceByteCount: 0,
   };
@@ -109,8 +115,21 @@ function findLinkedPackageRoot(
     return undefined;
   }
 
-  const packageRoot = realpathSync(linkedPackageRoot);
-  const resolvedSourcePath = realpathSync(resolvedFileName);
+  return canonicalContainedPackageRoot(linkedPackageRoot, resolvedFileName);
+}
+
+function canonicalContainedPackageRoot(
+  linkedPackageRoot: string,
+  resolvedFileName: string,
+): string | undefined {
+  const packageRoot = canonicalPath(linkedPackageRoot);
+  const resolvedSourcePath = canonicalPath(resolvedFileName);
+  if (packageRoot === undefined) {
+    return undefined;
+  }
+  if (resolvedSourcePath === undefined) {
+    return undefined;
+  }
   return isPathWithin(packageRoot, resolvedSourcePath) ? packageRoot : undefined;
 }
 
@@ -196,8 +215,15 @@ function isBarePackageSpecifier(specifier: string): boolean {
 }
 
 function findMaterializedPackageRoot(resolvedFileName: string): string | undefined {
-  let directory = dirname(realpathSync(resolvedFileName));
+  const resolvedSourcePath = canonicalPath(resolvedFileName);
+  if (resolvedSourcePath === undefined) {
+    return undefined;
+  }
+  return findMaterializedPackageRootFrom(dirname(resolvedSourcePath));
+}
 
+function findMaterializedPackageRootFrom(startingDirectory: string): string | undefined {
+  let directory = startingDirectory;
   while (true) {
     const packageRoot = packageRootAt(directory);
     if (packageRoot !== undefined) {
@@ -215,7 +241,7 @@ function packageRootAt(directory: string): string | undefined {
   if (!isMaterializedPackageRoot(directory)) {
     return undefined;
   }
-  return hasPackageManifest(directory) ? realpathSync(directory) : undefined;
+  return hasPackageManifest(directory) ? canonicalPath(directory) : undefined;
 }
 
 function isMaterializedPackageRoot(directory: string): boolean {
@@ -232,5 +258,13 @@ function hasPackageManifest(directory: string): boolean {
     return statSync(join(directory, "package.json")).isFile();
   } catch {
     return false;
+  }
+}
+
+function canonicalPath(fileName: string): string | undefined {
+  try {
+    return realpathSync(fileName);
+  } catch {
+    return undefined;
   }
 }
