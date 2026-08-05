@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VITE_GIT_HOOKS: "0"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@143f5f385f39b1b753ffed1a01ad443811855c8b # v1.16.1
+        with:
+          node-version: "24.18.0"
+          cache: true
+
+      - name: Install dependencies
+        run: vp install --frozen-lockfile
+
+      - name: Check formatting, lint, and types
+        run: vp run check
+
+      - name: Analyze with Fallow
+        run: vp run fallow
+
+      - name: Test
+        run: vp run test
+
+      - name: Pack
+        run: vp run pack
+
+      - name: Smoke-test package
+        run: vp run package-smoke
