@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 
 import { readBoundedUtf8File } from "#typepeek/inspection/bounded-file";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
-import { findPackageRoot, parsePackageNameSegments } from "#typepeek/inspection/package-evidence";
+import { findReferencedPackageRoot } from "#typepeek/inspection/package-evidence";
 import { isPathWithin } from "#typepeek/inspection/paths";
 
 const MAX_SOURCE_FILES = 128;
@@ -94,43 +94,10 @@ function authorizeExternalPackage(
 
   const packageRoot =
     findMaterializedPackageRoot(resolvedModule.resolvedFileName) ??
-    findLinkedPackageRoot(containingFile, specifier, resolvedModule.resolvedFileName);
+    findReferencedPackageRoot(containingFile, specifier, resolvedModule.resolvedFileName);
   if (packageRoot !== undefined) {
     state.allowedPackageRoots.add(packageRoot);
   }
-}
-
-function findLinkedPackageRoot(
-  containingFile: string,
-  specifier: string,
-  resolvedFileName: string,
-): string | undefined {
-  const packageSegments = parsePackageNameSegments(specifier);
-  if (packageSegments === undefined) {
-    return undefined;
-  }
-
-  const linkedPackageRoot = findPackageRoot(containingFile, packageSegments);
-  if (linkedPackageRoot === undefined) {
-    return undefined;
-  }
-
-  return canonicalContainedPackageRoot(linkedPackageRoot, resolvedFileName);
-}
-
-function canonicalContainedPackageRoot(
-  linkedPackageRoot: string,
-  resolvedFileName: string,
-): string | undefined {
-  const packageRoot = canonicalPath(linkedPackageRoot);
-  const resolvedSourcePath = canonicalPath(resolvedFileName);
-  if (packageRoot === undefined) {
-    return undefined;
-  }
-  if (resolvedSourcePath === undefined) {
-    return undefined;
-  }
-  return isPathWithin(packageRoot, resolvedSourcePath) ? packageRoot : undefined;
 }
 
 function isResolvedExternalPackage(

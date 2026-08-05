@@ -1,10 +1,14 @@
 import { Worker } from "node:worker_threads";
 
-import type { InspectionOutcome, InterfaceOverviewRequest } from "#typepeek/inspection/protocol";
+import {
+  enforceInspectionOutcome,
+  readInterfaceOverviewRequest,
+  type InspectionOutcome,
+  type InterfaceOverviewRequest,
+} from "#typepeek/inspection/protocol";
 
 const ANALYSIS_DEADLINE_MS = 5_000;
 const MAX_RESULT_BYTES = 64 * 1_024;
-const FAILURE_STATUSES = new Set(["not-found", "unsupported", "limit-exceeded"]);
 
 const DEADLINE_OUTCOME: InspectionOutcome = {
   status: "limit-exceeded",
@@ -18,8 +22,13 @@ const TERMINATED_OUTCOME: InspectionOutcome = {
 export async function inspectInterfaceOverview(
   request: InterfaceOverviewRequest,
 ): Promise<InspectionOutcome> {
+  const requestReading = readInterfaceOverviewRequest(request);
+  if (!requestReading.accepted) {
+    return requestReading.outcome;
+  }
+
   const worker = new Worker(getAnalysisWorkerUrl(), {
-    workerData: request,
+    workerData: requestReading.request,
     resourceLimits: {
       maxOldGenerationSizeMb: 128,
       stackSizeMb: 4,
@@ -63,19 +72,18 @@ function waitForWorker(worker: Worker): Promise<InspectionOutcome> {
 }
 
 function readWorkerMessage(value: unknown): InspectionOutcome {
-  if (Buffer.byteLength(JSON.stringify(value)) > MAX_RESULT_BYTES) {
+  const resultBytes = serializedByteLength(value);
+  if (resultBytes === undefined) {
+    return enforceInspectionOutcome(undefined);
+  }
+  if (resultBytes > MAX_RESULT_BYTES) {
     return {
       status: "limit-exceeded",
       message: "Inspection exceeded its output limit.",
     };
   }
 
-  return isInspectionOutcome(value)
-    ? value
-    : {
-        status: "unsupported",
-        message: "Inspection returned an invalid result.",
-      };
+  return enforceInspectionOutcome(value);
 }
 
 function workerErrorOutcome(error: Error): InspectionOutcome {
@@ -92,15 +100,11 @@ function workerErrorOutcome(error: Error): InspectionOutcome {
   };
 }
 
-function isInspectionOutcome(value: unknown): value is InspectionOutcome {
-  if (!isRecord(value)) {
-    return false;
+function serializedByteLength(value: unknown): number | undefined {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? undefined : Buffer.byteLength(serialized);
+  } catch {
+    return undefined;
   }
-  return value["status"] === "success"
-    ? isRecord(value["result"])
-    : FAILURE_STATUSES.has(String(value["status"])) && typeof value["message"] === "string";
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null;
 }

@@ -9,6 +9,7 @@ interface PackageSource {
   readonly version: string;
   readonly declaration: string;
   readonly additionalDeclarations?: Readonly<Record<string, string>>;
+  readonly installedManifest?: string | Readonly<Record<string, unknown>>;
   readonly runtime: string;
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly exports?: object;
@@ -105,6 +106,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     name: "@typepeek-fixture/malformed-manifest",
     version: "1.0.0",
     declaration: "export declare const manifestExport: string;\n",
+    installedManifest: "{",
     runtime: 'throw new Error("Typepeek executed the malformed manifest fixture runtime");\n',
   },
   {
@@ -112,6 +114,12 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     name: "@typepeek-fixture/invalid-version",
     version: "1.0.0",
     declaration: "export declare const invalidVersionExport: string;\n",
+    installedManifest: {
+      name: "@typepeek-fixture/invalid-version",
+      version: 42,
+      type: "module",
+      types: "./dist/index.d.ts",
+    },
     runtime: 'throw new Error("Typepeek executed the invalid version fixture runtime");\n',
   },
 ];
@@ -176,6 +184,7 @@ export async function materializeCompiledPackageFixture(): Promise<CompiledPacka
     ),
   );
   await installPackages(repositoryRoot, npmCacheRoot, tarballPaths);
+  await materializeInstalledEvidenceScenarios(repositoryRoot);
 
   return {
     resolutionContext: repositoryRoot,
@@ -188,6 +197,23 @@ export async function materializeCompiledPackageFixture(): Promise<CompiledPacka
     ),
     cleanup: () => rm(fixtureRoot, { recursive: true, force: true }),
   };
+}
+
+async function materializeInstalledEvidenceScenarios(repositoryRoot: string): Promise<void> {
+  await Promise.all(
+    PACKAGE_SOURCES.flatMap((source) =>
+      source.installedManifest === undefined
+        ? []
+        : [
+            writeFile(
+              join(repositoryRoot, "node_modules", ...source.name.split("/"), "package.json"),
+              typeof source.installedManifest === "string"
+                ? source.installedManifest
+                : JSON.stringify(source.installedManifest),
+            ),
+          ],
+    ),
+  );
 }
 
 async function writePackageSource(fixtureRoot: string, source: PackageSource): Promise<void> {
