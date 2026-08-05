@@ -39,14 +39,21 @@ function inspectInstalledPackage(request: InterfaceOverviewRequest): InspectionO
   }
 
   const manifest = readManifest(packageRoot);
-  const declarationPath = resolveDeclarationPath(packageRoot, manifest);
   return {
     status: "success",
     result: {
       intent: "interface-overview",
       specifier: request.specifier,
       packageIdentity: packageIdentity(manifest.name, manifest.version),
-      moduleExports: inspectModuleExports(declarationPath, packageRoot),
+      moduleExports: inspectModuleExports(
+        resolveDeclarationPath(
+          request.resolutionContext,
+          request.specifier,
+          packageRoot,
+          request.accessStyle ?? "import",
+        ),
+        packageRoot,
+      ),
     },
   };
 }

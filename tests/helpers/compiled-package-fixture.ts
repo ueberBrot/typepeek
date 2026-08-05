@@ -8,6 +8,7 @@ interface PackageSource {
   readonly name: string;
   readonly version: string;
   readonly declaration: string;
+  readonly additionalDeclarations?: Readonly<Record<string, string>>;
   readonly runtime: string;
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly exports?: object;
@@ -75,6 +76,43 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "",
     ].join("\n"),
     runtime: 'throw new Error("Typepeek executed the unresolved fixture runtime");\n',
+  },
+  {
+    directory: "conditional-package",
+    name: "@typepeek-fixture/conditional",
+    version: "1.0.0",
+    declaration: "export declare const legacyExport: string;\n",
+    additionalDeclarations: {
+      "import.d.ts": "export declare const importExport: string;\n",
+      "require.d.cts": "export declare const requireExport: string;\n",
+    },
+    runtime: 'throw new Error("Typepeek executed the conditional fixture runtime");\n',
+    exports: {
+      ".": {
+        import: {
+          types: "./dist/import.d.ts",
+          default: "./dist/index.js",
+        },
+        require: {
+          types: "./dist/require.d.cts",
+          default: "./dist/index.js",
+        },
+      },
+    },
+  },
+  {
+    directory: "malformed-manifest-package",
+    name: "@typepeek-fixture/malformed-manifest",
+    version: "1.0.0",
+    declaration: "export declare const manifestExport: string;\n",
+    runtime: 'throw new Error("Typepeek executed the malformed manifest fixture runtime");\n',
+  },
+  {
+    directory: "invalid-version-package",
+    name: "@typepeek-fixture/invalid-version",
+    version: "1.0.0",
+    declaration: "export declare const invalidVersionExport: string;\n",
+    runtime: 'throw new Error("Typepeek executed the invalid version fixture runtime");\n',
   },
 ];
 
@@ -170,6 +208,9 @@ async function writePackageSource(fixtureRoot: string, source: PackageSource): P
     writeFile(join(packageRoot, "package.json"), JSON.stringify(manifest)),
     writeFile(join(packageDist, "index.d.ts"), source.declaration),
     writeFile(join(packageDist, "index.js"), source.runtime),
+    ...Object.entries(source.additionalDeclarations ?? {}).map(([fileName, declaration]) =>
+      writeFile(join(packageDist, fileName), declaration),
+    ),
   ]);
 }
 

@@ -1,19 +1,19 @@
-import { statSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import ts from "@typescript/typescript6";
+import { realpathSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
 
 import { readBoundedUtf8File } from "#typepeek/inspection/bounded-file";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import { isPathWithin } from "#typepeek/inspection/paths";
+import type { AccessStyle } from "#typepeek/inspection/protocol";
 
 const MAX_PACKAGE_SEARCH_DEPTH = 64;
 const MAX_MANIFEST_BYTES = 256 * 1_024;
+const DECLARATION_EXTENSIONS = new Set([ts.Extension.Dts, ts.Extension.Dmts, ts.Extension.Dcts]);
 
 export interface PackageManifest {
   readonly name: string;
   readonly version?: string;
-  readonly types?: string;
-  readonly typings?: string;
-  readonly exports?: unknown;
 }
 
 export function parsePackageRootSpecifier(specifier: string): readonly string[] | undefined {
@@ -76,50 +76,148 @@ export function readManifest(packageRoot: string): PackageManifest {
     MAX_MANIFEST_BYTES,
     "Inspection exceeded its package manifest size limit.",
   );
-  const manifest: unknown = JSON.parse(manifestText);
-
-  if (!isRecord(manifest) || typeof manifest["name"] !== "string") {
-    throw new UnsupportedInspectionError("The installed package has no valid Package Identity.");
-  }
-  return manifest as unknown as PackageManifest;
+  return packageManifest(parseManifest(manifestText));
 }
 
-export function resolveDeclarationPath(packageRoot: string, manifest: PackageManifest): string {
-  const declarationTarget = selectDeclarationTarget(manifest);
-  const declarationPath = resolve(packageRoot, declarationTarget);
+function parseManifest(manifestText: string): unknown {
+  try {
+    return JSON.parse(manifestText);
+  } catch {
+    return invalidPackageIdentity();
+  }
+}
 
-  if (!isPathWithin(packageRoot, declarationPath)) {
+function packageManifest(value: unknown): PackageManifest {
+  if (!isRecord(value)) {
+    return invalidPackageIdentity();
+  }
+
+  const name = packageName(value);
+  const version = packageVersion(value);
+  return version === undefined ? { name } : { name, version };
+}
+
+function packageName(manifest: Readonly<Record<string, unknown>>): string {
+  const name = manifest["name"];
+  return typeof name === "string" ? name : invalidPackageIdentity();
+}
+
+function packageVersion(manifest: Readonly<Record<string, unknown>>): string | undefined {
+  const version = manifest["version"];
+  if (version === undefined) {
+    return undefined;
+  }
+  return typeof version === "string" ? version : invalidPackageIdentity();
+}
+
+function invalidPackageIdentity(): never {
+  throw new UnsupportedInspectionError("The installed package has no valid Package Identity.");
+}
+
+export function resolveDeclarationPath(
+  resolutionContext: string,
+  specifier: string,
+  packageRoot: string,
+  accessStyle: AccessStyle,
+): string {
+  const declarationPath = resolvePackageDeclaration(resolutionContext, specifier, accessStyle);
+
+  if (declarationPath === undefined) {
+    throw new UnsupportedInspectionError("The package has no readable declaration entrypoint.");
+  }
+
+  const canonicalPackageRoot = canonicalPackageBoundary(packageRoot);
+  const canonicalDeclarationPath = canonicalDeclaration(declarationPath);
+  if (!isPathWithin(canonicalPackageRoot, canonicalDeclarationPath)) {
     throw new UnsupportedInspectionError(
       "The package declaration entrypoint escapes its installed package boundary.",
     );
   }
-  if (!isFile(declarationPath)) {
+  return canonicalDeclarationPath;
+}
+
+function canonicalPackageBoundary(packageRoot: string): string {
+  const canonicalPackageRoot = canonicalPath(packageRoot);
+  if (canonicalPackageRoot === undefined) {
+    throw new UnsupportedInspectionError(
+      "The installed package boundary could not be canonicalized.",
+    );
+  }
+  return canonicalPackageRoot;
+}
+
+function canonicalDeclaration(declarationPath: string): string {
+  const canonicalDeclarationPath = canonicalPath(declarationPath);
+  if (canonicalDeclarationPath === undefined) {
     throw new UnsupportedInspectionError("The package has no readable declaration entrypoint.");
   }
-  return declarationPath;
+  return canonicalDeclarationPath;
 }
 
-function selectDeclarationTarget(manifest: PackageManifest): string {
-  const candidates = [manifest.types, manifest.typings, findTypesExport(manifest.exports)];
-  return (
-    candidates.find((candidate): candidate is string => typeof candidate === "string") ??
-    "./index.d.ts"
+function resolvePackageDeclaration(
+  resolutionContext: string,
+  specifier: string,
+  accessStyle: AccessStyle,
+): string | undefined {
+  const contextDirectory = startingDirectory(resolutionContext);
+  const containingFile = join(
+    contextDirectory,
+    accessStyle === "import" ? "__typepeek_resolution__.mts" : "__typepeek_resolution__.cts",
   );
+  const compilerOptions: ts.CompilerOptions = {
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    noEmit: true,
+    resolvePackageJsonExports: true,
+    resolvePackageJsonImports: true,
+  };
+  const resolutionMode = accessStyle === "import" ? ts.ModuleKind.ESNext : ts.ModuleKind.CommonJS;
+  const resolution = ts.resolveModuleName(
+    specifier,
+    containingFile,
+    compilerOptions,
+    createBoundedModuleResolutionHost(contextDirectory),
+    undefined,
+    undefined,
+    resolutionMode,
+  );
+  return isDeclarationResolution(resolution.resolvedModule)
+    ? resolution.resolvedModule.resolvedFileName
+    : undefined;
 }
 
-function findTypesExport(exportsField: unknown): string | undefined {
-  if (!isRecord(exportsField)) {
-    return undefined;
-  }
-  return findTypesCondition(exportsField["."] ?? exportsField);
+function createBoundedModuleResolutionHost(contextDirectory: string): ts.ModuleResolutionHost {
+  return {
+    directoryExists: isDirectory,
+    fileExists: isFile,
+    getCurrentDirectory: () => contextDirectory,
+    readFile: readPackageResolutionFile,
+    realpath: (fileName) => canonicalPath(fileName) ?? fileName,
+  };
 }
 
-function findTypesCondition(value: unknown): string | undefined {
-  if (!isRecord(value)) {
+function readPackageResolutionFile(fileName: string): string | undefined {
+  try {
+    return readBoundedUtf8File(
+      fileName,
+      MAX_MANIFEST_BYTES,
+      "Inspection exceeded its package manifest size limit.",
+    );
+  } catch (error) {
+    if (error instanceof InspectionLimitError) {
+      throw error;
+    }
     return undefined;
   }
-  const typesCondition = value["types"];
-  return typeof typesCondition === "string" ? typesCondition : findTypesCondition(typesCondition);
+}
+
+function isDeclarationResolution(
+  resolvedModule: ts.ResolvedModuleFull | undefined,
+): resolvedModule is ts.ResolvedModuleFull {
+  return (
+    resolvedModule !== undefined &&
+    DECLARATION_EXTENSIONS.has(resolvedModule.extension as ts.Extension)
+  );
 }
 
 function isFile(fileName: string): boolean {
@@ -127,6 +225,22 @@ function isFile(fileName: string): boolean {
     return statSync(fileName).isFile();
   } catch {
     return false;
+  }
+}
+
+function isDirectory(directory: string): boolean {
+  try {
+    return statSync(directory).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function canonicalPath(fileName: string): string | undefined {
+  try {
+    return realpathSync(fileName);
+  } catch {
+    return undefined;
   }
 }
 
