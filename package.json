@@ -12,6 +12,7 @@
   ],
   "type": "module",
   "imports": {
+    "#typepeek/inspection": "./src/inspection/index.ts",
     "#typepeek/*": "./src/*.ts"
   },
   "exports": {
