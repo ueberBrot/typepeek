@@ -5,24 +5,92 @@ import { dirname, isAbsolute, join } from "node:path";
 import { readBoundedUtf8File } from "#typepeek/inspection/bounded-file";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import { isPathWithin } from "#typepeek/inspection/paths";
-import type { AccessStyle } from "#typepeek/inspection/protocol";
+import type {
+  AccessStyle,
+  NormalizedInterfaceOverviewRequest,
+  PackageIdentity,
+} from "#typepeek/inspection/protocol";
 
 const MAX_PACKAGE_SEARCH_DEPTH = 64;
 const MAX_MANIFEST_BYTES = 256 * 1_024;
-const DECLARATION_EXTENSIONS = new Set([ts.Extension.Dts, ts.Extension.Dmts, ts.Extension.Dcts]);
 
-export interface PackageManifest {
+interface PackageManifest {
   readonly name: string;
   readonly version?: string;
 }
 
-export function parsePackageRootSpecifier(specifier: string): readonly string[] | undefined {
+export interface PackageModuleEvidence {
+  readonly declarationPath: string;
+  readonly packageIdentity: PackageIdentity;
+  readonly packageRoot: string;
+}
+
+export function resolvePackageModuleEvidence(
+  request: NormalizedInterfaceOverviewRequest,
+): PackageModuleEvidence | undefined {
+  assertAbsoluteResolutionContext(request.resolutionContext);
+  const packageSegments = parsePackageRootSpecifier(request.specifier);
+  if (packageSegments === undefined) {
+    throw new UnsupportedInspectionError(
+      "The initial Interface Overview supports package-root Specifiers only.",
+    );
+  }
+
+  const packageRoot = findPackageRoot(request.resolutionContext, packageSegments);
+  if (packageRoot === undefined) {
+    return undefined;
+  }
+
+  const manifest = readManifest(packageRoot);
+  return {
+    declarationPath: resolveDeclarationPath(
+      request.resolutionContext,
+      request.specifier,
+      packageRoot,
+      request.accessStyle,
+    ),
+    packageIdentity: packageIdentity(manifest),
+    packageRoot,
+  };
+}
+
+export function findReferencedPackageRoot(
+  containingFile: string,
+  specifier: string,
+  resolvedFileName: string,
+): string | undefined {
+  const packageSegments = parsePackageNameSegments(specifier);
+  if (packageSegments === undefined) {
+    return undefined;
+  }
+
+  const linkedPackageRoot = findPackageRoot(containingFile, packageSegments);
+  if (linkedPackageRoot === undefined) {
+    return undefined;
+  }
+
+  return canonicalContainedPackageRoot(linkedPackageRoot, resolvedFileName);
+}
+
+function canonicalContainedPackageRoot(
+  linkedPackageRoot: string,
+  resolvedFileName: string,
+): string | undefined {
+  const packageRoot = canonicalPath(linkedPackageRoot);
+  const resolvedSourcePath = canonicalPath(resolvedFileName);
+  if (packageRoot === undefined || resolvedSourcePath === undefined) {
+    return undefined;
+  }
+  return isPathWithin(packageRoot, resolvedSourcePath) ? packageRoot : undefined;
+}
+
+function parsePackageRootSpecifier(specifier: string): readonly string[] | undefined {
   const packageSegments = parsePackageNameSegments(specifier);
   const segments = specifier.split("/");
   return packageSegments?.length === segments.length ? packageSegments : undefined;
 }
 
-export function parsePackageNameSegments(specifier: string): readonly string[] | undefined {
+function parsePackageNameSegments(specifier: string): readonly string[] | undefined {
   const segments = specifier.split("/");
   const packageSegmentCount = specifier.startsWith("@") ? 2 : 1;
   const packageSegments = segments.slice(0, packageSegmentCount);
@@ -36,7 +104,7 @@ function isSafePackagePathSegment(segment: string): boolean {
   return !["", ".", ".."].includes(segment) && !segment.includes("\\") && !segment.includes("\0");
 }
 
-export function findPackageRoot(
+function findPackageRoot(
   resolutionContext: string,
   packageSegments: readonly string[],
 ): string | undefined {
@@ -70,7 +138,7 @@ function hasPackageManifest(packageRoot: string): boolean {
   }
 }
 
-export function readManifest(packageRoot: string): PackageManifest {
+function readManifest(packageRoot: string): PackageManifest {
   const manifestText = readBoundedUtf8File(
     join(packageRoot, "package.json"),
     MAX_MANIFEST_BYTES,
@@ -114,7 +182,13 @@ function invalidPackageIdentity(): never {
   throw new UnsupportedInspectionError("The installed package has no valid Package Identity.");
 }
 
-export function resolveDeclarationPath(
+function packageIdentity(manifest: PackageManifest): PackageIdentity {
+  return manifest.version === undefined
+    ? { name: manifest.name }
+    : { name: manifest.name, version: manifest.version };
+}
+
+function resolveDeclarationPath(
   resolutionContext: string,
   specifier: string,
   packageRoot: string,
@@ -214,9 +288,14 @@ function readPackageResolutionFile(fileName: string): string | undefined {
 function isDeclarationResolution(
   resolvedModule: ts.ResolvedModuleFull | undefined,
 ): resolvedModule is ts.ResolvedModuleFull {
+  return resolvedModule !== undefined && isDeclarationExtension(resolvedModule.extension);
+}
+
+function isDeclarationExtension(extension: string): boolean {
   return (
-    resolvedModule !== undefined &&
-    DECLARATION_EXTENSIONS.has(resolvedModule.extension as ts.Extension)
+    extension === ts.Extension.Dts ||
+    extension === ts.Extension.Dmts ||
+    extension === ts.Extension.Dcts
   );
 }
 
@@ -248,7 +327,7 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function assertAbsoluteResolutionContext(resolutionContext: string): void {
+function assertAbsoluteResolutionContext(resolutionContext: string): void {
   if (!isAbsolute(resolutionContext)) {
     throw new UnsupportedInspectionError("Resolution Context must be an absolute path.");
   }

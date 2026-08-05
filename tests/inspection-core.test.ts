@@ -1,6 +1,5 @@
 import { execa } from "execa";
-import { access, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { access } from "node:fs/promises";
 import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
 import { inspectInterfaceOverview } from "#typepeek/inspection";
@@ -132,17 +131,6 @@ it("selects the declaration Resolution Variant for the requested Access Style", 
 });
 
 it("rejects malformed Package Identity evidence explicitly", async () => {
-  await writeFile(
-    join(
-      fixture.resolutionContext,
-      "node_modules",
-      "@typepeek-fixture",
-      "malformed-manifest",
-      "package.json",
-    ),
-    "{",
-  );
-
   const outcome = await inspectInterfaceOverview({
     resolutionContext: fixture.resolutionContext,
     specifier: "@typepeek-fixture/malformed-manifest",
@@ -155,22 +143,6 @@ it("rejects malformed Package Identity evidence explicitly", async () => {
 });
 
 it("rejects a non-string declared Package Identity version", async () => {
-  await writeFile(
-    join(
-      fixture.resolutionContext,
-      "node_modules",
-      "@typepeek-fixture",
-      "invalid-version",
-      "package.json",
-    ),
-    JSON.stringify({
-      name: "@typepeek-fixture/invalid-version",
-      version: 42,
-      type: "module",
-      types: "./dist/index.d.ts",
-    }),
-  );
-
   const outcome = await inspectInterfaceOverview({
     resolutionContext: fixture.resolutionContext,
     specifier: "@typepeek-fixture/invalid-version",
