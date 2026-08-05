@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/fallow/schema.json",
+
+  // Package exports and bins are discovered automatically. These additional
+  // roots cover repository-only executables that are not published.
+  "entry": ["taze.config.ts", "tests/package-output-smoke.ts"],
+
+  // Issue #2 intentionally establishes these parts of the approved runtime
+  // stack before later issues introduce their production call sites. The
+  // remaining tools are invoked through Vite+ config, which Fallow cannot
+  // discover as dependency usage. Remove each runtime exception as soon as a
+  // source-level import is introduced.
+  "ignoreDependencies": [
+    "@arethetypeswrong/core",
+    "@typescript/typescript6",
+    "arktype",
+    "execa",
+    "publint",
+    "unplugin-unused"
+  ],
+
+  // Type-aware analysis protects the package's exported boundary while the
+  // transport-neutral Inspection Core remains internal and unstable.
+  "typeAware": {
+    "enabled": true,
+    "projects": ["tsconfig.json"],
+    "require": "complete"
+  },
+  "rules": {
+    "private-type-leaks": "error"
+  }
+}
