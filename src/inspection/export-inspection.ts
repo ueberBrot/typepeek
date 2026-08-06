@@ -1,18 +1,8 @@
 import ts from "@typescript/typescript6";
 
-import type { ModuleInspection } from "#typepeek/inspection/analyze";
-import {
-  assertDeclarationLimit,
-  type AliasDeclaration,
-  declarationKind,
-  inspectableDeclarations,
-  inspectDeclaration,
-  isAliasDeclaration,
-  isPrivateDeclaration,
-} from "#typepeek/inspection/declaration-inspection";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import type { InstalledPackageModule } from "#typepeek/inspection/installed-evidence";
 import { inspectPackageDocumentation } from "#typepeek/inspection/package-documentation";
-import type { PackageModuleEvidence } from "#typepeek/inspection/package-evidence";
 import type {
   DeclarationKind,
   DeclarationSpace,
@@ -26,6 +16,8 @@ import type {
   SupportingType,
 } from "#typepeek/inspection/protocol";
 
+const MAX_DECLARATIONS_PER_SYMBOL = 128;
+const MAX_DECLARATION_BYTES = 64 * 1_024;
 const MAX_NAMESPACE_MEMBERS = 128;
 const MAX_SIGNATURES = 64;
 const MAX_SUPPORTING_TYPE_DEPTH = 8;
@@ -33,6 +25,19 @@ const MAX_SUPPORTING_TYPES = 48;
 const MAX_SIGNATURE_BYTES = 16 * 1_024;
 const MAX_SIGNATURE_TOTAL_BYTES = 48 * 1_024;
 
+const DECLARATION_KIND_BY_SYNTAX_KIND = new Map<ts.SyntaxKind, DeclarationKind>([
+  [ts.SyntaxKind.ClassDeclaration, "class"],
+  [ts.SyntaxKind.EnumDeclaration, "enum"],
+  [ts.SyntaxKind.FunctionDeclaration, "function"],
+  [ts.SyntaxKind.InterfaceDeclaration, "interface"],
+  [ts.SyntaxKind.ModuleDeclaration, "namespace"],
+  [ts.SyntaxKind.TypeAliasDeclaration, "type-alias"],
+  [ts.SyntaxKind.VariableDeclaration, "variable"],
+  [ts.SyntaxKind.ExportAssignment, "alias"],
+  [ts.SyntaxKind.ExportSpecifier, "alias"],
+  [ts.SyntaxKind.ImportEqualsDeclaration, "alias"],
+  [ts.SyntaxKind.NamespaceExport, "alias"],
+]);
 const DECLARATION_SPACES: readonly DeclarationSpace[] = ["type", "value", "namespace"];
 const SYMBOL_FLAGS_BY_SPACE: Readonly<Record<DeclarationSpace, ts.SymbolFlags>> = {
   type: ts.SymbolFlags.Type,
@@ -49,6 +54,16 @@ const DECLARATION_SPACES_BY_KIND: Readonly<Record<DeclarationKind, readonly Decl
   "type-alias": ["type"],
   variable: ["value"],
 };
+const declarationPrinter = ts.createPrinter({
+  newLine: ts.NewLineKind.LineFeed,
+  removeComments: true,
+});
+
+type AliasDeclaration =
+  | ts.ExportAssignment
+  | ts.ExportSpecifier
+  | ts.ImportEqualsDeclaration
+  | ts.NamespaceExport;
 
 interface SignatureCandidate {
   readonly compilerOrder: number;
@@ -80,27 +95,177 @@ interface ReferencedSupportingType {
   readonly symbol: ts.Symbol;
 }
 
+function inspectDeclaration(
+  evidence: InstalledPackageModule,
+  declaration: ts.Declaration,
+  kindOverride: "alias",
+): InspectedDeclaration & { readonly kind: "alias" };
+function inspectDeclaration(
+  evidence: InstalledPackageModule,
+  declaration: ts.Declaration,
+  kindOverride?: DeclarationKind,
+): InspectedDeclaration;
+function inspectDeclaration(
+  evidence: InstalledPackageModule,
+  declaration: ts.Declaration,
+  kindOverride?: DeclarationKind,
+): InspectedDeclaration {
+  const sourceFile = declaration.getSourceFile();
+  const start = sourceFile.getLineAndCharacterOfPosition(declaration.getStart(sourceFile, false));
+  const text = renderDeclaration(declaration, sourceFile);
+  if (Buffer.byteLength(text) > MAX_DECLARATION_BYTES) {
+    throw new InspectionLimitError("Inspection exceeded its declaration output limit.");
+  }
+  const kind = inspectedDeclarationKind(declaration, kindOverride);
+  const provenance = evidence.declarationProvenance(sourceFile.fileName);
+  return {
+    kind,
+    text,
+    provenance: {
+      ...provenance,
+      line: start.line + 1,
+      column: start.character + 1,
+    },
+  };
+}
+
+function inspectableDeclarations(symbol: ts.Symbol): readonly ts.Declaration[] {
+  const declarations = (symbol.declarations ?? []).filter(
+    (declaration) => declarationKind(declaration) !== undefined,
+  );
+  assertDeclarationLimit(declarations);
+  return declarations;
+}
+
+function assertDeclarationLimit(declarations: readonly ts.Declaration[]): void {
+  if (declarations.length > MAX_DECLARATIONS_PER_SYMBOL) {
+    throw new InspectionLimitError("Inspection exceeded its declaration merge limit.");
+  }
+}
+
+function declarationKind(declaration: ts.Declaration): DeclarationKind | undefined {
+  return DECLARATION_KIND_BY_SYNTAX_KIND.get(declaration.kind);
+}
+
+function isAliasDeclaration(declaration: ts.Declaration): declaration is AliasDeclaration {
+  return DECLARATION_KIND_BY_SYNTAX_KIND.get(declaration.kind) === "alias";
+}
+
+function isPrivateDeclaration(node: ts.Node): boolean {
+  return (
+    hasPrivateIdentifier(node) ||
+    (hasPrivateModifier(node) && !isConstructorParameterProperty(node))
+  );
+}
+
+function inspectedDeclarationKind(
+  declaration: ts.Declaration,
+  kindOverride: DeclarationKind | undefined,
+): DeclarationKind {
+  const kind = kindOverride ?? declarationKind(declaration);
+  if (kind === undefined) {
+    throw new UnsupportedInspectionError(
+      "The selected Module Export contains an unsupported declaration kind.",
+    );
+  }
+  return kind;
+}
+
+function renderDeclaration(declaration: ts.Declaration, sourceFile: ts.SourceFile): string {
+  const printableDeclaration = ts.isNamespaceExport(declaration) ? declaration.parent : declaration;
+  return declarationPrinter
+    .printNode(ts.EmitHint.Unspecified, publicDeclaration(printableDeclaration), sourceFile)
+    .trim()
+    .replace(/^(?:export\s+)?(?:declare\s+)?/u, "");
+}
+
+function publicDeclaration(declaration: ts.Declaration): ts.Declaration {
+  return ts.isClassDeclaration(declaration)
+    ? ts.factory.updateClassDeclaration(
+        declaration,
+        declaration.modifiers,
+        declaration.name,
+        declaration.typeParameters,
+        declaration.heritageClauses,
+        declaration.members
+          .filter((member) => !isPrivateDeclaration(member))
+          .map(publicClassElement),
+      )
+    : declaration;
+}
+
+function publicClassElement(member: ts.ClassElement): ts.ClassElement {
+  return ts.isConstructorDeclaration(member)
+    ? ts.factory.updateConstructorDeclaration(
+        member,
+        member.modifiers,
+        member.parameters.map(publicConstructorParameter),
+        member.body,
+      )
+    : member;
+}
+
+function publicConstructorParameter(parameter: ts.ParameterDeclaration): ts.ParameterDeclaration {
+  if (!hasPrivateModifier(parameter)) {
+    return parameter;
+  }
+  return ts.factory.updateParameterDeclaration(
+    parameter,
+    parameter.modifiers?.filter(({ kind }) => !isParameterPropertyModifier(kind)),
+    parameter.dotDotDotToken,
+    parameter.name,
+    parameter.questionToken,
+    parameter.type,
+    parameter.initializer,
+  );
+}
+
+function isParameterPropertyModifier(kind: ts.SyntaxKind): boolean {
+  return [
+    ts.SyntaxKind.PrivateKeyword,
+    ts.SyntaxKind.ProtectedKeyword,
+    ts.SyntaxKind.PublicKeyword,
+    ts.SyntaxKind.ReadonlyKeyword,
+    ts.SyntaxKind.OverrideKeyword,
+  ].includes(kind);
+}
+
+function isConstructorParameterProperty(node: ts.Node): node is ts.ParameterDeclaration {
+  return ts.isParameter(node) && ts.isConstructorDeclaration(node.parent);
+}
+
+function hasPrivateIdentifier(node: ts.Node): boolean {
+  const name = "name" in node ? (node.name as ts.Node | undefined) : undefined;
+  return name === undefined ? false : ts.isPrivateIdentifier(name);
+}
+
+function hasPrivateModifier(node: ts.Node): boolean {
+  if (!ts.canHaveModifiers(node)) {
+    return false;
+  }
+  return (ts.getModifiers(node) ?? []).some(({ kind }) => kind === ts.SyntaxKind.PrivateKeyword);
+}
+
 export function inspectFocusedModuleExport(
-  inspection: ModuleInspection,
-  evidence: PackageModuleEvidence,
+  evidence: InstalledPackageModule,
   exportName: string,
   specifier: string,
 ): ExportInspection | undefined {
-  const exportedSymbol = inspection.checker
-    .getExportsOfModule(inspection.moduleSymbol)
+  const exportedSymbol = evidence.checker
+    .getExportsOfModule(evidence.moduleSymbol)
     .find((symbol) => symbol.getName() === exportName);
   if (exportedSymbol === undefined) {
     return undefined;
   }
 
-  const targetSymbol = resolveExportTarget(inspection.checker, exportedSymbol);
+  const targetSymbol = resolveExportTarget(evidence.checker, exportedSymbol);
   const aliasDeclaration = findAliasDeclaration(exportedSymbol);
   const spaces = occupiedDeclarationSpaces(exportedSymbol, targetSymbol, aliasDeclaration);
   const namespaceMembers = spaces.includes("namespace")
-    ? inspectNamespaceMemberEvidence(inspection.checker, targetSymbol)
+    ? inspectNamespaceMemberEvidence(evidence.checker, targetSymbol)
     : [];
   const packageDocumentation = inspectPackageDocumentation(
-    inspection.checker,
+    evidence.checker,
     exportedSymbol,
     targetSymbol,
     aliasDeclaration,
@@ -110,7 +275,6 @@ export function inspectFocusedModuleExport(
     specifier,
     packageIdentity: evidence.packageIdentity,
     moduleExport: inspectModuleExport(
-      inspection.checker,
       evidence,
       exportedSymbol,
       targetSymbol,
@@ -118,12 +282,7 @@ export function inspectFocusedModuleExport(
       spaces,
       namespaceMembers,
     ),
-    supportingTypes: inspectSupportingTypes(
-      inspection.checker,
-      evidence,
-      targetSymbol,
-      namespaceMembers,
-    ),
+    supportingTypes: inspectSupportingTypes(evidence, targetSymbol, namespaceMembers),
     ...(packageDocumentation === undefined ? {} : { packageDocumentation }),
   };
 }
@@ -142,8 +301,7 @@ function resolveExportTarget(checker: ts.TypeChecker, exportedSymbol: ts.Symbol)
 }
 
 function inspectModuleExport(
-  checker: ts.TypeChecker,
-  evidence: PackageModuleEvidence,
+  evidence: InstalledPackageModule,
   exportedSymbol: ts.Symbol,
   targetSymbol: ts.Symbol,
   aliasDeclaration: AliasDeclaration | undefined,
@@ -161,12 +319,12 @@ function inspectModuleExport(
       aliasDeclaration,
       namespaceMembers,
     ),
-    signatures: inspectSignatures(checker, targetSymbol, spaces),
+    signatures: inspectSignatures(evidence.checker, targetSymbol, spaces),
   };
 }
 
 function inspectAlias(
-  evidence: PackageModuleEvidence,
+  evidence: InstalledPackageModule,
   exportedSymbol: ts.Symbol,
   aliasDeclaration: AliasDeclaration | undefined,
   targetSymbol: ts.Symbol,
@@ -220,7 +378,7 @@ function occupiedDeclarationSpaces(
 }
 
 function inspectDeclarationSpaces(
-  evidence: PackageModuleEvidence,
+  evidence: InstalledPackageModule,
   symbol: ts.Symbol,
   occupiedSpaces: readonly DeclarationSpace[],
   aliasDeclaration: AliasDeclaration | undefined,
@@ -246,7 +404,7 @@ function inspectDeclarationSpaces(
 }
 
 function inspectedDeclarations(
-  evidence: PackageModuleEvidence,
+  evidence: InstalledPackageModule,
   declarations: readonly ts.Declaration[],
   aliasDeclaration: AliasDeclaration | undefined,
 ): readonly InspectedDeclaration[] {
@@ -337,7 +495,7 @@ function inspectNamespaceMember(
 }
 
 function inspectNamespaceMembers(
-  evidence: PackageModuleEvidence,
+  evidence: InstalledPackageModule,
   members: readonly NamespaceMemberEvidence[],
 ): readonly ExportNamespaceMember[] {
   return members.map((member) => ({
@@ -476,8 +634,7 @@ function sourceRank(
 }
 
 function inspectSupportingTypes(
-  checker: ts.TypeChecker,
-  evidence: PackageModuleEvidence,
+  evidence: InstalledPackageModule,
   selectedSymbol: ts.Symbol,
   namespaceMembers: readonly NamespaceMemberEvidence[],
 ): readonly SupportingType[] {
@@ -485,7 +642,7 @@ function inspectSupportingTypes(
   const visited = new Set<ts.Symbol>([selectedSymbol]);
 
   const inspectReference = (reference: SupportingReference, depth: number): void => {
-    const supportingType = referencedSupportingType(checker, reference, visited);
+    const supportingType = referencedSupportingType(evidence.checker, reference, visited);
     if (supportingType === undefined) {
       return;
     }
