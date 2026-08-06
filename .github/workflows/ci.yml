@@ -45,6 +45,7 @@ jobs:
         run: vp run check
 
       - name: Analyze with Fallow
+        if: runner.os == 'Linux'
         run: vp run fallow
 
       - name: Test
