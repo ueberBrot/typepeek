@@ -104,7 +104,11 @@ function isResolvedExternalPackage(
   specifier: string,
   resolvedModule: ts.ResolvedModuleFull | undefined,
 ): resolvedModule is ts.ResolvedModuleFull {
-  return isBarePackageSpecifier(specifier) && resolvedModule?.isExternalLibraryImport === true;
+  // TypeScript may classify workspace packages reached through Windows
+  // directory junctions as non-external. The package-root checks below prove
+  // that the resolved declaration is Installed Evidence without relying on
+  // that platform-sensitive classification.
+  return isBarePackageSpecifier(specifier) && resolvedModule !== undefined;
 }
 
 function getBoundedSourceFile(
