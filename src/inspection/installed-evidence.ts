@@ -19,6 +19,11 @@ const packageIdentitySchema = type({
   "version?": "string | undefined",
 });
 
+/**
+ * Analyzer state and provenance derived from one bounded Installed Evidence
+ * read. `checker` and `moduleSymbol` always belong to the same compiler program;
+ * declaration provenance may resolve to a referenced Declaration Provider.
+ */
 export interface InstalledPackageModule {
   readonly checker: ts.TypeChecker;
   readonly moduleSymbol: ts.Symbol;
@@ -41,6 +46,11 @@ interface DeclarationOwner {
   readonly packageRoot: string;
 }
 
+/**
+ * Resolves and reads one installed package-root Specifier without executing
+ * package or project code. Returns `undefined` only when the package is not
+ * visible; expected invalid evidence and exhausted budgets use typed errors.
+ */
 export function readInstalledPackageModule(
   request: NormalizedInspectionTarget,
 ): InstalledPackageModule | undefined {
@@ -89,6 +99,8 @@ function readDeclarationProvenance(
   readonly packageIdentity: PackageIdentity;
   readonly file: string;
 } {
+  // Supporting declarations can belong to another installed package, such as a
+  // Declaration Provider, so provenance follows the declaration's owning manifest.
   const owner = isPathWithin(packageRoot, declarationPath)
     ? { packageIdentity, packageRoot }
     : resolveDeclarationOwner(declarationPath);
@@ -412,6 +424,8 @@ function inspectModuleEvidence(
 }
 
 function assertResolvedReExportGraph(checker: ts.TypeChecker, entrypoint: ts.SourceFile): void {
+  // Walking the graph is validation, not indexing: it forces every declaration
+  // re-export to resolve before the module can produce an authoritative result.
   const pendingSourceFiles = [entrypoint];
   const visitedSourceFiles = new Set<string>();
 
@@ -470,6 +484,8 @@ function createBoundedCompilerHost(
     sourceByteCount: 0,
   };
 
+  // Allowed package roots form an authorization set. The host may discover new
+  // roots only through compiler-resolved bare package imports.
   return {
     ...defaultHost,
     resolveModuleNameLiterals: (
@@ -528,6 +544,8 @@ function authorizeExternalPackage(
   }
 
   const packageRoot =
+    // Ordinary packages are recognized from their physical node_modules path;
+    // linked workspaces use the visibility-based fallback.
     findMaterializedPackageRoot(resolvedModule.resolvedFileName) ??
     findReferencedPackageRoot(containingFile, specifier, resolvedModule.resolvedFileName);
   if (packageRoot !== undefined) {

@@ -8,6 +8,11 @@ import type { AnalysisRequest, InspectionOutcome } from "#typepeek/inspection/pr
 
 const MAX_MODULE_EXPORTS = 200;
 
+/**
+ * Runs one already-normalized analysis request inside the worker. Expected
+ * inspection limits and unsupported cases retain their category; unexpected
+ * analyzer failures are deliberately collapsed to a generic unsupported result.
+ */
 export function analyzeInspection(analysisRequest: AnalysisRequest): InspectionOutcome {
   try {
     return inspectInstalledPackage(analysisRequest);
@@ -77,6 +82,8 @@ function errorOutcome(error: unknown): InspectionOutcome {
   if (error instanceof InspectionLimitError) {
     return { status: "limit-exceeded", message: error.message };
   }
+  // Unexpected errors may contain host paths or analyzer details, neither of
+  // which belongs in the transport-neutral Inspection Result.
   return error instanceof UnsupportedInspectionError
     ? { status: "unsupported", message: error.message }
     : {

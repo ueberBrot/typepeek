@@ -23,6 +23,11 @@ type AliasDeclaration =
   | ts.ImportEqualsDeclaration
   | ts.NamespaceExport;
 
+/**
+ * Extracts the first attached Package Documentation visible on an alias, export,
+ * or target symbol. Returned text is marked untrusted, sanitized before leaving
+ * the Inspection Core, and rejected when it exceeds the documentation budget.
+ */
 export function inspectPackageDocumentation(
   checker: ts.TypeChecker,
   exportedSymbol: ts.Symbol,
@@ -51,6 +56,8 @@ function packageDocumentationText(
   targetSymbol: ts.Symbol,
   aliasDeclaration: AliasDeclaration | undefined,
 ): string {
+  // Prefer the documentation closest to what the caller selected. Combining
+  // layers would duplicate tags and blur alias-specific guidance.
   return (
     [
       aliasDocumentation(aliasDeclaration),
@@ -106,6 +113,8 @@ function renderJsDocNodeTag(tag: ts.JSDocTag): string {
 }
 
 function sanitizePackageDocumentation(documentation: string): string {
+  // Sanitize at the evidence seam so non-terminal adapters also receive inert
+  // text; terminal rendering applies its own defense-in-depth escaping.
   return stripUnsafePresentationCharacters(
     documentation.replaceAll("\r\n", "\n").replaceAll("\r", "\n"),
   ).trim();

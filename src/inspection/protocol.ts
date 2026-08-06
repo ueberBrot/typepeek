@@ -142,6 +142,11 @@ const interfaceOverviewRequestSchema = inspectionSchemas.inspectionTarget;
 const exportInspectionRequestSchema = inspectionSchemas.exportInspectionRequest;
 const analysisRequestEnvelopeSchema = inspectionSchemas.analysisRequestEnvelope;
 
+/**
+ * Projects ArkType-inferred protocol values into readonly TypeScript shapes.
+ * Optional properties stay optional rather than becoming required properties
+ * whose values include `undefined`.
+ */
 export type ProtocolType<Value> = Value extends readonly (infer Item)[]
   ? readonly ProtocolType<Item>[]
   : Value extends object
@@ -199,6 +204,7 @@ export type ExportInspection = ProtocolType<typeof inspectionSchemas.exportInspe
 export type InspectionResult = ProtocolType<typeof inspectionSchemas.inspectionResult.infer>;
 export type InspectionFailure = ProtocolType<typeof inspectionSchemas.inspectionFailure.infer>;
 
+/** A complete Inspection Result or an explicit non-authoritative failure. */
 export type InspectionOutcome<Result extends InspectionResult = InspectionResult> =
   | {
       readonly status: "success";
@@ -247,6 +253,11 @@ const INVALID_RESULT_OUTCOME: InspectionFailure = {
   message: "Inspection returned an invalid result.",
 };
 
+/**
+ * Snapshots and validates an untrusted caller request, applying `import` as the
+ * default Access Style. Invalid or accessor-backed inputs return a typed failure
+ * and never escape this function as exceptions.
+ */
 export function readInspectionRequest(
   intent: "interface-overview",
   value: unknown,
@@ -287,6 +298,10 @@ export function readInspectionRequest(
   }
 }
 
+/**
+ * Revalidates the request envelope received by the analysis worker and delegates
+ * nested request validation to the same seam used by direct callers.
+ */
 export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
   try {
     const candidate = snapshotRecord(value);
@@ -319,6 +334,11 @@ export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
   }
 }
 
+/**
+ * Accepts only a bounded, dense, data-property-only outcome for the requested
+ * intent. Invalid worker messages collapse to a generic failure rather than
+ * exposing analyzer or transport details.
+ */
 export function enforceInspectionOutcome(
   intent: "interface-overview",
   value: unknown,
@@ -358,6 +378,8 @@ function normalizeInspectionTarget(
 }
 
 function isInspectionOutcome(value: unknown): value is InspectionOutcome {
+  // Manual graph guards run before ArkType so cyclic, sparse, accessor-backed,
+  // or excessively deep values cannot make recursive schema validation unsafe.
   return (
     hasDenseProtocolArrays(value) &&
     hasBoundedNamespaceGraph(value) &&
@@ -421,6 +443,8 @@ function queueDenseArrayItems(
 }
 
 function hasBoundedNamespaceGraph(value: unknown): boolean {
+  // Namespace members are the protocol's recursive shape. Keep this transport
+  // guard aligned with the analyzer depth budget and reject object cycles.
   if (!isRecord(value) || value["status"] !== "success") {
     return true;
   }
@@ -491,6 +515,8 @@ function snapshotRecord(value: unknown): Readonly<Record<string, unknown>> | und
   if (!isRecord(value)) {
     return undefined;
   }
+  // Copy own data properties once so validation never invokes getters and the
+  // accepted values cannot change between schema checks and normalization.
   const snapshot: Record<string, unknown> = Object.create(null);
   for (const key of Object.keys(value)) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
