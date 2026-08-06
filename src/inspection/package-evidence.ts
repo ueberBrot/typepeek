@@ -7,7 +7,7 @@ import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/insp
 import { isPathWithin } from "#typepeek/inspection/paths";
 import type {
   AccessStyle,
-  NormalizedInterfaceOverviewRequest,
+  NormalizedInspectionTarget,
   PackageIdentity,
 } from "#typepeek/inspection/protocol";
 
@@ -25,14 +25,19 @@ export interface PackageModuleEvidence {
   readonly packageRoot: string;
 }
 
+export interface DeclarationOwner {
+  readonly packageIdentity: PackageIdentity;
+  readonly packageRoot: string;
+}
+
 export function resolvePackageModuleEvidence(
-  request: NormalizedInterfaceOverviewRequest,
+  request: NormalizedInspectionTarget,
 ): PackageModuleEvidence | undefined {
   assertAbsoluteResolutionContext(request.resolutionContext);
   const packageSegments = parsePackageRootSpecifier(request.specifier);
   if (packageSegments === undefined) {
     throw new UnsupportedInspectionError(
-      "The initial Interface Overview supports package-root Specifiers only.",
+      "The initial inspection supports package-root Specifiers only.",
     );
   }
 
@@ -42,16 +47,37 @@ export function resolvePackageModuleEvidence(
   }
 
   const manifest = readManifest(packageRoot);
+  const canonicalPackageRoot = canonicalPackageBoundary(packageRoot);
   return {
     declarationPath: resolveDeclarationPath(
       request.resolutionContext,
       request.specifier,
-      packageRoot,
+      canonicalPackageRoot,
       request.accessStyle,
     ),
     packageIdentity: packageIdentity(manifest),
-    packageRoot,
+    packageRoot: canonicalPackageRoot,
   };
+}
+
+export function resolveDeclarationOwner(declarationPath: string): DeclarationOwner {
+  let directory = dirname(declarationPath);
+  for (let depth = 0; depth < MAX_PACKAGE_SEARCH_DEPTH; depth += 1) {
+    if (hasPackageManifest(directory)) {
+      return {
+        packageIdentity: packageIdentity(readManifest(directory)),
+        packageRoot: canonicalPackageBoundary(directory),
+      };
+    }
+    const parent = dirname(directory);
+    if (parent === directory) {
+      break;
+    }
+    directory = parent;
+  }
+  throw new UnsupportedInspectionError(
+    "A declaration has no owning Package Identity for provenance.",
+  );
 }
 
 export function findReferencedPackageRoot(

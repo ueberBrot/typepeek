@@ -1,32 +1,29 @@
 import { buildApplication, buildCommand } from "@stricli/core";
 import { resolve } from "node:path";
 
-import { inspectInterfaceOverview } from "#typepeek/inspection";
+import { inspectExport, inspectInterfaceOverview } from "#typepeek/inspection";
+import { renderInspection } from "#typepeek/terminal-rendering";
 
 import packageJson from "../package.json" with { type: "json" };
 
-const rootCommand = buildCommand<{ context: string }, [string]>({
-  async func({ context }, specifier) {
-    const outcome = await inspectInterfaceOverview({
-      resolutionContext: context,
-      specifier,
-    });
+const rootCommand = buildCommand<{ context: string; export?: string }, [string]>({
+  async func({ context, export: exportName }, specifier) {
+    const outcome =
+      exportName === undefined
+        ? await inspectInterfaceOverview({
+            resolutionContext: context,
+            specifier,
+          })
+        : await inspectExport({
+            resolutionContext: context,
+            specifier,
+            exportName,
+          });
     if (outcome.status !== "success") {
       return new Error(`${outcome.status}: ${outcome.message}`);
     }
 
-    const { moduleExports, packageIdentity } = outcome.result;
-    const version = packageIdentity.version === undefined ? "" : `@${packageIdentity.version}`;
-    this.process.stdout.write(
-      [
-        "Interface Overview",
-        `Specifier: ${outcome.result.specifier}`,
-        `Package: ${packageIdentity.name}${version}`,
-        `Module Exports (${moduleExports.length}):`,
-        ...moduleExports.map(({ name }) => `- ${name}`),
-        "",
-      ].join("\n"),
-    );
+    this.process.stdout.write(`${renderInspection(outcome.result)}\n`);
   },
   parameters: {
     flags: {
@@ -35,6 +32,12 @@ const rootCommand = buildCommand<{ context: string }, [string]>({
         parse: resolve,
         default: ".",
         brief: "Resolution Context used to locate the installed Package Module.",
+      },
+      export: {
+        kind: "parsed",
+        parse: (input) => input,
+        optional: true,
+        brief: "Module Export to inspect in focus.",
       },
     },
     positional: {

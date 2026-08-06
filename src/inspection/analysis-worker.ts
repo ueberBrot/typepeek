@@ -1,11 +1,9 @@
 import { parentPort, workerData } from "node:worker_threads";
 
-import { analyzeInterfaceOverview } from "#typepeek/inspection/analyze";
-import { readInterfaceOverviewRequest } from "#typepeek/inspection/protocol";
+import { analyzeInspection } from "#typepeek/inspection/analyze";
+import { readAnalysisRequest } from "#typepeek/inspection/protocol";
 
-const requestReading = readInterfaceOverviewRequest(workerData);
+const requestReading = readAnalysisRequest(workerData);
 parentPort?.postMessage(
-  requestReading.accepted
-    ? analyzeInterfaceOverview(requestReading.request)
-    : requestReading.outcome,
+  requestReading.accepted ? analyzeInspection(requestReading.request) : requestReading.outcome,
 );

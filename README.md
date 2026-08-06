@@ -24,6 +24,18 @@ Module Exports (30):
 ...
 ```
 
+Select one Module Export for a focused Export Inspection:
+
+```bash
+typepeek execa --context . --export execa
+```
+
+The focused result keeps callable and constructable signatures in declaration
+order, represents type, value, and namespace declaration spaces independently,
+and follows only the bounded Supporting Types reachable from the selected
+Module Export. Attached Package Documentation is labeled as untrusted Installed
+Evidence and sanitized before terminal presentation.
+
 The current slice supports installed, compiled Package Modules with declaration
 entrypoints. Inspection reads Installed Evidence only: it does not import the
 package runtime, run package scripts, or download missing material. Unsupported,

@@ -2,8 +2,12 @@ import { Worker } from "node:worker_threads";
 
 import {
   enforceInspectionOutcome,
-  readInterfaceOverviewRequest,
+  readInspectionRequest,
+  type AnalysisRequest,
+  type ExportInspection,
+  type ExportInspectionRequest,
   type InspectionOutcome,
+  type InterfaceOverview,
   type InterfaceOverviewRequest,
 } from "#typepeek/inspection/protocol";
 
@@ -21,20 +25,47 @@ const TERMINATED_OUTCOME: InspectionOutcome = {
 
 export async function inspectInterfaceOverview(
   request: InterfaceOverviewRequest,
-): Promise<InspectionOutcome> {
-  const requestReading = readInterfaceOverviewRequest(request);
+): Promise<InspectionOutcome<InterfaceOverview>> {
+  const requestReading = readInspectionRequest("interface-overview", request);
   if (!requestReading.accepted) {
     return requestReading.outcome;
   }
 
+  return enforceInspectionOutcome(
+    "interface-overview",
+    await runAnalysis({
+      intent: "interface-overview",
+      request: requestReading.request,
+    }),
+  );
+}
+
+export async function inspectExport(
+  request: ExportInspectionRequest,
+): Promise<InspectionOutcome<ExportInspection>> {
+  const requestReading = readInspectionRequest("export-inspection", request);
+  if (!requestReading.accepted) {
+    return requestReading.outcome;
+  }
+
+  return enforceInspectionOutcome(
+    "export-inspection",
+    await runAnalysis({
+      intent: "export-inspection",
+      request: requestReading.request,
+    }),
+  );
+}
+
+async function runAnalysis(request: AnalysisRequest): Promise<InspectionOutcome> {
   const worker = new Worker(getAnalysisWorkerUrl(), {
-    workerData: requestReading.request,
+    workerData: request,
     resourceLimits: {
       maxOldGenerationSizeMb: 128,
       stackSizeMb: 4,
     },
   });
-  const outcome = await waitForWorker(worker);
+  const outcome = await waitForWorker(worker, request.intent);
   void worker.terminate();
   return outcome;
 }
@@ -48,7 +79,10 @@ function getAnalysisWorkerUrl(): URL {
   return new URL(workerPath, import.meta.url);
 }
 
-function waitForWorker(worker: Worker): Promise<InspectionOutcome> {
+function waitForWorker(
+  worker: Worker,
+  intent: AnalysisRequest["intent"],
+): Promise<InspectionOutcome> {
   return new Promise((resolve) => {
     let settled = false;
     const deadline = setTimeout(() => finish(DEADLINE_OUTCOME), ANALYSIS_DEADLINE_MS);
@@ -61,7 +95,7 @@ function waitForWorker(worker: Worker): Promise<InspectionOutcome> {
       resolve(outcome);
     };
 
-    worker.once("message", (value: unknown) => finish(readWorkerMessage(value)));
+    worker.once("message", (value: unknown) => finish(readWorkerMessage(value, intent)));
     worker.once("error", (error) => finish(workerErrorOutcome(error)));
     worker.once("exit", (exitCode) => {
       if (!settled && exitCode !== 0) {
@@ -71,10 +105,10 @@ function waitForWorker(worker: Worker): Promise<InspectionOutcome> {
   });
 }
 
-function readWorkerMessage(value: unknown): InspectionOutcome {
+function readWorkerMessage(value: unknown, intent: AnalysisRequest["intent"]): InspectionOutcome {
   const resultBytes = serializedByteLength(value);
   if (resultBytes === undefined) {
-    return enforceInspectionOutcome(undefined);
+    return enforceInspectionOutcome(intent, undefined);
   }
   if (resultBytes > MAX_RESULT_BYTES) {
     return {
@@ -83,7 +117,7 @@ function readWorkerMessage(value: unknown): InspectionOutcome {
     };
   }
 
-  return enforceInspectionOutcome(value);
+  return enforceInspectionOutcome(intent, value);
 }
 
 function workerErrorOutcome(error: Error): InspectionOutcome {
