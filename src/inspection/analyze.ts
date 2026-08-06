@@ -2,33 +2,30 @@ import ts from "@typescript/typescript6";
 
 import { createBoundedCompilerHost } from "#typepeek/inspection/compiler-host";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import { inspectFocusedModuleExport } from "#typepeek/inspection/export-inspection";
 import {
   resolvePackageModuleEvidence,
   type PackageModuleEvidence,
 } from "#typepeek/inspection/package-evidence";
-import type {
-  InspectionOutcome,
-  NormalizedInterfaceOverviewRequest,
-} from "#typepeek/inspection/protocol";
+import type { AnalysisRequest, InspectionOutcome } from "#typepeek/inspection/protocol";
 
 const MAX_MODULE_EXPORTS = 200;
 
-interface ModuleInspection {
+export interface ModuleInspection {
   readonly checker: ts.TypeChecker;
   readonly moduleSymbol: ts.Symbol;
 }
 
-export function analyzeInterfaceOverview(
-  request: NormalizedInterfaceOverviewRequest,
-): InspectionOutcome {
+export function analyzeInspection(analysisRequest: AnalysisRequest): InspectionOutcome {
   try {
-    return inspectInstalledPackage(request);
+    return inspectInstalledPackage(analysisRequest);
   } catch (error) {
     return errorOutcome(error);
   }
 }
 
-function inspectInstalledPackage(request: NormalizedInterfaceOverviewRequest): InspectionOutcome {
+function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOutcome {
+  const { request } = analysisRequest;
   const evidence = resolvePackageModuleEvidence(request);
   if (evidence === undefined) {
     return {
@@ -37,27 +34,47 @@ function inspectInstalledPackage(request: NormalizedInterfaceOverviewRequest): I
     };
   }
 
+  const inspection = inspectPackageModule(evidence);
+  if (analysisRequest.intent === "export-inspection") {
+    const result = inspectFocusedModuleExport(
+      inspection,
+      evidence,
+      analysisRequest.request.exportName,
+      request.specifier,
+    );
+    return result === undefined
+      ? {
+          status: "not-found",
+          message: `Module Export "${analysisRequest.request.exportName}" was not found in "${request.specifier}".`,
+        }
+      : { status: "success", result };
+  }
+
   return {
     status: "success",
     result: {
       intent: "interface-overview",
       specifier: request.specifier,
       packageIdentity: evidence.packageIdentity,
-      moduleExports: inspectModuleExports(evidence),
+      moduleExports: inspectModuleExports(inspection),
     },
   };
 }
 
-function inspectModuleExports(
-  evidence: PackageModuleEvidence,
-): readonly { readonly name: string }[] {
+function inspectPackageModule(evidence: PackageModuleEvidence): ModuleInspection {
   const compilerOptions = getCompilerOptions();
   const program = ts.createProgram({
     rootNames: [evidence.declarationPath],
     options: compilerOptions,
     host: createBoundedCompilerHost(evidence.packageRoot, compilerOptions),
   });
-  const { checker, moduleSymbol } = getModuleInspection(program, evidence.declarationPath);
+  return getModuleInspection(program, evidence.declarationPath);
+}
+
+function inspectModuleExports({
+  checker,
+  moduleSymbol,
+}: ModuleInspection): readonly { readonly name: string }[] {
   const moduleExports = checker
     .getExportsOfModule(moduleSymbol)
     .map((symbol) => ({ name: symbol.getName() }))
