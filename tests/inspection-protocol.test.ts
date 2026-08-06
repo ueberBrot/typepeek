@@ -4,7 +4,6 @@ import {
   enforceInspectionOutcome,
   readAnalysisRequest,
   readInspectionRequest,
-  readPackageIdentity,
   type ExportDeclarationSpace,
   type ExportInspection,
   type ExportNamespaceMember,
@@ -74,21 +73,6 @@ it("rejects array-shaped records at the worker protocol seam", () => {
       message: "Inspection received an invalid request.",
     },
   });
-});
-
-it("parses Package Identity evidence with ArkType", () => {
-  expect(
-    readPackageIdentity({
-      name: "example",
-      version: "1.2.3",
-      scripts: { test: "vp test" },
-    }),
-  ).toEqual({
-    name: "example",
-    version: "1.2.3",
-  });
-  expect(readPackageIdentity({ version: "1.2.3" })).toBeUndefined();
-  expect(readPackageIdentity([])).toBeUndefined();
 });
 
 it("rejects a structurally incomplete successful Inspection Outcome", () => {
@@ -284,14 +268,6 @@ it("contains throwing accessors on non-record parser inputs", () => {
     },
   });
 
-  const identity: unknown[] = [];
-  Object.defineProperty(identity, "name", {
-    get() {
-      throw new Error("identity getter was evaluated");
-    },
-  });
-  expect(readPackageIdentity(identity)).toBeUndefined();
-
   const outcome: unknown[] = [];
   Object.defineProperties(outcome, {
     status: { value: "not-found" },
@@ -324,19 +300,6 @@ it("rejects request fields that change after schema validation", () => {
       message: "Inspection received an invalid Interface Overview request.",
     },
   });
-});
-
-it("rejects Package Identity fields that change after schema validation", () => {
-  let nameReads = 0;
-  const identity = {
-    get name() {
-      nameReads += 1;
-      return nameReads === 1 ? "example" : 42;
-    },
-    version: "1.2.3",
-  };
-
-  expect(readPackageIdentity(identity)).toBeUndefined();
 });
 
 it("rejects arrays and functions masquerading as Inspection Outcome records", () => {

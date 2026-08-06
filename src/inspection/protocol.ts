@@ -228,24 +228,6 @@ export type AnalysisRequestReading =
       readonly outcome: InspectionFailure;
     };
 
-export function readPackageIdentity(value: unknown): PackageIdentity | undefined {
-  try {
-    const candidate = snapshotRecord(value);
-    if (candidate === undefined) {
-      return undefined;
-    }
-    const identity = inspectionSchemas.packageIdentity(candidate);
-    if (identity instanceof type.errors) {
-      return undefined;
-    }
-    return identity.version === undefined
-      ? { name: identity.name }
-      : { name: identity.name, version: identity.version };
-  } catch {
-    return undefined;
-  }
-}
-
 const INVALID_ANALYSIS_REQUEST_OUTCOME: InspectionFailure = {
   status: "unsupported",
   message: "Inspection received an invalid request.",
