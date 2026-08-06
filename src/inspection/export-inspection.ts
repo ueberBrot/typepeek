@@ -1,32 +1,35 @@
 import ts from "@typescript/typescript6";
-import { relative, sep } from "node:path";
 
 import type { ModuleInspection } from "#typepeek/inspection/analyze";
-import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import {
-  resolveDeclarationOwner,
-  type PackageModuleEvidence,
-} from "#typepeek/inspection/package-evidence";
-import { isPathWithin } from "#typepeek/inspection/paths";
+  assertDeclarationLimit,
+  type AliasDeclaration,
+  declarationKind,
+  inspectableDeclarations,
+  inspectDeclaration,
+  isAliasDeclaration,
+  isPrivateDeclaration,
+} from "#typepeek/inspection/declaration-inspection";
+import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import { inspectPackageDocumentation } from "#typepeek/inspection/package-documentation";
+import type { PackageModuleEvidence } from "#typepeek/inspection/package-evidence";
 import type {
   DeclarationKind,
   DeclarationSpace,
   ExportAlias,
   ExportDeclarationSpace,
   ExportInspection,
+  ExportNamespaceMember,
   ExportSignature,
   InspectedDeclaration,
   InspectedModuleExport,
-  PackageDocumentation,
   SupportingType,
 } from "#typepeek/inspection/protocol";
 
-const MAX_DECLARATIONS_PER_SYMBOL = 128;
-const MAX_DOCUMENTATION_BYTES = 16 * 1_024;
+const MAX_NAMESPACE_MEMBERS = 128;
 const MAX_SIGNATURES = 64;
 const MAX_SUPPORTING_TYPE_DEPTH = 8;
 const MAX_SUPPORTING_TYPES = 48;
-const MAX_DECLARATION_BYTES = 64 * 1_024;
 const MAX_SIGNATURE_BYTES = 16 * 1_024;
 const MAX_SIGNATURE_TOTAL_BYTES = 48 * 1_024;
 
@@ -46,42 +49,35 @@ const DECLARATION_SPACES_BY_KIND: Readonly<Record<DeclarationKind, readonly Decl
   "type-alias": ["type"],
   variable: ["value"],
 };
-const UNSAFE_PRESENTATION_RANGES: readonly (readonly [number, number])[] = [
-  [0x00, 0x08],
-  [0x0b, 0x0c],
-  [0x0e, 0x1f],
-  [0x7f, 0x9f],
-  [0x061c, 0x061c],
-  [0x200e, 0x200f],
-  [0x202a, 0x202e],
-  [0x2066, 0x2069],
-];
-const ANSI_CONTROL_SEQUENCE_PREFIX = String.fromCodePoint(0x1b, 0x5b);
-
-const DECLARATION_KIND_BY_SYNTAX_KIND = new Map<ts.SyntaxKind, DeclarationKind>([
-  [ts.SyntaxKind.ClassDeclaration, "class"],
-  [ts.SyntaxKind.EnumDeclaration, "enum"],
-  [ts.SyntaxKind.FunctionDeclaration, "function"],
-  [ts.SyntaxKind.InterfaceDeclaration, "interface"],
-  [ts.SyntaxKind.ModuleDeclaration, "namespace"],
-  [ts.SyntaxKind.TypeAliasDeclaration, "type-alias"],
-  [ts.SyntaxKind.VariableDeclaration, "variable"],
-  [ts.SyntaxKind.ExportAssignment, "alias"],
-  [ts.SyntaxKind.ExportSpecifier, "alias"],
-  [ts.SyntaxKind.ImportEqualsDeclaration, "alias"],
-  [ts.SyntaxKind.NamespaceExport, "alias"],
-]);
-
-const declarationPrinter = ts.createPrinter({
-  newLine: ts.NewLineKind.LineFeed,
-  removeComments: true,
-});
 
 interface SignatureCandidate {
   readonly compilerOrder: number;
   readonly kind: ExportSignature["kind"];
   readonly signature: ts.Signature;
   readonly signatureKind: ts.SignatureKind;
+}
+
+interface NamespaceMemberEvidence {
+  readonly name: string;
+  readonly declarations: readonly ts.Declaration[];
+  readonly members: readonly NamespaceMemberEvidence[];
+}
+
+interface NamespaceTraversalState {
+  memberCount: number;
+  readonly visited: Set<ts.Symbol>;
+}
+
+type SupportingReferenceKind = "type" | "type-query";
+
+interface SupportingReference {
+  readonly kind: SupportingReferenceKind;
+  readonly location: ts.Node;
+}
+
+interface ReferencedSupportingType {
+  readonly declarations: readonly ts.Declaration[];
+  readonly symbol: ts.Symbol;
 }
 
 export function inspectFocusedModuleExport(
@@ -98,17 +94,36 @@ export function inspectFocusedModuleExport(
   }
 
   const targetSymbol = resolveExportTarget(inspection.checker, exportedSymbol);
+  const aliasDeclaration = findAliasDeclaration(exportedSymbol);
+  const spaces = occupiedDeclarationSpaces(exportedSymbol, targetSymbol, aliasDeclaration);
+  const namespaceMembers = spaces.includes("namespace")
+    ? inspectNamespaceMemberEvidence(inspection.checker, targetSymbol)
+    : [];
   const packageDocumentation = inspectPackageDocumentation(
     inspection.checker,
     exportedSymbol,
     targetSymbol,
+    aliasDeclaration,
   );
   return {
     intent: "export-inspection",
     specifier,
     packageIdentity: evidence.packageIdentity,
-    moduleExport: inspectModuleExport(inspection.checker, evidence, exportedSymbol, targetSymbol),
-    supportingTypes: inspectSupportingTypes(inspection.checker, evidence, targetSymbol),
+    moduleExport: inspectModuleExport(
+      inspection.checker,
+      evidence,
+      exportedSymbol,
+      targetSymbol,
+      aliasDeclaration,
+      spaces,
+      namespaceMembers,
+    ),
+    supportingTypes: inspectSupportingTypes(
+      inspection.checker,
+      evidence,
+      targetSymbol,
+      namespaceMembers,
+    ),
     ...(packageDocumentation === undefined ? {} : { packageDocumentation }),
   };
 }
@@ -131,14 +146,21 @@ function inspectModuleExport(
   evidence: PackageModuleEvidence,
   exportedSymbol: ts.Symbol,
   targetSymbol: ts.Symbol,
+  aliasDeclaration: AliasDeclaration | undefined,
+  spaces: readonly DeclarationSpace[],
+  namespaceMembers: readonly NamespaceMemberEvidence[],
 ): InspectedModuleExport {
-  const aliasDeclaration = findAliasDeclaration(exportedSymbol);
   const alias = inspectAlias(evidence, exportedSymbol, aliasDeclaration, targetSymbol);
-  const spaces = occupiedDeclarationSpaces(exportedSymbol, targetSymbol, aliasDeclaration);
   return {
     name: exportedSymbol.getName(),
     ...(alias === undefined ? {} : { alias }),
-    spaces: inspectDeclarationSpaces(checker, evidence, targetSymbol, spaces, aliasDeclaration),
+    spaces: inspectDeclarationSpaces(
+      evidence,
+      targetSymbol,
+      spaces,
+      aliasDeclaration,
+      namespaceMembers,
+    ),
     signatures: inspectSignatures(checker, targetSymbol, spaces),
   };
 }
@@ -146,7 +168,7 @@ function inspectModuleExport(
 function inspectAlias(
   evidence: PackageModuleEvidence,
   exportedSymbol: ts.Symbol,
-  aliasDeclaration: ts.Declaration | undefined,
+  aliasDeclaration: AliasDeclaration | undefined,
   targetSymbol: ts.Symbol,
 ): ExportAlias | undefined {
   if (
@@ -161,7 +183,7 @@ function inspectAlias(
   };
 }
 
-function aliasTargetName(aliasDeclaration: ts.Declaration, targetSymbol: ts.Symbol): string {
+function aliasTargetName(aliasDeclaration: AliasDeclaration, targetSymbol: ts.Symbol): string {
   if (!ts.isNamespaceExport(aliasDeclaration)) {
     return targetSymbol.getName();
   }
@@ -171,7 +193,7 @@ function aliasTargetName(aliasDeclaration: ts.Declaration, targetSymbol: ts.Symb
     : "namespace module";
 }
 
-function findAliasDeclaration(exportedSymbol: ts.Symbol): ts.Declaration | undefined {
+function findAliasDeclaration(exportedSymbol: ts.Symbol): AliasDeclaration | undefined {
   if ((exportedSymbol.flags & ts.SymbolFlags.Alias) === 0) {
     return undefined;
   }
@@ -187,7 +209,7 @@ function findAliasDeclaration(exportedSymbol: ts.Symbol): ts.Declaration | undef
 function occupiedDeclarationSpaces(
   exportedSymbol: ts.Symbol,
   targetSymbol: ts.Symbol,
-  aliasDeclaration: ts.Declaration | undefined,
+  aliasDeclaration: AliasDeclaration | undefined,
 ): readonly DeclarationSpace[] {
   if (aliasDeclaration !== undefined && isTypeOnlyAlias(aliasDeclaration)) {
     return ["type"];
@@ -198,47 +220,35 @@ function occupiedDeclarationSpaces(
 }
 
 function inspectDeclarationSpaces(
-  checker: ts.TypeChecker,
   evidence: PackageModuleEvidence,
   symbol: ts.Symbol,
   occupiedSpaces: readonly DeclarationSpace[],
-  aliasDeclaration: ts.Declaration | undefined,
+  aliasDeclaration: AliasDeclaration | undefined,
+  namespaceMembers: readonly NamespaceMemberEvidence[],
 ): readonly ExportDeclarationSpace[] {
   const declarations = inspectableDeclarations(symbol);
-  const namespaceDeclarations = inspectNamespaceMemberDeclarations(checker, symbol);
-  return occupiedSpaces.map((space) =>
-    inspectDeclarationSpace(evidence, space, declarations, namespaceDeclarations, aliasDeclaration),
-  );
-}
-
-function inspectDeclarationSpace(
-  evidence: PackageModuleEvidence,
-  space: DeclarationSpace,
-  declarations: readonly ts.Declaration[],
-  namespaceDeclarations: readonly ts.Declaration[],
-  aliasDeclaration: ts.Declaration | undefined,
-): ExportDeclarationSpace {
-  const declarationsInSpace = declarationsForSpace(space, declarations, namespaceDeclarations);
-  return {
-    space,
-    declarations: inspectedDeclarations(evidence, declarationsInSpace, aliasDeclaration),
-  };
-}
-
-function declarationsForSpace(
-  space: DeclarationSpace,
-  declarations: readonly ts.Declaration[],
-  namespaceDeclarations: readonly ts.Declaration[],
-): readonly ts.Declaration[] {
-  return space === "namespace" && namespaceDeclarations.length > 0
-    ? namespaceDeclarations
-    : declarations.filter((declaration) => declarationSpaces(declaration).includes(space));
+  return occupiedSpaces.map((space): ExportDeclarationSpace => {
+    if (space === "namespace") {
+      return {
+        space,
+        members: inspectNamespaceMembers(evidence, namespaceMembers),
+      };
+    }
+    return {
+      space,
+      declarations: inspectedDeclarations(
+        evidence,
+        declarations.filter((declaration) => declarationSpaces(declaration).includes(space)),
+        aliasDeclaration,
+      ),
+    };
+  });
 }
 
 function inspectedDeclarations(
   evidence: PackageModuleEvidence,
   declarations: readonly ts.Declaration[],
-  aliasDeclaration: ts.Declaration | undefined,
+  aliasDeclaration: AliasDeclaration | undefined,
 ): readonly InspectedDeclaration[] {
   if (declarations.length > 0) {
     return declarations.map((declaration) => inspectDeclaration(evidence, declaration));
@@ -248,56 +258,104 @@ function inspectedDeclarations(
     : [inspectDeclaration(evidence, aliasDeclaration, "alias")];
 }
 
-function inspectNamespaceMemberDeclarations(
+function inspectNamespaceMemberEvidence(
   checker: ts.TypeChecker,
   symbol: ts.Symbol,
-): readonly ts.Declaration[] {
-  return collectNamespaceMemberDeclarations(checker, symbol, new Set(), 0);
+): readonly NamespaceMemberEvidence[] {
+  return collectNamespaceMembers(
+    checker,
+    symbol,
+    {
+      memberCount: 0,
+      visited: new Set(),
+    },
+    0,
+  );
 }
 
-function collectNamespaceMemberDeclarations(
+function collectNamespaceMembers(
   checker: ts.TypeChecker,
   symbol: ts.Symbol,
-  visited: Set<ts.Symbol>,
+  state: NamespaceTraversalState,
   depth: number,
-): readonly ts.Declaration[] {
+): readonly NamespaceMemberEvidence[] {
   if ((symbol.flags & ts.SymbolFlags.Module) === 0) {
     return [];
   }
+  assertNamespaceTraversalAllowed(symbol, state, depth);
+  state.visited.add(symbol);
+  const exportedMembers = checker.getExportsOfModule(symbol);
+  reserveNamespaceMembers(state, exportedMembers.length);
+  const members = exportedMembers.map((member) =>
+    inspectNamespaceMember(checker, member, state, depth),
+  );
+  state.visited.delete(symbol);
+  return members;
+}
+
+function assertNamespaceTraversalAllowed(
+  symbol: ts.Symbol,
+  state: NamespaceTraversalState,
+  depth: number,
+): void {
   if (depth > MAX_SUPPORTING_TYPE_DEPTH) {
     throw new InspectionLimitError("Inspection exceeded its namespace traversal depth limit.");
   }
-  if (visited.has(symbol)) {
+  if (state.visited.has(symbol)) {
     throw new UnsupportedInspectionError(
       "The selected Module Export contains a circular namespace re-export.",
     );
   }
-  visited.add(symbol);
-  const declarations = checker
-    .getExportsOfModule(symbol)
-    .flatMap((member) => inspectNamespaceMember(checker, member, visited, depth));
-  assertDeclarationLimit(declarations);
-  visited.delete(symbol);
-  return declarations;
+}
+
+function reserveNamespaceMembers(state: NamespaceTraversalState, count: number): void {
+  state.memberCount += count;
+  if (state.memberCount > MAX_NAMESPACE_MEMBERS) {
+    throw new InspectionLimitError("Inspection exceeded its namespace member limit.");
+  }
 }
 
 function inspectNamespaceMember(
   checker: ts.TypeChecker,
   member: ts.Symbol,
-  visited: Set<ts.Symbol>,
+  state: NamespaceTraversalState,
   depth: number,
-): readonly ts.Declaration[] {
+): NamespaceMemberEvidence {
   const aliasDeclaration = findAliasDeclaration(member);
   const target = resolveExportTarget(checker, member);
   const namespaceAliasDeclaration =
     aliasDeclaration !== undefined && ts.isNamespaceExport(aliasDeclaration)
       ? [aliasDeclaration]
       : [];
-  return [
-    ...namespaceAliasDeclaration,
-    ...inspectableDeclarations(target),
-    ...collectNamespaceMemberDeclarations(checker, target, visited, depth + 1),
-  ];
+  const declarations = [...namespaceAliasDeclaration, ...inspectableDeclarations(target)];
+  assertDeclarationLimit(declarations);
+  return {
+    name: member.getName(),
+    declarations,
+    members: collectNamespaceMembers(checker, target, state, depth + 1),
+  };
+}
+
+function inspectNamespaceMembers(
+  evidence: PackageModuleEvidence,
+  members: readonly NamespaceMemberEvidence[],
+): readonly ExportNamespaceMember[] {
+  return members.map((member) => ({
+    name: member.name,
+    declarations: member.declarations.map((declaration) =>
+      inspectDeclaration(evidence, declaration),
+    ),
+    members: inspectNamespaceMembers(evidence, member.members),
+  }));
+}
+
+function namespaceMemberDeclarations(
+  members: readonly NamespaceMemberEvidence[],
+): readonly ts.Declaration[] {
+  return members.flatMap((member) => [
+    ...member.declarations,
+    ...namespaceMemberDeclarations(member.members),
+  ]);
 }
 
 function symbolOccupiesSpace(symbol: ts.Symbol, space: DeclarationSpace): boolean {
@@ -421,55 +479,58 @@ function inspectSupportingTypes(
   checker: ts.TypeChecker,
   evidence: PackageModuleEvidence,
   selectedSymbol: ts.Symbol,
+  namespaceMembers: readonly NamespaceMemberEvidence[],
 ): readonly SupportingType[] {
   const supportingTypes: SupportingType[] = [];
   const visited = new Set<ts.Symbol>([selectedSymbol]);
 
-  const inspectReference = (location: ts.Node, depth: number): void => {
-    const symbol = referencedSupportingType(checker, location, visited);
-    if (symbol === undefined) {
+  const inspectReference = (reference: SupportingReference, depth: number): void => {
+    const supportingType = referencedSupportingType(checker, reference, visited);
+    if (supportingType === undefined) {
       return;
     }
     assertSupportingTypeBudget(depth, supportingTypes.length);
-    visited.add(symbol);
+    visited.add(supportingType.symbol);
 
-    const declarations = supportingTypeDeclarations(symbol);
     supportingTypes.push({
-      name: symbol.getName(),
-      declarations: declarations.map((declaration) => inspectDeclaration(evidence, declaration)),
+      name: supportingType.symbol.getName(),
+      declarations: supportingType.declarations.map((declaration) =>
+        inspectDeclaration(evidence, declaration),
+      ),
     });
-    for (const declaration of declarations) {
+    for (const declaration of supportingType.declarations) {
       visitTypeReferences(declaration, (reference) => inspectReference(reference, depth + 1));
     }
   };
 
-  for (const declaration of supportingRootDeclarations(checker, selectedSymbol)) {
+  for (const declaration of supportingRootDeclarations(selectedSymbol, namespaceMembers)) {
     visitTypeReferences(declaration, (reference) => inspectReference(reference, 1));
   }
   return supportingTypes;
 }
 
 function supportingRootDeclarations(
-  checker: ts.TypeChecker,
   selectedSymbol: ts.Symbol,
+  namespaceMembers: readonly NamespaceMemberEvidence[],
 ): readonly ts.Declaration[] {
   return [
     ...inspectableDeclarations(selectedSymbol),
-    ...inspectNamespaceMemberDeclarations(checker, selectedSymbol),
+    ...namespaceMemberDeclarations(namespaceMembers),
   ];
 }
 
 function referencedSupportingType(
   checker: ts.TypeChecker,
-  location: ts.Node,
+  reference: SupportingReference,
   visited: ReadonlySet<ts.Symbol>,
-): ts.Symbol | undefined {
-  const referenced = checker.getSymbolAtLocation(location);
+): ReferencedSupportingType | undefined {
+  const referenced = checker.getSymbolAtLocation(reference.location);
   if (referenced === undefined) {
     return undefined;
   }
   const symbol = resolveExportTarget(checker, referenced);
-  return visited.has(symbol) || !isSupportingTypeSymbol(symbol) ? undefined : symbol;
+  const declarations = supportingTypeDeclarations(symbol, reference.kind);
+  return visited.has(symbol) || declarations.length === 0 ? undefined : { declarations, symbol };
 }
 
 function assertSupportingTypeBudget(depth: number, supportingTypeCount: number): void {
@@ -481,191 +542,49 @@ function assertSupportingTypeBudget(depth: number, supportingTypeCount: number):
   }
 }
 
-function visitTypeReferences(node: ts.Node, visitReference: (location: ts.Node) => void): void {
+function visitTypeReferences(
+  node: ts.Node,
+  visitReference: (reference: SupportingReference) => void,
+): void {
   if (isPrivateDeclaration(node)) {
     return;
   }
-  const location = typeReferenceLocation(node);
-  if (location !== undefined) {
-    visitReference(location);
+  const reference = supportingReference(node);
+  if (reference !== undefined) {
+    visitReference(reference);
   }
   ts.forEachChild(node, (child) => visitTypeReferences(child, visitReference));
 }
 
-function isPrivateDeclaration(node: ts.Node): boolean {
-  return (
-    hasPrivateIdentifier(node) ||
-    (hasPrivateModifier(node) && !isConstructorParameterProperty(node))
-  );
-}
-
-function isConstructorParameterProperty(node: ts.Node): node is ts.ParameterDeclaration {
-  return ts.isParameter(node) && ts.isConstructorDeclaration(node.parent);
-}
-
-function hasPrivateIdentifier(node: ts.Node): boolean {
-  const name = "name" in node ? (node.name as ts.Node | undefined) : undefined;
-  return name === undefined ? false : ts.isPrivateIdentifier(name);
-}
-
-function hasPrivateModifier(node: ts.Node): boolean {
-  if (!ts.canHaveModifiers(node)) {
-    return false;
-  }
-  return (ts.getModifiers(node) ?? []).some(({ kind }) => kind === ts.SyntaxKind.PrivateKeyword);
-}
-
-function isSupportingTypeSymbol(symbol: ts.Symbol): boolean {
-  return supportingTypeDeclarations(symbol).length > 0;
-}
-
-function supportingTypeDeclarations(symbol: ts.Symbol): readonly ts.Declaration[] {
-  const declarations = (symbol.declarations ?? []).filter(
-    (declaration) =>
-      ts.isClassDeclaration(declaration) ||
-      ts.isEnumDeclaration(declaration) ||
-      ts.isInterfaceDeclaration(declaration) ||
-      ts.isTypeAliasDeclaration(declaration),
+function supportingTypeDeclarations(
+  symbol: ts.Symbol,
+  referenceKind: SupportingReferenceKind,
+): readonly ts.Declaration[] {
+  const declarations = (symbol.declarations ?? []).filter((declaration) =>
+    referenceKind === "type-query"
+      ? declarationSpaces(declaration).includes("value")
+      : isNamedTypeDeclaration(declaration),
   );
   assertDeclarationLimit(declarations);
   return declarations;
 }
 
-function inspectableDeclarations(symbol: ts.Symbol): readonly ts.Declaration[] {
-  const declarations = (symbol.declarations ?? []).filter(
-    (declaration) => declarationKind(declaration) !== undefined,
-  );
-  assertDeclarationLimit(declarations);
-  return declarations;
-}
-
-function assertDeclarationLimit(declarations: readonly ts.Declaration[]): void {
-  if (declarations.length > MAX_DECLARATIONS_PER_SYMBOL) {
-    throw new InspectionLimitError("Inspection exceeded its declaration merge limit.");
-  }
-}
-
-function inspectDeclaration(
-  evidence: PackageModuleEvidence,
-  declaration: ts.Declaration,
-  kindOverride?: DeclarationKind,
-): InspectedDeclaration {
-  const sourceFile = declaration.getSourceFile();
-  const start = sourceFile.getLineAndCharacterOfPosition(declaration.getStart(sourceFile, false));
-  const text = renderDeclaration(declaration, sourceFile);
-  if (Buffer.byteLength(text) > MAX_DECLARATION_BYTES) {
-    throw new InspectionLimitError("Inspection exceeded its declaration output limit.");
-  }
-  const kind = inspectedDeclarationKind(declaration, kindOverride);
-  const owner = declarationOwner(evidence, sourceFile.fileName);
-  return {
-    kind,
-    text,
-    provenance: {
-      packageIdentity: owner.packageIdentity,
-      file: relative(owner.packageRoot, sourceFile.fileName).split(sep).join("/"),
-      line: start.line + 1,
-      column: start.character + 1,
-    },
-  };
-}
-
-function inspectedDeclarationKind(
-  declaration: ts.Declaration,
-  kindOverride: DeclarationKind | undefined,
-): DeclarationKind {
-  const kind = kindOverride ?? declarationKind(declaration);
-  if (kind === undefined) {
-    throw new UnsupportedInspectionError(
-      "The selected Module Export contains an unsupported declaration kind.",
-    );
-  }
-  return kind;
-}
-
-function declarationOwner(
-  evidence: PackageModuleEvidence,
-  declarationPath: string,
-): PackageModuleEvidence | ReturnType<typeof resolveDeclarationOwner> {
-  return isPathWithin(evidence.packageRoot, declarationPath)
-    ? evidence
-    : resolveDeclarationOwner(declarationPath);
-}
-
-function renderDeclaration(declaration: ts.Declaration, sourceFile: ts.SourceFile): string {
-  const printableDeclaration = ts.isNamespaceExport(declaration) ? declaration.parent : declaration;
-  return declarationPrinter
-    .printNode(ts.EmitHint.Unspecified, publicDeclaration(printableDeclaration), sourceFile)
-    .trim()
-    .replace(/^(?:export\s+)?(?:declare\s+)?/u, "");
-}
-
-function publicDeclaration(declaration: ts.Declaration): ts.Declaration {
-  return ts.isClassDeclaration(declaration)
-    ? ts.factory.updateClassDeclaration(
-        declaration,
-        declaration.modifiers,
-        declaration.name,
-        declaration.typeParameters,
-        declaration.heritageClauses,
-        declaration.members
-          .filter((member) => !isPrivateDeclaration(member))
-          .map(publicClassElement),
-      )
-    : declaration;
-}
-
-function publicClassElement(member: ts.ClassElement): ts.ClassElement {
-  return ts.isConstructorDeclaration(member)
-    ? ts.factory.updateConstructorDeclaration(
-        member,
-        member.modifiers,
-        member.parameters.map(publicConstructorParameter),
-        member.body,
-      )
-    : member;
-}
-
-function publicConstructorParameter(parameter: ts.ParameterDeclaration): ts.ParameterDeclaration {
-  if (!hasPrivateModifier(parameter)) {
-    return parameter;
-  }
-  return ts.factory.updateParameterDeclaration(
-    parameter,
-    parameter.modifiers?.filter(({ kind }) => !isParameterPropertyModifier(kind)),
-    parameter.dotDotDotToken,
-    parameter.name,
-    parameter.questionToken,
-    parameter.type,
-    parameter.initializer,
-  );
-}
-
-function isParameterPropertyModifier(kind: ts.SyntaxKind): boolean {
-  return [
-    ts.SyntaxKind.PrivateKeyword,
-    ts.SyntaxKind.ProtectedKeyword,
-    ts.SyntaxKind.PublicKeyword,
-    ts.SyntaxKind.ReadonlyKeyword,
-    ts.SyntaxKind.OverrideKeyword,
-  ].includes(kind);
-}
-
-function declarationKind(declaration: ts.Declaration): DeclarationKind | undefined {
-  return DECLARATION_KIND_BY_SYNTAX_KIND.get(declaration.kind);
-}
-
-function isAliasDeclaration(
+function isNamedTypeDeclaration(
   declaration: ts.Declaration,
 ): declaration is
-  | ts.ExportAssignment
-  | ts.ExportSpecifier
-  | ts.ImportEqualsDeclaration
-  | ts.NamespaceExport {
-  return DECLARATION_KIND_BY_SYNTAX_KIND.get(declaration.kind) === "alias";
+  | ts.ClassDeclaration
+  | ts.EnumDeclaration
+  | ts.InterfaceDeclaration
+  | ts.TypeAliasDeclaration {
+  return (
+    ts.isClassDeclaration(declaration) ||
+    ts.isEnumDeclaration(declaration) ||
+    ts.isInterfaceDeclaration(declaration) ||
+    ts.isTypeAliasDeclaration(declaration)
+  );
 }
 
-function isTypeOnlyAlias(declaration: ts.Declaration): boolean {
+function isTypeOnlyAlias(declaration: AliasDeclaration): boolean {
   return (
     typeOnlyExportSpecifier(declaration) ??
     typeOnlyNamespaceExport(declaration) ??
@@ -674,170 +593,34 @@ function isTypeOnlyAlias(declaration: ts.Declaration): boolean {
   );
 }
 
-function typeReferenceLocation(node: ts.Node): ts.Node | undefined {
-  return (
-    typeReferenceName(node) ??
-    expressionWithTypeArgumentsName(node) ??
-    typeQueryName(node) ??
-    importTypeName(node)
-  );
+function supportingReference(node: ts.Node): SupportingReference | undefined {
+  if (ts.isTypeQueryNode(node)) {
+    return { kind: "type-query", location: node.exprName };
+  }
+  const location = ordinaryTypeReferenceLocation(node);
+  return location === undefined ? undefined : { kind: "type", location };
 }
 
-function typeReferenceName(node: ts.Node): ts.Node | undefined {
-  return ts.isTypeReferenceNode(node) ? node.typeName : undefined;
-}
-
-function expressionWithTypeArgumentsName(node: ts.Node): ts.Node | undefined {
-  return ts.isExpressionWithTypeArguments(node) ? node.expression : undefined;
-}
-
-function typeQueryName(node: ts.Node): ts.Node | undefined {
-  return ts.isTypeQueryNode(node) ? node.exprName : undefined;
-}
-
-function importTypeName(node: ts.Node): ts.Node | undefined {
+function ordinaryTypeReferenceLocation(node: ts.Node): ts.Node | undefined {
+  if (ts.isTypeReferenceNode(node)) {
+    return node.typeName;
+  }
+  if (ts.isExpressionWithTypeArguments(node)) {
+    return node.expression;
+  }
   return ts.isImportTypeNode(node) ? node.qualifier : undefined;
 }
 
-function typeOnlyExportSpecifier(declaration: ts.Declaration): boolean | undefined {
+function typeOnlyExportSpecifier(declaration: AliasDeclaration): boolean | undefined {
   return ts.isExportSpecifier(declaration)
     ? declaration.isTypeOnly || declaration.parent.parent.isTypeOnly
     : undefined;
 }
 
-function typeOnlyNamespaceExport(declaration: ts.Declaration): boolean | undefined {
+function typeOnlyNamespaceExport(declaration: AliasDeclaration): boolean | undefined {
   return ts.isNamespaceExport(declaration) ? declaration.parent.isTypeOnly : undefined;
 }
 
-function typeOnlyImportEqualsDeclaration(declaration: ts.Declaration): boolean | undefined {
+function typeOnlyImportEqualsDeclaration(declaration: AliasDeclaration): boolean | undefined {
   return ts.isImportEqualsDeclaration(declaration) ? declaration.isTypeOnly : undefined;
-}
-
-function inspectPackageDocumentation(
-  checker: ts.TypeChecker,
-  exportedSymbol: ts.Symbol,
-  targetSymbol: ts.Symbol,
-): PackageDocumentation | undefined {
-  const documentation = sanitizePackageDocumentation(
-    packageDocumentationText(checker, exportedSymbol, targetSymbol),
-  );
-  if (documentation.length === 0) {
-    return undefined;
-  }
-  if (Buffer.byteLength(documentation) > MAX_DOCUMENTATION_BYTES) {
-    throw new InspectionLimitError("Inspection exceeded its Package Documentation limit.");
-  }
-  return {
-    provenance: "installed-evidence",
-    trust: "untrusted",
-    text: documentation,
-  };
-}
-
-function packageDocumentationText(
-  checker: ts.TypeChecker,
-  exportedSymbol: ts.Symbol,
-  targetSymbol: ts.Symbol,
-): string {
-  return (
-    [
-      aliasDocumentation(exportedSymbol),
-      symbolDocumentation(exportedSymbol, checker),
-      symbolDocumentation(targetSymbol, checker),
-    ].find((documentation) => documentation.length > 0) ?? ""
-  );
-}
-
-function symbolDocumentation(symbol: ts.Symbol, checker: ts.TypeChecker): string {
-  return [
-    ts.displayPartsToString(symbol.getDocumentationComment(checker)),
-    ...symbol.getJsDocTags(checker).map(renderJsDocTag),
-  ]
-    .filter((part) => part.length > 0)
-    .join("\n");
-}
-
-function renderJsDocTag(tag: ts.JSDocTagInfo): string {
-  const text = tag.text === undefined ? "" : ` ${ts.displayPartsToString(tag.text)}`;
-  return `@${tag.name}${text}`;
-}
-
-function aliasDocumentation(exportedSymbol: ts.Symbol): string {
-  const aliasDeclaration = findAliasDeclaration(exportedSymbol);
-  if (aliasDeclaration === undefined) {
-    return "";
-  }
-  const host = ts.isExportSpecifier(aliasDeclaration)
-    ? aliasDeclaration.parent.parent
-    : ts.isNamespaceExport(aliasDeclaration)
-      ? aliasDeclaration.parent
-      : aliasDeclaration;
-  return ts
-    .getJSDocCommentsAndTags(host)
-    .flatMap(jsDocNodeText)
-    .filter((comment) => comment.length > 0)
-    .join("\n");
-}
-
-function jsDocNodeText(node: ts.JSDoc | ts.JSDocTag): readonly string[] {
-  if (ts.isJSDoc(node)) {
-    return [
-      ts.getTextOfJSDocComment(node.comment) ?? "",
-      ...(node.tags?.map((tag) => renderJsDocNodeTag(tag)) ?? []),
-    ];
-  }
-  return [renderJsDocNodeTag(node)];
-}
-
-function renderJsDocNodeTag(tag: ts.JSDocTag): string {
-  const comment = ts.getTextOfJSDocComment(tag.comment);
-  return `@${tag.tagName.text}${comment === undefined ? "" : ` ${comment}`}`;
-}
-
-function sanitizePackageDocumentation(documentation: string): string {
-  return stripUnsafePresentationCharacters(
-    documentation.replaceAll("\r\n", "\n").replaceAll("\r", "\n"),
-  ).trim();
-}
-
-function stripUnsafePresentationCharacters(value: string): string {
-  return Array.from(stripAnsiControlSequences(value))
-    .filter((character) => !isUnsafePresentationCharacter(character.codePointAt(0) ?? 0))
-    .join("");
-}
-
-function stripAnsiControlSequences(value: string): string {
-  let remainder = value;
-  let sanitized = "";
-  while (true) {
-    const sequenceStart = remainder.indexOf(ANSI_CONTROL_SEQUENCE_PREFIX);
-    if (sequenceStart < 0) {
-      return sanitized + remainder;
-    }
-    sanitized += remainder.slice(0, sequenceStart);
-    const sequenceEnd = ansiControlSequenceEnd(
-      remainder,
-      sequenceStart + ANSI_CONTROL_SEQUENCE_PREFIX.length,
-    );
-    remainder = sequenceEnd === undefined ? "" : remainder.slice(sequenceEnd + 1);
-  }
-}
-
-function ansiControlSequenceEnd(value: string, start: number): number | undefined {
-  for (let index = start; index < value.length; index += 1) {
-    if (isAnsiFinalByte(value.charCodeAt(index))) {
-      return index;
-    }
-  }
-  return undefined;
-}
-
-function isAnsiFinalByte(codePoint: number): boolean {
-  return codePoint >= 0x40 && codePoint <= 0x7e;
-}
-
-function isUnsafePresentationCharacter(codePoint: number): boolean {
-  return UNSAFE_PRESENTATION_RANGES.some(
-    ([rangeStart, rangeEnd]) => codePoint >= rangeStart && codePoint <= rangeEnd,
-  );
 }

@@ -1,12 +1,15 @@
+import { isCodePointInRanges, type CodePointRange } from "#typepeek/code-point-ranges";
 import type {
+  ExportDeclarationSpace,
   ExportInspection,
+  ExportNamespaceMember,
   InspectedDeclaration,
   InspectionResult,
   InterfaceOverview,
   PackageIdentity,
 } from "#typepeek/inspection";
 
-const UNSAFE_TERMINAL_RANGES: readonly (readonly [number, number])[] = [
+const UNSAFE_TERMINAL_RANGES: readonly CodePointRange[] = [
   [0x00, 0x1f],
   [0x7f, 0x9f],
   [0x061c, 0x061c],
@@ -45,10 +48,7 @@ function renderExportInspection(result: ExportInspection): string {
       ? []
       : ["Alias Declaration:", ...renderDeclaration(result.moduleExport.alias.declaration)]),
     "Declaration Spaces:",
-    ...result.moduleExport.spaces.flatMap(({ space, declarations }) => [
-      `- ${terminalSafeLine(space)}`,
-      ...declarations.flatMap(renderDeclaration),
-    ]),
+    ...result.moduleExport.spaces.flatMap(renderDeclarationSpace),
     `Signatures (${result.moduleExport.signatures.length}):`,
     ...result.moduleExport.signatures.map(
       ({ kind, text }) => `- ${terminalSafeLine(kind)}: ${terminalSafeLine(text)}`,
@@ -67,6 +67,27 @@ function renderExportInspection(result: ExportInspection): string {
             .map((line) => `| ${terminalSafeLine(line)}`),
         ]),
   ].join("\n");
+}
+
+function renderDeclarationSpace(space: ExportDeclarationSpace): readonly string[] {
+  return space.space === "namespace"
+    ? [
+        `- ${terminalSafeLine(space.space)}`,
+        ...space.members.flatMap((member) => renderNamespaceMember(member, [])),
+      ]
+    : [`- ${terminalSafeLine(space.space)}`, ...space.declarations.flatMap(renderDeclaration)];
+}
+
+function renderNamespaceMember(
+  member: ExportNamespaceMember,
+  parentPath: readonly string[],
+): readonly string[] {
+  const path = [...parentPath, member.name];
+  return [
+    `  ${terminalSafeLine(path.join("."))}:`,
+    ...member.declarations.flatMap(renderDeclaration),
+    ...member.members.flatMap((child) => renderNamespaceMember(child, path)),
+  ];
 }
 
 function renderDeclaration(declaration: InspectedDeclaration): readonly string[] {
@@ -93,7 +114,5 @@ function terminalSafeLine(value: string): string {
 }
 
 function isUnsafeTerminalCodePoint(codePoint: number): boolean {
-  return UNSAFE_TERMINAL_RANGES.some(
-    ([rangeStart, rangeEnd]) => codePoint >= rangeStart && codePoint <= rangeEnd,
-  );
+  return isCodePointInRanges(codePoint, UNSAFE_TERMINAL_RANGES);
 }

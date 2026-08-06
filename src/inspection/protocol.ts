@@ -63,10 +63,25 @@ export interface InspectedDeclaration {
   readonly provenance: DeclarationProvenance;
 }
 
-export interface ExportDeclarationSpace {
-  readonly space: DeclarationSpace;
+export interface ExportTypeOrValueDeclarationSpace {
+  readonly space: "type" | "value";
   readonly declarations: readonly InspectedDeclaration[];
 }
+
+export interface ExportNamespaceMember {
+  readonly name: string;
+  readonly declarations: readonly InspectedDeclaration[];
+  readonly members: readonly ExportNamespaceMember[];
+}
+
+export interface ExportNamespaceDeclarationSpace {
+  readonly space: "namespace";
+  readonly members: readonly ExportNamespaceMember[];
+}
+
+export type ExportDeclarationSpace =
+  | ExportTypeOrValueDeclarationSpace
+  | ExportNamespaceDeclarationSpace;
 
 export interface ExportAlias {
   readonly targetName: string;
@@ -336,13 +351,41 @@ function isExportAlias(value: unknown): value is ExportAlias {
 }
 
 function isExportDeclarationSpace(value: unknown): value is ExportDeclarationSpace {
-  return (
-    isRecord(value) &&
-    hasOnlyKeys(value, ["space", "declarations"]) &&
-    isDeclarationSpace(value["space"]) &&
-    isDensePlainArray(value["declarations"]) &&
-    value["declarations"].every(isInspectedDeclaration)
+  if (!isRecord(value) || !isDeclarationSpace(value["space"])) {
+    return false;
+  }
+  return value["space"] === "namespace"
+    ? hasOnlyKeys(value, ["space", "members"]) &&
+        isDensePlainArray(value["members"]) &&
+        value["members"].every((member) => isExportNamespaceMember(member, new Set(), 0))
+    : hasOnlyKeys(value, ["space", "declarations"]) &&
+        isDensePlainArray(value["declarations"]) &&
+        value["declarations"].every(isInspectedDeclaration);
+}
+
+function isExportNamespaceMember(
+  value: unknown,
+  ancestors: Set<object>,
+  depth: number,
+): value is ExportNamespaceMember {
+  if (
+    depth > 8 ||
+    !isRecord(value) ||
+    ancestors.has(value) ||
+    !hasOnlyKeys(value, ["name", "declarations", "members"]) ||
+    typeof value["name"] !== "string" ||
+    !isDensePlainArray(value["declarations"]) ||
+    !value["declarations"].every(isInspectedDeclaration) ||
+    !isDensePlainArray(value["members"])
+  ) {
+    return false;
+  }
+  ancestors.add(value);
+  const valid = value["members"].every((member) =>
+    isExportNamespaceMember(member, ancestors, depth + 1),
   );
+  ancestors.delete(value);
+  return valid;
 }
 
 function isDeclarationSpace(value: unknown): value is DeclarationSpace {

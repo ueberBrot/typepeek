@@ -44,6 +44,33 @@ it("renders focused declaration information and untrusted Package Documentation"
             },
           ],
         },
+        {
+          space: "namespace",
+          members: [
+            {
+              name: "nested",
+              declarations: [],
+              members: [
+                {
+                  name: "useNested",
+                  declarations: [
+                    {
+                      kind: "function",
+                      text: "function useNested(): void;",
+                      provenance: {
+                        packageIdentity: { name: "example", version: "1.0.0" },
+                        file: "dist/nested.d.ts",
+                        line: 1,
+                        column: 1,
+                      },
+                    },
+                  ],
+                  members: [],
+                },
+              ],
+            },
+          ],
+        },
       ],
       signatures: [{ kind: "call", text: "(input: Input): Output" }],
     },
@@ -72,6 +99,8 @@ it("renders focused declaration information and untrusted Package Documentation"
   });
 
   expect(rendered).toContain("function createExample(input: Input): Output;");
+  expect(rendered).toContain("nested.useNested:");
+  expect(rendered).toContain("function useNested(): void;");
   expect(rendered).toContain("@ example@1.0.0:dist/index.d.ts:3:1");
   expect(rendered).toContain("interface Input");
   expect(rendered).toContain("Package Documentation (untrusted Installed Evidence):");
