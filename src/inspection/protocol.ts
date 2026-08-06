@@ -1,131 +1,203 @@
-export type AccessStyle = "import" | "require";
+import { type } from "arktype";
 
-export interface InterfaceOverviewRequest {
-  readonly resolutionContext: string;
-  readonly specifier: string;
-  readonly accessStyle?: AccessStyle;
-}
+const portableRelativePathSchema = type("string").narrow(isPortableRelativePath);
+const positiveIntegerSchema = type("number.integer").narrow((value) => value > 0);
+const nonArrayRecordSchema = type("object").narrow((value): boolean => isRecord(value));
+const record = <const Definition extends object>(definition: Definition) =>
+  [nonArrayRecordSchema, "&", definition] as const;
 
-export interface NormalizedInspectionTarget {
-  readonly resolutionContext: string;
-  readonly specifier: string;
-  readonly accessStyle: AccessStyle;
-}
+const inspectionSchemas = type.module({
+  accessStyle: "'import' | 'require'",
+  inspectionTarget: record({
+    resolutionContext: "string",
+    specifier: "string",
+    "accessStyle?": "accessStyle | undefined",
+  }),
+  exportInspectionRequest: record({
+    "...": "inspectionTarget",
+    exportName: "string",
+  }),
+  normalizedInspectionTarget: record({
+    resolutionContext: "string",
+    specifier: "string",
+    accessStyle: "accessStyle",
+  }),
+  normalizedExportInspectionRequest: record({
+    "...": "normalizedInspectionTarget",
+    exportName: "string",
+  }),
+  analysisRequestEnvelope: [
+    record({
+      intent: "'interface-overview'",
+      request: "unknown",
+    }),
+    "|",
+    record({
+      intent: "'export-inspection'",
+      request: "unknown",
+    }),
+  ],
+  analysisRequest: [
+    record({
+      intent: "'interface-overview'",
+      request: "normalizedInspectionTarget",
+    }),
+    "|",
+    record({
+      intent: "'export-inspection'",
+      request: "normalizedExportInspectionRequest",
+    }),
+  ],
+  moduleExportIndexEntry: record({
+    name: "string",
+  }),
+  packageIdentity: record({
+    name: "string",
+    "version?": "string | undefined",
+  }),
+  declarationSpace: "'type' | 'value' | 'namespace'",
+  declarationKind:
+    "'alias' | 'class' | 'enum' | 'function' | 'interface' | 'namespace' | 'type-alias' | 'variable'",
+  declarationProvenance: record({
+    packageIdentity: "packageIdentity",
+    file: portableRelativePathSchema,
+    line: positiveIntegerSchema,
+    column: positiveIntegerSchema,
+  }),
+  inspectedDeclaration: record({
+    kind: "declarationKind",
+    text: "string",
+    provenance: "declarationProvenance",
+  }),
+  aliasDeclaration: record({
+    kind: "'alias'",
+    text: "string",
+    provenance: "declarationProvenance",
+  }),
+  exportTypeOrValueDeclarationSpace: record({
+    space: "'type' | 'value'",
+    declarations: "inspectedDeclaration[]",
+  }),
+  exportNamespaceMember: record({
+    name: "string",
+    declarations: "inspectedDeclaration[]",
+    members: "exportNamespaceMember[]",
+  }),
+  exportNamespaceDeclarationSpace: record({
+    space: "'namespace'",
+    members: "exportNamespaceMember[]",
+  }),
+  exportDeclarationSpace: "exportTypeOrValueDeclarationSpace | exportNamespaceDeclarationSpace",
+  exportAlias: record({
+    targetName: "string",
+    declaration: "aliasDeclaration",
+  }),
+  exportSignature: record({
+    kind: "'call' | 'construct'",
+    text: "string",
+  }),
+  inspectedModuleExport: record({
+    name: "string",
+    "alias?": "exportAlias | undefined",
+    spaces: "exportDeclarationSpace[]",
+    signatures: "exportSignature[]",
+  }),
+  supportingType: record({
+    name: "string",
+    declarations: "inspectedDeclaration[]",
+  }),
+  packageDocumentation: record({
+    provenance: "'installed-evidence'",
+    trust: "'untrusted'",
+    text: "string",
+  }),
+  interfaceOverview: record({
+    intent: "'interface-overview'",
+    specifier: "string",
+    packageIdentity: "packageIdentity",
+    moduleExports: "moduleExportIndexEntry[]",
+  }),
+  exportInspection: record({
+    intent: "'export-inspection'",
+    specifier: "string",
+    packageIdentity: "packageIdentity",
+    moduleExport: "inspectedModuleExport",
+    supportingTypes: "supportingType[]",
+    "packageDocumentation?": "packageDocumentation | undefined",
+  }),
+  inspectionResult: "interfaceOverview | exportInspection",
+  inspectionFailure: record({
+    status: "'not-found' | 'unsupported' | 'limit-exceeded'",
+    message: "string",
+  }),
+  inspectionSuccess: record({
+    status: "'success'",
+    result: "inspectionResult",
+  }),
+  inspectionOutcome: "inspectionSuccess | inspectionFailure",
+});
 
+const inspectionOutcomeSchema = inspectionSchemas.inspectionOutcome.onDeepUndeclaredKey("reject");
+const interfaceOverviewRequestSchema = inspectionSchemas.inspectionTarget;
+const exportInspectionRequestSchema = inspectionSchemas.exportInspectionRequest;
+const analysisRequestEnvelopeSchema = inspectionSchemas.analysisRequestEnvelope;
+
+export type ProtocolType<Value> = Value extends readonly (infer Item)[]
+  ? readonly ProtocolType<Item>[]
+  : Value extends object
+    ? {
+        readonly [Key in keyof Value as {} extends Pick<Value, Key> ? never : Key]: ProtocolType<
+          Value[Key]
+        >;
+      } & {
+        readonly [Key in keyof Value as {} extends Pick<Value, Key> ? Key : never]?: ProtocolType<
+          Exclude<Value[Key], undefined>
+        >;
+      }
+    : Value;
+
+export type AccessStyle = ProtocolType<typeof inspectionSchemas.accessStyle.infer>;
+export type InterfaceOverviewRequest = ProtocolType<
+  typeof inspectionSchemas.inspectionTarget.infer
+>;
+export type NormalizedInspectionTarget = ProtocolType<
+  typeof inspectionSchemas.normalizedInspectionTarget.infer
+>;
 export type NormalizedInterfaceOverviewRequest = NormalizedInspectionTarget;
-
-export interface ExportInspectionRequest extends InterfaceOverviewRequest {
-  readonly exportName: string;
-}
-
-export interface NormalizedExportInspectionRequest extends NormalizedInspectionTarget {
-  readonly exportName: string;
-}
-
-export interface ModuleExportIndexEntry {
-  readonly name: string;
-}
-
-export interface PackageIdentity {
-  readonly name: string;
-  readonly version?: string;
-}
-
-export interface InterfaceOverview {
-  readonly intent: "interface-overview";
-  readonly specifier: string;
-  readonly packageIdentity: PackageIdentity;
-  readonly moduleExports: readonly ModuleExportIndexEntry[];
-}
-
-export type DeclarationSpace = "type" | "value" | "namespace";
-
-export type DeclarationKind =
-  | "alias"
-  | "class"
-  | "enum"
-  | "function"
-  | "interface"
-  | "namespace"
-  | "type-alias"
-  | "variable";
-
-export interface DeclarationProvenance {
-  readonly packageIdentity: PackageIdentity;
-  readonly file: string;
-  readonly line: number;
-  readonly column: number;
-}
-
-export interface InspectedDeclaration {
-  readonly kind: DeclarationKind;
-  readonly text: string;
-  readonly provenance: DeclarationProvenance;
-}
-
-export interface ExportTypeOrValueDeclarationSpace {
-  readonly space: "type" | "value";
-  readonly declarations: readonly InspectedDeclaration[];
-}
-
-export interface ExportNamespaceMember {
-  readonly name: string;
-  readonly declarations: readonly InspectedDeclaration[];
-  readonly members: readonly ExportNamespaceMember[];
-}
-
-export interface ExportNamespaceDeclarationSpace {
-  readonly space: "namespace";
-  readonly members: readonly ExportNamespaceMember[];
-}
-
-export type ExportDeclarationSpace =
-  | ExportTypeOrValueDeclarationSpace
-  | ExportNamespaceDeclarationSpace;
-
-export interface ExportAlias {
-  readonly targetName: string;
-  readonly declaration: InspectedDeclaration;
-}
-
-export interface ExportSignature {
-  readonly kind: "call" | "construct";
-  readonly text: string;
-}
-
-export interface InspectedModuleExport {
-  readonly name: string;
-  readonly alias?: ExportAlias;
-  readonly spaces: readonly ExportDeclarationSpace[];
-  readonly signatures: readonly ExportSignature[];
-}
-
-export interface SupportingType {
-  readonly name: string;
-  readonly declarations: readonly InspectedDeclaration[];
-}
-
-export interface PackageDocumentation {
-  readonly provenance: "installed-evidence";
-  readonly trust: "untrusted";
-  readonly text: string;
-}
-
-export interface ExportInspection {
-  readonly intent: "export-inspection";
-  readonly specifier: string;
-  readonly packageIdentity: PackageIdentity;
-  readonly moduleExport: InspectedModuleExport;
-  readonly supportingTypes: readonly SupportingType[];
-  readonly packageDocumentation?: PackageDocumentation;
-}
-
-export type InspectionResult = InterfaceOverview | ExportInspection;
-
-export interface InspectionFailure {
-  readonly status: "not-found" | "unsupported" | "limit-exceeded";
-  readonly message: string;
-}
+export type ExportInspectionRequest = ProtocolType<
+  typeof inspectionSchemas.exportInspectionRequest.infer
+>;
+export type NormalizedExportInspectionRequest = ProtocolType<
+  typeof inspectionSchemas.normalizedExportInspectionRequest.infer
+>;
+export type ModuleExportIndexEntry = ProtocolType<
+  typeof inspectionSchemas.moduleExportIndexEntry.infer
+>;
+export type PackageIdentity = ProtocolType<typeof inspectionSchemas.packageIdentity.infer>;
+export type InterfaceOverview = ProtocolType<typeof inspectionSchemas.interfaceOverview.infer>;
+export type DeclarationSpace = ProtocolType<typeof inspectionSchemas.declarationSpace.infer>;
+export type DeclarationKind = ProtocolType<typeof inspectionSchemas.declarationKind.infer>;
+export type InspectedDeclaration = ProtocolType<
+  typeof inspectionSchemas.inspectedDeclaration.infer
+>;
+export type ExportNamespaceMember = ProtocolType<
+  typeof inspectionSchemas.exportNamespaceMember.infer
+>;
+export type ExportDeclarationSpace = ProtocolType<
+  typeof inspectionSchemas.exportDeclarationSpace.infer
+>;
+export type ExportAlias = ProtocolType<typeof inspectionSchemas.exportAlias.infer>;
+export type ExportSignature = ProtocolType<typeof inspectionSchemas.exportSignature.infer>;
+export type InspectedModuleExport = ProtocolType<
+  typeof inspectionSchemas.inspectedModuleExport.infer
+>;
+export type SupportingType = ProtocolType<typeof inspectionSchemas.supportingType.infer>;
+export type PackageDocumentation = ProtocolType<
+  typeof inspectionSchemas.packageDocumentation.infer
+>;
+export type ExportInspection = ProtocolType<typeof inspectionSchemas.exportInspection.infer>;
+export type InspectionResult = ProtocolType<typeof inspectionSchemas.inspectionResult.infer>;
+export type InspectionFailure = ProtocolType<typeof inspectionSchemas.inspectionFailure.infer>;
 
 export type InspectionOutcome<Result extends InspectionResult = InspectionResult> =
   | {
@@ -144,15 +216,7 @@ export type InspectionRequestReading<Request> =
       readonly outcome: InspectionFailure;
     };
 
-export type AnalysisRequest =
-  | {
-      readonly intent: "interface-overview";
-      readonly request: NormalizedInterfaceOverviewRequest;
-    }
-  | {
-      readonly intent: "export-inspection";
-      readonly request: NormalizedExportInspectionRequest;
-    };
+export type AnalysisRequest = ProtocolType<typeof inspectionSchemas.analysisRequest.infer>;
 
 export type AnalysisRequestReading =
   | {
@@ -164,7 +228,24 @@ export type AnalysisRequestReading =
       readonly outcome: InspectionFailure;
     };
 
-const FAILURE_STATUSES = new Set(["not-found", "unsupported", "limit-exceeded"]);
+export function readPackageIdentity(value: unknown): PackageIdentity | undefined {
+  try {
+    const candidate = snapshotRecord(value);
+    if (candidate === undefined) {
+      return undefined;
+    }
+    const identity = inspectionSchemas.packageIdentity(candidate);
+    if (identity instanceof type.errors) {
+      return undefined;
+    }
+    return identity.version === undefined
+      ? { name: identity.name }
+      : { name: identity.name, version: identity.version };
+  } catch {
+    return undefined;
+  }
+}
+
 const INVALID_ANALYSIS_REQUEST_OUTCOME: InspectionFailure = {
   status: "unsupported",
   message: "Inspection received an invalid request.",
@@ -198,48 +279,62 @@ export function readInspectionRequest(
 ):
   | InspectionRequestReading<NormalizedInterfaceOverviewRequest>
   | InspectionRequestReading<NormalizedExportInspectionRequest> {
-  const target = readInspectionTarget(value);
-  if (target === undefined) {
+  try {
+    const candidate = snapshotRecord(value);
+    if (candidate === undefined) {
+      return { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
+    }
+    if (intent === "interface-overview") {
+      const request = interfaceOverviewRequestSchema(candidate);
+      return request instanceof type.errors
+        ? { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] }
+        : { accepted: true, request: normalizeInspectionTarget(request) };
+    }
+    const request = exportInspectionRequestSchema(candidate);
+    return request instanceof type.errors
+      ? { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] }
+      : {
+          accepted: true,
+          request: {
+            ...normalizeInspectionTarget(request),
+            exportName: request.exportName,
+          },
+        };
+  } catch {
     return { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
   }
-  if (intent === "interface-overview") {
-    return { accepted: true, request: target };
-  }
-  return isRecord(value) && typeof value["exportName"] === "string"
-    ? {
-        accepted: true,
-        request: {
-          ...target,
-          exportName: value["exportName"],
-        },
-      }
-    : { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
 }
 
 export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
-  if (!isRecord(value)) {
+  try {
+    const candidate = snapshotRecord(value);
+    if (candidate === undefined) {
+      return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
+    }
+    const envelope = analysisRequestEnvelopeSchema(candidate);
+    if (envelope instanceof type.errors) {
+      return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
+    }
+
+    if (envelope.intent === "interface-overview") {
+      const reading = readInspectionRequest(envelope.intent, envelope.request);
+      return reading.accepted
+        ? {
+            accepted: true,
+            request: { intent: envelope.intent, request: reading.request },
+          }
+        : { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
+    }
+    const reading = readInspectionRequest(envelope.intent, envelope.request);
+    return reading.accepted
+      ? {
+          accepted: true,
+          request: { intent: envelope.intent, request: reading.request },
+        }
+      : { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
+  } catch {
     return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
   }
-
-  if (value["intent"] === "interface-overview") {
-    const reading = readInspectionRequest(value["intent"], value["request"]);
-    return reading.accepted
-      ? {
-          accepted: true,
-          request: { intent: value["intent"], request: reading.request },
-        }
-      : { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
-  }
-  if (value["intent"] === "export-inspection") {
-    const reading = readInspectionRequest(value["intent"], value["request"]);
-    return reading.accepted
-      ? {
-          accepted: true,
-          request: { intent: value["intent"], request: reading.request },
-        }
-      : { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
-  }
-  return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
 }
 
 export function enforceInspectionOutcome(
@@ -258,193 +353,140 @@ export function enforceInspectionOutcome(
   intent: InspectionResult["intent"],
   value: unknown,
 ): InspectionOutcome {
-  if (!isInspectionOutcome(value)) {
+  try {
+    if (!isInspectionOutcome(value)) {
+      return INVALID_RESULT_OUTCOME;
+    }
+    return value.status !== "success" || value.result.intent === intent
+      ? value
+      : INVALID_RESULT_OUTCOME;
+  } catch {
     return INVALID_RESULT_OUTCOME;
   }
-  return value.status !== "success" || value.result.intent === intent
-    ? value
-    : INVALID_RESULT_OUTCOME;
 }
 
-function isAccessStyle(value: unknown): value is AccessStyle {
-  return value === "import" || value === "require";
-}
-
-function readInspectionTarget(value: unknown): NormalizedInspectionTarget | undefined {
-  if (
-    !isRecord(value) ||
-    typeof value["resolutionContext"] !== "string" ||
-    typeof value["specifier"] !== "string"
-  ) {
-    return undefined;
-  }
-
-  const accessStyle = value["accessStyle"] ?? "import";
-  return isAccessStyle(accessStyle)
-    ? {
-        resolutionContext: value["resolutionContext"],
-        specifier: value["specifier"],
-        accessStyle,
-      }
-    : undefined;
+function normalizeInspectionTarget(
+  request: typeof inspectionSchemas.inspectionTarget.infer,
+): NormalizedInspectionTarget {
+  return {
+    resolutionContext: request.resolutionContext,
+    specifier: request.specifier,
+    accessStyle: request.accessStyle ?? "import",
+  };
 }
 
 function isInspectionOutcome(value: unknown): value is InspectionOutcome {
-  if (!isRecord(value)) {
-    return false;
-  }
-  return value["status"] === "success"
-    ? hasOnlyKeys(value, ["status", "result"]) &&
-        (isInterfaceOverview(value["result"]) || isExportInspection(value["result"]))
-    : hasOnlyKeys(value, ["status", "message"]) &&
-        FAILURE_STATUSES.has(String(value["status"])) &&
-        typeof value["message"] === "string";
-}
-
-function isExportInspection(value: unknown): value is ExportInspection {
-  if (!isRecord(value)) {
-    return false;
-  }
-  if (
-    !hasOnlyKeys(value, [
-      "intent",
-      "specifier",
-      "packageIdentity",
-      "moduleExport",
-      "supportingTypes",
-      "packageDocumentation",
-    ])
-  ) {
-    return false;
-  }
-  return [
-    value["intent"] === "export-inspection",
-    typeof value["specifier"] === "string",
-    isPackageIdentity(value["packageIdentity"]),
-    isInspectedModuleExport(value["moduleExport"]),
-    isArrayOf(value["supportingTypes"], isSupportingType),
-    isOptional(value["packageDocumentation"], isPackageDocumentation),
-  ].every(Boolean);
-}
-
-function isInspectedModuleExport(value: unknown): value is InspectedModuleExport {
   return (
-    isRecord(value) &&
-    hasOnlyKeys(value, ["name", "alias", "spaces", "signatures"]) &&
-    typeof value["name"] === "string" &&
-    (value["alias"] === undefined || isExportAlias(value["alias"])) &&
-    isDensePlainArray(value["spaces"]) &&
-    value["spaces"].every(isExportDeclarationSpace) &&
-    isDensePlainArray(value["signatures"]) &&
-    value["signatures"].every(isExportSignature)
+    hasDenseProtocolArrays(value) &&
+    hasBoundedNamespaceGraph(value) &&
+    inspectionOutcomeSchema.allows(value)
   );
 }
 
-function isExportAlias(value: unknown): value is ExportAlias {
-  return (
-    isRecord(value) &&
-    hasOnlyKeys(value, ["targetName", "declaration"]) &&
-    typeof value["targetName"] === "string" &&
-    isInspectedDeclaration(value["declaration"]) &&
-    value["declaration"].kind === "alias"
-  );
+function hasDenseProtocolArrays(value: unknown): boolean {
+  const pending = [value];
+  const visited = new Set<object>();
+
+  for (let cursor = 0; cursor < pending.length; cursor += 1) {
+    const candidate = pending[cursor];
+    if (typeof candidate !== "object" || candidate === null || visited.has(candidate)) {
+      continue;
+    }
+    visited.add(candidate);
+
+    if (!queueProtocolChildren(candidate, pending)) {
+      return false;
+    }
+  }
+  return true;
 }
 
-function isExportDeclarationSpace(value: unknown): value is ExportDeclarationSpace {
-  if (!isRecord(value) || !isDeclarationSpace(value["space"])) {
-    return false;
+function queueProtocolChildren(candidate: object, pending: unknown[]): boolean {
+  const keys = Object.keys(candidate);
+  if (Array.isArray(candidate)) {
+    return queueDenseArrayItems(candidate, keys, pending);
   }
-  return value["space"] === "namespace"
-    ? hasOnlyKeys(value, ["space", "members"]) &&
-        isDensePlainArray(value["members"]) &&
-        value["members"].every((member) => isExportNamespaceMember(member, new Set(), 0))
-    : hasOnlyKeys(value, ["space", "declarations"]) &&
-        isDensePlainArray(value["declarations"]) &&
-        value["declarations"].every(isInspectedDeclaration);
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(candidate, key);
+    if (descriptor === undefined || !("value" in descriptor)) {
+      return false;
+    }
+    pending.push(descriptor.value);
+  }
+  return true;
 }
 
-function isExportNamespaceMember(
-  value: unknown,
-  ancestors: Set<object>,
-  depth: number,
-): value is ExportNamespaceMember {
-  if (
-    depth > 8 ||
-    !isRecord(value) ||
-    ancestors.has(value) ||
-    !hasOnlyKeys(value, ["name", "declarations", "members"]) ||
-    typeof value["name"] !== "string" ||
-    !isDensePlainArray(value["declarations"]) ||
-    !value["declarations"].every(isInspectedDeclaration) ||
-    !isDensePlainArray(value["members"])
-  ) {
+function queueDenseArrayItems(
+  values: readonly unknown[],
+  keys: readonly string[],
+  pending: unknown[],
+): boolean {
+  if (keys.length !== values.length) {
     return false;
   }
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    if (key === undefined || key !== String(index)) {
+      return false;
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(values, key);
+    if (descriptor === undefined || !("value" in descriptor)) {
+      return false;
+    }
+    pending.push(descriptor.value);
+  }
+  return true;
+}
+
+function hasBoundedNamespaceGraph(value: unknown): boolean {
+  if (!isRecord(value) || value["status"] !== "success") {
+    return true;
+  }
+  const result = value["result"];
+  if (!isRecord(result) || result["intent"] !== "export-inspection") {
+    return true;
+  }
+  const moduleExport = result["moduleExport"];
+  if (!isRecord(moduleExport) || !Array.isArray(moduleExport["spaces"])) {
+    return true;
+  }
+
+  return everyArrayItem(moduleExport["spaces"], (space) => {
+    if (!isRecord(space) || space["space"] !== "namespace" || !Array.isArray(space["members"])) {
+      return true;
+    }
+    return everyArrayItem(space["members"], (member) =>
+      hasBoundedNamespaceMember(member, new Set(), 0),
+    );
+  });
+}
+
+function hasBoundedNamespaceMember(value: unknown, ancestors: Set<object>, depth: number): boolean {
+  if (depth > 8 || (isRecord(value) && ancestors.has(value))) {
+    return false;
+  }
+  if (!isRecord(value) || !Array.isArray(value["members"])) {
+    return true;
+  }
+
   ancestors.add(value);
-  const valid = value["members"].every((member) =>
-    isExportNamespaceMember(member, ancestors, depth + 1),
+  const valid = everyArrayItem(value["members"], (member) =>
+    hasBoundedNamespaceMember(member, ancestors, depth + 1),
   );
   ancestors.delete(value);
   return valid;
 }
 
-function isDeclarationSpace(value: unknown): value is DeclarationSpace {
-  return value === "type" || value === "value" || value === "namespace";
-}
-
-function isExportSignature(value: unknown): value is ExportSignature {
-  return (
-    isRecord(value) &&
-    hasOnlyKeys(value, ["kind", "text"]) &&
-    (value["kind"] === "call" || value["kind"] === "construct") &&
-    typeof value["text"] === "string"
-  );
-}
-
-function isSupportingType(value: unknown): value is SupportingType {
-  return (
-    isRecord(value) &&
-    hasOnlyKeys(value, ["name", "declarations"]) &&
-    typeof value["name"] === "string" &&
-    isDensePlainArray(value["declarations"]) &&
-    value["declarations"].every(isInspectedDeclaration)
-  );
-}
-
-function isInspectedDeclaration(value: unknown): value is InspectedDeclaration {
-  return (
-    isRecord(value) &&
-    hasOnlyKeys(value, ["kind", "text", "provenance"]) &&
-    isDeclarationKind(value["kind"]) &&
-    typeof value["text"] === "string" &&
-    isDeclarationProvenance(value["provenance"])
-  );
-}
-
-function isDeclarationKind(value: unknown): value is DeclarationKind {
-  return (
-    value === "alias" ||
-    value === "class" ||
-    value === "enum" ||
-    value === "function" ||
-    value === "interface" ||
-    value === "namespace" ||
-    value === "type-alias" ||
-    value === "variable"
-  );
-}
-
-function isDeclarationProvenance(value: unknown): value is DeclarationProvenance {
-  return (
-    isRecord(value) &&
-    hasOnlyKeys(value, ["packageIdentity", "file", "line", "column"]) &&
-    isPackageIdentity(value["packageIdentity"]) &&
-    isPortableRelativePath(value["file"]) &&
-    Number.isInteger(value["line"]) &&
-    Number(value["line"]) > 0 &&
-    Number.isInteger(value["column"]) &&
-    Number(value["column"]) > 0
-  );
+function everyArrayItem(
+  values: readonly unknown[],
+  predicate: (value: unknown) => boolean,
+): boolean {
+  for (let index = 0; index < values.length; index += 1) {
+    if (!predicate(values[index])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isPortableRelativePath(value: unknown): value is string {
@@ -459,74 +501,21 @@ function isPortableRelativePath(value: unknown): value is string {
   );
 }
 
-function isPackageDocumentation(value: unknown): value is PackageDocumentation {
-  return (
-    isRecord(value) &&
-    hasOnlyKeys(value, ["provenance", "trust", "text"]) &&
-    value["provenance"] === "installed-evidence" &&
-    value["trust"] === "untrusted" &&
-    typeof value["text"] === "string"
-  );
-}
-
-function isInterfaceOverview(value: unknown): value is InterfaceOverview {
-  return (
-    isRecord(value) &&
-    hasOnlyKeys(value, ["intent", "specifier", "packageIdentity", "moduleExports"]) &&
-    value["intent"] === "interface-overview" &&
-    typeof value["specifier"] === "string" &&
-    isPackageIdentity(value["packageIdentity"]) &&
-    isDensePlainArray(value["moduleExports"]) &&
-    value["moduleExports"].every(isModuleExportIndexEntry)
-  );
-}
-
-function isPackageIdentity(value: unknown): value is PackageIdentity {
-  return (
-    isRecord(value) &&
-    hasOnlyKeys(value, ["name", "version"]) &&
-    typeof value["name"] === "string" &&
-    (value["version"] === undefined || typeof value["version"] === "string")
-  );
-}
-
-function isModuleExportIndexEntry(value: unknown): value is ModuleExportIndexEntry {
-  return isRecord(value) && hasOnlyKeys(value, ["name"]) && typeof value["name"] === "string";
-}
-
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isDensePlainArray(value: unknown): value is readonly unknown[] {
-  if (!Array.isArray(value)) {
-    return false;
+function snapshotRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
   }
-  const keys = Object.keys(value);
-  return (
-    keys.length === value.length &&
-    keys.every((key, index) => key === String(index)) &&
-    value.every((_, index) => Object.hasOwn(value, index))
-  );
-}
-
-function isArrayOf<Item>(
-  value: unknown,
-  isItem: (item: unknown) => item is Item,
-): value is readonly Item[] {
-  return isDensePlainArray(value) && value.every(isItem);
-}
-
-function isOptional<Value>(
-  value: unknown,
-  validate: (candidate: unknown) => candidate is Value,
-): value is Value | undefined {
-  return value === undefined || validate(value);
-}
-
-function hasOnlyKeys(
-  value: Readonly<Record<string, unknown>>,
-  allowedKeys: readonly string[],
-): boolean {
-  return Object.keys(value).every((key) => allowedKeys.includes(key));
+  const snapshot: Record<string, unknown> = Object.create(null);
+  for (const key of Object.keys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) {
+      return undefined;
+    }
+    snapshot[key] = descriptor.value;
+  }
+  return snapshot;
 }

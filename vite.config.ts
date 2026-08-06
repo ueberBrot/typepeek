@@ -56,7 +56,7 @@ export default defineConfig({
     sourcemap: true,
     unused: {
       ignore: {
-        dependencies: ["@typescript/typescript6", "arktype", "execa"],
+        dependencies: ["@typescript/typescript6", "execa"],
       },
       level: "error",
     },

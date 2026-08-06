@@ -13,8 +13,6 @@
   "ignoreDependencies": [
     "@arethetypeswrong/core",
     "@typescript/typescript6",
-    "arktype",
-    "execa",
     "publint",
     "unplugin-unused"
   ],

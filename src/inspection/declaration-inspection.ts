@@ -40,6 +40,16 @@ export type AliasDeclaration =
 export function inspectDeclaration(
   evidence: PackageModuleEvidence,
   declaration: ts.Declaration,
+  kindOverride: "alias",
+): InspectedDeclaration & { readonly kind: "alias" };
+export function inspectDeclaration(
+  evidence: PackageModuleEvidence,
+  declaration: ts.Declaration,
+  kindOverride?: DeclarationKind,
+): InspectedDeclaration;
+export function inspectDeclaration(
+  evidence: PackageModuleEvidence,
+  declaration: ts.Declaration,
   kindOverride?: DeclarationKind,
 ): InspectedDeclaration {
   const sourceFile = declaration.getSourceFile();
