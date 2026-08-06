@@ -300,6 +300,26 @@ it("excludes Supporting Types referenced only by private declarations", async ()
   expect(JSON.stringify(outcome.result.supportingTypes)).toContain("protected readonly inherited");
 });
 
+it("preserves public constructor inputs without exposing private parameter properties", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "Constructed",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toContain("ConstructorInput");
+  expect(JSON.stringify(outcome.result.moduleExport.spaces)).toContain(
+    "constructor(input: ConstructorInput)",
+  );
+  expect(JSON.stringify(outcome.result.moduleExport.spaces)).not.toContain(
+    "private readonly input",
+  );
+});
+
 it("keeps JSDoc tags as bounded untrusted Package Documentation", async () => {
   const outcome = await inspectExport({
     resolutionContext: fixture.resolutionContext,
@@ -523,6 +543,19 @@ it("fails explicitly when Supporting Type traversal exceeds its breadth bound", 
   expect(outcome).toEqual({
     status: "limit-exceeded",
     message: "Inspection exceeded its Supporting Type limit.",
+  });
+});
+
+it("fails explicitly when Supporting Type traversal exceeds its depth bound", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/deep-supporting-types",
+    exportName: "inspect",
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its Supporting Type depth limit.",
   });
 });
 

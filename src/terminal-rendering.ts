@@ -1,5 +1,6 @@
 import type {
   ExportInspection,
+  InspectedDeclaration,
   InspectionResult,
   InterfaceOverview,
   PackageIdentity,
@@ -68,9 +69,7 @@ function renderExportInspection(result: ExportInspection): string {
   ].join("\n");
 }
 
-function renderDeclaration(
-  declaration: ExportInspection["moduleExport"]["spaces"][number]["declarations"][number],
-): readonly string[] {
+function renderDeclaration(declaration: InspectedDeclaration): readonly string[] {
   return [
     `  ${terminalSafeLine(declaration.kind)}:`,
     ...declaration.text.split("\n").map((line) => `    ${terminalSafeLine(line)}`),

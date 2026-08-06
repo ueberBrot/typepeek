@@ -493,7 +493,14 @@ function visitTypeReferences(node: ts.Node, visitReference: (location: ts.Node) 
 }
 
 function isPrivateDeclaration(node: ts.Node): boolean {
-  return hasPrivateIdentifier(node) || hasPrivateModifier(node);
+  return (
+    hasPrivateIdentifier(node) ||
+    (hasPrivateModifier(node) && !isConstructorParameterProperty(node))
+  );
+}
+
+function isConstructorParameterProperty(node: ts.Node): node is ts.ParameterDeclaration {
+  return ts.isParameter(node) && ts.isConstructorDeclaration(node.parent);
 }
 
 function hasPrivateIdentifier(node: ts.Node): boolean {
@@ -601,9 +608,47 @@ function publicDeclaration(declaration: ts.Declaration): ts.Declaration {
         declaration.name,
         declaration.typeParameters,
         declaration.heritageClauses,
-        declaration.members.filter((member) => !isPrivateDeclaration(member)),
+        declaration.members
+          .filter((member) => !isPrivateDeclaration(member))
+          .map(publicClassElement),
       )
     : declaration;
+}
+
+function publicClassElement(member: ts.ClassElement): ts.ClassElement {
+  return ts.isConstructorDeclaration(member)
+    ? ts.factory.updateConstructorDeclaration(
+        member,
+        member.modifiers,
+        member.parameters.map(publicConstructorParameter),
+        member.body,
+      )
+    : member;
+}
+
+function publicConstructorParameter(parameter: ts.ParameterDeclaration): ts.ParameterDeclaration {
+  if (!hasPrivateModifier(parameter)) {
+    return parameter;
+  }
+  return ts.factory.updateParameterDeclaration(
+    parameter,
+    parameter.modifiers?.filter(({ kind }) => !isParameterPropertyModifier(kind)),
+    parameter.dotDotDotToken,
+    parameter.name,
+    parameter.questionToken,
+    parameter.type,
+    parameter.initializer,
+  );
+}
+
+function isParameterPropertyModifier(kind: ts.SyntaxKind): boolean {
+  return [
+    ts.SyntaxKind.PrivateKeyword,
+    ts.SyntaxKind.ProtectedKeyword,
+    ts.SyntaxKind.PublicKeyword,
+    ts.SyntaxKind.ReadonlyKeyword,
+    ts.SyntaxKind.OverrideKeyword,
+  ].includes(kind);
 }
 
 function declarationKind(declaration: ts.Declaration): DeclarationKind | undefined {
