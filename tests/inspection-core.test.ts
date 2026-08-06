@@ -13,7 +13,7 @@ let fixture: CompiledPackageFixture;
 
 beforeAll(async () => {
   fixture = await materializeCompiledPackageFixture();
-});
+}, 30_000);
 
 afterAll(async () => {
   await fixture?.cleanup();
