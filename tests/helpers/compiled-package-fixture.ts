@@ -154,6 +154,12 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "interface PrivateOnly {",
       "  readonly hidden: string;",
       "}",
+      "interface ConstructorInput {",
+      "  readonly required: string;",
+      "}",
+      "export declare class Constructed {",
+      "  constructor(private readonly input: ConstructorInput);",
+      "}",
       "export declare class PublicShape {",
       "  readonly visible: VisibleOnly;",
       "  private readonly secret: PrivateOnly;",
@@ -241,6 +247,21 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "",
     ].join("\n"),
     runtime: 'throw new Error("Typepeek executed the broad Supporting Types fixture runtime");\n',
+  },
+  {
+    directory: "deep-supporting-types-package",
+    name: "@typepeek-fixture/deep-supporting-types",
+    version: "1.0.0",
+    declaration: [
+      ...Array.from(
+        { length: 10 },
+        (_, index) =>
+          `interface Depth${index} { readonly next: ${index === 9 ? "string" : `Depth${index + 1}`}; }`,
+      ),
+      "export declare function inspect(value: Depth0): void;",
+      "",
+    ].join("\n"),
+    runtime: 'throw new Error("Typepeek executed the deep Supporting Types fixture runtime");\n',
   },
   {
     directory: "broad-overloads-package",
