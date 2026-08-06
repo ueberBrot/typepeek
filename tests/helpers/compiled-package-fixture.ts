@@ -369,6 +369,18 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     },
     runtime: 'throw new Error("Typepeek executed the invalid version fixture runtime");\n',
   },
+  {
+    directory: "aliased-unversioned-package",
+    name: "@typepeek-fixture/aliased-unversioned",
+    version: "1.0.0",
+    declaration: "export declare const aliasedExport: string;\n",
+    installedManifest: {
+      name: "@upstream/unversioned",
+      type: "module",
+      types: "./dist/index.d.ts",
+    },
+    runtime: 'throw new Error("Typepeek executed the aliased fixture runtime");\n',
+  },
 ];
 
 const WORKSPACE_PACKAGE_SOURCES: readonly PackageSource[] = [

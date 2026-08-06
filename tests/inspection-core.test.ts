@@ -666,6 +666,27 @@ it("rejects a non-string declared Package Identity version", async () => {
   });
 });
 
+it("uses an unversioned manifest Package Identity instead of the Specifier", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/aliased-unversioned",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      specifier: "@typepeek-fixture/aliased-unversioned",
+      packageIdentity: {
+        name: "@upstream/unversioned",
+      },
+      moduleExports: [{ name: "aliasedExport" }],
+    },
+  });
+  if (outcome.status === "success") {
+    expect(outcome.result.packageIdentity).not.toHaveProperty("version");
+  }
+});
+
 it("rejects path-like Specifiers before package resolution", async () => {
   const outcome = await inspectInterfaceOverview({
     resolutionContext: fixture.resolutionContext,

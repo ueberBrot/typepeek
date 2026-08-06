@@ -5,19 +5,15 @@ import { dirname, isAbsolute, join } from "node:path";
 import { readBoundedUtf8File } from "#typepeek/inspection/bounded-file";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import { isPathWithin } from "#typepeek/inspection/paths";
-import type {
-  AccessStyle,
-  NormalizedInspectionTarget,
-  PackageIdentity,
+import {
+  readPackageIdentity,
+  type AccessStyle,
+  type NormalizedInspectionTarget,
+  type PackageIdentity,
 } from "#typepeek/inspection/protocol";
 
 const MAX_PACKAGE_SEARCH_DEPTH = 64;
 const MAX_MANIFEST_BYTES = 256 * 1_024;
-
-interface PackageManifest {
-  readonly name: string;
-  readonly version?: string;
-}
 
 export interface PackageModuleEvidence {
   readonly declarationPath: string;
@@ -55,7 +51,7 @@ export function resolvePackageModuleEvidence(
       canonicalPackageRoot,
       request.accessStyle,
     ),
-    packageIdentity: packageIdentity(manifest),
+    packageIdentity: manifest,
     packageRoot: canonicalPackageRoot,
   };
 }
@@ -65,7 +61,7 @@ export function resolveDeclarationOwner(declarationPath: string): DeclarationOwn
   for (let depth = 0; depth < MAX_PACKAGE_SEARCH_DEPTH; depth += 1) {
     if (hasPackageManifest(directory)) {
       return {
-        packageIdentity: packageIdentity(readManifest(directory)),
+        packageIdentity: readManifest(directory),
         packageRoot: canonicalPackageBoundary(directory),
       };
     }
@@ -164,13 +160,14 @@ function hasPackageManifest(packageRoot: string): boolean {
   }
 }
 
-function readManifest(packageRoot: string): PackageManifest {
+function readManifest(packageRoot: string): PackageIdentity {
   const manifestText = readBoundedUtf8File(
     join(packageRoot, "package.json"),
     MAX_MANIFEST_BYTES,
     "Inspection exceeded its package manifest size limit.",
   );
-  return packageManifest(parseManifest(manifestText));
+  const identity = readPackageIdentity(parseManifest(manifestText));
+  return identity ?? invalidPackageIdentity();
 }
 
 function parseManifest(manifestText: string): unknown {
@@ -181,37 +178,8 @@ function parseManifest(manifestText: string): unknown {
   }
 }
 
-function packageManifest(value: unknown): PackageManifest {
-  if (!isRecord(value)) {
-    return invalidPackageIdentity();
-  }
-
-  const name = packageName(value);
-  const version = packageVersion(value);
-  return version === undefined ? { name } : { name, version };
-}
-
-function packageName(manifest: Readonly<Record<string, unknown>>): string {
-  const name = manifest["name"];
-  return typeof name === "string" ? name : invalidPackageIdentity();
-}
-
-function packageVersion(manifest: Readonly<Record<string, unknown>>): string | undefined {
-  const version = manifest["version"];
-  if (version === undefined) {
-    return undefined;
-  }
-  return typeof version === "string" ? version : invalidPackageIdentity();
-}
-
 function invalidPackageIdentity(): never {
   throw new UnsupportedInspectionError("The installed package has no valid Package Identity.");
-}
-
-function packageIdentity(manifest: PackageManifest): PackageIdentity {
-  return manifest.version === undefined
-    ? { name: manifest.name }
-    : { name: manifest.name, version: manifest.version };
 }
 
 function resolveDeclarationPath(
@@ -347,10 +315,6 @@ function canonicalPath(fileName: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function assertAbsoluteResolutionContext(resolutionContext: string): void {
