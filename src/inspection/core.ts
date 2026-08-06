@@ -23,6 +23,11 @@ const TERMINATED_OUTCOME: InspectionOutcome = {
   message: "Inspection analysis terminated before completion.",
 };
 
+/**
+ * Validates a request and produces a bounded index of the Module Exports visible
+ * from its Resolution Context. Analysis runs in an isolated worker, and its
+ * result is size- and schema-checked before it crosses the Inspection Core seam.
+ */
 export async function inspectInterfaceOverview(
   request: InterfaceOverviewRequest,
 ): Promise<InspectionOutcome<InterfaceOverview>> {
@@ -40,6 +45,11 @@ export async function inspectInterfaceOverview(
   );
 }
 
+/**
+ * Validates a request and produces a bounded Export Inspection for one Module
+ * Export. Missing exports and all supported failure modes are returned as
+ * structured outcomes rather than partial Inspection Results.
+ */
 export async function inspectExport(
   request: ExportInspectionRequest,
 ): Promise<InspectionOutcome<ExportInspection>> {
@@ -58,6 +68,8 @@ export async function inspectExport(
 }
 
 async function runAnalysis(request: AnalysisRequest): Promise<InspectionOutcome> {
+  // The worker is an isolation mechanism: wall-clock, heap, stack, and result
+  // size are bounded independently of the analyzer's internal traversal limits.
   const worker = new Worker(getAnalysisWorkerUrl(), {
     workerData: request,
     resourceLimits: {
@@ -106,6 +118,8 @@ function waitForWorker(
 }
 
 function readWorkerMessage(value: unknown, intent: AnalysisRequest["intent"]): InspectionOutcome {
+  // Enforce the transport budget before accepting the worker's protocol shape.
+  // A valid but oversized result must never be mistaken for authoritative output.
   const resultBytes = serializedByteLength(value);
   if (resultBytes === undefined) {
     return enforceInspectionOutcome(intent, undefined);

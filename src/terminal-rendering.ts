@@ -18,6 +18,10 @@ const UNSAFE_TERMINAL_RANGES: readonly CodePointRange[] = [
   [0x2066, 0x2069],
 ];
 
+/**
+ * Renders a validated Inspection Result as deterministic plain text. Every
+ * value originating in Installed Evidence is escaped before terminal display.
+ */
 export function renderInspection(result: InspectionResult): string {
   return result.intent === "interface-overview"
     ? renderInterfaceOverview(result)
@@ -105,6 +109,8 @@ function renderPackageIdentity(packageIdentity: PackageIdentity): string {
 }
 
 function terminalSafeLine(value: string): string {
+  // Escape rather than delete unsafe characters so hostile or ambiguous input
+  // remains visible without gaining terminal control semantics.
   return Array.from(value, (character) => {
     const codePoint = character.codePointAt(0) ?? 0;
     return isUnsafeTerminalCodePoint(codePoint)

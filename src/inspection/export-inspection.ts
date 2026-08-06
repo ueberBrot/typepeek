@@ -209,6 +209,8 @@ function publicConstructorParameter(parameter: ts.ParameterDeclaration): ts.Para
   if (!hasPrivateModifier(parameter)) {
     return parameter;
   }
+  // A private parameter property is still a public constructor input. Remove
+  // its property modifiers without dropping the parameter from the declaration.
   return ts.factory.updateParameterDeclaration(
     parameter,
     parameter.modifiers?.filter(({ kind }) => !isParameterPropertyModifier(kind)),
@@ -246,6 +248,11 @@ function hasPrivateModifier(node: ts.Node): boolean {
   return (ts.getModifiers(node) ?? []).some(({ kind }) => kind === ts.SyntaxKind.PrivateKeyword);
 }
 
+/**
+ * Produces a bounded Export Inspection from one Package Module backed by
+ * Installed Evidence. Returns `undefined` only when the named Module Export is
+ * absent; unsupported declaration shapes and exhausted budgets use typed errors.
+ */
 export function inspectFocusedModuleExport(
   evidence: InstalledPackageModule,
   exportName: string,
@@ -441,6 +448,8 @@ function collectNamespaceMembers(
     return [];
   }
   assertNamespaceTraversalAllowed(symbol, state, depth);
+  // `visited` tracks the current path rather than all previously seen symbols,
+  // allowing shared namespaces in sibling branches while rejecting cycles.
   state.visited.add(symbol);
   const exportedMembers = checker.getExportsOfModule(symbol);
   reserveNamespaceMembers(state, exportedMembers.length);
@@ -592,6 +601,8 @@ function signatureCandidates(
 }
 
 function declarationSourceOrder(symbol: ts.Symbol, type: ts.Type): ReadonlyMap<string, number> {
+  // TypeScript preserves order within one source file but can interleave
+  // signatures from merged declarations. Rank their source files explicitly.
   const declarations = [...symbolDeclarations(symbol), ...symbolDeclarations(type.symbol)];
   const sources = declarations.map((declaration) => declaration.getSourceFile().fileName);
   return new Map(Array.from(new Set(sources), (source, index) => [source, index]));
@@ -638,6 +649,8 @@ function inspectSupportingTypes(
   selectedSymbol: ts.Symbol,
   namespaceMembers: readonly NamespaceMemberEvidence[],
 ): readonly SupportingType[] {
+  // Traverse only references reachable from the selected Public Interface. The
+  // visited set prevents cycles while depth and count budgets bound expansion.
   const supportingTypes: SupportingType[] = [];
   const visited = new Set<ts.Symbol>([selectedSymbol]);
 
@@ -717,6 +730,8 @@ function supportingTypeDeclarations(
   symbol: ts.Symbol,
   referenceKind: SupportingReferenceKind,
 ): readonly ts.Declaration[] {
+  // `typeof X` needs X's value declaration; ordinary type references admit only
+  // named type declarations and must not drift into implementation symbols.
   const declarations = (symbol.declarations ?? []).filter((declaration) =>
     referenceKind === "type-query"
       ? declarationSpaces(declaration).includes("value")
