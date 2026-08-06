@@ -135,6 +135,80 @@ it("rejects compiler-shaped data in a focused Inspection Outcome", () => {
   });
 });
 
+it("accepts recursively named namespace members in a focused Inspection Outcome", () => {
+  const outcome = {
+    status: "success",
+    result: {
+      intent: "export-inspection",
+      specifier: "example",
+      packageIdentity: { name: "example" },
+      moduleExport: {
+        name: "tools",
+        spaces: [
+          {
+            space: "namespace",
+            members: [
+              {
+                name: "nested",
+                declarations: [],
+                members: [
+                  {
+                    name: "useNested",
+                    declarations: [
+                      {
+                        kind: "function",
+                        text: "function useNested(): void;",
+                        provenance: {
+                          packageIdentity: { name: "example" },
+                          file: "index.d.ts",
+                          line: 1,
+                          column: 1,
+                        },
+                      },
+                    ],
+                    members: [],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        signatures: [],
+      },
+      supportingTypes: [],
+    },
+  };
+
+  expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual(outcome);
+});
+
+it("rejects flattened declarations in a namespace space", () => {
+  expect(
+    enforceInspectionOutcome("export-inspection", {
+      status: "success",
+      result: {
+        intent: "export-inspection",
+        specifier: "example",
+        packageIdentity: { name: "example" },
+        moduleExport: {
+          name: "tools",
+          spaces: [
+            {
+              space: "namespace",
+              declarations: [],
+            },
+          ],
+          signatures: [],
+        },
+        supportingTypes: [],
+      },
+    }),
+  ).toEqual({
+    status: "unsupported",
+    message: "Inspection returned an invalid result.",
+  });
+});
+
 it("rejects sparse arrays in a focused Inspection Outcome", () => {
   const supportingTypes: unknown[] = [];
   supportingTypes.length = 1;
