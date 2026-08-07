@@ -10,6 +10,7 @@ import {
   type InterfaceOverview,
   type ModuleExportIndexEntry,
   type PackageIdentity,
+  type PublicSubpath,
 } from "#typepeek/inspection/protocol";
 
 it("normalizes the default Access Style at the worker protocol seam", () => {
@@ -94,6 +95,7 @@ it("rejects a structurally valid success for a different inspection intent", () 
       intent: "interface-overview",
       specifier: "example",
       packageIdentity: { name: "example" },
+      publicSubpaths: [],
       moduleExports: [{ name: "createExample" }],
     },
   };
@@ -531,6 +533,8 @@ it("derives the existing deeply readonly protocol types", () => {
     packageIdentity.name = "changed";
     // @ts-expect-error Protocol arrays remain readonly.
     overview.moduleExports.push({ name: "changed" });
+    // @ts-expect-error Public Subpaths remain readonly.
+    overview.publicSubpaths.push({ specifier: "changed" });
     // @ts-expect-error Nested Protocol arrays remain readonly.
     inspection.moduleExport.spaces.push({ space: "namespace", members: [] });
   };
@@ -549,6 +553,7 @@ it("derives the existing deeply readonly protocol types", () => {
   expectTypeOf<InterfaceOverview["moduleExports"]>().toEqualTypeOf<
     readonly ModuleExportIndexEntry[]
   >();
+  expectTypeOf<InterfaceOverview["publicSubpaths"]>().toEqualTypeOf<readonly PublicSubpath[]>();
   expectTypeOf<ExportInspection["moduleExport"]["spaces"]>().toEqualTypeOf<
     readonly ExportDeclarationSpace[]
   >();

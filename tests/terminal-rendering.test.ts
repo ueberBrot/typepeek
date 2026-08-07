@@ -8,6 +8,7 @@ it("renders a deterministic Interface Overview", () => {
       intent: "interface-overview",
       specifier: "example",
       packageIdentity: { name: "example", version: "1.0.0" },
+      publicSubpaths: [{ specifier: "example/feature" }],
       moduleExports: [{ name: "createExample" }],
     }),
   ).toBe(
@@ -15,6 +16,8 @@ it("renders a deterministic Interface Overview", () => {
       "Interface Overview",
       "Specifier: example",
       "Package: example@1.0.0",
+      "Public Subpaths (1):",
+      "- example/feature",
       "Module Exports (1):",
       "- createExample",
     ].join("\n"),

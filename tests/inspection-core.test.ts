@@ -80,6 +80,115 @@ it("reports a limit instead of truncating a broad Module Export index", async ()
   });
 });
 
+it("reports a limit instead of truncating broad Public Subpath evidence", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/broad-subpaths",
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its Public Subpath limit.",
+  });
+});
+
+it("does not enumerate Public Subpaths for a focused root Export Inspection", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/broad-subpaths",
+    exportName: "rootExport",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      moduleExport: {
+        name: "rootExport",
+      },
+    },
+  });
+});
+
+it("reports a limit for deeply nested package export targets", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/deep-export-target",
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its package export target traversal limit.",
+  });
+});
+
+it("ignores deeply nested targets from an unselected Access Style", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/conditional-poison",
+    accessStyle: "import",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      publicSubpaths: [
+        { specifier: "@typepeek-fixture/conditional-poison/array/red" },
+        { specifier: "@typepeek-fixture/conditional-poison/condition-fallback/red" },
+        { specifier: "@typepeek-fixture/conditional-poison/patterns/red" },
+        { specifier: "@typepeek-fixture/conditional-poison/versioned/red" },
+      ],
+      moduleExports: [{ name: "importRootExport" }],
+    },
+  });
+});
+
+it("bounds one broad Public Subpath directory before materializing every entry", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/broad-pattern-files",
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its Public Subpath file traversal limit.",
+  });
+});
+
+it("does not traverse a Public Subpath search-root symlink outside its package", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/symlink-subpath",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      publicSubpaths: [],
+      moduleExports: [{ name: "rootExport" }],
+    },
+  });
+});
+
+it("preserves logical Public Subpaths through package-internal symlinks", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/internal-symlink-subpath",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      publicSubpaths: [
+        {
+          specifier: "@typepeek-fixture/internal-symlink-subpath/nested-link/patterns/red",
+        },
+        { specifier: "@typepeek-fixture/internal-symlink-subpath/root-link/red" },
+      ],
+      moduleExports: [{ name: "rootExport" }],
+    },
+  });
+});
+
 it("rejects an unresolved declaration re-export instead of returning a partial index", async () => {
   const outcome = await inspectInterfaceOverview({
     resolutionContext: fixture.resolutionContext,
@@ -130,6 +239,129 @@ it("selects the declaration Resolution Variant for the requested Access Style", 
   ]).toEqual([["importExport"], ["requireExport"]]);
 });
 
+it("advertises manifest-declared Public Subpaths without inspecting them", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/conditional",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      publicSubpaths: [
+        { specifier: "@typepeek-fixture/conditional/feature" },
+        { specifier: "@typepeek-fixture/conditional/nested/feature" },
+        { specifier: "@typepeek-fixture/conditional/patterns/red" },
+      ],
+      moduleExports: [{ name: "importExport" }],
+    },
+  });
+});
+
+it("advertises only Public Subpaths available to the selected Access Style", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/conditional",
+    accessStyle: "require",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      publicSubpaths: [
+        { specifier: "@typepeek-fixture/conditional/feature" },
+        { specifier: "@typepeek-fixture/conditional/nested/feature" },
+        { specifier: "@typepeek-fixture/conditional/patterns/red" },
+        { specifier: "@typepeek-fixture/conditional/require-feature" },
+        { specifier: "@typepeek-fixture/conditional/require-patterns/blue" },
+      ],
+    },
+  });
+});
+
+it("inspects an exact Specifier matched by a Public Subpath pattern", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/conditional/patterns/red",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      specifier: "@typepeek-fixture/conditional/patterns/red",
+      packageIdentity: {
+        name: "@typepeek-fixture/conditional",
+        version: "1.0.0",
+      },
+      publicSubpaths: [],
+      moduleExports: [{ name: "redPatternExport" }],
+    },
+  });
+});
+
+it("inspects a selected Public Subpath through both Inspection Core intents", async () => {
+  const [overview, focused] = await Promise.all([
+    inspectInterfaceOverview({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/conditional/feature",
+    }),
+    inspectExport({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/conditional/feature",
+      exportName: "featureExport",
+    }),
+  ]);
+
+  expect(overview).toMatchObject({
+    status: "success",
+    result: {
+      specifier: "@typepeek-fixture/conditional/feature",
+      packageIdentity: {
+        name: "@typepeek-fixture/conditional",
+        version: "1.0.0",
+      },
+      publicSubpaths: [],
+      moduleExports: [{ name: "featureExport" }],
+    },
+  });
+  expect(focused).toMatchObject({
+    status: "success",
+    result: {
+      specifier: "@typepeek-fixture/conditional/feature",
+      packageIdentity: {
+        name: "@typepeek-fixture/conditional",
+        version: "1.0.0",
+      },
+      moduleExport: {
+        name: "featureExport",
+        spaces: [
+          {
+            declarations: [
+              {
+                provenance: {
+                  file: "node_modules/@typepeek-fixture/conditional/dist/feature.d.ts",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  });
+});
+
+it("rejects an installed declaration file that is not a Public Subpath", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/conditional/private",
+  });
+
+  expect(outcome).toEqual({
+    status: "unsupported",
+    message: "The requested Specifier is not a manifest-declared Public Subpath.",
+  });
+});
+
 it("inspects one aliased and declaration-merged Module Export", async () => {
   const outcome = await inspectExport({
     resolutionContext: fixture.resolutionContext,
@@ -149,7 +381,7 @@ it("inspects one aliased and declaration-merged Module Export", async () => {
     declaration: {
       kind: "alias",
       provenance: {
-        file: "dist/index.d.ts",
+        file: "node_modules/@typepeek-fixture/focused/dist/index.d.ts",
         line: expect.any(Number),
       },
     },
@@ -185,7 +417,7 @@ it("inspects one aliased and declaration-merged Module Export", async () => {
   expect(
     valueSpace?.space === "value" ? valueSpace.declarations[0]?.provenance : undefined,
   ).toMatchObject({
-    file: "dist/index.d.ts",
+    file: "node_modules/@typepeek-fixture/focused/dist/index.d.ts",
     line: expect.any(Number),
   });
   expect(JSON.stringify(outcome)).not.toContain("\u001B");
@@ -448,7 +680,7 @@ it.each(["default", "ToolAlias", "tools"])(
           name: "@typepeek-fixture/alias-forms",
           version: "1.0.0",
         },
-        file: "dist/index.d.ts",
+        file: "node_modules/@typepeek-fixture/alias-forms/dist/index.d.ts",
       },
     });
     if (exportName === "ToolAlias") {
@@ -517,7 +749,7 @@ it("attributes re-exported declaration provenance to its owning Package Identity
       name: "@typepeek-fixture/dependency",
       version: "1.0.0",
     },
-    file: "dist/index.d.ts",
+    file: "node_modules/@typepeek-fixture/dependency/dist/index.d.ts",
   });
 });
 
@@ -666,7 +898,7 @@ it("rejects a non-string declared Package Identity version", async () => {
   });
 });
 
-it("uses an unversioned manifest Package Identity instead of the Specifier", async () => {
+it("preserves a scoped alias Specifier and its unversioned Package Identity", async () => {
   const outcome = await inspectInterfaceOverview({
     resolutionContext: fixture.resolutionContext,
     specifier: "@typepeek-fixture/aliased-unversioned",
@@ -695,7 +927,7 @@ it("rejects path-like Specifiers before package resolution", async () => {
 
   expect(outcome).toMatchObject({
     status: "unsupported",
-    message: "The initial inspection supports package-root Specifiers only.",
+    message: "The requested Specifier is not a Package Module.",
   });
 });
 

@@ -36,6 +36,10 @@ _Avoid_: list, search results
 A non-root package entrypoint explicitly exposed by the package manifest. A file path that merely exists inside the package is not a Public Subpath.
 _Avoid_: internal path, deep import
 
+**Public Subpath Pattern**:
+A package-manifest wildcard that describes a family of potential Public Subpaths. It is not itself an exact Specifier; a matching exact Specifier identifies a Public Subpath only when the selected Resolution Variant exposes it.
+_Avoid_: wildcard Specifier, Public Subpath
+
 **Export Inspection**:
 A focused description of one Module Export, including its relevant declarations, bounded Supporting Types, and Package Documentation.
 _Avoid_: show, lookup
