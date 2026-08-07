@@ -5,8 +5,8 @@ Modules. Coding agents are the primary consumers; terminal users are secondary.
 
 ## Usage
 
-Inspect a package-root Specifier from the dependency installation visible to a
-Resolution Context:
+Inspect a package-root or Public Subpath Specifier from the dependency
+installation visible to a Resolution Context:
 
 ```bash
 typepeek execa --context .
@@ -24,6 +24,16 @@ Module Exports (30):
 ...
 ```
 
+At a package root, the Interface Overview also advertises manifest-declared
+Public Subpaths without recursively inspecting them. Select one by passing its
+exact Specifier. Public Subpath Patterns are expanded from bounded Installed
+Evidence and only concrete Specifiers in the selected Resolution Variant are
+advertised:
+
+```bash
+typepeek "@scope/package/public-subpath" --context .
+```
+
 Select one Module Export for a focused Export Inspection:
 
 ```bash
@@ -37,10 +47,11 @@ Module Export. Attached Package Documentation is labeled as untrusted Installed
 Evidence and sanitized before terminal presentation.
 
 The current slice supports installed, compiled Package Modules with declaration
-entrypoints. Inspection reads Installed Evidence only: it does not import the
-package runtime, run package scripts, or download missing material. Unsupported,
-not-found, and limit-exceeded inspections fail explicitly rather than returning
-a partial authoritative result.
+entrypoints at package roots and manifest-declared Public Subpaths. Inspection
+reads Installed Evidence only: it does not import the package runtime, run
+package scripts, or download missing material. Unsupported, not-found, and
+limit-exceeded inspections fail explicitly rather than returning a partial
+authoritative result.
 
 ## Setup
 

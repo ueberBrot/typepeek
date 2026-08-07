@@ -45,7 +45,7 @@ const rootCommand = buildCommand<{ context: string; export?: string }, [string]>
       parameters: [
         {
           parse: (input) => input,
-          brief: "Package-root Specifier to inspect.",
+          brief: "Package-root or Public Subpath Specifier to inspect.",
           placeholder: "specifier",
         },
       ],

@@ -51,6 +51,7 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
       intent: "interface-overview",
       specifier: request.specifier,
       packageIdentity: evidence.packageIdentity,
+      publicSubpaths: evidence.publicSubpaths,
       moduleExports: inspectModuleExports(evidence),
     },
   };

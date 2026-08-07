@@ -51,6 +51,9 @@ const inspectionSchemas = type.module({
   moduleExportIndexEntry: record({
     name: "string",
   }),
+  publicSubpath: record({
+    specifier: "string",
+  }),
   packageIdentity: record({
     name: "string",
     "version?": "string | undefined",
@@ -115,6 +118,7 @@ const inspectionSchemas = type.module({
     intent: "'interface-overview'",
     specifier: "string",
     packageIdentity: "packageIdentity",
+    publicSubpaths: "publicSubpath[]",
     moduleExports: "moduleExportIndexEntry[]",
   }),
   exportInspection: record({
@@ -178,6 +182,7 @@ export type NormalizedExportInspectionRequest = ProtocolType<
 export type ModuleExportIndexEntry = ProtocolType<
   typeof inspectionSchemas.moduleExportIndexEntry.infer
 >;
+export type PublicSubpath = ProtocolType<typeof inspectionSchemas.publicSubpath.infer>;
 export type PackageIdentity = ProtocolType<typeof inspectionSchemas.packageIdentity.infer>;
 export type InterfaceOverview = ProtocolType<typeof inspectionSchemas.interfaceOverview.infer>;
 export type DeclarationSpace = ProtocolType<typeof inspectionSchemas.declarationSpace.infer>;

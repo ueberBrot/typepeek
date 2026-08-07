@@ -5,10 +5,11 @@ import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import {
-  type AccessStyle,
   type NormalizedInspectionTarget,
   type PackageIdentity,
+  type PublicSubpath,
 } from "#typepeek/inspection/protocol";
+import { selectResolutionVariant } from "#typepeek/inspection/resolution-variant";
 
 const MAX_PACKAGE_SEARCH_DEPTH = 64;
 const MAX_MANIFEST_BYTES = 256 * 1_024;
@@ -28,6 +29,7 @@ export interface InstalledPackageModule {
   readonly checker: ts.TypeChecker;
   readonly moduleSymbol: ts.Symbol;
   readonly packageIdentity: PackageIdentity;
+  readonly publicSubpaths: readonly PublicSubpath[];
   readonly declarationProvenance: (declarationPath: string) => {
     readonly packageIdentity: PackageIdentity;
     readonly file: string;
@@ -41,57 +43,86 @@ interface CompilerHostState {
   sourceByteCount: number;
 }
 
-interface DeclarationOwner {
-  readonly packageIdentity: PackageIdentity;
+interface VisiblePackageLocation {
   readonly packageRoot: string;
+  readonly repositoryRoot: string;
+}
+
+interface PackageSpecifier {
+  readonly packageSegments: readonly string[];
+  readonly packageRootSpecifier: string;
+  readonly subpathKey?: string;
+}
+
+interface InstalledManifest {
+  readonly packageIdentity: PackageIdentity;
+  readonly exports: unknown;
 }
 
 /**
- * Resolves and reads one installed package-root Specifier without executing
- * package or project code. Returns `undefined` only when the package is not
- * visible; expected invalid evidence and exhausted budgets use typed errors.
+ * Resolves and reads one installed package-root or Public Subpath Specifier
+ * without executing package or project code. Returns `undefined` only when the
+ * package is not visible; expected invalid evidence and exhausted budgets use
+ * typed errors.
  */
 export function readInstalledPackageModule(
   request: NormalizedInspectionTarget,
 ): InstalledPackageModule | undefined {
   assertAbsoluteResolutionContext(request.resolutionContext);
-  const packageSegments = parsePackageRootSpecifier(request.specifier);
-  if (packageSegments === undefined) {
-    throw new UnsupportedInspectionError(
-      "The initial inspection supports package-root Specifiers only.",
-    );
+  const packageSpecifier = parsePackageSpecifier(request.specifier);
+  if (packageSpecifier === undefined) {
+    throw new UnsupportedInspectionError("The requested Specifier is not a Package Module.");
   }
 
-  const packageRoot = findPackageRoot(request.resolutionContext, packageSegments);
-  if (packageRoot === undefined) {
+  const packageLocation = findVisiblePackage(
+    request.resolutionContext,
+    packageSpecifier.packageSegments,
+  );
+  if (packageLocation === undefined) {
     return undefined;
   }
+  const { packageRoot } = packageLocation;
 
-  const packageIdentity = readManifest(packageRoot);
+  const manifest = readInstalledManifest(packageRoot);
   const canonicalPackageRoot = canonicalPackageBoundary(packageRoot);
-  const declarationPath = resolveDeclarationPath(
-    request.resolutionContext,
-    request.specifier,
-    canonicalPackageRoot,
-    request.accessStyle,
-  );
+  const resolutionVariant = selectResolutionVariant({
+    request,
+    packageRoot: canonicalPackageRoot,
+    packageRootSpecifier: packageSpecifier.packageRootSpecifier,
+    ...(packageSpecifier.subpathKey === undefined
+      ? {}
+      : { subpathKey: packageSpecifier.subpathKey }),
+    exports: manifest.exports,
+  });
   const compilerOptions = inspectionCompilerOptions();
   const program = ts.createProgram({
-    rootNames: [declarationPath],
+    rootNames: [resolutionVariant.declarationPath],
     options: compilerOptions,
     host: createBoundedCompilerHost(canonicalPackageRoot, compilerOptions),
   });
-  const { checker, moduleSymbol } = inspectModuleEvidence(program, declarationPath);
+  const { checker, moduleSymbol } = inspectModuleEvidence(
+    program,
+    resolutionVariant.declarationPath,
+  );
   return {
     checker,
     moduleSymbol,
-    packageIdentity,
+    packageIdentity: manifest.packageIdentity,
+    get publicSubpaths() {
+      return resolutionVariant.readPublicSubpaths();
+    },
     declarationProvenance: (declarationPath) =>
-      readDeclarationProvenance(canonicalPackageRoot, packageIdentity, declarationPath),
+      readDeclarationProvenance(
+        canonicalPackageBoundary(packageLocation.repositoryRoot),
+        canonicalPackageRoot,
+        manifest.packageIdentity,
+        declarationPath,
+      ),
   };
 }
 
 function readDeclarationProvenance(
+  repositoryRoot: string,
   packageRoot: string,
   packageIdentity: PackageIdentity,
   declarationPath: string,
@@ -101,23 +132,25 @@ function readDeclarationProvenance(
 } {
   // Supporting declarations can belong to another installed package, such as a
   // Declaration Provider, so provenance follows the declaration's owning manifest.
-  const owner = isPathWithin(packageRoot, declarationPath)
-    ? { packageIdentity, packageRoot }
-    : resolveDeclarationOwner(declarationPath);
+  const declarationPackageIdentity = isPathWithin(packageRoot, declarationPath)
+    ? packageIdentity
+    : resolveDeclarationPackageIdentity(declarationPath);
+  if (!isPathWithin(repositoryRoot, declarationPath)) {
+    throw new UnsupportedInspectionError(
+      "A declaration has no repository-relative provenance path.",
+    );
+  }
   return {
-    packageIdentity: owner.packageIdentity,
-    file: relative(owner.packageRoot, declarationPath).split(sep).join("/"),
+    packageIdentity: declarationPackageIdentity,
+    file: relative(repositoryRoot, declarationPath).split(sep).join("/"),
   };
 }
 
-function resolveDeclarationOwner(declarationPath: string): DeclarationOwner {
+function resolveDeclarationPackageIdentity(declarationPath: string): PackageIdentity {
   let directory = dirname(declarationPath);
   for (let depth = 0; depth < MAX_PACKAGE_SEARCH_DEPTH; depth += 1) {
     if (hasPackageManifest(directory)) {
-      return {
-        packageIdentity: readManifest(directory),
-        packageRoot: canonicalPackageBoundary(directory),
-      };
+      return readInstalledManifest(directory).packageIdentity;
     }
     const parent = dirname(directory);
     if (parent === directory) {
@@ -160,10 +193,21 @@ function canonicalContainedPackageRoot(
   return isPathWithin(packageRoot, resolvedSourcePath) ? packageRoot : undefined;
 }
 
-function parsePackageRootSpecifier(specifier: string): readonly string[] | undefined {
+function parsePackageSpecifier(specifier: string): PackageSpecifier | undefined {
   const packageSegments = parsePackageNameSegments(specifier);
+  if (packageSegments === undefined) {
+    return undefined;
+  }
   const segments = specifier.split("/");
-  return packageSegments?.length === segments.length ? packageSegments : undefined;
+  const subpathSegments = segments.slice(packageSegments.length);
+  if (!subpathSegments.every(isSafePackagePathSegment)) {
+    return undefined;
+  }
+  return {
+    packageSegments,
+    packageRootSpecifier: packageSegments.join("/"),
+    ...(subpathSegments.length === 0 ? {} : { subpathKey: `./${subpathSegments.join("/")}` }),
+  };
 }
 
 function parsePackageNameSegments(specifier: string): readonly string[] | undefined {
@@ -184,12 +228,22 @@ function findPackageRoot(
   resolutionContext: string,
   packageSegments: readonly string[],
 ): string | undefined {
+  return findVisiblePackage(resolutionContext, packageSegments)?.packageRoot;
+}
+
+function findVisiblePackage(
+  resolutionContext: string,
+  packageSegments: readonly string[],
+): VisiblePackageLocation | undefined {
   let directory = startingDirectory(resolutionContext);
 
   for (let depth = 0; depth < MAX_PACKAGE_SEARCH_DEPTH; depth += 1) {
     const candidate = join(directory, "node_modules", ...packageSegments);
     if (hasPackageManifest(candidate)) {
-      return candidate;
+      return {
+        packageRoot: candidate,
+        repositoryRoot: directory,
+      };
     }
 
     const parent = dirname(directory);
@@ -214,14 +268,21 @@ function hasPackageManifest(packageRoot: string): boolean {
   }
 }
 
-function readManifest(packageRoot: string): PackageIdentity {
+function readInstalledManifest(packageRoot: string): InstalledManifest {
   const manifestText = readBoundedUtf8File(
     join(packageRoot, "package.json"),
     MAX_MANIFEST_BYTES,
     "Inspection exceeded its package manifest size limit.",
   );
-  const identity = readPackageIdentity(parseManifest(manifestText));
-  return identity ?? invalidPackageIdentity();
+  const manifest = parseManifest(manifestText);
+  const packageIdentity = readPackageIdentity(manifest);
+  if (packageIdentity === undefined || !isRecord(manifest)) {
+    return invalidPackageIdentity();
+  }
+  return {
+    packageIdentity,
+    exports: manifest["exports"],
+  };
 }
 
 function readPackageIdentity(value: unknown): PackageIdentity | undefined {
@@ -246,26 +307,8 @@ function invalidPackageIdentity(): never {
   throw new UnsupportedInspectionError("The installed package has no valid Package Identity.");
 }
 
-function resolveDeclarationPath(
-  resolutionContext: string,
-  specifier: string,
-  packageRoot: string,
-  accessStyle: AccessStyle,
-): string {
-  const declarationPath = resolvePackageDeclaration(resolutionContext, specifier, accessStyle);
-
-  if (declarationPath === undefined) {
-    throw new UnsupportedInspectionError("The package has no readable declaration entrypoint.");
-  }
-
-  const canonicalPackageRoot = canonicalPackageBoundary(packageRoot);
-  const canonicalDeclarationPath = canonicalDeclaration(declarationPath);
-  if (!isPathWithin(canonicalPackageRoot, canonicalDeclarationPath)) {
-    throw new UnsupportedInspectionError(
-      "The package declaration entrypoint escapes its installed package boundary.",
-    );
-  }
-  return canonicalDeclarationPath;
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function canonicalPackageBoundary(packageRoot: string): string {
@@ -276,101 +319,6 @@ function canonicalPackageBoundary(packageRoot: string): string {
     );
   }
   return canonicalPackageRoot;
-}
-
-function canonicalDeclaration(declarationPath: string): string {
-  const canonicalDeclarationPath = canonicalPath(declarationPath);
-  if (canonicalDeclarationPath === undefined) {
-    throw new UnsupportedInspectionError("The package has no readable declaration entrypoint.");
-  }
-  return canonicalDeclarationPath;
-}
-
-function resolvePackageDeclaration(
-  resolutionContext: string,
-  specifier: string,
-  accessStyle: AccessStyle,
-): string | undefined {
-  const contextDirectory = startingDirectory(resolutionContext);
-  const containingFile = join(
-    contextDirectory,
-    accessStyle === "import" ? "__typepeek_resolution__.mts" : "__typepeek_resolution__.cts",
-  );
-  const compilerOptions: ts.CompilerOptions = {
-    module: ts.ModuleKind.NodeNext,
-    moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    noEmit: true,
-    resolvePackageJsonExports: true,
-    resolvePackageJsonImports: true,
-  };
-  const resolutionMode = accessStyle === "import" ? ts.ModuleKind.ESNext : ts.ModuleKind.CommonJS;
-  const resolution = ts.resolveModuleName(
-    specifier,
-    containingFile,
-    compilerOptions,
-    createBoundedModuleResolutionHost(contextDirectory),
-    undefined,
-    undefined,
-    resolutionMode,
-  );
-  return isDeclarationResolution(resolution.resolvedModule)
-    ? resolution.resolvedModule.resolvedFileName
-    : undefined;
-}
-
-function createBoundedModuleResolutionHost(contextDirectory: string): ts.ModuleResolutionHost {
-  return {
-    directoryExists: isDirectory,
-    fileExists: isFile,
-    getCurrentDirectory: () => contextDirectory,
-    readFile: readPackageResolutionFile,
-    realpath: (fileName) => canonicalPath(fileName) ?? fileName,
-  };
-}
-
-function readPackageResolutionFile(fileName: string): string | undefined {
-  try {
-    return readBoundedUtf8File(
-      fileName,
-      MAX_MANIFEST_BYTES,
-      "Inspection exceeded its package manifest size limit.",
-    );
-  } catch (error) {
-    if (error instanceof InspectionLimitError) {
-      throw error;
-    }
-    return undefined;
-  }
-}
-
-function isDeclarationResolution(
-  resolvedModule: ts.ResolvedModuleFull | undefined,
-): resolvedModule is ts.ResolvedModuleFull {
-  return resolvedModule !== undefined && isDeclarationExtension(resolvedModule.extension);
-}
-
-function isDeclarationExtension(extension: string): boolean {
-  return (
-    extension === ts.Extension.Dts ||
-    extension === ts.Extension.Dmts ||
-    extension === ts.Extension.Dcts
-  );
-}
-
-function isFile(fileName: string): boolean {
-  try {
-    return statSync(fileName).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function isDirectory(directory: string): boolean {
-  try {
-    return statSync(directory).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 function canonicalPath(fileName: string): string | undefined {

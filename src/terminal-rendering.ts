@@ -33,6 +33,12 @@ function renderInterfaceOverview(result: InterfaceOverview): string {
     "Interface Overview",
     `Specifier: ${terminalSafeLine(result.specifier)}`,
     `Package: ${renderPackageIdentity(result.packageIdentity)}`,
+    ...(result.publicSubpaths.length === 0
+      ? []
+      : [
+          `Public Subpaths (${result.publicSubpaths.length}):`,
+          ...result.publicSubpaths.map(({ specifier }) => `- ${terminalSafeLine(specifier)}`),
+        ]),
     `Module Exports (${result.moduleExports.length}):`,
     ...result.moduleExports.map(({ name }) => `- ${terminalSafeLine(name)}`),
   ].join("\n");

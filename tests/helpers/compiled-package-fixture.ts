@@ -1,7 +1,7 @@
 import { execa } from "execa";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 interface PackageSource {
   readonly directory: string;
@@ -13,6 +13,14 @@ interface PackageSource {
   readonly runtime: string;
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly exports?: object;
+}
+
+function nestedExportTarget(depth: number): object {
+  let target: object = { types: "./dist/patterns/*.d.ts" };
+  for (let index = 0; index < depth; index += 1) {
+    target = { node: target };
+  }
+  return target;
 }
 
 const PACKAGE_SOURCES: readonly PackageSource[] = [
@@ -61,6 +69,140 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     runtime: 'throw new Error("Typepeek executed the broad fixture runtime");\n',
   },
   {
+    directory: "broad-subpaths-package",
+    name: "@typepeek-fixture/broad-subpaths",
+    version: "1.0.0",
+    declaration: "export declare const rootExport: string;\n",
+    runtime: 'throw new Error("Typepeek executed the broad subpaths fixture runtime");\n',
+    exports: {
+      ".": {
+        types: "./dist/index.d.ts",
+        default: "./dist/index.js",
+      },
+      ...Object.fromEntries(
+        Array.from({ length: 201 }, (_, index) => [
+          `./feature-${index}`,
+          {
+            types: "./dist/index.d.ts",
+            default: "./dist/index.js",
+          },
+        ]),
+      ),
+    },
+  },
+  {
+    directory: "deep-export-target-package",
+    name: "@typepeek-fixture/deep-export-target",
+    version: "1.0.0",
+    declaration: "export declare const rootExport: string;\n",
+    additionalDeclarations: {
+      "patterns/red.d.ts": "export declare const redPatternExport: string;\n",
+    },
+    runtime: 'throw new Error("Typepeek executed the deep export target fixture runtime");\n',
+    exports: {
+      ".": {
+        types: "./dist/index.d.ts",
+        default: "./dist/index.js",
+      },
+      "./patterns/*": nestedExportTarget(33),
+    },
+  },
+  {
+    directory: "conditional-poison-package",
+    name: "@typepeek-fixture/conditional-poison",
+    version: "1.0.0",
+    declaration: "export declare const importRootExport: string;\n",
+    additionalDeclarations: {
+      "patterns/red.d.ts": "export declare const redPatternExport: string;\n",
+    },
+    runtime: 'throw new Error("Typepeek executed the conditional poison fixture runtime");\n',
+    exports: {
+      ".": {
+        types: "./dist/index.d.ts",
+        default: "./dist/index.js",
+      },
+      "./patterns/*": {
+        import: {
+          types: "./dist/patterns/*.d.ts",
+          default: "./dist/index.js",
+        },
+        require: nestedExportTarget(33),
+      },
+      "./array/*": ["./dist/missing/*.d.ts", "./dist/patterns/*.d.ts"],
+      "./condition-fallback/*": {
+        types: "./dist/missing/*.d.ts",
+        default: "./dist/patterns/*.d.ts",
+      },
+      "./condition-null/*": {
+        types: { node: null },
+        default: nestedExportTarget(33),
+      },
+      "./null/*": [{ node: null }, nestedExportTarget(33)],
+      "./versioned/*": {
+        "types@>=6": "./dist/patterns/*.d.ts",
+        types: "./dist/missing/*.d.ts",
+      },
+    },
+  },
+  {
+    directory: "broad-pattern-files-package",
+    name: "@typepeek-fixture/broad-pattern-files",
+    version: "1.0.0",
+    declaration: "export declare const rootExport: string;\n",
+    runtime: 'throw new Error("Typepeek executed the broad pattern fixture runtime");\n',
+    exports: {
+      ".": {
+        types: "./dist/index.d.ts",
+        default: "./dist/index.js",
+      },
+      "./patterns/*": {
+        types: "./dist/patterns/*.d.ts",
+        default: "./dist/index.js",
+      },
+    },
+  },
+  {
+    directory: "symlink-subpath-package",
+    name: "@typepeek-fixture/symlink-subpath",
+    version: "1.0.0",
+    declaration: "export declare const rootExport: string;\n",
+    runtime: 'throw new Error("Typepeek executed the symlink subpath fixture runtime");\n',
+    exports: {
+      ".": {
+        types: "./dist/index.d.ts",
+        default: "./dist/index.js",
+      },
+      "./linked/*": {
+        types: "./dist/linked/*.d.ts",
+        default: "./dist/index.js",
+      },
+    },
+  },
+  {
+    directory: "internal-symlink-subpath-package",
+    name: "@typepeek-fixture/internal-symlink-subpath",
+    version: "1.0.0",
+    declaration: "export declare const rootExport: string;\n",
+    additionalDeclarations: {
+      "patterns/red.d.ts": "export declare const redPatternExport: string;\n",
+    },
+    runtime: 'throw new Error("Typepeek executed the internal symlink fixture runtime");\n',
+    exports: {
+      ".": {
+        types: "./dist/index.d.ts",
+        default: "./dist/index.js",
+      },
+      "./nested-link/*": {
+        types: "./tree/*.d.ts",
+        default: "./dist/index.js",
+      },
+      "./root-link/*": {
+        types: "./dist-link/*.d.ts",
+        default: "./dist/index.js",
+      },
+    },
+  },
+  {
     directory: "escaping-package",
     name: "@typepeek-fixture/escaping",
     version: "7.8.9",
@@ -84,7 +226,13 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     version: "1.0.0",
     declaration: "export declare const legacyExport: string;\n",
     additionalDeclarations: {
+      "feature.d.ts": "export declare const featureExport: string;\n",
+      "nested-feature.d.ts": "export declare const nestedFeatureExport: string;\n",
+      "patterns/red.d.ts": "export declare const redPatternExport: string;\n",
+      "private.d.ts": "export declare const privateExport: string;\n",
       "import.d.ts": "export declare const importExport: string;\n",
+      "require-feature.d.cts": "export declare const requireFeatureExport: string;\n",
+      "require-patterns/blue.d.cts": "export declare const bluePatternExport: string;\n",
       "require.d.cts": "export declare const requireExport: string;\n",
     },
     runtime: 'throw new Error("Typepeek executed the conditional fixture runtime");\n',
@@ -96,6 +244,32 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
         },
         require: {
           types: "./dist/require.d.cts",
+          default: "./dist/index.js",
+        },
+      },
+      "./feature": {
+        types: "./dist/feature.d.ts",
+        default: "./dist/index.js",
+      },
+      "./nested/feature": {
+        types: "./dist/nested-feature.d.ts",
+        default: "./dist/index.js",
+      },
+      "./patterns/*": {
+        types: "./dist/patterns/*.d.ts",
+        default: "./dist/index.js",
+      },
+      "./require-feature": {
+        import: null,
+        require: {
+          types: "./dist/require-feature.d.cts",
+          default: "./dist/index.js",
+        },
+      },
+      "./require-patterns/*": {
+        import: null,
+        require: {
+          types: "./dist/require-patterns/*.d.cts",
           default: "./dist/index.js",
         },
       },
@@ -473,6 +647,64 @@ async function materializeInstalledEvidenceScenarios(repositoryRoot: string): Pr
           ],
     ),
   );
+
+  const broadPatternDirectory = join(
+    repositoryRoot,
+    "node_modules",
+    "@typepeek-fixture",
+    "broad-pattern-files",
+    "dist",
+    "patterns",
+  );
+  await mkdir(broadPatternDirectory, { recursive: true });
+  await writeEmptyDeclarationFiles(broadPatternDirectory, 4_097);
+
+  const linkedPatternDirectory = join(
+    repositoryRoot,
+    "node_modules",
+    "@typepeek-fixture",
+    "symlink-subpath",
+    "dist",
+    "linked",
+  );
+  await symlink(
+    broadPatternDirectory,
+    linkedPatternDirectory,
+    process.platform === "win32" ? "junction" : "dir",
+  );
+
+  const internalSymlinkPackageRoot = join(
+    repositoryRoot,
+    "node_modules",
+    "@typepeek-fixture",
+    "internal-symlink-subpath",
+  );
+  const internalPatternDirectory = join(internalSymlinkPackageRoot, "dist", "patterns");
+  const internalTreeDirectory = join(internalSymlinkPackageRoot, "tree");
+  await mkdir(internalTreeDirectory);
+  await Promise.all([
+    symlink(
+      internalPatternDirectory,
+      join(internalSymlinkPackageRoot, "dist-link"),
+      process.platform === "win32" ? "junction" : "dir",
+    ),
+    symlink(
+      internalPatternDirectory,
+      join(internalTreeDirectory, "patterns"),
+      process.platform === "win32" ? "junction" : "dir",
+    ),
+  ]);
+}
+
+async function writeEmptyDeclarationFiles(directory: string, count: number): Promise<void> {
+  const batchSize = 256;
+  for (let start = 0; start < count; start += batchSize) {
+    await Promise.all(
+      Array.from({ length: Math.min(batchSize, count - start) }, (_, offset) =>
+        writeFile(join(directory, `entry-${start + offset}.d.ts`), ""),
+      ),
+    );
+  }
 }
 
 async function writePackageSource(fixtureRoot: string, source: PackageSource): Promise<void> {
@@ -488,6 +720,11 @@ async function writePackageSource(fixtureRoot: string, source: PackageSource): P
     ...(source.exports === undefined ? {} : { exports: source.exports }),
   };
 
+  await Promise.all(
+    Object.keys(source.additionalDeclarations ?? {}).map((fileName) =>
+      mkdir(dirname(join(packageDist, fileName)), { recursive: true }),
+    ),
+  );
   await mkdir(packageDist, { recursive: true });
   await Promise.all([
     writeFile(join(packageRoot, "package.json"), JSON.stringify(manifest)),
