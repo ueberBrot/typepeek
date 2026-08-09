@@ -1,4 +1,3 @@
-import { execa } from "execa";
 import { access } from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
@@ -117,34 +116,16 @@ describe("Supported Installation package-manager layouts", () => {
 
   it("inspects Installed Evidence with process and network access denied", async () => {
     for (const { resolutionContext } of matrix.installations) {
-      // Empty PATH and Node permissions block installers; preload traps network calls.
-      const inspection = await execa(
-        process.execPath,
-        [
-          "--require",
-          matrix.inspectionTripwire.preloadPath,
-          "--permission",
-          "--allow-fs-read=*",
-          `--allow-fs-write=${matrix.inspectionTripwire.sentinel}`,
-          "--allow-worker",
-          "src/cli.ts",
-          "@typepeek-fixture/layout-subject",
-          "--context",
-          resolutionContext,
-        ],
-        {
-          env: {
-            PATH: "",
-            TYPEPEEK_IO_SENTINEL: matrix.inspectionTripwire.sentinel,
-          },
-        },
-      );
+      const inspection = await matrix.staticInspection.run({
+        adapter: { kind: "source-checkout", sourceCheckout: process.cwd() },
+        arguments_: ["@typepeek-fixture/layout-subject"],
+        diagnosticContext: `source CLI in Resolution Context ${resolutionContext}`,
+        resolutionContext,
+      });
 
       expect(inspection.stdout).toContain("Interface Overview");
     }
-    await expect(access(matrix.inspectionTripwire.sentinel)).rejects.toMatchObject({
-      code: "ENOENT",
-    });
+    await matrix.staticInspection.verifyNoIo();
   });
 
   it("reports an unsupported non-node_modules installation without loading it", async () => {

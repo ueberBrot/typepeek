@@ -1,7 +1,8 @@
-import { execa } from "execa";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
+import { installPackedPackagesWithNpm, packPackage } from "./package-toolchain.ts";
 
 interface PackageSource {
   readonly directory: string;
@@ -613,10 +614,20 @@ export async function materializeCompiledPackageFixture(): Promise<CompiledPacka
 
   const tarballPaths = await Promise.all(
     PACKAGE_SOURCES.map((source) =>
-      packPackage(join(fixtureRoot, source.directory), tarballRoot, npmCacheRoot),
+      packPackage({
+        diagnosticContext: `fixture package ${source.name}`,
+        npmCacheRoot,
+        packageRoot: join(fixtureRoot, source.directory),
+        tarballsRoot: tarballRoot,
+      }),
     ),
   );
-  await installPackages(repositoryRoot, npmCacheRoot, tarballPaths);
+  await installPackedPackagesWithNpm({
+    diagnosticContext: `compiled Package Module fixtures in Resolution Context ${repositoryRoot}`,
+    npmCacheRoot,
+    packagePaths: tarballPaths,
+    resolutionContext: repositoryRoot,
+  });
   await materializeInstalledEvidenceScenarios(repositoryRoot);
 
   return {
@@ -734,56 +745,4 @@ async function writePackageSource(fixtureRoot: string, source: PackageSource): P
       writeFile(join(packageDist, fileName), declaration),
     ),
   ]);
-}
-
-async function packPackage(
-  packageRoot: string,
-  tarballRoot: string,
-  npmCacheRoot: string,
-): Promise<string> {
-  const pack = await execa(
-    "npm",
-    ["pack", "--json", "--pack-destination", tarballRoot, packageRoot],
-    { env: { npm_config_cache: npmCacheRoot } },
-  );
-  return join(tarballRoot, readPackedFilename(pack.stdout));
-}
-
-function readPackedFilename(output: string): string {
-  const packOutput: unknown = JSON.parse(output);
-  const firstResult = Array.isArray(packOutput) ? packOutput[0] : undefined;
-
-  if (
-    typeof firstResult !== "object" ||
-    firstResult === null ||
-    !("filename" in firstResult) ||
-    typeof firstResult.filename !== "string"
-  ) {
-    throw new Error("npm pack did not report a tarball filename");
-  }
-
-  return firstResult.filename;
-}
-
-async function installPackages(
-  repositoryRoot: string,
-  npmCacheRoot: string,
-  tarballPaths: readonly string[],
-): Promise<void> {
-  await execa(
-    "npm",
-    [
-      "install",
-      "--offline",
-      "--ignore-scripts",
-      "--no-audit",
-      "--no-fund",
-      "--package-lock=false",
-      ...tarballPaths,
-    ],
-    {
-      cwd: repositoryRoot,
-      env: { npm_config_cache: npmCacheRoot },
-    },
-  );
 }

@@ -1,15 +1,15 @@
-import { execa } from "execa";
 import { lstat, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 
-export const PACKAGE_MANAGER_PINS = [
-  { command: "npm", manager: "npm", version: "11.16.0" },
-  { command: "pnpm", manager: "pnpm", version: "11.20.0" },
-  { command: "bun", manager: "bun", version: "1.3.14" },
-] as const;
-
-type PackageManager = (typeof PACKAGE_MANAGER_PINS)[number];
+import {
+  installDeclaredPackages,
+  localPackageSpecifier,
+  type PackageManagerPin,
+  PACKAGE_MANAGER_PINS,
+  packPackage,
+} from "./package-toolchain.ts";
+import { materializeStaticInspection, type StaticInspection } from "./static-inspection.ts";
 
 export interface PackageManagerInstallation {
   readonly installSentinel: string;
@@ -22,10 +22,7 @@ export interface PackageManagerInstallation {
 
 export interface PackageManagerMatrix {
   readonly installations: readonly PackageManagerInstallation[];
-  readonly inspectionTripwire: {
-    readonly preloadPath: string;
-    readonly sentinel: string;
-  };
+  readonly staticInspection: StaticInspection;
   readonly unsupportedInstallation: {
     readonly resolutionContext: string;
     readonly runtimeSentinel: string;
@@ -48,16 +45,14 @@ export async function materializePackageManagerMatrix(): Promise<PackageManagerM
     const installations = [];
 
     for (const packageManager of PACKAGE_MANAGER_PINS) {
-      installations.push(
-        await materializeInstallation(fixtureRoot, npmCacheRoot, packages, packageManager),
-      );
+      installations.push(await materializeInstallation(fixtureRoot, packages, packageManager));
     }
-    const inspectionTripwire = await materializeInspectionTripwire(fixtureRoot);
+    const staticInspection = await materializeStaticInspection(fixtureRoot);
     const unsupportedInstallation = await materializeUnsupportedInstallation(fixtureRoot);
 
     return {
       installations,
-      inspectionTripwire,
+      staticInspection,
       unsupportedInstallation,
       cleanup: () => rm(fixtureRoot, { recursive: true, force: true }),
     };
@@ -65,42 +60,6 @@ export async function materializePackageManagerMatrix(): Promise<PackageManagerM
     await rm(fixtureRoot, { recursive: true, force: true });
     throw error;
   }
-}
-
-async function materializeInspectionTripwire(fixtureRoot: string): Promise<{
-  readonly preloadPath: string;
-  readonly sentinel: string;
-}> {
-  const preloadPath = join(fixtureRoot, "inspection-tripwire.cjs");
-  const sentinel = join(fixtureRoot, "INSPECTION_IO_ATTEMPTED");
-  // Preload in the CLI and worker; fail on process or network I/O.
-  await writeFile(
-    preloadPath,
-    [
-      'const { writeFileSync } = require("node:fs");',
-      'const { syncBuiltinESMExports } = require("node:module");',
-      "const trip = () => {",
-      '  writeFileSync(process.env.TYPEPEEK_IO_SENTINEL, "attempted");',
-      '  throw new Error("Inspection attempted process or network activity");',
-      "};",
-      "for (const [moduleName, methods] of Object.entries({",
-      '  "node:child_process": ["exec", "execFile", "fork", "spawn", "execSync", "execFileSync", "spawnSync"],',
-      '  "node:dgram": ["createSocket"],',
-      '  "node:dns": ["lookup", "resolve", "resolve4", "resolve6"],',
-      '  "node:http": ["get", "request"],',
-      '  "node:https": ["get", "request"],',
-      '  "node:net": ["connect", "createConnection"],',
-      '  "node:tls": ["connect"],',
-      "})) {",
-      "  const module = require(moduleName);",
-      "  for (const method of methods) module[method] = trip;",
-      "}",
-      "globalThis.fetch = trip;",
-      "syncBuiltinESMExports();",
-      "",
-    ].join("\n"),
-  );
-  return { preloadPath, sentinel };
 }
 
 async function materializeUnsupportedInstallation(fixtureRoot: string): Promise<{
@@ -151,8 +110,18 @@ async function packFixturePackages(
     }),
   ]);
 
-  const nestedVersionOne = await packPackage(nestedVersionOneRoot, tarballsRoot, npmCacheRoot);
-  const nestedVersionTwo = await packPackage(nestedVersionTwoRoot, tarballsRoot, npmCacheRoot);
+  const nestedVersionOne = await packPackage({
+    diagnosticContext: "nested v1 Package Module fixture",
+    npmCacheRoot,
+    packageRoot: nestedVersionOneRoot,
+    tarballsRoot,
+  });
+  const nestedVersionTwo = await packPackage({
+    diagnosticContext: "nested v2 Package Module fixture",
+    npmCacheRoot,
+    packageRoot: nestedVersionTwoRoot,
+    tarballsRoot,
+  });
   // The root installs v2; the subject must resolve its nested v1.
   await writeFixturePackage(subjectRoot, {
     name: "@typepeek-fixture/layout-subject",
@@ -173,7 +142,12 @@ async function packFixturePackages(
 
   return {
     nestedVersionTwo,
-    subject: await packPackage(subjectRoot, tarballsRoot, npmCacheRoot),
+    subject: await packPackage({
+      diagnosticContext: "layout subject Package Module fixture",
+      npmCacheRoot,
+      packageRoot: subjectRoot,
+      tarballsRoot,
+    }),
   };
 }
 
@@ -214,41 +188,15 @@ async function writeFixturePackage(
   ]);
 }
 
-async function packPackage(
-  packageRoot: string,
-  tarballsRoot: string,
-  npmCacheRoot: string,
-): Promise<string> {
-  const packed = await execa(
-    "npm",
-    ["pack", "--json", "--pack-destination", tarballsRoot, packageRoot],
-    { env: { npm_config_cache: npmCacheRoot } },
-  );
-  const output: unknown = JSON.parse(packed.stdout);
-  const filename =
-    Array.isArray(output) &&
-    typeof output[0] === "object" &&
-    output[0] !== null &&
-    "filename" in output[0] &&
-    typeof output[0].filename === "string"
-      ? output[0].filename
-      : undefined;
-  if (filename === undefined) {
-    throw new Error("npm pack did not report a fixture tarball filename");
-  }
-  return join(tarballsRoot, filename);
-}
-
 async function materializeInstallation(
   fixtureRoot: string,
-  npmCacheRoot: string,
   packages: PackedFixturePackages,
-  packageManager: PackageManager,
+  packageManager: PackageManagerPin,
 ): Promise<PackageManagerInstallation> {
-  const repositoryRoot = join(fixtureRoot, "repositories", packageManager.manager);
-  await mkdir(repositoryRoot, { recursive: true });
+  const resolutionContext = join(fixtureRoot, "repositories", packageManager.manager);
+  await mkdir(resolutionContext, { recursive: true });
   await writeFile(
-    join(repositoryRoot, "package.json"),
+    join(resolutionContext, "package.json"),
     JSON.stringify({
       name: `fixture-${packageManager.manager}-repository`,
       private: true,
@@ -259,75 +207,25 @@ async function materializeInstallation(
     }),
   );
 
-  const version = (await execa(packageManager.command, ["--version"])).stdout.trim();
-  if (version !== packageManager.version) {
-    throw new Error(
-      `${packageManager.manager} ${packageManager.version} is required for the Supported Installation matrix; found ${version}.`,
-    );
-  }
-
-  await installPackages(repositoryRoot, fixtureRoot, npmCacheRoot, packageManager);
-  const subjectRoot = join(repositoryRoot, "node_modules", "@typepeek-fixture", "layout-subject");
+  const version = await installDeclaredPackages({
+    cacheRoot: fixtureRoot,
+    diagnosticContext: `${packageManager.manager} Supported Installation in Resolution Context ${resolutionContext}`,
+    offline: true,
+    packageManager,
+    resolutionContext,
+  });
+  const subjectRoot = join(
+    resolutionContext,
+    "node_modules",
+    "@typepeek-fixture",
+    "layout-subject",
+  );
   return {
     installSentinel: join(subjectRoot, "INSTALL_SCRIPT_EXECUTED"),
     manager: packageManager.manager,
-    resolutionContext: repositoryRoot,
+    resolutionContext,
     subjectIsSymlink: (await lstat(subjectRoot)).isSymbolicLink(),
     subjectPhysicalPath: await realpath(subjectRoot),
     version,
   };
-}
-
-function localPackageSpecifier(packagePath: string): string {
-  // Raw file specs preserve spaces; file URLs encode them incompatibly.
-  return `file:${packagePath.split(sep).join("/")}`;
-}
-
-async function installPackages(
-  repositoryRoot: string,
-  fixtureRoot: string,
-  npmCacheRoot: string,
-  packageManager: PackageManager,
-): Promise<void> {
-  const commonOptions = { cwd: repositoryRoot };
-  // Installers run only during fixture setup.
-  switch (packageManager.manager) {
-    case "npm":
-      await execa(
-        packageManager.command,
-        [
-          "install",
-          "--offline",
-          "--ignore-scripts",
-          "--no-audit",
-          "--no-fund",
-          "--package-lock=false",
-        ],
-        { ...commonOptions, env: { npm_config_cache: npmCacheRoot } },
-      );
-      return;
-    case "pnpm":
-      await execa(
-        packageManager.command,
-        [
-          "install",
-          "--offline",
-          "--ignore-scripts",
-          "--lockfile=false",
-          "--store-dir",
-          join(fixtureRoot, "pnpm-store"),
-        ],
-        commonOptions,
-      );
-      return;
-    case "bun":
-      await execa(
-        packageManager.command,
-        ["install", "--offline", "--ignore-scripts", "--no-save"],
-        {
-          ...commonOptions,
-          env: { BUN_INSTALL_CACHE_DIR: join(fixtureRoot, "bun-cache") },
-        },
-      );
-  }
 }
