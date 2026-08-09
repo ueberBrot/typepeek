@@ -42,7 +42,7 @@ describe("Supported Installation package-manager layouts", () => {
 
   it("finds equivalent scoped Package Module Public Interfaces through every layout", async () => {
     const publicInterfaces = await Promise.all(
-      matrix.installations.map(async ({ resolutionContext }) => {
+      matrix.installations.map(async ({ manager, resolutionContext }) => {
         const overview = await inspectInterfaceOverview({
           resolutionContext,
           specifier: "@typepeek-fixture/layout-subject",
@@ -57,8 +57,11 @@ describe("Supported Installation package-manager layouts", () => {
           ),
         );
 
-        expect(overview.status).toBe("success");
-        expect(focused.map(({ status }) => status)).toEqual(["success", "success"]);
+        expect({ focused, manager, overview }).toMatchObject({
+          focused: [{ status: "success" }, { status: "success" }],
+          manager,
+          overview: { status: "success" },
+        });
         if (overview.status !== "success" || focused.some(({ status }) => status !== "success")) {
           return undefined;
         }

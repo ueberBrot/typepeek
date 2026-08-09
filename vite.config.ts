@@ -73,7 +73,8 @@ export default defineConfig({
         output: ["dist/**"],
       },
       fallow: {
-        command: "fallow",
+        // Keep the current backlog visible while rejecting any count regression.
+        command: "fallow --fail-on-regression",
         cache: false,
       },
       dependencies: {

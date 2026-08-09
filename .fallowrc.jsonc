@@ -26,5 +26,38 @@
   },
   "rules": {
     "private-type-leaks": "error"
+  },
+  "regression": {
+    "baseline": {
+      "analysisIdentity": {
+        "mode": "type-aware",
+        "semantic_schema_version": 2,
+        "capabilities": ["symbol-use", "api-surface", "type-coupling"],
+        "project_config_hash": "sha256:c7b4f8603a105db79c03059c8a59accf81f2f7ee31636bf9b22907076f230a1c",
+        "backend_family": "typescript-go",
+        "completeness": "complete"
+      },
+      "totalIssues": 4,
+      "unusedFiles": 0,
+      "unusedExports": 0,
+      "unusedTypes": 0,
+      "unusedDependencies": 0,
+      "unusedDevDependencies": 0,
+      "unusedOptionalDependencies": 0,
+      "unusedEnumMembers": 0,
+      "unusedClassMembers": 0,
+      "unresolvedImports": 0,
+      "unlistedDependencies": 0,
+      "duplicateExports": 0,
+      "circularDependencies": 0,
+      "reExportCycles": 0,
+      "typeOnlyDependencies": 0,
+      "testOnlyDependencies": 1,
+      "devDependenciesInProduction": 0,
+      "boundaryViolations": 0,
+      "boundaryCoverageViolations": 0,
+      "boundaryCallViolations": 0,
+      "policyViolations": 0
+    }
   }
 }

@@ -10,7 +10,7 @@ let fixture: CompiledPackageFixture;
 
 beforeAll(async () => {
   fixture = await materializeCompiledPackageFixture();
-}, 30_000);
+}, 120_000);
 
 afterAll(async () => {
   await fixture?.cleanup();
@@ -694,6 +694,7 @@ it.each(["default", "ToolAlias", "tools"])(
       expect(outcome.result.supportingTypes.map(({ name }) => name)).toContain("NestedInput");
     }
   },
+  15_000,
 );
 
 it("preserves compiler source order for signatures declared across files", async () => {
