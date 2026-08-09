@@ -20,11 +20,7 @@ const packageIdentitySchema = type({
   "version?": "string | undefined",
 });
 
-/**
- * Analyzer state and provenance derived from one bounded Installed Evidence
- * read. `checker` and `moduleSymbol` always belong to the same compiler program;
- * declaration provenance may resolve to a referenced Declaration Provider.
- */
+/** Bounded analyzer state. Symbols share one program; provenance may use a Declaration Provider. */
 export interface InstalledPackageModule {
   readonly checker: ts.TypeChecker;
   readonly moduleSymbol: ts.Symbol;
@@ -60,10 +56,8 @@ interface InstalledManifest {
 }
 
 /**
- * Resolves and reads one installed package-root or Public Subpath Specifier
- * without executing package or project code. Returns `undefined` only when the
- * package is not visible; expected invalid evidence and exhausted budgets use
- * typed errors.
+ * Reads one installed package root or Public Subpath without executing code.
+ * Returns `undefined` only when not visible; invalid evidence throws typed failures.
  */
 export function readInstalledPackageModule(
   request: NormalizedInspectionTarget,
@@ -130,11 +124,11 @@ function readDeclarationProvenance(
   readonly packageIdentity: PackageIdentity;
   readonly file: string;
 } {
-  // Supporting declarations can belong to another installed package, such as a
-  // Declaration Provider, so provenance follows the declaration's owning manifest.
-  const declarationPackageIdentity = isPathWithin(packageRoot, declarationPath)
-    ? packageIdentity
-    : resolveDeclarationPackageIdentity(declarationPath);
+  const declarationPackageIdentity = declarationPackageIdentityFor(
+    packageRoot,
+    packageIdentity,
+    declarationPath,
+  );
   if (!isPathWithin(repositoryRoot, declarationPath)) {
     throw new UnsupportedInspectionError(
       "A declaration has no repository-relative provenance path.",
@@ -144,6 +138,24 @@ function readDeclarationProvenance(
     packageIdentity: declarationPackageIdentity,
     file: relative(repositoryRoot, declarationPath).split(sep).join("/"),
   };
+}
+
+function declarationPackageIdentityFor(
+  inspectedPackageRoot: string,
+  inspectedPackageIdentity: PackageIdentity,
+  declarationPath: string,
+): PackageIdentity {
+  // Nested node_modules declarations use their own Package Identity.
+  const materializedPackageRoot = findMaterializedPackageRoot(declarationPath);
+  if (materializedPackageRoot !== undefined) {
+    return materializedPackageRoot === inspectedPackageRoot
+      ? inspectedPackageIdentity
+      : readInstalledManifest(materializedPackageRoot).packageIdentity;
+  }
+  // Inner manifests may define module format only; retain the installed package.
+  return isPathWithin(inspectedPackageRoot, declarationPath)
+    ? inspectedPackageIdentity
+    : resolveDeclarationPackageIdentity(declarationPath);
 }
 
 function resolveDeclarationPackageIdentity(declarationPath: string): PackageIdentity {
@@ -245,6 +257,7 @@ function findVisiblePackage(
         repositoryRoot: directory,
       };
     }
+    rejectPlugAndPlayInstallation(directory);
 
     const parent = dirname(directory);
     if (parent === directory) {
@@ -256,16 +269,32 @@ function findVisiblePackage(
   throw new InspectionLimitError("Inspection exceeded its package resolution traversal limit.");
 }
 
+function rejectPlugAndPlayInstallation(directory: string): void {
+  if (hasPlugAndPlayMarker(directory)) {
+    throw new UnsupportedInspectionError(
+      "The Resolution Context uses an unsupported installation without node_modules.",
+    );
+  }
+}
+
+function hasPlugAndPlayMarker(directory: string): boolean {
+  return hasFile(join(directory, ".pnp.cjs")) || hasFile(join(directory, ".pnp.js"));
+}
+
+function hasFile(fileName: string): boolean {
+  try {
+    return statSync(fileName).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function startingDirectory(resolutionContext: string): string {
   return statSync(resolutionContext).isDirectory() ? resolutionContext : dirname(resolutionContext);
 }
 
 function hasPackageManifest(packageRoot: string): boolean {
-  try {
-    return statSync(join(packageRoot, "package.json")).isFile();
-  } catch {
-    return false;
-  }
+  return hasFile(join(packageRoot, "package.json"));
 }
 
 function readInstalledManifest(packageRoot: string): InstalledManifest {
@@ -340,8 +369,7 @@ function inspectionCompilerOptions(): ts.CompilerOptions {
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     noEmit: true,
-    // An Interface Overview only indexes module declarations. Omitting ambient
-    // libraries keeps unrelated standard-library evidence out of this bounded pass.
+    // Exclude ambient libraries from bounded Interface Overviews.
     noLib: true,
     skipLibCheck: true,
     target: ts.ScriptTarget.ES2024,
@@ -372,8 +400,7 @@ function inspectModuleEvidence(
 }
 
 function assertResolvedReExportGraph(checker: ts.TypeChecker, entrypoint: ts.SourceFile): void {
-  // Walking the graph is validation, not indexing: it forces every declaration
-  // re-export to resolve before the module can produce an authoritative result.
+  // Reject unresolved re-export graphs before returning a result.
   const pendingSourceFiles = [entrypoint];
   const visitedSourceFiles = new Set<string>();
 
@@ -432,8 +459,7 @@ function createBoundedCompilerHost(
     sourceByteCount: 0,
   };
 
-  // Allowed package roots form an authorization set. The host may discover new
-  // roots only through compiler-resolved bare package imports.
+  // Bare imports may add compiler-resolved roots to this allowlist.
   return {
     ...defaultHost,
     resolveModuleNameLiterals: (
@@ -475,8 +501,7 @@ function resolveModuleLiteral(
     redirectedReference,
     ts.getModeForUsageLocation(containingSourceFile, moduleLiteral, options),
   );
-  // Only a bare package import resolved by the owned compiler can authorize
-  // another Installed Evidence root. Relative paths cannot expand this set.
+  // Relative imports cannot authorize another package root.
   authorizeExternalPackage(state, moduleLiteral.text, containingFile, resolution.resolvedModule);
   return resolution;
 }
@@ -492,8 +517,7 @@ function authorizeExternalPackage(
   }
 
   const packageRoot =
-    // Ordinary packages are recognized from their physical node_modules path;
-    // linked workspaces use the visibility-based fallback.
+    // Use physical roots first; linked workspaces need visibility lookup.
     findMaterializedPackageRoot(resolvedModule.resolvedFileName) ??
     findReferencedPackageRoot(containingFile, specifier, resolvedModule.resolvedFileName);
   if (packageRoot !== undefined) {
@@ -505,10 +529,7 @@ function isResolvedExternalPackage(
   specifier: string,
   resolvedModule: ts.ResolvedModuleFull | undefined,
 ): resolvedModule is ts.ResolvedModuleFull {
-  // TypeScript may classify workspace packages reached through Windows
-  // directory junctions as non-external. The package-root checks below prove
-  // that the resolved declaration is Installed Evidence without relying on
-  // that platform-sensitive classification.
+  // Windows junctions may not be external; root checks still prove ownership.
   return isBarePackageSpecifier(specifier) && resolvedModule !== undefined;
 }
 
@@ -536,8 +557,7 @@ function resolveReadablePath(
   onError?: (message: string) => void,
 ): string | undefined {
   try {
-    // Containment is checked against the canonical target so a symlink cannot
-    // disguise caller project source as package-owned declarations.
+    // Canonicalize before containment checks to reject symlink escapes.
     return realpathSync(fileName);
   } catch (error) {
     onError?.(String(error));
@@ -635,8 +655,7 @@ function readBoundedUtf8File(fileName: string, maxBytes: number, limitMessage: s
 }
 
 function readBoundedUtf8(fileDescriptor: number, maxBytes: number, limitMessage: string): string {
-  // The sentinel byte proves that the file exceeds the budget without ever
-  // allocating or reading the complete untrusted file.
+  // Read one extra byte to detect overflow without loading the full file.
   const buffer = Buffer.allocUnsafe(maxBytes + 1);
   let totalBytesRead = 0;
 

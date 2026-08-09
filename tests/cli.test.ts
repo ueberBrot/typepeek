@@ -1,10 +1,7 @@
 import { execa } from "execa";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
-import {
-  type CompiledPackageFixture,
-  materializeCompiledPackageFixture,
-} from "./helpers/compiled-package-fixture.ts";
+import { type CompiledPackageFixture, materializeCompiledPackageFixture } from "./helpers/index.ts";
 
 describe("typepeek CLI", () => {
   let fixture: CompiledPackageFixture;

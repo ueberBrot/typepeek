@@ -4,10 +4,7 @@ import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
 import { inspectExport, inspectInterfaceOverview } from "#typepeek/inspection";
 
-import {
-  type CompiledPackageFixture,
-  materializeCompiledPackageFixture,
-} from "./helpers/compiled-package-fixture.ts";
+import { type CompiledPackageFixture, materializeCompiledPackageFixture } from "./helpers/index.ts";
 
 let fixture: CompiledPackageFixture;
 

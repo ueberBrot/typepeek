@@ -9,18 +9,19 @@ Inspect a package-root or Public Subpath Specifier from the dependency
 installation visible to a Resolution Context:
 
 ```bash
-typepeek execa --context .
+typepeek zod --context .
 ```
 
 The initial command prints a deterministic Interface Overview:
 
 ```text
 Interface Overview
-Specifier: execa
-Package: execa@10.0.0
-Module Exports (30):
-- $
-- ExecaError
+Specifier: zod
+Package: zod@<installed-version>
+Module Exports (...):
+- ZodError
+- ZodType
+- z
 ...
 ```
 
@@ -37,7 +38,7 @@ typepeek "@scope/package/public-subpath" --context .
 Select one Module Export for a focused Export Inspection:
 
 ```bash
-typepeek execa --context . --export execa
+typepeek zod --context . --export z
 ```
 
 The focused result keeps callable and constructable signatures in declaration
@@ -53,25 +54,16 @@ package scripts, or download missing material. Unsupported, not-found, and
 limit-exceeded inspections fail explicitly rather than returning a partial
 authoritative result.
 
-## Setup
-
-Install Vite+, which provisions the pinned Node.js and pnpm versions, then
-install the locked dependencies:
-
-```bash
-curl -fsSL https://vite.plus | bash
-vp install --frozen-lockfile
-```
-
-pnpm rejects package versions published less than seven days ago.
-
 ## Development
 
 ```bash
+vp install --frozen-lockfile
 vp run validate              # check → Fallow → test → pack → package smoke
 vp run dependencies          # find eligible dependency updates
 vp run dependencies:update   # select and apply updates
 ```
+
+pnpm rejects package versions published less than seven days ago.
 
 Deterministic validation steps are cached locally. Fallow and Taze always run
 fresh. The pre-commit hook formats and lints staged files through `vp staged`.
