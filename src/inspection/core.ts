@@ -11,7 +11,7 @@ import {
   type InterfaceOverviewRequest,
 } from "#typepeek/inspection/protocol";
 
-const ANALYSIS_DEADLINE_MS = 5_000;
+const ANALYSIS_DEADLINE_MS = 10_000;
 const MAX_RESULT_BYTES = 64 * 1_024;
 
 const DEADLINE_OUTCOME: InspectionOutcome = {

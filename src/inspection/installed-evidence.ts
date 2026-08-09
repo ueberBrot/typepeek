@@ -137,6 +137,11 @@ function readDeclarationProvenance(
     canonicalDeclarationPath,
   );
   if (!isPathWithin(repositoryRoot, canonicalDeclarationPath)) {
+    if (process.env["GITHUB_ACTIONS"] === "true") {
+      console.error(
+        `provenance boundary: repository=${repositoryRoot}; declaration=${canonicalDeclarationPath}`,
+      );
+    }
     throw new UnsupportedInspectionError(
       "A declaration has no repository-relative provenance path.",
     );
@@ -574,6 +579,9 @@ function resolveReadablePath(
 
 function assertAllowedSource(allowedRoots: ReadonlySet<string>, sourcePath: string): void {
   if (![...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, sourcePath))) {
+    if (process.env["GITHUB_ACTIONS"] === "true") {
+      console.error(`source boundary: roots=${[...allowedRoots].join(";")}; source=${sourcePath}`);
+    }
     throw new UnsupportedInspectionError(
       "A declaration references source outside its installed package boundary.",
     );
