@@ -204,7 +204,7 @@ it("follows installed workspace links across Package Module boundaries", async (
     specifier: "@typepeek-fixture/workspace-main",
   });
 
-  expect(outcome).toMatchObject({
+  expect(outcome, JSON.stringify(outcome)).toMatchObject({
     status: "success",
     result: {
       moduleExports: [{ name: "workspaceDependencyExport" }],
@@ -734,7 +734,7 @@ it("attributes re-exported declaration provenance to its owning Package Identity
     exportName: "dependencyExport",
   });
 
-  expect(outcome.status).toBe("success");
+  expect(outcome.status, JSON.stringify(outcome)).toBe("success");
   if (outcome.status !== "success") {
     return;
   }

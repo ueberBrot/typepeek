@@ -57,7 +57,10 @@ describe("Supported Installation package-manager layouts", () => {
           ),
         );
 
-        expect({ focused, manager, overview }).toMatchObject({
+        expect(
+          { focused, manager, overview },
+          `${manager}: ${JSON.stringify({ focused, overview })}`,
+        ).toMatchObject({
           focused: [{ status: "success" }, { status: "success" }],
           manager,
           overview: { status: "success" },
