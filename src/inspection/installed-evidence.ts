@@ -125,30 +125,19 @@ function readDeclarationProvenance(
   readonly packageIdentity: PackageIdentity;
   readonly file: string;
 } {
-  const canonicalDeclarationPath = canonicalPath(declarationPath);
-  if (canonicalDeclarationPath === undefined) {
-    throw new UnsupportedInspectionError(
-      "A declaration provenance path could not be canonicalized.",
-    );
-  }
   const declarationPackageIdentity = declarationPackageIdentityFor(
     packageRoot,
     packageIdentity,
-    canonicalDeclarationPath,
+    declarationPath,
   );
-  if (!isPathWithin(repositoryRoot, canonicalDeclarationPath)) {
-    if (process.env["GITHUB_ACTIONS"] === "true") {
-      console.error(
-        `provenance boundary: repository=${repositoryRoot}; declaration=${canonicalDeclarationPath}`,
-      );
-    }
+  if (!isPathWithin(repositoryRoot, declarationPath)) {
     throw new UnsupportedInspectionError(
       "A declaration has no repository-relative provenance path.",
     );
   }
   return {
     packageIdentity: declarationPackageIdentity,
-    file: relative(repositoryRoot, canonicalDeclarationPath).split(sep).join("/"),
+    file: relative(repositoryRoot, declarationPath).split(sep).join("/"),
   };
 }
 
@@ -579,9 +568,6 @@ function resolveReadablePath(
 
 function assertAllowedSource(allowedRoots: ReadonlySet<string>, sourcePath: string): void {
   if (![...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, sourcePath))) {
-    if (process.env["GITHUB_ACTIONS"] === "true") {
-      console.error(`source boundary: roots=${[...allowedRoots].join(";")}; source=${sourcePath}`);
-    }
     throw new UnsupportedInspectionError(
       "A declaration references source outside its installed package boundary.",
     );
@@ -622,11 +608,6 @@ function isBarePackageSpecifier(specifier: string): boolean {
 }
 
 function findMaterializedPackageRoot(resolvedFileName: string): string | undefined {
-  // Preserve the visible node_modules location before resolving workspace links.
-  const logicalPackageRoot = findMaterializedPackageRootFrom(dirname(resolvedFileName));
-  if (logicalPackageRoot !== undefined) {
-    return logicalPackageRoot;
-  }
   const resolvedSourcePath = canonicalPath(resolvedFileName);
   if (resolvedSourcePath === undefined) {
     return undefined;
