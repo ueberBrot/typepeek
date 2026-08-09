@@ -48,14 +48,6 @@ export async function installDeclaredPackages(options: {
 }): Promise<string> {
   const version = await verifyPackageManager(options.packageManager, options.resolutionContext);
   const offlineArguments = options.offline ? ["--offline"] : [];
-  const cacheDirectory = join(
-    options.cacheRoot,
-    options.packageManager.manager === "npm"
-      ? "npm-cache"
-      : options.packageManager.manager === "pnpm"
-        ? "pnpm-store"
-        : "bun-cache",
-  );
 
   switch (options.packageManager.manager) {
     case "npm":
@@ -70,7 +62,7 @@ export async function installDeclaredPackages(options: {
           "--package-lock=false",
         ],
         cwd: options.resolutionContext,
-        env: { npm_config_cache: cacheDirectory },
+        env: { npm_config_cache: join(options.cacheRoot, "npm-cache") },
         diagnosticContext: options.diagnosticContext,
       });
       return version;
@@ -83,7 +75,7 @@ export async function installDeclaredPackages(options: {
           "--ignore-scripts",
           "--lockfile=false",
           "--store-dir",
-          cacheDirectory,
+          join(options.cacheRoot, "pnpm-store"),
         ],
         cwd: options.resolutionContext,
         diagnosticContext: options.diagnosticContext,
@@ -94,7 +86,7 @@ export async function installDeclaredPackages(options: {
         command: options.packageManager.command,
         arguments_: ["install", ...offlineArguments, "--ignore-scripts", "--no-save"],
         cwd: options.resolutionContext,
-        env: { BUN_INSTALL_CACHE_DIR: cacheDirectory },
+        env: { BUN_INSTALL_CACHE_DIR: join(options.cacheRoot, "bun-cache") },
         diagnosticContext: options.diagnosticContext,
       });
       return version;
