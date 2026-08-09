@@ -1,9 +1,10 @@
 import ts from "@typescript/typescript6";
 import { type } from "arktype";
-import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import { isPathWithin, readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
 import {
   type NormalizedInspectionTarget,
   type PackageIdentity,
@@ -124,19 +125,25 @@ function readDeclarationProvenance(
   readonly packageIdentity: PackageIdentity;
   readonly file: string;
 } {
+  const canonicalDeclarationPath = canonicalPath(declarationPath);
+  if (canonicalDeclarationPath === undefined) {
+    throw new UnsupportedInspectionError(
+      "A declaration provenance path could not be canonicalized.",
+    );
+  }
   const declarationPackageIdentity = declarationPackageIdentityFor(
     packageRoot,
     packageIdentity,
-    declarationPath,
+    canonicalDeclarationPath,
   );
-  if (!isPathWithin(repositoryRoot, declarationPath)) {
+  if (!isPathWithin(repositoryRoot, canonicalDeclarationPath)) {
     throw new UnsupportedInspectionError(
       "A declaration has no repository-relative provenance path.",
     );
   }
   return {
     packageIdentity: declarationPackageIdentity,
-    file: relative(repositoryRoot, declarationPath).split(sep).join("/"),
+    file: relative(repositoryRoot, canonicalDeclarationPath).split(sep).join("/"),
   };
 }
 
@@ -607,6 +614,11 @@ function isBarePackageSpecifier(specifier: string): boolean {
 }
 
 function findMaterializedPackageRoot(resolvedFileName: string): string | undefined {
+  // Preserve the visible node_modules location before resolving workspace links.
+  const logicalPackageRoot = findMaterializedPackageRootFrom(dirname(resolvedFileName));
+  if (logicalPackageRoot !== undefined) {
+    return logicalPackageRoot;
+  }
   const resolvedSourcePath = canonicalPath(resolvedFileName);
   if (resolvedSourcePath === undefined) {
     return undefined;
@@ -643,44 +655,4 @@ function isMaterializedPackageRoot(directory: string): boolean {
     basename(parent) === "node_modules" ||
     (basename(grandparent) === "node_modules" && basename(parent).startsWith("@"))
   );
-}
-
-function readBoundedUtf8File(fileName: string, maxBytes: number, limitMessage: string): string {
-  const fileDescriptor = openSync(fileName, "r");
-  try {
-    return readBoundedUtf8(fileDescriptor, maxBytes, limitMessage);
-  } finally {
-    closeSync(fileDescriptor);
-  }
-}
-
-function readBoundedUtf8(fileDescriptor: number, maxBytes: number, limitMessage: string): string {
-  // Read one extra byte to detect overflow without loading the full file.
-  const buffer = Buffer.allocUnsafe(maxBytes + 1);
-  let totalBytesRead = 0;
-
-  while (totalBytesRead < buffer.length) {
-    const bytesRead = readSync(
-      fileDescriptor,
-      buffer,
-      totalBytesRead,
-      buffer.length - totalBytesRead,
-      null,
-    );
-    if (bytesRead === 0) {
-      break;
-    }
-    totalBytesRead += bytesRead;
-  }
-
-  if (totalBytesRead > maxBytes) {
-    throw new InspectionLimitError(limitMessage);
-  }
-  return buffer.toString("utf8", 0, totalBytesRead);
-}
-
-function isPathWithin(directory: string, candidate: string): boolean {
-  const relativePath = relative(directory, candidate);
-  const escapesToParent = relativePath === ".." || relativePath.startsWith(`..${sep}`);
-  return relativePath === "" || (!escapesToParent && !isAbsolute(relativePath));
 }

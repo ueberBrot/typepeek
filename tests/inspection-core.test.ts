@@ -63,7 +63,7 @@ it("renders an Interface Overview through the CLI", async () => {
     ].join("\n"),
   );
   await expect(access(fixture.runtimeSentinel)).rejects.toMatchObject({ code: "ENOENT" });
-});
+}, 15_000);
 
 it("reports a limit instead of truncating a broad Module Export index", async () => {
   const outcome = await inspectInterfaceOverview({

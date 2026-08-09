@@ -1,6 +1,0 @@
-{
-  "clone_groups": [
-    "src/inspection/installed-evidence.ts:648-686|src/inspection/resolution-variant.ts:699-736",
-    "src/inspection/installed-evidence.ts:679-685|src/inspection/resolution-variant.ts:735-741"
-  ]
-}

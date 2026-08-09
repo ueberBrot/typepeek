@@ -73,12 +73,7 @@ export default defineConfig({
         output: ["dist/**"],
       },
       fallow: {
-        // Preserve the known backlog while rejecting new findings in every category.
-        command: [
-          "fallow dead-code --baseline fallow-baselines/dead-code.json",
-          "fallow dupes --baseline fallow-baselines/dupes.json",
-          "fallow health --baseline fallow-baselines/health.json",
-        ],
+        command: "fallow",
         cache: false,
       },
       dependencies: {

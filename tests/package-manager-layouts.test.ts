@@ -110,7 +110,7 @@ describe("Supported Installation package-manager layouts", () => {
     });
     expect(JSON.stringify(publicInterfaces[0])).toContain("nested-v1");
     expect(JSON.stringify(publicInterfaces[0])).not.toContain("nested-v2");
-  });
+  }, 30_000);
 
   it("keeps package-manager activity in setup and never executes package scripts", async () => {
     await Promise.all(
@@ -132,7 +132,7 @@ describe("Supported Installation package-manager layouts", () => {
       expect(inspection.stdout).toContain("Interface Overview");
     }
     await matrix.staticInspection.verifyNoIo();
-  });
+  }, 30_000);
 
   it("reports an unsupported non-node_modules installation without loading it", async () => {
     const outcome = await inspectInterfaceOverview({

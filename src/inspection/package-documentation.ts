@@ -17,7 +17,7 @@ const UNSAFE_PRESENTATION_RANGES: readonly CodePointRange[] = [
 ];
 const ANSI_CONTROL_SEQUENCE_PREFIX = String.fromCodePoint(0x1b, 0x5b);
 
-type AliasDeclaration =
+export type AliasDeclaration =
   | ts.ExportAssignment
   | ts.ExportSpecifier
   | ts.ImportEqualsDeclaration

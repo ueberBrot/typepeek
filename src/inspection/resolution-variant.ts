@@ -1,16 +1,9 @@
 import ts from "@typescript/typescript6";
-import {
-  closeSync,
-  openSync,
-  opendirSync,
-  readSync,
-  realpathSync,
-  statSync,
-  type Dirent,
-} from "node:fs";
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { opendirSync, realpathSync, statSync, type Dirent } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import { isPathWithin, readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
 import {
   type AccessStyle,
   type NormalizedInspectionTarget,
@@ -24,7 +17,7 @@ const MAX_PUBLIC_SUBPATHS = 200;
 const MAX_PUBLIC_SUBPATH_FILE_DEPTH = 64;
 const MAX_PUBLIC_SUBPATH_FILE_ENTRIES = 4_096;
 
-interface ResolutionVariantSelection {
+export interface ResolutionVariantSelection {
   readonly request: NormalizedInspectionTarget;
   readonly packageRoot: string;
   readonly packageRootSpecifier: string;
@@ -32,7 +25,7 @@ interface ResolutionVariantSelection {
   readonly exports: unknown;
 }
 
-interface SelectedResolutionVariant {
+export interface SelectedResolutionVariant {
   readonly declarationPath: string;
   readonly readPublicSubpaths: () => readonly PublicSubpath[];
 }
@@ -304,13 +297,26 @@ function definitelyBlocksFallback(
   if (target === null) {
     return true;
   }
-  if (!Array.isArray(target) && !isRecord(target)) {
+  if (!isExportTargetContainer(target)) {
     return false;
   }
   const cached = traversal.blockingTargets.get(target);
   if (cached !== undefined) {
     return cached;
   }
+  return calculateBlockingTarget(target, conditions, traversal, depth);
+}
+
+function isExportTargetContainer(target: unknown): target is readonly unknown[] | object {
+  return Array.isArray(target) || isRecord(target);
+}
+
+function calculateBlockingTarget(
+  target: readonly unknown[] | object,
+  conditions: ResolutionConditions,
+  traversal: ExportTargetTraversal,
+  depth: number,
+): boolean {
   reserveExportTargetControlNode(depth, traversal);
   const children = Array.isArray(target)
     ? target
@@ -345,17 +351,36 @@ function isApplicableVersionedTypesCondition(
   condition: string,
   conditions: ResolutionConditions,
 ): boolean {
-  if (!conditions.has("types") || !condition.startsWith("types@")) {
+  if (!conditions.has("types")) {
     return false;
   }
-  const { Version, VersionRange } = typescriptInternals;
-  if (Version === undefined || VersionRange === undefined) {
-    throw new UnsupportedInspectionError(
-      "The TypeScript compiler cannot select versioned package export conditions.",
-    );
+  const rangeText = versionedTypesRange(condition);
+  if (rangeText === undefined) {
+    return false;
   }
-  const range = VersionRange.tryParse(condition.slice("types@".length));
+  return versionRangeMatchesCompiler(rangeText);
+}
+
+function versionedTypesRange(condition: string): string | undefined {
+  return condition.startsWith("types@") ? condition.slice("types@".length) : undefined;
+}
+
+function versionRangeMatchesCompiler(rangeText: string): boolean {
+  const { Version, VersionRange } = typescriptInternals;
+  if (Version === undefined) {
+    return unsupportedVersionedTypesCondition();
+  }
+  if (VersionRange === undefined) {
+    return unsupportedVersionedTypesCondition();
+  }
+  const range = VersionRange.tryParse(rangeText);
   return range?.test(new Version(ts.version)) ?? false;
+}
+
+function unsupportedVersionedTypesCondition(): never {
+  throw new UnsupportedInspectionError(
+    "The TypeScript compiler cannot select versioned package export conditions.",
+  );
 }
 
 function resolutionConditions(accessStyle: AccessStyle): ResolutionConditions {
@@ -477,15 +502,34 @@ function readPackageEntry(
 ): readonly PackageEntry[] {
   const logicalPath = join(logicalDirectory, entry.name);
   const canonicalEntryPath = canonicalPath(logicalPath);
-  if (canonicalEntryPath === undefined || !isPathWithin(packageRoot, canonicalEntryPath)) {
+  if (canonicalEntryPath === undefined) {
     return [];
   }
-  if (entry.isDirectory() || (entry.isSymbolicLink() && isDirectory(canonicalEntryPath))) {
-    return [{ canonicalPath: canonicalEntryPath, kind: "directory", logicalPath }];
+  if (!isPathWithin(packageRoot, canonicalEntryPath)) {
+    return [];
   }
-  return entry.isFile() || (entry.isSymbolicLink() && isFile(canonicalEntryPath))
-    ? [{ canonicalPath: canonicalEntryPath, kind: "file", logicalPath }]
-    : [];
+  const kind = packageEntryKind(entry, canonicalEntryPath);
+  return kind === undefined ? [] : [{ canonicalPath: canonicalEntryPath, kind, logicalPath }];
+}
+
+function packageEntryKind(
+  entry: Dirent,
+  canonicalEntryPath: string,
+): PackageEntry["kind"] | undefined {
+  if (entry.isDirectory()) {
+    return "directory";
+  }
+  if (entry.isFile()) {
+    return "file";
+  }
+  return entry.isSymbolicLink() ? linkedPackageEntryKind(canonicalEntryPath) : undefined;
+}
+
+function linkedPackageEntryKind(canonicalEntryPath: string): PackageEntry["kind"] | undefined {
+  if (isDirectory(canonicalEntryPath)) {
+    return "directory";
+  }
+  return isFile(canonicalEntryPath) ? "file" : undefined;
 }
 
 function readBoundedDirectoryEntries(
@@ -696,47 +740,6 @@ function canonicalPath(fileName: string): string | undefined {
   }
 }
 
-function readBoundedUtf8File(fileName: string, maxBytes: number, limitMessage: string): string {
-  const fileDescriptor = openSync(fileName, "r");
-  try {
-    return readBoundedUtf8(fileDescriptor, maxBytes, limitMessage);
-  } finally {
-    closeSync(fileDescriptor);
-  }
-}
-
-function readBoundedUtf8(fileDescriptor: number, maxBytes: number, limitMessage: string): string {
-  // The sentinel byte proves that the file exceeds the budget without ever
-  // allocating or reading the complete untrusted file.
-  const buffer = Buffer.allocUnsafe(maxBytes + 1);
-  let totalBytesRead = 0;
-
-  while (totalBytesRead < buffer.length) {
-    const bytesRead = readSync(
-      fileDescriptor,
-      buffer,
-      totalBytesRead,
-      buffer.length - totalBytesRead,
-      null,
-    );
-    if (bytesRead === 0) {
-      break;
-    }
-    totalBytesRead += bytesRead;
-  }
-
-  if (totalBytesRead > maxBytes) {
-    throw new InspectionLimitError(limitMessage);
-  }
-  return buffer.toString("utf8", 0, totalBytesRead);
-}
-
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isPathWithin(directory: string, candidate: string): boolean {
-  const relativePath = relative(directory, candidate);
-  const escapesToParent = relativePath === ".." || relativePath.startsWith(`..${sep}`);
-  return relativePath === "" || (!escapesToParent && !isAbsolute(relativePath));
 }
