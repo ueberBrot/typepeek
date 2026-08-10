@@ -198,6 +198,18 @@ it("rejects an unresolved declaration re-export instead of returning a partial i
   });
 });
 
+it("rejects a physically hoisted re-export not declared by its Package Module", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/undeclared-reexport",
+  });
+
+  expect(outcome).toEqual({
+    status: "unsupported",
+    message: "A declaration re-export could not be resolved from Installed Evidence.",
+  });
+});
+
 it("follows installed workspace links across Package Module boundaries", async () => {
   const outcome = await inspectInterfaceOverview({
     resolutionContext: fixture.resolutionContext,

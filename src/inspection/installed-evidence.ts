@@ -56,6 +56,18 @@ interface InstalledManifest {
   readonly exports: unknown;
 }
 
+interface AncestorManifest {
+  readonly directory: string;
+  readonly manifest: Readonly<Record<string, unknown>>;
+}
+
+const DEPENDENCY_FIELDS = [
+  "dependencies",
+  "devDependencies",
+  "optionalDependencies",
+  "peerDependencies",
+] as const;
+
 /**
  * Reads one installed package root or Public Subpath without executing code.
  * Returns `undefined` only when not visible; invalid evidence throws typed failures.
@@ -160,16 +172,9 @@ function declarationPackageIdentityFor(
 }
 
 function resolveDeclarationPackageIdentity(declarationPath: string): PackageIdentity {
-  let directory = dirname(declarationPath);
-  for (let depth = 0; depth < MAX_PACKAGE_SEARCH_DEPTH; depth += 1) {
-    if (hasPackageManifest(directory)) {
-      return readInstalledManifest(directory).packageIdentity;
-    }
-    const parent = dirname(directory);
-    if (parent === directory) {
-      break;
-    }
-    directory = parent;
+  const owningManifest = findAncestorManifest(dirname(declarationPath), () => true);
+  if (owningManifest !== undefined) {
+    return readInstalledManifest(owningManifest.directory).packageIdentity;
   }
   throw new UnsupportedInspectionError(
     "A declaration has no owning Package Identity for provenance.",
@@ -248,14 +253,18 @@ function findVisiblePackage(
   resolutionContext: string,
   packageSegments: readonly string[],
 ): VisiblePackageLocation | undefined {
-  let directory = startingDirectory(resolutionContext);
+  const contextDirectory = startingDirectory(resolutionContext);
+  if (!isDeclaredFromResolutionContext(contextDirectory, packageSegments.join("/"))) {
+    return undefined;
+  }
+  let directory = contextDirectory;
 
   for (let depth = 0; depth < MAX_PACKAGE_SEARCH_DEPTH; depth += 1) {
     const candidate = join(directory, "node_modules", ...packageSegments);
     if (hasPackageManifest(candidate)) {
       return {
         packageRoot: candidate,
-        repositoryRoot: directory,
+        repositoryRoot: findWorkspaceRoot(contextDirectory) ?? directory,
       };
     }
     rejectPlugAndPlayInstallation(directory);
@@ -268,6 +277,71 @@ function findVisiblePackage(
   }
 
   throw new InspectionLimitError("Inspection exceeded its package resolution traversal limit.");
+}
+
+function isDeclaredFromResolutionContext(contextDirectory: string, packageName: string): boolean {
+  const contextManifest = findContextManifest(contextDirectory, false);
+  return (
+    contextManifest !== undefined &&
+    DEPENDENCY_FIELDS.some((field) => hasOwnStringProperty(contextManifest[field], packageName))
+  );
+}
+
+function findContextManifest(
+  contextDirectory: string,
+  requirePackageIdentity: boolean,
+): Readonly<Record<string, unknown>> | undefined {
+  return findAncestorManifest(
+    contextDirectory,
+    (_directory, manifest) =>
+      !requirePackageIdentity || readPackageIdentity(manifest) !== undefined,
+  )?.manifest;
+}
+
+function isDeclaredByContainingPackage(containingFile: string, packageName: string): boolean {
+  const packageManifest = findContextManifest(startingDirectory(containingFile), true);
+  return (
+    packageManifest !== undefined &&
+    DEPENDENCY_FIELDS.some((field) => hasOwnStringProperty(packageManifest[field], packageName))
+  );
+}
+
+function findWorkspaceRoot(contextDirectory: string): string | undefined {
+  return findAncestorManifest(
+    contextDirectory,
+    (directory, manifest) =>
+      hasWorkspaceDeclaration(manifest) || hasFile(join(directory, "pnpm-workspace.yaml")),
+  )?.directory;
+}
+
+function findAncestorManifest(
+  startingDirectory: string,
+  predicate: (directory: string, manifest: Readonly<Record<string, unknown>>) => boolean,
+): AncestorManifest | undefined {
+  let directory = startingDirectory;
+  for (let depth = 0; depth < MAX_PACKAGE_SEARCH_DEPTH; depth += 1) {
+    if (hasPackageManifest(directory)) {
+      const manifest = readManifestRecord(directory);
+      if (predicate(directory, manifest)) {
+        return { directory, manifest };
+      }
+    }
+    const parent = dirname(directory);
+    if (parent === directory) {
+      return undefined;
+    }
+    directory = parent;
+  }
+  throw new InspectionLimitError("Inspection exceeded its package resolution traversal limit.");
+}
+
+function hasWorkspaceDeclaration(manifest: Readonly<Record<string, unknown>>): boolean {
+  const workspaces = manifest["workspaces"];
+  return Array.isArray(workspaces) || isRecord(workspaces);
+}
+
+function hasOwnStringProperty(value: unknown, property: string): boolean {
+  return isRecord(value) && Object.hasOwn(value, property) && typeof value[property] === "string";
 }
 
 function rejectPlugAndPlayInstallation(directory: string): void {
@@ -299,20 +373,25 @@ function hasPackageManifest(packageRoot: string): boolean {
 }
 
 function readInstalledManifest(packageRoot: string): InstalledManifest {
-  const manifestText = readBoundedUtf8File(
-    join(packageRoot, "package.json"),
-    MAX_MANIFEST_BYTES,
-    "Inspection exceeded its package manifest size limit.",
-  );
-  const manifest = parseManifest(manifestText);
+  const manifest = readManifestRecord(packageRoot);
   const packageIdentity = readPackageIdentity(manifest);
-  if (packageIdentity === undefined || !isRecord(manifest)) {
+  if (packageIdentity === undefined) {
     return invalidPackageIdentity();
   }
   return {
     packageIdentity,
     exports: manifest["exports"],
   };
+}
+
+function readManifestRecord(packageRoot: string): Readonly<Record<string, unknown>> {
+  const manifestText = readBoundedUtf8File(
+    join(packageRoot, "package.json"),
+    MAX_MANIFEST_BYTES,
+    "Inspection exceeded its package manifest size limit.",
+  );
+  const manifest = parseManifest(manifestText);
+  return isRecord(manifest) ? manifest : invalidPackageIdentity();
 }
 
 function readPackageIdentity(value: unknown): PackageIdentity | undefined {
@@ -503,8 +582,14 @@ function resolveModuleLiteral(
     ts.getModeForUsageLocation(containingSourceFile, moduleLiteral, options),
   );
   // Relative imports cannot authorize another package root.
-  authorizeExternalPackage(state, moduleLiteral.text, containingFile, resolution.resolvedModule);
-  return resolution;
+  return authorizeExternalPackage(
+    state,
+    moduleLiteral.text,
+    containingFile,
+    resolution.resolvedModule,
+  )
+    ? resolution
+    : { ...resolution, resolvedModule: undefined };
 }
 
 function authorizeExternalPackage(
@@ -512,18 +597,28 @@ function authorizeExternalPackage(
   specifier: string,
   containingFile: string,
   resolvedModule: ts.ResolvedModuleFull | undefined,
-): void {
+): boolean {
   if (!isResolvedExternalPackage(specifier, resolvedModule)) {
-    return;
+    return true;
+  }
+  const packageSegments = parsePackageNameSegments(specifier);
+  if (
+    packageSegments === undefined ||
+    !isDeclaredByContainingPackage(containingFile, packageSegments.join("/"))
+  ) {
+    return false;
   }
 
+  // Every referenced Package Module must be declared by the containing
+  // package, even when a hoisted physical installation happens to resolve.
   const packageRoot =
-    // Use physical roots first; linked workspaces need visibility lookup.
     findMaterializedPackageRoot(resolvedModule.resolvedFileName) ??
     findReferencedPackageRoot(containingFile, specifier, resolvedModule.resolvedFileName);
   if (packageRoot !== undefined) {
     state.allowedPackageRoots.add(packageRoot);
+    return true;
   }
+  return false;
 }
 
 function isResolvedExternalPackage(

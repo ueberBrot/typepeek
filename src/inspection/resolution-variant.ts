@@ -650,7 +650,7 @@ function resolvePackageDeclaration(
     undefined,
     resolutionMode(accessStyle),
   );
-  return isDeclarationResolution(resolution.resolvedModule)
+  return isInspectableTypeScriptResolution(resolution.resolvedModule)
     ? resolution.resolvedModule.resolvedFileName
     : undefined;
 }
@@ -694,18 +694,22 @@ function readPackageResolutionFile(fileName: string): string | undefined {
   }
 }
 
-function isDeclarationResolution(
+function isInspectableTypeScriptResolution(
   resolvedModule: ts.ResolvedModuleFull | undefined,
 ): resolvedModule is ts.ResolvedModuleFull {
-  return resolvedModule !== undefined && isDeclarationExtension(resolvedModule.extension);
+  return resolvedModule !== undefined && isInspectableTypeScriptExtension(resolvedModule.extension);
 }
 
-function isDeclarationExtension(extension: string): boolean {
-  return (
-    extension === ts.Extension.Dts ||
-    extension === ts.Extension.Dmts ||
-    extension === ts.Extension.Dcts
-  );
+function isInspectableTypeScriptExtension(extension: string): boolean {
+  return [
+    ts.Extension.Ts,
+    ts.Extension.Tsx,
+    ts.Extension.Mts,
+    ts.Extension.Cts,
+    ts.Extension.Dts,
+    ts.Extension.Dmts,
+    ts.Extension.Dcts,
+  ].includes(extension as ts.Extension);
 }
 
 function startingDirectory(resolutionContext: string): string {

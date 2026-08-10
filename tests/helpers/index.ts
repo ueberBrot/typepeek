@@ -8,3 +8,7 @@ export {
 } from "./package-manager-matrix.ts";
 export { PACKAGE_MANAGER_PINS } from "./package-toolchain.ts";
 export { type PackagedCliMatrix, materializePackagedCliMatrix } from "./packaged-cli-matrix.ts";
+export {
+  type WorkspacePackageMatrix,
+  materializeWorkspacePackageMatrix,
+} from "./workspace-package-matrix.ts";

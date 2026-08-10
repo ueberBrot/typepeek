@@ -45,6 +45,9 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       'throw new Error("Typepeek executed the fixture runtime");',
       "",
     ].join("\n"),
+    dependencies: {
+      "@typepeek-fixture/dependency": "1.0.0",
+    },
     exports: {
       ".": {
         types: "./dist/index.d.ts",
@@ -220,6 +223,13 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "",
     ].join("\n"),
     runtime: 'throw new Error("Typepeek executed the unresolved fixture runtime");\n',
+  },
+  {
+    directory: "undeclared-reexport-package",
+    name: "@typepeek-fixture/undeclared-reexport",
+    version: "1.0.0",
+    declaration: 'export { dependencyExport } from "@typepeek-fixture/dependency";\n',
+    runtime: 'throw new Error("Typepeek executed the undeclared re-export runtime");\n',
   },
   {
     directory: "conditional-package",
@@ -602,6 +612,9 @@ export async function materializeCompiledPackageFixture(): Promise<CompiledPacka
         name: "fixture-repository",
         private: true,
         workspaces: ["packages/*"],
+        dependencies: {
+          "@typepeek-fixture/workspace-main": "1.0.0",
+        },
       }),
     ),
     writeFile(
