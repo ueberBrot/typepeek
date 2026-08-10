@@ -1,6 +1,10 @@
 import ts from "@typescript/typescript6";
 
 import {
+  type CompilerWorkSession,
+  createCompilerWorkSession,
+} from "#typepeek/inspection/compiler-work-session";
+import {
   StaticBoundaryInspectionError,
   UnsupportedInspectionError,
 } from "#typepeek/inspection/errors";
@@ -45,6 +49,7 @@ export interface InspectableModuleEvidence {
 }
 
 interface DeclarationProviderSelectionBase {
+  readonly compilerWorkSession: CompilerWorkSession;
   readonly resolutionContextDirectory: string;
   readonly declarationPath: string;
   readonly declarationRoot: string;
@@ -82,7 +87,7 @@ export function readInspectableModuleEvidence(
   selectedExportName?: string,
 ): InspectableModuleEvidence | undefined {
   assertAbsoluteResolutionContext(request.resolutionContext);
-  const selection = selectDeclarationProvider(request);
+  const selection = selectDeclarationProvider(request, createCompilerWorkSession());
   return selection === undefined
     ? undefined
     : materializeInspectableModule(selection, selectedExportName);
@@ -90,14 +95,16 @@ export function readInspectableModuleEvidence(
 
 function selectDeclarationProvider(
   request: NormalizedInspectionTarget,
+  compilerWorkSession: CompilerWorkSession,
 ): DeclarationProviderSelection | undefined {
   return isNodePlatformSpecifier(request.specifier)
-    ? selectNodeDeclarationProvider(request)
-    : selectPackageDeclarationProvider(request);
+    ? selectNodeDeclarationProvider(request, compilerWorkSession)
+    : selectPackageDeclarationProvider(request, compilerWorkSession);
 }
 
 function selectPackageDeclarationProvider(
   request: NormalizedInspectionTarget,
+  compilerWorkSession: CompilerWorkSession,
 ): DeclarationProviderSelection | undefined {
   const packageSpecifier = parsePackageSpecifier(request.specifier);
   if (packageSpecifier === undefined) {
@@ -120,6 +127,7 @@ function selectPackageDeclarationProvider(
     declarationProviderSegments(packageSpecifier.packageRootSpecifier),
   );
   const resolutionVariant = selectResolutionVariant({
+    compilerWorkSession,
     request,
     packageRoot: canonicalPackageRoot,
     packageRootSpecifier: packageSpecifier.packageRootSpecifier,
@@ -137,6 +145,7 @@ function selectPackageDeclarationProvider(
   );
   return {
     kind: "package",
+    compilerWorkSession,
     resolutionContextDirectory: canonicalPackageBoundary(packageLocation.contextDirectory),
     ambientSpecifier: separateProviderAmbientSpecifier(
       declarationPackage.root,
@@ -154,12 +163,13 @@ function selectPackageDeclarationProvider(
     readPublicSubpaths: resolutionVariant.readPublicSubpaths,
     supportingTypeScope: { kind: "package" },
     providerIdentity: declarationPackage.identity,
-    readNodeDeclarationProvider: () => visibleNodeDeclarationProvider(request),
+    readNodeDeclarationProvider: () => visibleNodeDeclarationProvider(request, compilerWorkSession),
   };
 }
 
 function visibleNodeDeclarationProvider(
   request: NormalizedInspectionTarget,
+  compilerWorkSession: CompilerWorkSession,
 ): NodeDeclarationProvider | undefined {
   const providerLocation = findVisiblePackage(request.resolutionContext, ["@types", "node"]);
   if (providerLocation === undefined) {
@@ -168,6 +178,7 @@ function visibleNodeDeclarationProvider(
   const providerManifest = readInstalledManifest(providerLocation.packageRoot);
   const declarationRoot = canonicalPackageBoundary(providerLocation.packageRoot);
   const resolutionVariant = selectResolutionVariant({
+    compilerWorkSession,
     request: { ...request, specifier: "@types/node" },
     packageRoot: declarationRoot,
     packageRootSpecifier: "@types/node",
@@ -180,6 +191,7 @@ function visibleNodeDeclarationProvider(
 
 function selectNodeDeclarationProvider(
   request: NormalizedInspectionTarget,
+  compilerWorkSession: CompilerWorkSession,
 ): DeclarationProviderSelection {
   if (!isKnownNodePlatformSpecifier(request.specifier)) {
     throw new UnsupportedInspectionError(
@@ -199,6 +211,7 @@ function selectNodeDeclarationProvider(
     specifier: "@types/node",
   };
   const resolutionVariant = selectResolutionVariant({
+    compilerWorkSession,
     request: providerRequest,
     packageRoot: providerRoot,
     packageRootSpecifier: "@types/node",
@@ -208,6 +221,7 @@ function selectNodeDeclarationProvider(
   assertNoNestedDeclarationOwner(providerRoot, resolutionVariant.declarationPath);
   return {
     kind: "platform",
+    compilerWorkSession,
     resolutionContextDirectory: canonicalPackageBoundary(providerLocation.contextDirectory),
     specifier: request.specifier,
     declarationPath: resolutionVariant.declarationPath,

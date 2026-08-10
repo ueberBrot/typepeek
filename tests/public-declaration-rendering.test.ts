@@ -2,9 +2,10 @@ import ts from "@typescript/typescript6";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  projectPublicDeclaration,
   publicDeclarations,
-  renderPublicDeclaration,
-} from "#typepeek/inspection/public-declaration-rendering";
+} from "#typepeek/inspection/public-declaration-projection";
+import { renderPublicDeclaration } from "#typepeek/inspection/public-declaration-rendering";
 
 describe("Public Interface declaration rendering", () => {
   it("recovers inferred types while removing source implementation", () => {
@@ -116,6 +117,119 @@ describe("Public Interface declaration rendering", () => {
     expect(renderExport(source, "Values")).toBe("enum Values {\n    First = 1,\n    Hidden\n}");
   });
 
+  it("preserves constructor accessibility without exposing private parameters", () => {
+    const source = [
+      "export class Token {",
+      "  private constructor(",
+      "    public readonly visible: string,",
+      "    protected count: number,",
+      "    private secret: boolean,",
+      "  ) { void secret; }",
+      '  static create() { return new Token("visible", 1, true); }',
+      "}",
+      "export class ExtensibleToken {",
+      "  protected constructor(secret: string) { void secret; }",
+      "}",
+    ].join("\n");
+
+    expect(renderExport(source, "Token")).toBe(
+      [
+        "class Token {",
+        "    readonly visible: string;",
+        "    protected count: number;",
+        "    private constructor();",
+        "    static create(): Token;",
+        "}",
+      ].join("\n"),
+    );
+    expect(renderExport(source, "ExtensibleToken")).toBe(
+      ["class ExtensibleToken {", "    protected constructor(secret: string);", "}"].join("\n"),
+    );
+  });
+
+  it("removes an overload implementation whose equivalent property name uses different syntax", () => {
+    const source = [
+      "export declare const key: unique symbol;",
+      "declare const alias: typeof key;",
+      "declare const symbols: { readonly key: unique symbol };",
+      'declare const property: "key";',
+      "declare const wrappedSymbols: { readonly key: unique symbol };",
+      "export class ComputedOverload {",
+      '  ["method"](value: string): string;',
+      '  ["method"](value: number): number;',
+      "  method(value: string | number) { return value; }",
+      "  [key](value: string): string;",
+      "  [alias](value: string) { return value; }",
+      "  [symbols.key](value: number): number;",
+      "  [symbols[property]](value: number) { return value; }",
+      "  [wrappedSymbols.key](value: boolean): boolean;",
+      '  [wrappedSymbols[("key")]](value: boolean) { return value; }',
+      "}",
+    ].join("\n");
+
+    expect(renderExport(source, "ComputedOverload")).toBe(
+      [
+        "class ComputedOverload {",
+        '    ["method"](value: string): string;',
+        '    ["method"](value: number): number;',
+        "    [key](value: string): string;",
+        "    [symbols.key](value: number): number;",
+        "    [wrappedSymbols.key](value: boolean): boolean;",
+        "}",
+      ].join("\n"),
+    );
+  });
+
+  it("preserves parameter properties declared only by overload implementations", () => {
+    const source = [
+      "class Visible {}",
+      "export class PublicToken {",
+      "  constructor(visible: Visible);",
+      "  constructor(public readonly visible: Visible) {}",
+      "}",
+      "export class PrivateToken {",
+      "  private constructor(visible: Visible);",
+      "  private constructor(public readonly visible: Visible) {}",
+      "}",
+    ].join("\n");
+
+    expect(renderExport(source, "PublicToken")).toBe(
+      [
+        "class PublicToken {",
+        "    readonly visible: Visible;",
+        "    constructor(visible: Visible);",
+        "}",
+      ].join("\n"),
+    );
+    expect(renderExport(source, "PrivateToken")).toBe(
+      [
+        "class PrivateToken {",
+        "    readonly visible: Visible;",
+        "    private constructor();",
+        "}",
+      ].join("\n"),
+    );
+  });
+
+  it("traverses visible parameter properties without leaking hidden private constructor inputs", () => {
+    const source = [
+      "class Visible {}",
+      "class Secret {}",
+      "export class Token {",
+      "  private constructor(public visible = new Visible(), secret = new Secret()) {}",
+      "}",
+    ].join("\n");
+    const { checker, declarations } = exportedDeclarations(source, "Token");
+    const inferredNames = declarations.flatMap((declaration) =>
+      projectPublicDeclaration(checker, declaration).inferredTypes.map((type) =>
+        type.symbol?.getName(),
+      ),
+    );
+
+    expect(inferredNames).toContain("Visible");
+    expect(inferredNames).not.toContain("Secret");
+  });
+
   it("rejects inferred async returns that cannot be authoritative without libraries", () => {
     expect(() =>
       renderExport("export async function loadValue() { return 1; }", "loadValue"),
@@ -169,6 +283,16 @@ describe("Public Interface declaration rendering", () => {
 });
 
 function renderExport(sourceText: string, exportName: string): string {
+  const { checker, declarations } = exportedDeclarations(sourceText, exportName);
+  return declarations
+    .map((declaration) => renderPublicDeclaration(checker, declaration))
+    .join("\n");
+}
+
+function exportedDeclarations(
+  sourceText: string,
+  exportName: string,
+): { readonly checker: ts.TypeChecker; readonly declarations: readonly ts.Declaration[] } {
   const fileName = "/typepeek-public-interface.ts";
   const sourceFile = ts.createSourceFile(
     fileName,
@@ -203,11 +327,9 @@ function renderExport(sourceText: string, exportName: string): string {
   const exportedSymbol = checker
     .getExportsOfModule(moduleSymbol)
     .find((symbol) => symbol.getName() === exportName);
-  const declarations = publicDeclarations(exportedSymbol?.declarations ?? []);
+  const declarations = publicDeclarations(checker, exportedSymbol?.declarations ?? []);
   if (declarations.length === 0) {
     throw new Error(`Test source did not export ${exportName}.`);
   }
-  return declarations
-    .map((declaration) => renderPublicDeclaration(checker, declaration))
-    .join("\n");
+  return { checker, declarations };
 }

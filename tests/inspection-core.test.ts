@@ -102,6 +102,25 @@ it("reports a limit instead of truncating broad Public Subpath evidence", async 
   });
 });
 
+it("reuses bounded compiler evidence across the maximum Public Subpath set", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/bounded-subpaths",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.publicSubpaths).toHaveLength(512);
+  expect(outcome.result.publicSubpaths.at(0)).toEqual({
+    specifier: "@typepeek-fixture/bounded-subpaths/feature-0",
+  });
+  expect(outcome.result.publicSubpaths.at(-1)).toEqual({
+    specifier: "@typepeek-fixture/bounded-subpaths/feature-99",
+  });
+});
+
 it("does not enumerate Public Subpaths for a focused root Export Inspection", async () => {
   const outcome = await inspectExport({
     resolutionContext: fixture.resolutionContext,
@@ -580,6 +599,134 @@ it("preserves public constructor inputs without exposing private parameter prope
   expect(JSON.stringify(outcome.result.moduleExport.spaces)).not.toContain(
     "private readonly input",
   );
+});
+
+it("preserves private-constructor instance properties without advertising construction", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/private-constructor-source",
+    exportName: "PrivateToken",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const publicSurface = JSON.stringify(outcome.result.moduleExport.spaces);
+  expect(outcome.result.moduleExport.signatures).toEqual([]);
+  expect(publicSurface).toContain("readonly visible: VisibleOnly;");
+  expect(publicSurface).toContain("protected inherited: VisibleOnly;");
+  expect(publicSurface).toContain("private constructor();");
+  expect(publicSurface).not.toContain("secret");
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toEqual(["VisibleOnly"]);
+});
+
+it("does not advertise a protected constructor as publicly constructible", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/private-constructor-source",
+    exportName: "ProtectedToken",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.moduleExport.signatures).toEqual([]);
+  expect(JSON.stringify(outcome.result.moduleExport.spaces)).toContain(
+    "protected constructor(input: ConstructorInput);",
+  );
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toEqual(["ConstructorInput"]);
+});
+
+it("projects parameter properties from public and private overload implementations", async () => {
+  const [publicOutcome, privateOutcome] = await Promise.all([
+    inspectExport({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/private-constructor-source",
+      exportName: "PublicOverloadedToken",
+    }),
+    inspectExport({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/private-constructor-source",
+      exportName: "PrivateOverloadedToken",
+    }),
+  ]);
+
+  expect(publicOutcome.status).toBe("success");
+  expect(privateOutcome.status).toBe("success");
+  if (publicOutcome.status !== "success" || privateOutcome.status !== "success") {
+    return;
+  }
+  expect(JSON.stringify(publicOutcome.result.moduleExport.spaces)).toContain(
+    "readonly visible: VisibleOnly;",
+  );
+  expect(publicOutcome.result.moduleExport.signatures).toEqual([
+    { kind: "construct", text: "new (visible: VisibleOnly): PublicOverloadedToken" },
+  ]);
+  expect(JSON.stringify(privateOutcome.result.moduleExport.spaces)).toContain(
+    "readonly visible: VisibleOnly;",
+  );
+  for (const declaration of privateOutcome.result.moduleExport.spaces.flatMap((space) =>
+    space.space === "namespace" ? [] : space.declarations,
+  )) {
+    expect(declaration.text.match(/private constructor/g)).toHaveLength(1);
+  }
+  expect(privateOutcome.result.moduleExport.signatures).toEqual([]);
+  expect(privateOutcome.result.supportingTypes.map(({ name }) => name)).toEqual(["VisibleOnly"]);
+});
+
+it("does not advertise an abstract class as publicly constructible", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/private-constructor-source",
+    exportName: "AbstractBase",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.moduleExport.signatures).toEqual([]);
+  expect(JSON.stringify(outcome.result.moduleExport.spaces)).toContain(
+    "abstract class AbstractBase",
+  );
+  expect(JSON.stringify(outcome.result.moduleExport.spaces)).toContain(
+    "constructor(value: string);",
+  );
+});
+
+it("does not advertise an abstract constructor type as publicly constructible", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/private-constructor-source",
+    exportName: "AbstractConstructor",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.moduleExport.signatures).toEqual([]);
+  expect(JSON.stringify(outcome.result.moduleExport.spaces)).toContain(
+    "abstract new (value: string)",
+  );
+});
+
+it("groups computed overloads by their checker-resolved property identity", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/private-constructor-source",
+    exportName: "ComputedOverloaded",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const publicSurface = JSON.stringify(outcome.result.moduleExport.spaces);
+  expect(publicSurface).toContain("[computedKey](value: string): string;");
+  expect(publicSurface).not.toContain("computedAlias");
 });
 
 it("keeps JSDoc tags as bounded untrusted Package Documentation", async () => {

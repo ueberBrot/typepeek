@@ -2,6 +2,7 @@ import ts from "@typescript/typescript6";
 import { opendirSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
+import type { CompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
 import {
   InspectionLimitError,
   StaticBoundaryInspectionError,
@@ -22,8 +23,6 @@ import { selectNodeDeclarationProgram } from "#typepeek/inspection/node-declarat
 
 const MAX_SOURCE_FILES = 384;
 const MAX_SOURCE_BYTES = 4 * 1_024 * 1_024;
-const MAX_COMPILER_HOST_OPERATIONS = 50_000;
-const MAX_COMPILER_RESOLUTION_BYTES = 8 * 1_024 * 1_024;
 const MAX_DECLARATION_GRAPH_DEPTH = 256;
 const MAX_DECLARATION_GRAPH_NODES = 250_000;
 
@@ -41,8 +40,7 @@ interface CompilerHostState {
   readonly directoriesCache: Map<string, string[]>;
   readonly realpathCache: Map<string, string>;
   readonly sourceFileCache: Map<string, ts.SourceFile | undefined>;
-  compilerHostOperations: number;
-  resolutionByteCount: number;
+  readonly compilerWorkSession: CompilerWorkSession;
   sourceFileCount: number;
   sourceByteCount: number;
 }
@@ -76,6 +74,7 @@ interface ReExportGraphState {
 }
 
 export type InstalledProgramSelection = {
+  readonly compilerWorkSession: CompilerWorkSession;
   readonly declarationPath: string;
   readonly declarationRoot: string;
   readonly resolutionContextDirectory: string;
@@ -106,6 +105,7 @@ export function materializeInstalledProgram(
     [selection.declarationRoot],
     selection.resolutionContextDirectory,
     compilerOptions,
+    selection.compilerWorkSession,
   );
   const initialProgram = ts.createProgram({
     rootNames: [selection.declarationPath],
@@ -604,6 +604,7 @@ function createBoundedCompilerHost(
   packageRoots: readonly string[],
   resolutionContextDirectory: string,
   compilerOptions: ts.CompilerOptions,
+  compilerWorkSession: CompilerWorkSession,
 ): BoundedCompilerHost {
   const defaultHost = ts.createCompilerHost(compilerOptions, true);
   const resolutionHostBase: ts.CompilerHost = {
@@ -633,8 +634,7 @@ function createBoundedCompilerHost(
     directoriesCache: new Map(),
     realpathCache: new Map(),
     sourceFileCache: new Map(),
-    compilerHostOperations: 0,
-    resolutionByteCount: 0,
+    compilerWorkSession,
     sourceFileCount: 0,
     sourceByteCount: 0,
   };
@@ -731,13 +731,7 @@ function createBoundedResolutionHost(state: CompilerHostState): ts.ModuleResolut
     readFile: (fileName) =>
       cachedCompilerHostResult(state, state.readFileCache, fileName, () => {
         try {
-          const contents = readBoundedUtf8File(
-            fileName,
-            MAX_COMPILER_RESOLUTION_BYTES - state.resolutionByteCount,
-            "Inspection exceeded its compiler host byte limit.",
-          );
-          reserveCompilerResolutionBytes(state, Buffer.byteLength(contents));
-          return contents;
+          return state.compilerWorkSession.readResolutionFile(fileName);
         } catch (error) {
           if (error instanceof InspectionLimitError) {
             throw error;
@@ -817,26 +811,11 @@ function cachedCompilerHostResult<Result>(
 }
 
 function reserveCompilerHostOperations(state: CompilerHostState, count: number): void {
-  state.compilerHostOperations += count;
-  if (state.compilerHostOperations > MAX_COMPILER_HOST_OPERATIONS) {
-    throw new InspectionLimitError("Inspection exceeded its compiler host work limit.");
-  }
-}
-
-function reserveCompilerResolutionBytes(state: CompilerHostState, count: number): void {
-  state.resolutionByteCount += count;
-  if (state.resolutionByteCount > MAX_COMPILER_RESOLUTION_BYTES) {
-    throw new InspectionLimitError("Inspection exceeded its compiler host byte limit.");
-  }
+  state.compilerWorkSession.reserveOperations(count);
 }
 
 function createPackageBoundaryObserver(state: CompilerHostState): PackageBoundaryObserver {
-  return {
-    manifestCache: state.packageManifestCache,
-    remainingBytes: () => MAX_COMPILER_RESOLUTION_BYTES - state.resolutionByteCount,
-    reserveBytes: (count) => reserveCompilerResolutionBytes(state, count),
-    reserveOperation: () => reserveCompilerHostOperations(state, 1),
-  };
+  return state.compilerWorkSession.observePackageBoundary(state.packageManifestCache);
 }
 
 function resolveTypeReferenceDirectiveReference(

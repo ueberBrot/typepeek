@@ -4,7 +4,10 @@ import { dirname } from "node:path";
 
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import { isPathWithin } from "#typepeek/inspection/evidence-boundary";
-import { publicDeclarations } from "#typepeek/inspection/public-declaration-rendering";
+import {
+  isPublicProjectionChild,
+  publicDeclarations,
+} from "#typepeek/inspection/public-declaration-projection";
 
 const MAX_DECLARATION_GRAPH_DEPTH = 256;
 const MAX_STANDARD_LIBRARY_BYTES = 4 * 1024 * 1024;
@@ -116,7 +119,7 @@ function inspectInitialPublicInterface(
       ? [...moduleExports]
       : moduleExports.filter(({ name }) => name === selectedExportName);
   const pendingNodes: ts.Node[] = [
-    ...(selectedExportName === undefined ? exportedStatements(entrypoint) : []),
+    ...(selectedExportName === undefined ? exportedStatements(checker, entrypoint) : []),
     ...(moduleSymbol.declarations ?? []).filter(ts.isModuleDeclaration),
     entrypoint,
   ];
@@ -177,7 +180,7 @@ function resolvedSymbolDeclarations(
     return [];
   }
   const resolved = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
-  return publicDeclarations(resolved.declarations ?? []);
+  return publicDeclarations(checker, resolved.declarations ?? []);
 }
 
 function enqueueSymbolDeclarations(
@@ -195,7 +198,7 @@ function enqueueSymbolDeclarations(
   if (resolved !== symbol && !visitedSymbols.has(resolved)) {
     pendingSymbols.push(resolved);
   }
-  for (const declaration of publicDeclarations(symbol.declarations ?? [])) {
+  for (const declaration of publicDeclarations(checker, symbol.declarations ?? [])) {
     pendingNodes.push(declaration);
     const moduleReference = enclosingModuleReference(declaration);
     if (moduleReference !== undefined) {
@@ -252,14 +255,19 @@ function enqueueModuleExports(
   const body = node.body;
   if (body !== undefined && ts.isModuleBlock(body)) {
     if (nestedExportName === undefined) {
-      pendingNodes.push(...exportedStatements(body));
+      pendingNodes.push(...exportedStatements(checker, body));
     }
   }
 }
 
-function exportedStatements(container: ts.SourceFile | ts.ModuleBlock): readonly ts.Statement[] {
+function exportedStatements(
+  checker: ts.TypeChecker,
+  container: ts.SourceFile | ts.ModuleBlock,
+): readonly ts.Statement[] {
   const exported = container.statements.filter(isExportedStatement);
-  const publicFunctions = new Set(publicDeclarations(exported.filter(ts.isFunctionDeclaration)));
+  const publicFunctions = new Set(
+    publicDeclarations(checker, exported.filter(ts.isFunctionDeclaration)),
+  );
   return exported.filter(
     (statement) => !ts.isFunctionDeclaration(statement) || publicFunctions.has(statement),
   );
@@ -588,7 +596,7 @@ function scanPublicDeclaration(options: {
       options.selectedExportName,
     );
     ts.forEachChild(node, (child) => {
-      if (isPublicDeclarationChild(node, child)) {
+      if (isPublicProjectionChild(options.checker, node, child)) {
         visit(child, depth + 1);
       }
     });
@@ -872,14 +880,14 @@ function scanInferenceDeclarationSyntax(
     if (ts.isModuleDeclaration(node)) {
       const body = node.body;
       if (body !== undefined && ts.isModuleBlock(body)) {
-        for (const statement of exportedStatements(body)) {
+        for (const statement of exportedStatements(options.checker, body)) {
           visit(statement, currentDepth + 1);
         }
       }
       return;
     }
     ts.forEachChild(node, (child) => {
-      if (isPublicDeclarationChild(node, child)) {
+      if (isPublicProjectionChild(options.checker, node, child)) {
         visit(child, currentDepth + 1);
       }
     });
@@ -944,56 +952,6 @@ function assertDeclarationGraphDepth(depth: number): void {
   if (depth > MAX_DECLARATION_GRAPH_DEPTH) {
     throw new InspectionLimitError("Inspection exceeded its declaration graph traversal limit.");
   }
-}
-
-function isPublicDeclarationChild(parent: ts.Node, child: ts.Node): boolean {
-  return !(
-    isDiscardedDeclarationSyntax(child) ||
-    isNonPublicClassChild(parent, child) ||
-    isFunctionBody(parent, child) ||
-    isInitializer(parent, child)
-  );
-}
-
-function isDiscardedDeclarationSyntax(child: ts.Node): boolean {
-  return (
-    ts.isModuleBlock(child) || ts.isClassStaticBlockDeclaration(child) || ts.isDecorator(child)
-  );
-}
-
-function isNonPublicClassChild(parent: ts.Node, child: ts.Node): boolean {
-  if (!ts.isClassLike(parent)) {
-    return false;
-  }
-  if (ts.isClassElement(child) && !publicDeclarations(parent.members).includes(child)) {
-    return true;
-  }
-  return hasPrivateIdentifierName(child) || hasModifier(child, ts.SyntaxKind.PrivateKeyword);
-}
-
-function isFunctionBody(parent: ts.Node, child: ts.Node): boolean {
-  return ts.isFunctionLike(parent) && "body" in parent && parent.body === child;
-}
-
-function hasPrivateIdentifierName(node: ts.Node): boolean {
-  const name =
-    ts.isPropertyDeclaration(node) ||
-    ts.isMethodDeclaration(node) ||
-    ts.isGetAccessorDeclaration(node) ||
-    ts.isSetAccessorDeclaration(node)
-      ? node.name
-      : undefined;
-  return name !== undefined && ts.isPrivateIdentifier(name);
-}
-
-function isInitializer(parent: ts.Node, child: ts.Node): boolean {
-  return (
-    (ts.isVariableDeclaration(parent) ||
-      ts.isPropertyDeclaration(parent) ||
-      ts.isParameter(parent) ||
-      ts.isBindingElement(parent)) &&
-    parent.initializer === child
-  );
 }
 
 function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {

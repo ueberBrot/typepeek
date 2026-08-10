@@ -142,8 +142,15 @@ export async function materializeInstalledProgramAuthorityFixture(): Promise<Ins
     await materializeNodeContext(
       missingNodeContext,
       "@typepeek-fixture/missing-node-global",
-      "export declare function inspect(value: typeof process): number;\n",
+      [
+        "export declare function inspect(value: typeof process): number;",
+        "export class PrivateToken {",
+        "  private constructor(public readonly processValue: typeof process) {}",
+        "}",
+        "",
+      ].join("\n"),
       "declare var process: { readonly pid: number };\n",
+      "index.ts",
     );
     await rm(join(missingNodeContext, "node_modules", "@types", "node"), {
       recursive: true,
@@ -179,7 +186,13 @@ export async function materializeInstalledProgramAuthorityFixture(): Promise<Ins
     await materializeNodeContext(
       sourceInferredNodeContext,
       "@typepeek-fixture/source-inferred-node",
-      "export const value = process;\n",
+      [
+        "export const value = process;",
+        "export class PrivateToken {",
+        "  private constructor(public readonly processValue: typeof process) {}",
+        "}",
+        "",
+      ].join("\n"),
       [
         "declare namespace NodeJS { interface Process { readonly pid: number; } }",
         "declare var process: NodeJS.Process;",

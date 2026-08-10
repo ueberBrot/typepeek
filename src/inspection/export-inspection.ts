@@ -16,13 +16,12 @@ import type {
   SupportingType,
 } from "#typepeek/inspection/protocol";
 import {
-  inferredPublicTypes,
   inferredPublicTypeChildren,
   isPrivateDeclaration,
-  publicDeclarationSyntax,
+  projectPublicDeclaration,
   publicDeclarations,
-  renderPublicDeclaration,
-} from "#typepeek/inspection/public-declaration-rendering";
+} from "#typepeek/inspection/public-declaration-projection";
+import { renderPublicDeclaration } from "#typepeek/inspection/public-declaration-rendering";
 import { ExportInspectionConstruction } from "#typepeek/inspection/result-construction";
 import { shouldExpandSupportingDeclaration } from "#typepeek/inspection/supporting-type-policy";
 
@@ -143,8 +142,11 @@ function inspectDeclaration(
   return construction.declaration(inspectedDeclaration);
 }
 
-function inspectableDeclarations(symbol: ts.Symbol): readonly ts.Declaration[] {
-  const declarations = publicDeclarations(symbol.declarations ?? []).filter(
+function inspectableDeclarations(
+  checker: ts.TypeChecker,
+  symbol: ts.Symbol,
+): readonly ts.Declaration[] {
+  const declarations = publicDeclarations(checker, symbol.declarations ?? []).filter(
     (declaration) => declarationKind(declaration) !== undefined,
   );
   assertDeclarationLimit(declarations);
@@ -152,10 +154,11 @@ function inspectableDeclarations(symbol: ts.Symbol): readonly ts.Declaration[] {
 }
 
 function assertSupportedSelectedDeclarationKind(
+  checker: ts.TypeChecker,
   symbol: ts.Symbol,
   aliasDeclaration: AliasDeclaration | undefined,
 ): void {
-  const declarations = publicDeclarations(symbol.declarations ?? []);
+  const declarations = publicDeclarations(checker, symbol.declarations ?? []);
   if (selectedDeclarationIsUnsupported(declarations, aliasDeclaration)) {
     throw new UnsupportedInspectionError(
       "The selected Module Export contains an unsupported declaration kind.",
@@ -226,7 +229,7 @@ export function inspectFocusedModuleExport(
 
   const targetSymbol = resolveExportTarget(evidence.checker, exportedSymbol);
   const aliasDeclaration = findAliasDeclaration(exportedSymbol);
-  assertSupportedSelectedDeclarationKind(targetSymbol, aliasDeclaration);
+  assertSupportedSelectedDeclarationKind(evidence.checker, targetSymbol, aliasDeclaration);
   const spaces = occupiedDeclarationSpaces(exportedSymbol, targetSymbol, aliasDeclaration);
   const namespaceMembers = spaces.includes("namespace")
     ? inspectNamespaceMemberEvidence(evidence.checker, targetSymbol)
@@ -373,7 +376,7 @@ function inspectDeclarationSpaces(
   namespaceMembers: readonly NamespaceMemberEvidence[],
   construction: ExportInspectionConstruction,
 ): readonly ExportDeclarationSpace[] {
-  const declarations = inspectableDeclarations(symbol);
+  const declarations = inspectableDeclarations(evidence.checker, symbol);
   return occupiedSpaces.map((space): ExportDeclarationSpace => {
     if (space === "namespace") {
       return construction.namespaceSpace(
@@ -479,7 +482,7 @@ function inspectNamespaceMember(
     aliasDeclaration !== undefined && ts.isNamespaceExport(aliasDeclaration)
       ? [aliasDeclaration]
       : [];
-  const declarations = [...namespaceAliasDeclaration, ...inspectableDeclarations(target)];
+  const declarations = [...namespaceAliasDeclaration, ...inspectableDeclarations(checker, target)];
   assertDeclarationLimit(declarations);
   return {
     name: member.getName(),
@@ -580,12 +583,55 @@ function signatureCandidates(
   signatureKind: ts.SignatureKind,
   kind: ExportSignature["kind"],
 ): readonly SignatureCandidate[] {
-  return checker.getSignaturesOfType(type, signatureKind).map((signature, compilerOrder) => ({
-    compilerOrder,
-    kind,
-    signature,
-    signatureKind,
-  }));
+  return checker
+    .getSignaturesOfType(type, signatureKind)
+    .filter(
+      (signature) =>
+        signatureKind !== ts.SignatureKind.Construct || isPublicConstructorSignature(signature),
+    )
+    .map((signature, compilerOrder) => ({
+      compilerOrder,
+      kind,
+      signature,
+      signatureKind,
+    }));
+}
+
+function isPublicConstructorSignature(signature: ts.Signature): boolean {
+  const declaration = signature.getDeclaration();
+  if (declaration === undefined) {
+    return true;
+  }
+  if (abstractConstructorDeclaration(declaration)) {
+    return false;
+  }
+  if (!ts.isConstructorDeclaration(declaration)) {
+    return true;
+  }
+  return !hasAnyModifier(declaration, [
+    ts.SyntaxKind.PrivateKeyword,
+    ts.SyntaxKind.ProtectedKeyword,
+  ]);
+}
+
+function abstractConstructorDeclaration(declaration: ts.SignatureDeclaration): boolean {
+  if (ts.isConstructorTypeNode(declaration)) {
+    return hasAnyModifier(declaration, [ts.SyntaxKind.AbstractKeyword]);
+  }
+  if (ts.isConstructorDeclaration(declaration)) {
+    return hasAnyModifier(declaration.parent, [ts.SyntaxKind.AbstractKeyword]);
+  }
+  return ts.isClassDeclaration(declaration)
+    ? hasAnyModifier(declaration, [ts.SyntaxKind.AbstractKeyword])
+    : false;
+}
+
+function hasAnyModifier(node: ts.Node, kinds: readonly ts.SyntaxKind[]): boolean {
+  return (
+    (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some(({ kind }) =>
+      kinds.includes(kind),
+    ) ?? false
+  );
 }
 
 function declarationSourceOrder(symbol: ts.Symbol, type: ts.Type): ReadonlyMap<string, number> {
@@ -666,12 +712,13 @@ function inspectSupportingTypes(
     declarations
       .filter((declaration) => shouldExpandSupporting(evidence, declaration))
       .forEach((declaration) => {
+        const projection = projectPublicDeclaration(evidence.checker, declaration);
         visitTypeReferences(
-          publicDeclarationSyntax(evidence.checker, declaration),
+          projection.syntax,
           (reference) => inspectReference(reference, depth + 1),
           traversal,
         );
-        inferredPublicTypes(evidence.checker, declaration).forEach((type) => {
+        projection.inferredTypes.forEach((type) => {
           inspectInferredType(type, depth + 1);
         });
       });
@@ -701,13 +748,18 @@ function inspectSupportingTypes(
     });
   };
 
-  for (const declaration of supportingRootDeclarations(selectedSymbol, namespaceMembers)) {
+  for (const declaration of supportingRootDeclarations(
+    evidence.checker,
+    selectedSymbol,
+    namespaceMembers,
+  )) {
+    const projection = projectPublicDeclaration(evidence.checker, declaration);
     visitTypeReferences(
-      publicDeclarationSyntax(evidence.checker, declaration),
+      projection.syntax,
       (reference) => inspectReference(reference, 1),
       traversal,
     );
-    for (const type of inferredPublicTypes(evidence.checker, declaration)) {
+    for (const type of projection.inferredTypes) {
       inspectInferredType(type, 1);
     }
   }
@@ -734,11 +786,12 @@ function inferredTypeSymbol(type: ts.Type): ts.Symbol | undefined {
 }
 
 function supportingRootDeclarations(
+  checker: ts.TypeChecker,
   selectedSymbol: ts.Symbol,
   namespaceMembers: readonly NamespaceMemberEvidence[],
 ): readonly ts.Declaration[] {
   return [
-    ...inspectableDeclarations(selectedSymbol),
+    ...inspectableDeclarations(checker, selectedSymbol),
     ...namespaceMemberDeclarations(namespaceMembers),
   ];
 }

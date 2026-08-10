@@ -1,4 +1,4 @@
-import { closeSync, openSync, readSync } from "node:fs";
+import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, sep } from "node:path";
 
 import { InspectionLimitError } from "#typepeek/inspection/errors";
@@ -47,4 +47,31 @@ export function isPathWithin(directory: string, candidate: string): boolean {
   const relativePath = relative(directory, candidate);
   const escapesToParent = relativePath === ".." || relativePath.startsWith(`..${sep}`);
   return relativePath === "" || (!escapesToParent && !isAbsolute(relativePath));
+}
+
+/** Returns whether one Installed Evidence path is a readable filesystem file. */
+export function isEvidenceFile(fileName: string): boolean {
+  try {
+    return statSync(fileName).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Returns whether one Installed Evidence path is a readable filesystem directory. */
+export function isEvidenceDirectory(directory: string): boolean {
+  try {
+    return statSync(directory).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Canonicalizes an Installed Evidence path without turning absence into authority. */
+export function canonicalEvidencePath(fileName: string): string | undefined {
+  try {
+    return realpathSync(fileName);
+  } catch {
+    return undefined;
+  }
 }

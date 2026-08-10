@@ -111,6 +111,29 @@ describe("Installed Evidence program authority", () => {
     });
   });
 
+  it("applies Node authority to visible parameter properties on private constructors", async () => {
+    const [missingProvider, visibleProvider] = await Promise.all([
+      inspectExport({
+        resolutionContext: fixture.missingNodeContext,
+        specifier: "@typepeek-fixture/missing-node-global",
+        exportName: "PrivateToken",
+      }),
+      inspectExport({
+        resolutionContext: fixture.sourceInferredNodeContext,
+        specifier: "@typepeek-fixture/source-inferred-node",
+        exportName: "PrivateToken",
+      }),
+    ]);
+
+    expect(missingProvider).toEqual({
+      status: "unsupported",
+      message:
+        "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
+    });
+    expect(visibleProvider).toMatchObject({ status: "success" });
+    expect(JSON.stringify(visibleProvider)).toContain("readonly processValue: typeof process;");
+  });
+
   it("rejects a provider that resolves only part of the public Node globals", async () => {
     const outcome = await inspectExport({
       resolutionContext: fixture.partialNodeContext,

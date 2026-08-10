@@ -1,23 +1,28 @@
 import ts from "@typescript/typescript6";
-import { opendirSync, realpathSync, statSync, type Dirent } from "node:fs";
+import { opendirSync, type Dirent } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 
+import type {
+  CompilerWorkSession,
+  PackageDeclarationResolver,
+} from "#typepeek/inspection/compiler-work-session";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
-import { isPathWithin, readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
 import {
-  type AccessStyle,
-  type NormalizedInspectionTarget,
-  type PublicSubpath,
-} from "#typepeek/inspection/protocol";
+  canonicalEvidencePath,
+  isEvidenceDirectory,
+  isEvidenceFile,
+  isPathWithin,
+} from "#typepeek/inspection/evidence-boundary";
+import type { NormalizedInspectionTarget, PublicSubpath } from "#typepeek/inspection/protocol";
 
 const MAX_EXPORT_TARGET_DEPTH = 32;
 const MAX_EXPORT_TARGET_NODES = 1_024;
-const MAX_MANIFEST_BYTES = 256 * 1_024;
 const MAX_PUBLIC_SUBPATHS = 512;
 const MAX_PUBLIC_SUBPATH_FILE_DEPTH = 64;
 const MAX_PUBLIC_SUBPATH_FILE_ENTRIES = 4_096;
 
 export interface ResolutionVariantSelection {
+  readonly compilerWorkSession: CompilerWorkSession;
   readonly request: NormalizedInspectionTarget;
   readonly packageRoot: string;
   readonly packageRootSpecifier: string;
@@ -57,10 +62,6 @@ interface PackageSearchRoot {
 }
 
 interface TypeScriptInternals {
-  readonly getConditions?: (
-    options: ts.CompilerOptions,
-    resolutionMode: ts.ResolutionMode,
-  ) => readonly string[];
   readonly Version?: new (value: string) => unknown;
   readonly VersionRange?: {
     readonly tryParse: (
@@ -79,6 +80,7 @@ const typescriptInternals = ts as typeof ts & TypeScriptInternals;
  * traversal are bounded and package targets never escape the installed package.
  */
 export function selectResolutionVariant({
+  compilerWorkSession,
   request,
   packageRoot,
   packageRootSpecifier,
@@ -88,22 +90,25 @@ export function selectResolutionVariant({
   exports,
 }: ResolutionVariantSelection): SelectedResolutionVariant {
   assertPublicSubpath(subpathKey, exports);
+  const resolver = compilerWorkSession.createPackageResolver(
+    request.resolutionContext,
+    request.accessStyle,
+  );
   return {
     declarationPath: resolveDeclarationPath(
-      request.resolutionContext,
       request.specifier,
       declarationRoots,
-      request.accessStyle,
       missingDeclarationMessage,
+      resolver,
     ),
     readPublicSubpaths: () =>
       subpathKey === undefined
         ? publicSubpathSpecifiers(
             packageRootSpecifier,
             exports,
-            request,
             packageRoot,
             declarationRoots,
+            resolver,
           )
         : [],
   };
@@ -123,17 +128,17 @@ function assertPublicSubpath(subpathKey: string | undefined, exports: unknown): 
 function publicSubpathSpecifiers(
   packageRootSpecifier: string,
   exports: unknown,
-  request: NormalizedInspectionTarget,
   packageRoot: string,
   declarationRoots: readonly string[],
+  resolver: PackageDeclarationResolver,
 ): readonly PublicSubpath[] {
   return publicSubpathCandidates(
     packageRootSpecifier,
     exports,
     packageRoot,
-    request.accessStyle,
+    resolver.conditions,
   ).flatMap((specifier) =>
-    isResolvablePublicSubpath(specifier, request, declarationRoots) ? [{ specifier }] : [],
+    isResolvablePublicSubpath(specifier, declarationRoots, resolver) ? [{ specifier }] : [],
   );
 }
 
@@ -141,9 +146,8 @@ function publicSubpathCandidates(
   packageRootSpecifier: string,
   exports: unknown,
   packageRoot: string,
-  accessStyle: AccessStyle,
+  conditions: ResolutionConditions,
 ): readonly string[] {
-  const conditions = resolutionConditions(accessStyle);
   const subpathEntries = publicSubpathEntries(exports);
   assertPublicSubpathCount(subpathEntries.length);
   const targetTraversal: ExportTargetTraversal = {
@@ -204,16 +208,12 @@ function concretePublicSubpathSpecifier(
 
 function isResolvablePublicSubpath(
   specifier: string,
-  request: NormalizedInspectionTarget,
   declarationRoots: readonly string[],
+  resolver: PackageDeclarationResolver,
 ): boolean {
-  const declarationPath = resolvePackageDeclaration(
-    request.resolutionContext,
-    specifier,
-    request.accessStyle,
-  );
+  const declarationPath = resolver.resolve(specifier);
   const canonicalDeclarationPath =
-    declarationPath === undefined ? undefined : canonicalPath(declarationPath);
+    declarationPath === undefined ? undefined : resolver.canonicalPath(declarationPath);
   return (
     canonicalDeclarationPath !== undefined &&
     declarationRoots.some((root) => isPathWithin(root, canonicalDeclarationPath))
@@ -396,16 +396,6 @@ function unsupportedVersionedTypesCondition(): never {
   );
 }
 
-function resolutionConditions(accessStyle: AccessStyle): ResolutionConditions {
-  const { getConditions } = typescriptInternals;
-  if (getConditions === undefined) {
-    throw new UnsupportedInspectionError(
-      "The TypeScript compiler cannot select package export conditions.",
-    );
-  }
-  return new Set(getConditions(resolutionCompilerOptions(), resolutionMode(accessStyle)));
-}
-
 function isSafePackageTargetPattern(target: string): boolean {
   if (!target.startsWith("./")) {
     return false;
@@ -497,10 +487,10 @@ function readPackageSearchRoot(
   packageRoot: string,
   searchRoot: string,
 ): PackageSearchRoot | undefined {
-  const canonicalSearchRoot = canonicalPath(searchRoot);
+  const canonicalSearchRoot = canonicalEvidencePath(searchRoot);
   return canonicalSearchRoot !== undefined &&
     isPathWithin(packageRoot, canonicalSearchRoot) &&
-    isDirectory(canonicalSearchRoot)
+    isEvidenceDirectory(canonicalSearchRoot)
     ? {
         canonicalDirectory: canonicalSearchRoot,
         logicalDirectory: searchRoot,
@@ -514,7 +504,7 @@ function readPackageEntry(
   entry: Dirent,
 ): readonly PackageEntry[] {
   const logicalPath = join(logicalDirectory, entry.name);
-  const canonicalEntryPath = canonicalPath(logicalPath);
+  const canonicalEntryPath = canonicalEvidencePath(logicalPath);
   if (canonicalEntryPath === undefined) {
     return [];
   }
@@ -539,10 +529,10 @@ function packageEntryKind(
 }
 
 function linkedPackageEntryKind(canonicalEntryPath: string): PackageEntry["kind"] | undefined {
-  if (isDirectory(canonicalEntryPath)) {
+  if (isEvidenceDirectory(canonicalEntryPath)) {
     return "directory";
   }
-  return isFile(canonicalEntryPath) ? "file" : undefined;
+  return isEvidenceFile(canonicalEntryPath) ? "file" : undefined;
 }
 
 function readBoundedDirectoryEntries(
@@ -615,13 +605,12 @@ function publicSubpathKeyMatches(pattern: string, subpathKey: string): boolean {
 }
 
 function resolveDeclarationPath(
-  resolutionContext: string,
   specifier: string,
   declarationRoots: readonly string[],
-  accessStyle: AccessStyle,
   missingDeclarationMessage: string | undefined,
+  resolver: PackageDeclarationResolver,
 ): string {
-  const declarationPath = resolvePackageDeclaration(resolutionContext, specifier, accessStyle);
+  const declarationPath = resolver.resolve(specifier);
 
   if (declarationPath === undefined) {
     throw new UnsupportedInspectionError(
@@ -629,7 +618,7 @@ function resolveDeclarationPath(
     );
   }
 
-  const canonicalDeclarationPath = canonicalDeclaration(declarationPath);
+  const canonicalDeclarationPath = canonicalDeclaration(declarationPath, resolver);
   if (!declarationRoots.some((root) => isPathWithin(root, canonicalDeclarationPath))) {
     throw new UnsupportedInspectionError(
       "The package declaration entrypoint escapes its installed package boundary.",
@@ -638,126 +627,19 @@ function resolveDeclarationPath(
   return canonicalDeclarationPath;
 }
 
-function canonicalDeclaration(declarationPath: string): string {
-  const canonicalDeclarationPath = canonicalPath(declarationPath);
+function canonicalDeclaration(
+  declarationPath: string,
+  resolver: PackageDeclarationResolver,
+): string {
+  const canonicalDeclarationPath = resolver.canonicalPath(declarationPath);
   if (canonicalDeclarationPath === undefined) {
     throw new UnsupportedInspectionError("The package has no readable declaration entrypoint.");
   }
   return canonicalDeclarationPath;
 }
 
-function resolvePackageDeclaration(
-  resolutionContext: string,
-  specifier: string,
-  accessStyle: AccessStyle,
-): string | undefined {
-  const contextDirectory = startingDirectory(resolutionContext);
-  const containingFile = join(
-    contextDirectory,
-    accessStyle === "import" ? "__typepeek_resolution__.mts" : "__typepeek_resolution__.cts",
-  );
-  const compilerOptions = resolutionCompilerOptions();
-  const resolution = ts.resolveModuleName(
-    specifier,
-    containingFile,
-    compilerOptions,
-    createBoundedModuleResolutionHost(contextDirectory),
-    undefined,
-    undefined,
-    resolutionMode(accessStyle),
-  );
-  return isInspectableTypeScriptResolution(resolution.resolvedModule)
-    ? resolution.resolvedModule.resolvedFileName
-    : undefined;
-}
-
-function resolutionCompilerOptions(): ts.CompilerOptions {
-  return {
-    module: ts.ModuleKind.NodeNext,
-    moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    noEmit: true,
-    resolvePackageJsonExports: true,
-    resolvePackageJsonImports: true,
-  };
-}
-
-function resolutionMode(accessStyle: AccessStyle): ts.ResolutionMode {
-  return accessStyle === "import" ? ts.ModuleKind.ESNext : ts.ModuleKind.CommonJS;
-}
-
-function createBoundedModuleResolutionHost(contextDirectory: string): ts.ModuleResolutionHost {
-  return {
-    directoryExists: isDirectory,
-    fileExists: isFile,
-    getCurrentDirectory: () => contextDirectory,
-    readFile: readPackageResolutionFile,
-    realpath: (fileName) => canonicalPath(fileName) ?? fileName,
-  };
-}
-
-function readPackageResolutionFile(fileName: string): string | undefined {
-  try {
-    return readBoundedUtf8File(
-      fileName,
-      MAX_MANIFEST_BYTES,
-      "Inspection exceeded its package manifest size limit.",
-    );
-  } catch (error) {
-    if (error instanceof InspectionLimitError) {
-      throw error;
-    }
-    return undefined;
-  }
-}
-
-function isInspectableTypeScriptResolution(
-  resolvedModule: ts.ResolvedModuleFull | undefined,
-): resolvedModule is ts.ResolvedModuleFull {
-  return resolvedModule !== undefined && isInspectableTypeScriptExtension(resolvedModule.extension);
-}
-
-function isInspectableTypeScriptExtension(extension: string): boolean {
-  return [
-    ts.Extension.Ts,
-    ts.Extension.Tsx,
-    ts.Extension.Mts,
-    ts.Extension.Cts,
-    ts.Extension.Dts,
-    ts.Extension.Dmts,
-    ts.Extension.Dcts,
-  ].includes(extension as ts.Extension);
-}
-
-function startingDirectory(resolutionContext: string): string {
-  return statSync(resolutionContext).isDirectory() ? resolutionContext : dirname(resolutionContext);
-}
-
 function isSafePackagePathSegment(segment: string): boolean {
   return !["", ".", ".."].includes(segment) && !segment.includes("\\") && !segment.includes("\0");
-}
-
-function isFile(fileName: string): boolean {
-  try {
-    return statSync(fileName).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function isDirectory(directory: string): boolean {
-  try {
-    return statSync(directory).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function canonicalPath(fileName: string): string | undefined {
-  try {
-    return realpathSync(fileName);
-  } catch {
-    return undefined;
-  }
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
