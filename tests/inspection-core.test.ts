@@ -748,7 +748,23 @@ it("rejects circular aliases instead of returning an unknown target", async () =
 
   expect(outcome).toEqual({
     status: "unsupported",
-    message: "The selected Module Export alias could not be resolved from Installed Evidence.",
+    message: "A declaration re-export could not be resolved from Installed Evidence.",
+  });
+});
+
+it.each([
+  "@typepeek-fixture/named-re-export-missing-import",
+  "@typepeek-fixture/named-re-export-missing-reference",
+])("rejects an unresolved selected named re-export graph for %s", async (specifier) => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier,
+    exportName: "Visible",
+  });
+
+  expect(outcome).toEqual({
+    status: "unsupported",
+    message: "A declaration re-export could not be resolved from Installed Evidence.",
   });
 });
 
@@ -1121,8 +1137,8 @@ it("rejects path-like Specifiers before package resolution", async () => {
   });
 
   expect(outcome).toMatchObject({
-    status: "unsupported",
-    message: "The requested Specifier is not a Package Module.",
+    status: "static-boundary",
+    message: "The requested Specifier is outside the static Inspectable Module boundary.",
   });
 });
 
@@ -1133,7 +1149,7 @@ it("does not follow declarations into caller project source", async () => {
   });
 
   expect(outcome).toMatchObject({
-    status: "unsupported",
+    status: "static-boundary",
     message: "A declaration references source outside its installed package boundary.",
   });
 });

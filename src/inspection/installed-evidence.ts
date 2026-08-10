@@ -1,7 +1,9 @@
 import ts from "@typescript/typescript6";
-import { builtinModules } from "node:module";
 
-import { UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import {
+  StaticBoundaryInspectionError,
+  UnsupportedInspectionError,
+} from "#typepeek/inspection/errors";
 import { isPathWithin } from "#typepeek/inspection/evidence-boundary";
 import {
   assertAbsoluteResolutionContext,
@@ -18,6 +20,10 @@ import {
 } from "#typepeek/inspection/installed-package-boundary";
 import { materializeInstalledProgram } from "#typepeek/inspection/installed-program";
 import {
+  isKnownNodePlatformSpecifier,
+  isNodePlatformSpecifier,
+} from "#typepeek/inspection/node-declaration-authority";
+import {
   type NormalizedInspectionTarget,
   type InspectionResultIdentity,
   type PackageIdentity,
@@ -26,11 +32,6 @@ import {
 import { selectResolutionVariant } from "#typepeek/inspection/resolution-variant";
 import type { SupportingTypeScope } from "#typepeek/inspection/supporting-type-policy";
 
-const NODE_PLATFORM_SPECIFIERS = new Set(
-  builtinModules.map((specifier) =>
-    specifier.startsWith("node:") ? specifier : `node:${specifier}`,
-  ),
-);
 export interface InspectableModuleEvidence {
   readonly checker: ts.TypeChecker;
   readonly moduleSymbol: ts.Symbol;
@@ -44,6 +45,7 @@ export interface InspectableModuleEvidence {
 }
 
 interface DeclarationProviderSelectionBase {
+  readonly resolutionContextDirectory: string;
   readonly declarationPath: string;
   readonly declarationRoot: string;
   readonly repositoryRoot: string;
@@ -51,6 +53,12 @@ interface DeclarationProviderSelectionBase {
   readonly readPublicSubpaths: () => readonly PublicSubpath[];
   readonly supportingTypeScope: SupportingTypeScope;
   readonly providerIdentity: PackageIdentity;
+  readonly readNodeDeclarationProvider: () => NodeDeclarationProvider | undefined;
+}
+
+interface NodeDeclarationProvider {
+  readonly declarationPath: string;
+  readonly declarationRoot: string;
 }
 
 type DeclarationProviderSelection = DeclarationProviderSelectionBase &
@@ -71,10 +79,13 @@ interface PackageSpecifier {
  */
 export function readInspectableModuleEvidence(
   request: NormalizedInspectionTarget,
+  selectedExportName?: string,
 ): InspectableModuleEvidence | undefined {
   assertAbsoluteResolutionContext(request.resolutionContext);
   const selection = selectDeclarationProvider(request);
-  return selection === undefined ? undefined : materializeInspectableModule(selection);
+  return selection === undefined
+    ? undefined
+    : materializeInspectableModule(selection, selectedExportName);
 }
 
 function selectDeclarationProvider(
@@ -90,7 +101,9 @@ function selectPackageDeclarationProvider(
 ): DeclarationProviderSelection | undefined {
   const packageSpecifier = parsePackageSpecifier(request.specifier);
   if (packageSpecifier === undefined) {
-    throw new UnsupportedInspectionError("The requested Specifier is not a Package Module.");
+    throw new StaticBoundaryInspectionError(
+      "The requested Specifier is outside the static Inspectable Module boundary.",
+    );
   }
 
   const packageLocation = findVisiblePackage(
@@ -124,6 +137,7 @@ function selectPackageDeclarationProvider(
   );
   return {
     kind: "package",
+    resolutionContextDirectory: canonicalPackageBoundary(packageLocation.contextDirectory),
     ambientSpecifier: separateProviderAmbientSpecifier(
       declarationPackage.root,
       canonicalPackageRoot,
@@ -140,13 +154,34 @@ function selectPackageDeclarationProvider(
     readPublicSubpaths: resolutionVariant.readPublicSubpaths,
     supportingTypeScope: { kind: "package" },
     providerIdentity: declarationPackage.identity,
+    readNodeDeclarationProvider: () => visibleNodeDeclarationProvider(request),
   };
+}
+
+function visibleNodeDeclarationProvider(
+  request: NormalizedInspectionTarget,
+): NodeDeclarationProvider | undefined {
+  const providerLocation = findVisiblePackage(request.resolutionContext, ["@types", "node"]);
+  if (providerLocation === undefined) {
+    return undefined;
+  }
+  const providerManifest = readInstalledManifest(providerLocation.packageRoot);
+  const declarationRoot = canonicalPackageBoundary(providerLocation.packageRoot);
+  const resolutionVariant = selectResolutionVariant({
+    request: { ...request, specifier: "@types/node" },
+    packageRoot: declarationRoot,
+    packageRootSpecifier: "@types/node",
+    exports: providerManifest.exports,
+    missingDeclarationMessage: "The visible @types/node package has no readable entrypoint.",
+  });
+  assertNoNestedDeclarationOwner(declarationRoot, resolutionVariant.declarationPath);
+  return { declarationPath: resolutionVariant.declarationPath, declarationRoot };
 }
 
 function selectNodeDeclarationProvider(
   request: NormalizedInspectionTarget,
 ): DeclarationProviderSelection {
-  if (!NODE_PLATFORM_SPECIFIERS.has(request.specifier)) {
+  if (!isKnownNodePlatformSpecifier(request.specifier)) {
     throw new UnsupportedInspectionError(
       `Node Platform Module "${request.specifier}" is not a known Node runtime module.`,
     );
@@ -173,6 +208,7 @@ function selectNodeDeclarationProvider(
   assertNoNestedDeclarationOwner(providerRoot, resolutionVariant.declarationPath);
   return {
     kind: "platform",
+    resolutionContextDirectory: canonicalPackageBoundary(providerLocation.contextDirectory),
     specifier: request.specifier,
     declarationPath: resolutionVariant.declarationPath,
     declarationRoot: providerRoot,
@@ -181,13 +217,15 @@ function selectNodeDeclarationProvider(
     readPublicSubpaths: () => [],
     supportingTypeScope: { kind: "platform", specifier: request.specifier },
     providerIdentity: providerManifest.packageIdentity,
+    readNodeDeclarationProvider: () => undefined,
   };
 }
 
 function materializeInspectableModule(
   selection: DeclarationProviderSelection,
+  selectedExportName: string | undefined,
 ): InspectableModuleEvidence {
-  const { checker, moduleSymbol } = materializeInstalledProgram(selection);
+  const { checker, moduleSymbol } = materializeInstalledProgram(selection, selectedExportName);
   return {
     checker,
     moduleSymbol,
@@ -239,10 +277,6 @@ function separateProviderAmbientSpecifier(
   specifier: string,
 ): string | undefined {
   return declarationRoot === packageRoot ? undefined : specifier;
-}
-
-function isNodePlatformSpecifier(specifier: string): boolean {
-  return specifier.startsWith("node:") && specifier.length > "node:".length;
 }
 
 function selectedDeclarationPackage(

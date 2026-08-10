@@ -138,15 +138,18 @@ it("rejects a successful result without an evidence identity", () => {
   });
 });
 
-it("preserves an intent-neutral Inspection Failure", () => {
-  const outcome = {
-    status: "limit-exceeded",
-    message: "Inspection exceeded its output limit.",
-  } as const;
+it.each(["not-found", "unsupported", "static-boundary", "limit-exceeded"] as const)(
+  "preserves an intent-neutral %s Inspection Failure",
+  (status) => {
+    const outcome = {
+      status,
+      message: `${status} outcome`,
+    } as const;
 
-  expect(enforceInspectionOutcome("interface-overview", outcome)).toEqual(outcome);
-  expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual(outcome);
-});
+    expect(enforceInspectionOutcome("interface-overview", outcome)).toEqual(outcome);
+    expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual(outcome);
+  },
+);
 
 it("normalizes an Export Inspection request at the process-entry protocol seam", () => {
   expect(

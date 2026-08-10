@@ -149,7 +149,7 @@ async function materializeWorkspaceInstallation(
       join(sourceWorkspaceRoot, "src", "index.ts"),
       [
         'const implementationSecret = "must not be rendered";',
-        'export const inferredWorkspaceValue = { mode: "source" as const };',
+        'export const inferredWorkspaceValue = { mode: "source" as const, angle: <const>"angle" };',
         "class WorkspaceShape { readonly value = 1; }",
         "interface ImplementationOnly { hidden: string }",
         "class HiddenMemberShape { readonly hidden = true; }",

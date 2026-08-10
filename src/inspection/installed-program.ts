@@ -2,23 +2,27 @@ import ts from "@typescript/typescript6";
 import { opendirSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import {
+  InspectionLimitError,
+  StaticBoundaryInspectionError,
+  UnsupportedInspectionError,
+} from "#typepeek/inspection/errors";
 import { isPathWithin, readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
 import {
   canonicalPackageBoundary,
   canonicalPath,
   declarationProviderSegments,
   findMaterializedPackageRoot,
-  findReferencedPackageRoot,
-  findVisiblePackage,
-  isDeclaredByContainingPackage,
+  findVisiblePackageForDependency,
   type PackageBoundaryObserver,
   parsePackageNameSegments,
+  readInstalledManifest,
 } from "#typepeek/inspection/installed-package-boundary";
+import { selectNodeDeclarationProgram } from "#typepeek/inspection/node-declaration-authority";
 
-const MAX_SOURCE_FILES = 128;
+const MAX_SOURCE_FILES = 384;
 const MAX_SOURCE_BYTES = 4 * 1_024 * 1_024;
-const MAX_COMPILER_HOST_OPERATIONS = 10_000;
+const MAX_COMPILER_HOST_OPERATIONS = 50_000;
 const MAX_COMPILER_RESOLUTION_BYTES = 8 * 1_024 * 1_024;
 const MAX_DECLARATION_GRAPH_DEPTH = 256;
 const MAX_DECLARATION_GRAPH_NODES = 250_000;
@@ -30,6 +34,13 @@ interface CompilerHostState {
     string,
     ts.ResolvedTypeReferenceDirectiveWithFailedLookupLocations
   >;
+  readonly packageManifestCache: Map<string, Readonly<Record<string, unknown>>>;
+  readonly fileExistsCache: Map<string, boolean>;
+  readonly readFileCache: Map<string, string | undefined>;
+  readonly directoryExistsCache: Map<string, boolean>;
+  readonly directoriesCache: Map<string, string[]>;
+  readonly realpathCache: Map<string, string>;
+  readonly sourceFileCache: Map<string, ts.SourceFile | undefined>;
   compilerHostOperations: number;
   resolutionByteCount: number;
   sourceFileCount: number;
@@ -37,6 +48,7 @@ interface CompilerHostState {
 }
 
 interface BoundedCompilerHost extends ts.CompilerHost {
+  readonly allowPackageRoot: (packageRoot: string) => void;
   readonly findProgramSourceFile: (
     program: ts.Program,
     fileName: string,
@@ -51,9 +63,28 @@ interface DeclarationGraphTraversalState {
   nodeCount: number;
 }
 
+interface PendingDeclarationGraphEntry {
+  readonly declaration: ts.Declaration;
+  readonly expandSourceExports: boolean;
+}
+
+interface ReExportGraphState {
+  readonly pendingEntries: PendingDeclarationGraphEntry[];
+  readonly visitedDeclarations: Set<ts.Declaration>;
+  readonly visitedExpandedSourceFiles: Set<string>;
+  readonly visitedReferenceSourceFiles: Set<string>;
+}
+
 export type InstalledProgramSelection = {
   readonly declarationPath: string;
   readonly declarationRoot: string;
+  readonly resolutionContextDirectory: string;
+  readonly readNodeDeclarationProvider: () =>
+    | {
+        readonly declarationPath: string;
+        readonly declarationRoot: string;
+      }
+    | undefined;
 } & (
   | { readonly kind: "package"; readonly ambientSpecifier: string | undefined }
   | { readonly kind: "platform"; readonly specifier: string }
@@ -67,21 +98,65 @@ export interface InstalledProgramEvidence {
 /** Materializes and validates one bounded TypeScript declaration program. */
 export function materializeInstalledProgram(
   selection: InstalledProgramSelection,
+  selectedExportName?: string,
 ): InstalledProgramEvidence {
+  const traversal: DeclarationGraphTraversalState = { nodeCount: 0 };
   const compilerOptions = inspectionCompilerOptions();
-  const host = createBoundedCompilerHost(selection.declarationRoot, compilerOptions);
-  const program = ts.createProgram({
+  const host = createBoundedCompilerHost(
+    [selection.declarationRoot],
+    selection.resolutionContextDirectory,
+    compilerOptions,
+  );
+  const initialProgram = ts.createProgram({
     rootNames: [selection.declarationPath],
     options: compilerOptions,
     host,
   });
-  return inspectSelectedModule(program, selection, host);
+  const initialSourceFile = initialProgram.getSourceFile(selection.declarationPath);
+  const initialModuleSymbol =
+    selection.kind === "package" && initialSourceFile !== undefined
+      ? packageModuleSymbol(
+          initialProgram.getTypeChecker(),
+          initialSourceFile,
+          selection.ambientSpecifier,
+        )
+      : undefined;
+  const nodeProgram =
+    selection.kind === "platform" ||
+    initialSourceFile === undefined ||
+    initialModuleSymbol === undefined
+      ? undefined
+      : selectNodeDeclarationProgram(
+          initialProgram,
+          initialModuleSymbol,
+          initialSourceFile,
+          () => {
+            const nodeProvider = selection.readNodeDeclarationProvider();
+            if (nodeProvider === undefined) {
+              return undefined;
+            }
+            host.allowPackageRoot(nodeProvider.declarationRoot);
+            return {
+              program: ts.createProgram({
+                rootNames: [selection.declarationPath, nodeProvider.declarationPath],
+                options: compilerOptions,
+                host,
+              }),
+              providerRoot: nodeProvider.declarationRoot,
+            };
+          },
+          () => reserveDeclarationGraphNodes(traversal, 1),
+          selectedExportName,
+        );
+  const program = nodeProgram ?? initialProgram;
+  return inspectSelectedModule(program, selection, host, traversal);
 }
 
 function inspectSelectedModule(
   program: ts.Program,
   selection: InstalledProgramSelection,
   host: BoundedCompilerHost,
+  traversal: DeclarationGraphTraversalState,
 ): InstalledProgramEvidence {
   if (selection.kind === "package") {
     return inspectModuleEvidence(
@@ -89,6 +164,7 @@ function inspectSelectedModule(
       selection.declarationPath,
       selection.ambientSpecifier,
       host,
+      traversal,
     );
   }
   return inspectPlatformModuleEvidence(
@@ -96,6 +172,7 @@ function inspectSelectedModule(
     selection.declarationPath,
     selection.specifier,
     host,
+    traversal,
   );
 }
 
@@ -117,6 +194,7 @@ function inspectModuleEvidence(
   declarationPath: string,
   ambientSpecifier: string | undefined,
   host: BoundedCompilerHost,
+  traversal: DeclarationGraphTraversalState,
 ): InstalledProgramEvidence {
   const sourceFile = program.getSourceFile(declarationPath);
   if (sourceFile === undefined) {
@@ -126,7 +204,6 @@ function inspectModuleEvidence(
   }
 
   const checker = program.getTypeChecker();
-  const traversal: DeclarationGraphTraversalState = { nodeCount: 0 };
   assertResolvedReExportGraph(program, checker, sourceFile, host, traversal);
   const moduleSymbol = packageModuleSymbol(checker, sourceFile, ambientSpecifier);
   if (moduleSymbol === undefined) {
@@ -157,6 +234,7 @@ function inspectPlatformModuleEvidence(
   declarationPath: string,
   specifier: string,
   host: BoundedCompilerHost,
+  traversal: DeclarationGraphTraversalState,
 ): InstalledProgramEvidence {
   const sourceFile = program.getSourceFile(declarationPath);
   if (sourceFile === undefined) {
@@ -165,7 +243,6 @@ function inspectPlatformModuleEvidence(
     );
   }
   const checker = program.getTypeChecker();
-  const traversal: DeclarationGraphTraversalState = { nodeCount: 0 };
   assertResolvedReExportGraph(program, checker, sourceFile, host, traversal);
   const moduleSymbol = checker
     .getAmbientModules()
@@ -191,7 +268,9 @@ function assertResolvedAmbientModuleReExports(
   host: BoundedCompilerHost,
   traversal: DeclarationGraphTraversalState,
 ): void {
-  const pendingDeclarations = [...(moduleSymbol.declarations ?? [])];
+  const pendingDeclarations: ts.Declaration[] = (moduleSymbol.declarations ?? []).filter(
+    ts.isModuleDeclaration,
+  );
   const visitedDeclarations = new Set<ts.Declaration>();
   for (const declaration of pendingDeclarations) {
     if (visitedDeclarations.has(declaration)) {
@@ -297,20 +376,82 @@ function assertResolvedReExportGraph(
   traversal: DeclarationGraphTraversalState,
 ): void {
   // Reject unresolved re-export graphs before returning a result.
-  const pendingSourceFiles = [entrypoint];
-  const visitedSourceFiles = new Set<string>();
-
-  for (const sourceFile of pendingSourceFiles) {
-    if (visitedSourceFiles.has(sourceFile.fileName)) {
-      continue;
-    }
-    visitedSourceFiles.add(sourceFile.fileName);
-    reserveDeclarationGraphNodes(traversal, sourceFile.statements.length);
-    pendingSourceFiles.push(
-      ...reExportedSourceFiles(checker, sourceFile),
-      ...referencedDeclarationSourceFiles(program, sourceFile, host, traversal),
-    );
+  const state: ReExportGraphState = {
+    pendingEntries: [{ declaration: entrypoint, expandSourceExports: true }],
+    visitedDeclarations: new Set(),
+    visitedExpandedSourceFiles: new Set(),
+    visitedReferenceSourceFiles: new Set(),
+  };
+  for (const entry of state.pendingEntries) {
+    inspectReExportGraphEntry(program, checker, host, traversal, state, entry);
   }
+}
+
+function inspectReExportGraphEntry(
+  program: ts.Program,
+  checker: ts.TypeChecker,
+  host: BoundedCompilerHost,
+  traversal: DeclarationGraphTraversalState,
+  state: ReExportGraphState,
+  entry: PendingDeclarationGraphEntry,
+): void {
+  const { declaration, expandSourceExports } = entry;
+  if (visitedDeclarationEntry(state, declaration, expandSourceExports)) {
+    return;
+  }
+  enqueueReferencedDeclarationFiles(program, host, traversal, state, declaration.getSourceFile());
+  if (ts.isSourceFile(declaration) && expandSourceExports) {
+    expandReExportSource(checker, traversal, state, declaration);
+    return;
+  }
+  for (const specifier of descendantImportTypeSpecifiers(declaration, traversal)) {
+    resolvedModuleDeclarations(checker, specifier);
+  }
+}
+
+function visitedDeclarationEntry(
+  state: ReExportGraphState,
+  declaration: ts.Declaration,
+  expandSourceExports: boolean,
+): boolean {
+  const alreadyVisited = state.visitedDeclarations.has(declaration);
+  state.visitedDeclarations.add(declaration);
+  return alreadyVisited && (!ts.isSourceFile(declaration) || !expandSourceExports);
+}
+
+function enqueueReferencedDeclarationFiles(
+  program: ts.Program,
+  host: BoundedCompilerHost,
+  traversal: DeclarationGraphTraversalState,
+  state: ReExportGraphState,
+  sourceFile: ts.SourceFile,
+): void {
+  if (state.visitedReferenceSourceFiles.has(sourceFile.fileName)) {
+    return;
+  }
+  state.visitedReferenceSourceFiles.add(sourceFile.fileName);
+  state.pendingEntries.push(
+    ...referencedDeclarationSourceFiles(program, sourceFile, host, traversal).map(
+      (referenced): PendingDeclarationGraphEntry => ({
+        declaration: referenced,
+        expandSourceExports: true,
+      }),
+    ),
+  );
+}
+
+function expandReExportSource(
+  checker: ts.TypeChecker,
+  traversal: DeclarationGraphTraversalState,
+  state: ReExportGraphState,
+  sourceFile: ts.SourceFile,
+): void {
+  if (state.visitedExpandedSourceFiles.has(sourceFile.fileName)) {
+    return;
+  }
+  state.visitedExpandedSourceFiles.add(sourceFile.fileName);
+  reserveDeclarationGraphNodes(traversal, sourceFile.statements.length);
+  state.pendingEntries.push(...reExportedDeclarations(checker, sourceFile));
 }
 
 function referencedDeclarationSourceFiles(
@@ -387,13 +528,44 @@ function unresolvedDeclarationReference(): UnsupportedInspectionError {
   );
 }
 
-function reExportedSourceFiles(
+function reExportedDeclarations(
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
-): readonly ts.SourceFile[] {
+): readonly PendingDeclarationGraphEntry[] {
   return sourceFile.statements
     .filter(hasModuleSpecifier)
-    .flatMap((statement) => resolvedModuleSourceFiles(checker, statement.moduleSpecifier));
+    .flatMap((statement) => reExportedStatementDeclarations(checker, statement));
+}
+
+function reExportedStatementDeclarations(
+  checker: ts.TypeChecker,
+  statement: ts.ExportDeclaration & { readonly moduleSpecifier: ts.Expression },
+): readonly PendingDeclarationGraphEntry[] {
+  if (statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
+    return statement.exportClause.elements.flatMap((element) => {
+      const symbol = checker.getSymbolAtLocation(element.name);
+      const resolved =
+        symbol !== undefined && symbol.flags & ts.SymbolFlags.Alias
+          ? checker.getAliasedSymbol(symbol)
+          : symbol;
+      const declarations = resolved?.declarations ?? [];
+      if (declarations.length === 0) {
+        throw unresolvedDeclarationReference();
+      }
+      return declarations.map(
+        (declaration): PendingDeclarationGraphEntry => ({
+          declaration,
+          expandSourceExports: false,
+        }),
+      );
+    });
+  }
+  return resolvedModuleSourceFiles(checker, statement.moduleSpecifier).map(
+    (declaration): PendingDeclarationGraphEntry => ({
+      declaration,
+      expandSourceExports: true,
+    }),
+  );
 }
 
 function hasModuleSpecifier(
@@ -429,20 +601,38 @@ function resolvedModuleDeclarations(
 }
 
 function createBoundedCompilerHost(
-  packageRoot: string,
+  packageRoots: readonly string[],
+  resolutionContextDirectory: string,
   compilerOptions: ts.CompilerOptions,
 ): BoundedCompilerHost {
   const defaultHost = ts.createCompilerHost(compilerOptions, true);
-  const canonicalPackageRoot = canonicalPath(packageRoot);
-  if (canonicalPackageRoot === undefined) {
-    throw new UnsupportedInspectionError(
-      "The installed package boundary could not be canonicalized.",
-    );
+  const resolutionHostBase: ts.CompilerHost = {
+    ...defaultHost,
+    getCurrentDirectory: () => resolutionContextDirectory,
+  };
+  const canonicalPackageRoots = packageRoots.map((packageRoot) => {
+    const canonicalPackageRoot = canonicalPath(packageRoot);
+    if (canonicalPackageRoot === undefined) {
+      throw new UnsupportedInspectionError(
+        "The installed package boundary could not be canonicalized.",
+      );
+    }
+    return canonicalPackageRoot;
+  });
+  if (canonicalPackageRoots.length === 0) {
+    throw new UnsupportedInspectionError("The installed package boundary is missing.");
   }
   const state: CompilerHostState = {
-    defaultHost,
-    allowedPackageRoots: new Set([canonicalPackageRoot]),
+    defaultHost: resolutionHostBase,
+    allowedPackageRoots: new Set(canonicalPackageRoots),
     typeReferenceResolutions: new Map(),
+    packageManifestCache: new Map(),
+    fileExistsCache: new Map(),
+    readFileCache: new Map(),
+    directoryExistsCache: new Map(),
+    directoriesCache: new Map(),
+    realpathCache: new Map(),
+    sourceFileCache: new Map(),
     compilerHostOperations: 0,
     resolutionByteCount: 0,
     sourceFileCount: 0,
@@ -455,7 +645,13 @@ function createBoundedCompilerHost(
   // Bare imports may add compiler-resolved roots to this allowlist.
   return {
     ...defaultHost,
+    allowPackageRoot: (packageRoot) => {
+      state.allowedPackageRoots.add(canonicalPackageBoundary(packageRoot, packageBoundaryObserver));
+      state.typeReferenceResolutions.clear();
+    },
+    getCurrentDirectory: () => resolutionContextDirectory,
     findProgramSourceFile: (program, fileName) => {
+      reserveCompilerHostOperations(state, 1);
       let sourceFiles = programSourceFiles.get(program);
       if (sourceFiles === undefined) {
         const indexedSourceFiles = new Map<string, ts.SourceFile>();
@@ -529,9 +725,11 @@ function createBoundedResolutionHost(state: CompilerHostState): ts.ModuleResolut
   const { defaultHost } = state;
   return {
     fileExists: (fileName) =>
-      countedCompilerHostOperation(state, () => defaultHost.fileExists(fileName)),
+      cachedCompilerHostResult(state, state.fileExistsCache, fileName, () =>
+        defaultHost.fileExists(fileName),
+      ),
     readFile: (fileName) =>
-      countedCompilerHostOperation(state, () => {
+      cachedCompilerHostResult(state, state.readFileCache, fileName, () => {
         try {
           const contents = readBoundedUtf8File(
             fileName,
@@ -551,15 +749,18 @@ function createBoundedResolutionHost(state: CompilerHostState): ts.ModuleResolut
       ? {}
       : {
           directoryExists: (directoryName: string) =>
-            countedCompilerHostOperation(state, () =>
-              defaultHost.directoryExists?.(directoryName),
-            ) ?? false,
+            cachedCompilerHostResult(
+              state,
+              state.directoryExistsCache,
+              directoryName,
+              () => defaultHost.directoryExists?.(directoryName) ?? false,
+            ),
         }),
     ...(defaultHost.getDirectories === undefined
       ? {}
       : {
           getDirectories: (directoryName: string) =>
-            countedCompilerHostOperation(state, () => {
+            cachedCompilerHostResult(state, state.directoriesCache, directoryName, () => {
               const directories: string[] = [];
               let directory;
               try {
@@ -588,19 +789,31 @@ function createBoundedResolutionHost(state: CompilerHostState): ts.ModuleResolut
       ? {}
       : {
           realpath: (path: string) =>
-            countedCompilerHostOperation(state, () => defaultHost.realpath?.(path) ?? path),
+            cachedCompilerHostResult(
+              state,
+              state.realpathCache,
+              path,
+              () => defaultHost.realpath?.(path) ?? path,
+            ),
         }),
     getCurrentDirectory: () => defaultHost.getCurrentDirectory(),
     useCaseSensitiveFileNames: defaultHost.useCaseSensitiveFileNames(),
   };
 }
 
-function countedCompilerHostOperation<Result>(
+function cachedCompilerHostResult<Result>(
   state: CompilerHostState,
-  operation: () => Result,
+  cache: Map<string, Result>,
+  key: string,
+  read: () => Result,
 ): Result {
   reserveCompilerHostOperations(state, 1);
-  return operation();
+  if (cache.has(key)) {
+    return cache.get(key) as Result;
+  }
+  const result = read();
+  cache.set(key, result);
+  return result;
 }
 
 function reserveCompilerHostOperations(state: CompilerHostState, count: number): void {
@@ -619,6 +832,7 @@ function reserveCompilerResolutionBytes(state: CompilerHostState, count: number)
 
 function createPackageBoundaryObserver(state: CompilerHostState): PackageBoundaryObserver {
   return {
+    manifestCache: state.packageManifestCache,
     remainingBytes: () => MAX_COMPILER_RESOLUTION_BYTES - state.resolutionByteCount,
     reserveBytes: (count) => reserveCompilerResolutionBytes(state, count),
     reserveOperation: () => reserveCompilerHostOperations(state, 1),
@@ -699,7 +913,13 @@ function visibleTypeReferenceRoot(
 ): string | undefined {
   return typeReferencePackageCandidates(referenceName)
     .map((candidate) =>
-      visibleTypeReferenceCandidateRoot(state, containingFile, candidate, resolvedFileName),
+      visibleTypeReferenceCandidateRoot(
+        state,
+        containingFile,
+        candidate,
+        candidate,
+        resolvedFileName,
+      ),
     )
     .find((root) => root !== undefined);
 }
@@ -714,16 +934,30 @@ function typeReferencePackageCandidates(referenceName: string): readonly string[
 function visibleTypeReferenceCandidateRoot(
   state: CompilerHostState,
   containingFile: string,
-  candidate: string,
+  declaredPackageName: string,
+  physicalPackageName: string,
   resolvedFileName: string,
+  expectedPackageIdentity?: string,
 ): string | undefined {
-  const packageSegments = parsePackageNameSegments(candidate);
+  const packageSegments = parsePackageNameSegments(physicalPackageName);
   if (packageSegments === undefined) {
     return undefined;
   }
   const observer = createPackageBoundaryObserver(state);
-  const location = findVisiblePackage(containingFile, packageSegments, observer);
+  const location = findVisiblePackageForDependency(
+    containingFile,
+    declaredPackageName,
+    packageSegments,
+    observer,
+  );
   if (location === undefined) {
+    return undefined;
+  }
+  if (
+    expectedPackageIdentity !== undefined &&
+    readInstalledManifest(location.packageRoot, observer).packageIdentity.name !==
+      expectedPackageIdentity
+  ) {
     return undefined;
   }
   const packageRoot = canonicalPackageBoundary(location.packageRoot, observer);
@@ -785,38 +1019,55 @@ function authorizeExternalPackage(
   if (!isResolvedExternalPackage(specifier, resolvedModule)) {
     return true;
   }
-  const packageSegments = parsePackageNameSegments(specifier);
-  if (packageSegments === undefined) {
-    return false;
-  }
-  const observer = createPackageBoundaryObserver(state);
-  if (!isDeclaredByContainingPackage(containingFile, packageSegments.join("/"), observer)) {
-    return false;
-  }
-
   // Every referenced Package Module must be declared by the containing
-  // package, even when a hoisted physical installation happens to resolve.
-  return allowResolvedPackageRoot(
+  // package, including TypeScript's automatic @types fallback, even when a
+  // hoisted physical installation happens to resolve.
+  const packageRoot = visibleExternalPackageRoot(
     state,
-    resolvedExternalPackageRoot(
-      containingFile,
-      specifier,
-      resolvedModule.resolvedFileName,
-      observer,
-    ),
+    containingFile,
+    specifier,
+    resolvedModule.resolvedFileName,
   );
+  return allowResolvedPackageRoot(state, packageRoot);
 }
 
-function resolvedExternalPackageRoot(
+function visibleExternalPackageRoot(
+  state: CompilerHostState,
   containingFile: string,
   specifier: string,
   resolvedFileName: string,
-  observer: PackageBoundaryObserver,
 ): string | undefined {
-  return (
-    findMaterializedPackageRoot(resolvedFileName, observer) ??
-    findReferencedPackageRoot(containingFile, specifier, resolvedFileName, observer)
-  );
+  const packageSegments = parsePackageNameSegments(specifier);
+  if (packageSegments === undefined) {
+    return undefined;
+  }
+  const packageName = packageSegments.join("/");
+  const declarationProvider = declarationProviderSegments(packageName).join("/");
+  const candidates = [
+    { declared: packageName, physical: packageName, expectedIdentity: undefined },
+    {
+      declared: packageName,
+      physical: declarationProvider,
+      expectedIdentity: declarationProvider,
+    },
+    {
+      declared: declarationProvider,
+      physical: declarationProvider,
+      expectedIdentity: undefined,
+    },
+  ];
+  return candidates
+    .map(({ declared, expectedIdentity, physical }) =>
+      visibleTypeReferenceCandidateRoot(
+        state,
+        containingFile,
+        declared,
+        physical,
+        resolvedFileName,
+        expectedIdentity,
+      ),
+    )
+    .find((root) => root !== undefined);
 }
 
 function allowResolvedPackageRoot(
@@ -844,18 +1095,25 @@ function getBoundedSourceFile(
   languageVersion: ts.ScriptTarget | ts.CreateSourceFileOptions,
   onError?: (message: string) => void,
 ): ts.SourceFile | undefined {
+  if (state.sourceFileCache.has(fileName)) {
+    return state.sourceFileCache.get(fileName);
+  }
   reserveCompilerHostOperations(state, 2);
   const installedSourcePath = resolveReadablePath(fileName, onError);
   if (installedSourcePath === undefined) {
+    state.sourceFileCache.set(fileName, undefined);
     return undefined;
   }
   assertAllowedSource(state.allowedPackageRoots, installedSourcePath);
   incrementSourceFileCount(state);
 
   const sourceText = readSourceText(state, installedSourcePath, onError);
-  return sourceText === undefined
-    ? undefined
-    : ts.createSourceFile(fileName, sourceText, languageVersion, true);
+  const sourceFile =
+    sourceText === undefined
+      ? undefined
+      : ts.createSourceFile(fileName, sourceText, languageVersion, true);
+  state.sourceFileCache.set(fileName, sourceFile);
+  return sourceFile;
 }
 
 function resolveReadablePath(
@@ -873,7 +1131,7 @@ function resolveReadablePath(
 
 function assertAllowedSource(allowedRoots: ReadonlySet<string>, sourcePath: string): void {
   if (![...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, sourcePath))) {
-    throw new UnsupportedInspectionError(
+    throw new StaticBoundaryInspectionError(
       "A declaration references source outside its installed package boundary.",
     );
   }

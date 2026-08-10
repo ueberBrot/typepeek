@@ -1,6 +1,21 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
+  build: {
+    lib: {
+      entry: {
+        cli: "src/cli.ts",
+        "analysis-process-entry": "src/inspection/analysis-process-entry.ts",
+      },
+      fileName: (_format, entryName) => `${entryName}.js`,
+      formats: ["es"],
+    },
+    outDir: ".vite-plus/build",
+    rolldownOptions: {
+      external: [/^node:/u, "@stricli/core", "@typescript/typescript6", "arktype", "execa"],
+    },
+    sourcemap: true,
+  },
   fmt: {
     ignorePatterns: [".agents/**", "dist/**"],
     overrides: [
@@ -37,11 +52,7 @@ export default defineConfig({
     },
   },
   pack: {
-    attw: {
-      level: "error",
-      profile: "esm-only",
-    },
-    entry: ["src/index.ts", "src/cli.ts", "src/inspection/analysis-process-entry.ts"],
+    entry: ["src/cli.ts", "src/inspection/analysis-process-entry.ts"],
     dts: true,
     format: ["esm"],
     outExtensions: () => ({

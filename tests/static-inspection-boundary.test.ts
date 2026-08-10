@@ -111,7 +111,10 @@ describe("Static Inspection trust boundary", () => {
     [
       "relative source",
       "./project-source.ts",
-      { status: "unsupported", message: "The requested Specifier is not a Package Module." },
+      {
+        status: "static-boundary",
+        message: "The requested Specifier is outside the static Inspectable Module boundary.",
+      },
     ],
     [
       "package import",
@@ -177,9 +180,18 @@ describe("Static Inspection trust boundary", () => {
     );
 
     expect(outcomes).toEqual([
-      { status: "unsupported", message: "The requested Specifier is not a Package Module." },
-      { status: "unsupported", message: "The requested Specifier is not a Package Module." },
-      { status: "unsupported", message: "The requested Specifier is not a Package Module." },
+      {
+        status: "static-boundary",
+        message: "The requested Specifier is outside the static Inspectable Module boundary.",
+      },
+      {
+        status: "static-boundary",
+        message: "The requested Specifier is outside the static Inspectable Module boundary.",
+      },
+      {
+        status: "static-boundary",
+        message: "The requested Specifier is outside the static Inspectable Module boundary.",
+      },
     ]);
     await fixture.verifyInert();
   });

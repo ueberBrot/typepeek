@@ -29,9 +29,10 @@ import { shouldExpandSupportingDeclaration } from "#typepeek/inspection/supporti
 const MAX_DECLARATIONS_PER_SYMBOL = 128;
 const MAX_DECLARATION_BYTES = 64 * 1_024;
 const MAX_NAMESPACE_MEMBERS = 128;
+const MAX_NAMESPACE_DEPTH = 8;
 const MAX_SIGNATURES = 64;
-const MAX_SUPPORTING_TYPE_DEPTH = 8;
-const MAX_SUPPORTING_TYPES = 48;
+const MAX_SUPPORTING_TYPE_DEPTH = 12;
+const MAX_SUPPORTING_TYPES = 96;
 const MAX_SIGNATURE_BYTES = 16 * 1_024;
 const MAX_SIGNATURE_TOTAL_BYTES = 48 * 1_024;
 const MAX_SUPPORTING_TRAVERSAL_DEPTH = 64;
@@ -449,7 +450,7 @@ function assertNamespaceTraversalAllowed(
   state: NamespaceTraversalState,
   depth: number,
 ): void {
-  if (depth > MAX_SUPPORTING_TYPE_DEPTH) {
+  if (depth > MAX_NAMESPACE_DEPTH) {
     throw new InspectionLimitError("Inspection exceeded its namespace traversal depth limit.");
   }
   if (state.visited.has(symbol)) {
@@ -693,7 +694,7 @@ function inspectSupportingTypes(
     visitedInferredTypes.add(type);
     const symbol = inferredTypeSymbol(type);
     if (symbol !== undefined) {
-      inspectSymbol(symbol, "type", depth);
+      inspectSymbol(symbol, symbol.flags & ts.SymbolFlags.Namespace ? "type-query" : "type", depth);
     }
     inferredPublicTypeChildren(evidence.checker, type).forEach((childType) => {
       inspectInferredType(childType, depth + 1);
@@ -798,7 +799,7 @@ function supportingTypeDeclarations(
   // named type declarations and must not drift into implementation symbols.
   const declarations = (symbol.declarations ?? []).filter((declaration) =>
     referenceKind === "type-query"
-      ? declarationSpaces(declaration).includes("value")
+      ? declarationSpaces(declaration).some((space) => space === "value" || space === "namespace")
       : isNamedTypeDeclaration(declaration),
   );
   assertDeclarationLimit(declarations);

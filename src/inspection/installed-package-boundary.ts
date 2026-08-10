@@ -14,6 +14,7 @@ const packageIdentitySchema = type({
 });
 
 export interface VisiblePackageLocation {
+  readonly contextDirectory: string;
   readonly packageRoot: string;
   readonly repositoryRoot: string;
 }
@@ -29,12 +30,14 @@ interface AncestorManifest {
 }
 
 export interface PackageBoundaryObserver {
+  readonly manifestCache: Map<string, Readonly<Record<string, unknown>>> | undefined;
   readonly remainingBytes: () => number | undefined;
   readonly reserveBytes: (count: number) => void;
   readonly reserveOperation: () => void;
 }
 
 const UNOBSERVED_BOUNDARY: PackageBoundaryObserver = {
+  manifestCache: undefined,
   remainingBytes: () => undefined,
   reserveBytes: () => undefined,
   reserveOperation: () => undefined,
@@ -119,38 +122,6 @@ function resolveDeclarationPackageIdentity(declarationPath: string): PackageIden
   );
 }
 
-export function findReferencedPackageRoot(
-  containingFile: string,
-  specifier: string,
-  resolvedFileName: string,
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
-): string | undefined {
-  const packageSegments = parsePackageNameSegments(specifier);
-  if (packageSegments === undefined) {
-    return undefined;
-  }
-
-  const linkedPackageRoot = findPackageRoot(containingFile, packageSegments, observer);
-  if (linkedPackageRoot === undefined) {
-    return undefined;
-  }
-
-  return canonicalContainedPackageRoot(linkedPackageRoot, resolvedFileName, observer);
-}
-
-function canonicalContainedPackageRoot(
-  linkedPackageRoot: string,
-  resolvedFileName: string,
-  observer: PackageBoundaryObserver,
-): string | undefined {
-  const packageRoot = canonicalPath(linkedPackageRoot, observer);
-  const resolvedSourcePath = canonicalPath(resolvedFileName, observer);
-  if (packageRoot === undefined || resolvedSourcePath === undefined) {
-    return undefined;
-  }
-  return isPathWithin(packageRoot, resolvedSourcePath) ? packageRoot : undefined;
-}
-
 export function parsePackageNameSegments(specifier: string): readonly string[] | undefined {
   const segments = specifier.split("/");
   const packageSegmentCount = specifier.startsWith("@") ? 2 : 1;
@@ -165,24 +136,31 @@ export function isSafePackagePathSegment(segment: string): boolean {
   return !["", ".", ".."].includes(segment) && !segment.includes("\\") && !segment.includes("\0");
 }
 
-function findPackageRoot(
-  resolutionContext: string,
-  packageSegments: readonly string[],
-  observer: PackageBoundaryObserver,
-): string | undefined {
-  return findVisiblePackage(resolutionContext, packageSegments, observer)?.packageRoot;
-}
-
 export function findVisiblePackage(
   resolutionContext: string,
   packageSegments: readonly string[],
   observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
 ): VisiblePackageLocation | undefined {
   const contextDirectory = startingDirectory(resolutionContext, observer);
-  if (!isDeclaredFromResolutionContext(contextDirectory, packageSegments.join("/"), observer)) {
+  if (
+    !isDeclaredFromResolutionContext(contextDirectory, packageSegments.join("/"), false, observer)
+  ) {
     return undefined;
   }
   return searchVisiblePackage(contextDirectory, packageSegments, observer);
+}
+
+export function findVisiblePackageForDependency(
+  resolutionContext: string,
+  declaredPackageName: string,
+  physicalPackageSegments: readonly string[],
+  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+): VisiblePackageLocation | undefined {
+  const contextDirectory = startingDirectory(resolutionContext, observer);
+  if (!isDeclaredFromResolutionContext(contextDirectory, declaredPackageName, true, observer)) {
+    return undefined;
+  }
+  return searchVisiblePackage(contextDirectory, physicalPackageSegments, observer);
 }
 
 function searchVisiblePackage(
@@ -196,6 +174,7 @@ function searchVisiblePackage(
     const candidate = join(directory, "node_modules", ...packageSegments);
     if (hasPackageManifest(candidate, observer)) {
       return {
+        contextDirectory,
         packageRoot: candidate,
         repositoryRoot: visibleRepositoryRoot(contextDirectory, directory, observer),
       };
@@ -223,9 +202,10 @@ function visibleRepositoryRoot(
 function isDeclaredFromResolutionContext(
   contextDirectory: string,
   packageName: string,
+  requirePackageIdentity: boolean,
   observer: PackageBoundaryObserver,
 ): boolean {
-  const contextManifest = findContextManifest(contextDirectory, false, observer);
+  const contextManifest = findContextManifest(contextDirectory, requirePackageIdentity, observer);
   return (
     contextManifest !== undefined &&
     DEPENDENCY_FIELDS.some((field) => hasOwnStringProperty(contextManifest[field], packageName))
@@ -243,22 +223,6 @@ function findContextManifest(
       !requirePackageIdentity || readPackageIdentity(manifest) !== undefined,
     observer,
   )?.manifest;
-}
-
-export function isDeclaredByContainingPackage(
-  containingFile: string,
-  packageName: string,
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
-): boolean {
-  const packageManifest = findContextManifest(
-    startingDirectory(containingFile, observer),
-    true,
-    observer,
-  );
-  return (
-    packageManifest !== undefined &&
-    DEPENDENCY_FIELDS.some((field) => hasOwnStringProperty(packageManifest[field], packageName))
-  );
 }
 
 function findWorkspaceRoot(
@@ -347,8 +311,11 @@ function hasPackageManifest(packageRoot: string, observer: PackageBoundaryObserv
   return hasFile(join(packageRoot, "package.json"), observer);
 }
 
-export function readInstalledManifest(packageRoot: string): InstalledManifest {
-  const manifest = readManifestRecord(packageRoot, UNOBSERVED_BOUNDARY);
+export function readInstalledManifest(
+  packageRoot: string,
+  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+): InstalledManifest {
+  const manifest = readManifestRecord(packageRoot, observer);
   const packageIdentity = readPackageIdentity(manifest);
   if (packageIdentity === undefined) {
     return invalidPackageIdentity();
@@ -363,10 +330,15 @@ function readManifestRecord(
   packageRoot: string,
   observer: PackageBoundaryObserver,
 ): Readonly<Record<string, unknown>> {
+  const manifestPath = join(packageRoot, "package.json");
+  const cachedManifest = observer.manifestCache?.get(manifestPath);
+  if (cachedManifest !== undefined) {
+    return cachedManifest;
+  }
   observer.reserveOperation();
   const remainingBytes = observer.remainingBytes();
   const manifestText = readBoundedUtf8File(
-    join(packageRoot, "package.json"),
+    manifestPath,
     remainingBytes === undefined
       ? MAX_MANIFEST_BYTES
       : Math.min(MAX_MANIFEST_BYTES, remainingBytes),
@@ -376,7 +348,11 @@ function readManifestRecord(
   );
   observer.reserveBytes(Buffer.byteLength(manifestText));
   const manifest = parseManifest(manifestText);
-  return isRecord(manifest) ? manifest : invalidPackageIdentity();
+  if (!isRecord(manifest)) {
+    return invalidPackageIdentity();
+  }
+  observer.manifestCache?.set(manifestPath, manifest);
+  return manifest;
 }
 
 function readPackageIdentity(value: unknown): PackageIdentity | undefined {

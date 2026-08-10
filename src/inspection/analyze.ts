@@ -1,4 +1,8 @@
-import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import {
+  InspectionLimitError,
+  StaticBoundaryInspectionError,
+  UnsupportedInspectionError,
+} from "#typepeek/inspection/errors";
 import { inspectFocusedModuleExport } from "#typepeek/inspection/export-inspection";
 import {
   type InspectableModuleEvidence,
@@ -7,7 +11,7 @@ import {
 import type { AnalysisRequest, InspectionOutcome } from "#typepeek/inspection/protocol";
 import { constructInterfaceOverview } from "#typepeek/inspection/result-construction";
 
-const MAX_MODULE_EXPORTS = 200;
+const MAX_MODULE_EXPORTS = 320;
 
 /**
  * Runs one already-normalized request inside the analysis subprocess. Expected
@@ -24,7 +28,10 @@ export function analyzeInspection(analysisRequest: AnalysisRequest): InspectionO
 
 function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOutcome {
   const { request } = analysisRequest;
-  const evidence = readInspectableModuleEvidence(request);
+  const evidence = readInspectableModuleEvidence(
+    request,
+    analysisRequest.intent === "export-inspection" ? analysisRequest.request.exportName : undefined,
+  );
   if (evidence === undefined) {
     return {
       status: "not-found",
@@ -78,6 +85,9 @@ function compareModuleExports(
 function errorOutcome(error: unknown): InspectionOutcome {
   if (error instanceof InspectionLimitError) {
     return { status: "limit-exceeded", message: error.message };
+  }
+  if (error instanceof StaticBoundaryInspectionError) {
+    return { status: "static-boundary", message: error.message };
   }
   // Unexpected errors may contain host paths or analyzer details, neither of
   // which belongs in the transport-neutral Inspection Result.

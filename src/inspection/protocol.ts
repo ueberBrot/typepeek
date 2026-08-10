@@ -152,7 +152,7 @@ const inspectionSchemas = type.module({
   exportInspection: "packageExportInspection | platformExportInspection",
   inspectionResult: "interfaceOverview | exportInspection",
   inspectionFailure: record({
-    status: "'not-found' | 'unsupported' | 'limit-exceeded'",
+    status: "'not-found' | 'unsupported' | 'static-boundary' | 'limit-exceeded'",
     message: "string",
   }),
   inspectionSuccess: record({

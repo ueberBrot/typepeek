@@ -15,12 +15,6 @@
     "#typepeek/inspection": "./src/inspection/index.ts",
     "#typepeek/*": "./src/*.ts"
   },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
   "scripts": {
     "prepare": "vp config --no-agent"
   },
@@ -31,7 +25,6 @@
     "execa": "^10.0.0"
   },
   "devDependencies": {
-    "@arethetypeswrong/core": "^0.18.5",
     "@types/node": "^24.13.3",
     "fallow": "^3.10.0",
     "publint": "^0.3.22",

@@ -67,7 +67,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     name: "@typepeek-fixture/broad",
     version: "4.5.6",
     declaration: Array.from(
-      { length: 201 },
+      { length: 321 },
       (_, index) => `export declare const item${index}: number;`,
     ).join("\n"),
     runtime: 'throw new Error("Typepeek executed the broad fixture runtime");\n',
@@ -84,7 +84,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
         default: "./dist/index.js",
       },
       ...Object.fromEntries(
-        Array.from({ length: 201 }, (_, index) => [
+        Array.from({ length: 513 }, (_, index) => [
           `./feature-${index}`,
           {
             types: "./dist/index.d.ts",
@@ -427,11 +427,11 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     version: "1.0.0",
     declaration: [
       ...Array.from(
-        { length: 49 },
+        { length: 97 },
         (_, index) => `interface Supporting${index} { readonly value: string; }`,
       ),
       `export declare function inspect(value: [${Array.from(
-        { length: 49 },
+        { length: 97 },
         (_, index) => `Supporting${index}`,
       ).join(", ")}]): void;`,
       "",
@@ -462,9 +462,9 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     version: "1.0.0",
     declaration: [
       ...Array.from(
-        { length: 10 },
+        { length: 14 },
         (_, index) =>
-          `interface Depth${index} { readonly next: ${index === 9 ? "string" : `Depth${index + 1}`}; }`,
+          `interface Depth${index} { readonly next: ${index === 13 ? "string" : `Depth${index + 1}`}; }`,
       ),
       "export declare function inspect(value: Depth0): void;",
       "",
@@ -563,12 +563,37 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     runtime: 'throw new Error("Typepeek executed the circular alias fixture runtime");\n',
   },
   {
+    directory: "named-re-export-missing-import-package",
+    name: "@typepeek-fixture/named-re-export-missing-import",
+    version: "1.0.0",
+    declaration: 'export { Visible } from "./visible.js";\n',
+    additionalDeclarations: {
+      "visible.d.ts":
+        'export interface Visible { readonly value: import("./missing.js").Missing; }\n',
+    },
+    runtime: 'throw new Error("Typepeek executed the named re-export fixture runtime");\n',
+  },
+  {
+    directory: "named-re-export-missing-reference-package",
+    name: "@typepeek-fixture/named-re-export-missing-reference",
+    version: "1.0.0",
+    declaration: 'export { Visible } from "./visible.js";\n',
+    additionalDeclarations: {
+      "visible.d.ts": [
+        '/// <reference path="./missing.d.ts" />',
+        "export interface Visible { readonly value: string; }",
+        "",
+      ].join("\n"),
+    },
+    runtime: 'throw new Error("Typepeek executed the named re-export fixture runtime");\n',
+  },
+  {
     directory: "failed-lookup-storm-package",
     name: "@typepeek-fixture/failed-lookup-storm",
     version: "1.0.0",
     declaration: [
       ...Array.from(
-        { length: 1_600 },
+        { length: 6_000 },
         (_, index) => `import type {} from "@missing/package-${index}";`,
       ),
       "export declare const visible: string;",
@@ -581,7 +606,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     name: "@typepeek-fixture/duplicate-path-references",
     version: "1.0.0",
     declaration: [
-      ...Array.from({ length: 11_000 }, () => '/// <reference path="./helper.d.ts" />'),
+      ...Array.from({ length: 26_000 }, () => '/// <reference path="./helper.d.ts" />'),
       "export declare const visible: ReferencedValue;",
       "",
     ].join("\n"),
@@ -596,13 +621,13 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     version: "1.0.0",
     declaration: [
       ...Array.from(
-        { length: 128 },
+        { length: 384 },
         (_, index) => `export { value${index} } from "./part-${index}.js";`,
       ),
       "",
     ].join("\n"),
     additionalDeclarations: Object.fromEntries(
-      Array.from({ length: 128 }, (_, index) => [
+      Array.from({ length: 384 }, (_, index) => [
         `part-${index}.d.ts`,
         `export declare const value${index}: string;\n`,
       ]),

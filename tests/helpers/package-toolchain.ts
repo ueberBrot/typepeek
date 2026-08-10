@@ -118,6 +118,22 @@ export async function installPackedPackagesWithNpm(options: {
   });
 }
 
+export async function installLockedPackagesWithNpm(options: {
+  readonly cacheRoot: string;
+  readonly diagnosticContext: string;
+  readonly resolutionContext: string;
+}): Promise<void> {
+  const npm = PACKAGE_MANAGER_PINS[0];
+  await verifyPackageManager(npm, options.resolutionContext);
+  await runToolchainCommand({
+    command: npm.command,
+    arguments_: ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+    cwd: options.resolutionContext,
+    env: { npm_config_cache: join(options.cacheRoot, "npm-cache") },
+    diagnosticContext: options.diagnosticContext,
+  });
+}
+
 async function verifyPackageManager(
   packageManager: PackageManagerPin,
   resolutionContext: string,

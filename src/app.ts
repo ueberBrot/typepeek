@@ -8,17 +8,22 @@ import { renderInspection } from "#typepeek/terminal-rendering";
 
 import packageJson from "../package.json" with { type: "json" };
 
-const rootCommand = buildCommand<{ context: string; export?: string }, [string]>({
-  async func({ context, export: exportName }, specifier) {
+const rootCommand = buildCommand<
+  { access: "import" | "require"; context: string; export?: string },
+  [string]
+>({
+  async func({ access, context, export: exportName }, specifier) {
     const outcome =
       exportName === undefined
         ? await inspectInterfaceOverview({
             resolutionContext: context,
             specifier,
+            accessStyle: access,
           })
         : await inspectExport({
             resolutionContext: context,
             specifier,
+            accessStyle: access,
             exportName,
           });
     if (outcome.status !== "success") {
@@ -33,6 +38,12 @@ const rootCommand = buildCommand<{ context: string; export?: string }, [string]>
   },
   parameters: {
     flags: {
+      access: {
+        kind: "parsed",
+        parse: parseAccessStyle,
+        default: "import",
+        brief: "Access Style whose package conditions select the Resolution Variant.",
+      },
       context: {
         kind: "parsed",
         parse: resolve,
@@ -61,6 +72,13 @@ const rootCommand = buildCommand<{ context: string; export?: string }, [string]>
     brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
   },
 });
+
+function parseAccessStyle(input: string): "import" | "require" {
+  if (input === "import" || input === "require") {
+    return input;
+  }
+  throw new Error('Access Style must be "import" or "require".');
+}
 
 function renderForCommand(result: InspectionResult): string | Error {
   try {
