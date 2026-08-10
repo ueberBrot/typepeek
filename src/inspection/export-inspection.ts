@@ -141,15 +141,27 @@ function assertSupportedSelectedDeclarationKind(
   aliasDeclaration: AliasDeclaration | undefined,
 ): void {
   const declarations = publicDeclarations(symbol.declarations ?? []);
-  if (
-    declarations.length > 0 &&
-    declarations.every((declaration) => declarationKind(declaration) === undefined) &&
-    (aliasDeclaration === undefined || declarations.some(ts.isBindingElement))
-  ) {
+  if (selectedDeclarationIsUnsupported(declarations, aliasDeclaration)) {
     throw new UnsupportedInspectionError(
       "The selected Module Export contains an unsupported declaration kind.",
     );
   }
+}
+
+function selectedDeclarationIsUnsupported(
+  declarations: readonly ts.Declaration[],
+  aliasDeclaration: AliasDeclaration | undefined,
+): boolean {
+  if (
+    declarations.length === 0 ||
+    declarations.some((item) => declarationKind(item) !== undefined)
+  ) {
+    return false;
+  }
+  if (aliasDeclaration === undefined) {
+    return true;
+  }
+  return declarations.some(ts.isBindingElement);
 }
 
 function assertDeclarationLimit(declarations: readonly ts.Declaration[]): void {
@@ -593,8 +605,8 @@ function inspectSupportingTypes(
     depth: number,
   ): boolean => {
     const resolvedSymbol = resolveExportTarget(evidence.checker, symbol);
-    const declarations = supportingTypeDeclarations(resolvedSymbol, referenceKind);
-    if (visited.has(resolvedSymbol) || declarations.length === 0) {
+    const declarations = unvisitedSupportingDeclarations(resolvedSymbol, referenceKind, visited);
+    if (declarations.length === 0) {
       return false;
     }
     assertSupportingTypeBudget(depth, supportingTypes.length);
@@ -603,14 +615,14 @@ function inspectSupportingTypes(
       name: resolvedSymbol.getName(),
       declarations: declarations.map((declaration) => inspectDeclaration(evidence, declaration)),
     });
-    for (const declaration of declarations) {
+    declarations.forEach((declaration) => {
       visitTypeReferences(publicDeclarationSyntax(evidence.checker, declaration), (reference) =>
         inspectReference(reference, depth + 1),
       );
-      for (const type of inferredPublicTypes(evidence.checker, declaration)) {
+      inferredPublicTypes(evidence.checker, declaration).forEach((type) => {
         inspectInferredType(type, depth + 1);
-      }
-    }
+      });
+    });
     return true;
   };
 
@@ -627,13 +639,13 @@ function inspectSupportingTypes(
       return;
     }
     visitedInferredTypes.add(type);
-    const symbol = type.aliasSymbol ?? type.getSymbol();
+    const symbol = inferredTypeSymbol(type);
     if (symbol !== undefined) {
       inspectSymbol(symbol, "type", depth);
     }
-    for (const childType of inferredPublicTypeChildren(evidence.checker, type)) {
+    inferredPublicTypeChildren(evidence.checker, type).forEach((childType) => {
       inspectInferredType(childType, depth + 1);
-    }
+    });
   };
 
   for (const declaration of supportingRootDeclarations(selectedSymbol, namespaceMembers)) {
@@ -645,6 +657,18 @@ function inspectSupportingTypes(
     }
   }
   return supportingTypes;
+}
+
+function unvisitedSupportingDeclarations(
+  symbol: ts.Symbol,
+  referenceKind: SupportingReferenceKind,
+  visited: ReadonlySet<ts.Symbol>,
+): readonly ts.Declaration[] {
+  return visited.has(symbol) ? [] : supportingTypeDeclarations(symbol, referenceKind);
+}
+
+function inferredTypeSymbol(type: ts.Type): ts.Symbol | undefined {
+  return type.aliasSymbol ?? type.getSymbol();
 }
 
 function supportingRootDeclarations(

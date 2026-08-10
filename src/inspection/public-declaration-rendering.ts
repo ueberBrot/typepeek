@@ -7,6 +7,27 @@ const declarationPrinter = ts.createPrinter({
   newLine: ts.NewLineKind.LineFeed,
   removeComments: true,
 });
+const NAMESPACE_DECLARATION_KINDS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.ClassDeclaration,
+  ts.SyntaxKind.EnumDeclaration,
+  ts.SyntaxKind.ExportAssignment,
+  ts.SyntaxKind.ExportDeclaration,
+  ts.SyntaxKind.FunctionDeclaration,
+  ts.SyntaxKind.ImportEqualsDeclaration,
+  ts.SyntaxKind.InterfaceDeclaration,
+  ts.SyntaxKind.ModuleDeclaration,
+  ts.SyntaxKind.TypeAliasDeclaration,
+]);
+const INFERRED_DECLARATION_TYPE_KINDS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.VariableDeclaration,
+  ts.SyntaxKind.PropertyDeclaration,
+  ts.SyntaxKind.Parameter,
+]);
+const INFERRED_RETURN_TYPE_KINDS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.FunctionDeclaration,
+  ts.SyntaxKind.MethodDeclaration,
+  ts.SyntaxKind.GetAccessor,
+]);
 
 /** Renders declaration or source evidence without executable implementation details. */
 export function renderPublicDeclaration(
@@ -212,9 +233,6 @@ function publicNamespaceStatement(
   checker: ts.TypeChecker,
   statement: ts.Statement,
 ): readonly ts.Statement[] {
-  if (!isExportedNamespaceStatement(statement)) {
-    return [];
-  }
   if (ts.isVariableStatement(statement)) {
     return [
       ts.factory.updateVariableStatement(
@@ -229,18 +247,10 @@ function publicNamespaceStatement(
       ),
     ];
   }
-  if (
-    ts.isClassDeclaration(statement) ||
-    ts.isEnumDeclaration(statement) ||
-    ts.isExportAssignment(statement) ||
-    ts.isExportDeclaration(statement) ||
-    ts.isFunctionDeclaration(statement) ||
-    ts.isImportEqualsDeclaration(statement) ||
-    ts.isInterfaceDeclaration(statement) ||
-    ts.isModuleDeclaration(statement) ||
-    ts.isTypeAliasDeclaration(statement)
-  ) {
-    return [publicDeclaration(checker, statement) as unknown as ts.Statement];
+  if (NAMESPACE_DECLARATION_KINDS.has(statement.kind)) {
+    return [
+      publicDeclaration(checker, statement as unknown as ts.Declaration) as unknown as ts.Statement,
+    ];
   }
   return [];
 }
@@ -518,23 +528,22 @@ function hasFunctionBody(
 }
 
 function sameOverloadGroup(left: ts.Declaration, right: ts.Declaration): boolean {
-  if (ts.isConstructorDeclaration(left) || ts.isConstructorDeclaration(right)) {
-    return ts.isConstructorDeclaration(left) && ts.isConstructorDeclaration(right);
+  const leftGroup = overloadGroup(left);
+  return leftGroup !== undefined && leftGroup === overloadGroup(right);
+}
+
+function overloadGroup(declaration: ts.Declaration): string | undefined {
+  if (ts.isConstructorDeclaration(declaration)) {
+    return "constructor";
   }
-  if (ts.isFunctionDeclaration(left) || ts.isFunctionDeclaration(right)) {
-    return (
-      ts.isFunctionDeclaration(left) &&
-      ts.isFunctionDeclaration(right) &&
-      left.name?.getText() === right.name?.getText()
-    );
+  if (ts.isFunctionDeclaration(declaration)) {
+    return `function:${declaration.name?.getText() ?? "default"}`;
   }
-  return (
-    ts.isMethodDeclaration(left) &&
-    ts.isMethodDeclaration(right) &&
-    left.name.getText() === right.name.getText() &&
-    hasModifier(left, ts.SyntaxKind.StaticKeyword) ===
-      hasModifier(right, ts.SyntaxKind.StaticKeyword)
-  );
+  if (ts.isMethodDeclaration(declaration)) {
+    const placement = hasModifier(declaration, ts.SyntaxKind.StaticKeyword) ? "static" : "instance";
+    return `method:${placement}:${declaration.name.getText()}`;
+  }
+  return undefined;
 }
 
 function publicModifiers(
@@ -670,33 +679,52 @@ function collectInferredPublicTypes(
   declaration: ts.Declaration,
   types: ts.Type[],
 ): void {
+  collectInferredDeclarationType(checker, declaration, types);
+  collectInferredReturnType(checker, declaration, types);
+  parameterDeclarations(declaration).forEach((parameter) =>
+    collectInferredPublicTypes(checker, parameter, types),
+  );
+  publicClassElements(declaration).forEach((member) =>
+    collectInferredPublicTypes(checker, member, types),
+  );
+}
+
+function collectInferredDeclarationType(
+  checker: ts.TypeChecker,
+  declaration: ts.Declaration,
+  types: ts.Type[],
+): void {
   if (
-    (ts.isVariableDeclaration(declaration) ||
-      ts.isPropertyDeclaration(declaration) ||
-      ts.isParameter(declaration)) &&
-    declaration.type === undefined
+    explicitDeclarationType(declaration) === undefined &&
+    INFERRED_DECLARATION_TYPE_KINDS.has(declaration.kind)
   ) {
     types.push(checker.getTypeAtLocation(declaration));
   }
+}
+
+function collectInferredReturnType(
+  checker: ts.TypeChecker,
+  declaration: ts.Declaration,
+  types: ts.Type[],
+): void {
   if (
-    (ts.isFunctionDeclaration(declaration) ||
-      ts.isMethodDeclaration(declaration) ||
-      ts.isGetAccessorDeclaration(declaration)) &&
-    declaration.type === undefined
+    explicitDeclarationType(declaration) !== undefined ||
+    !INFERRED_RETURN_TYPE_KINDS.has(declaration.kind)
   ) {
-    const signature = checker.getSignatureFromDeclaration(declaration);
-    if (signature !== undefined) {
-      types.push(checker.getReturnTypeOfSignature(signature));
-    }
+    return;
   }
-  for (const parameter of parameterDeclarations(declaration)) {
-    collectInferredPublicTypes(checker, parameter, types);
+  const signature = checker.getSignatureFromDeclaration(declaration as ts.SignatureDeclaration);
+  if (signature !== undefined) {
+    types.push(checker.getReturnTypeOfSignature(signature));
   }
-  if (ts.isClassDeclaration(declaration)) {
-    for (const member of publicClassMembers(declaration.members)) {
-      collectInferredPublicTypes(checker, member, types);
-    }
-  }
+}
+
+function explicitDeclarationType(declaration: ts.Declaration): ts.TypeNode | undefined {
+  return "type" in declaration ? (declaration.type as ts.TypeNode | undefined) : undefined;
+}
+
+function publicClassElements(declaration: ts.Declaration): readonly ts.ClassElement[] {
+  return ts.isClassDeclaration(declaration) ? publicClassMembers(declaration.members) : [];
 }
 
 function parameterDeclarations(node: ts.Node): readonly ts.ParameterDeclaration[] {

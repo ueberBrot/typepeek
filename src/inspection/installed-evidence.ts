@@ -257,6 +257,13 @@ function findVisiblePackage(
   if (!isDeclaredFromResolutionContext(contextDirectory, packageSegments.join("/"))) {
     return undefined;
   }
+  return searchVisiblePackage(contextDirectory, packageSegments);
+}
+
+function searchVisiblePackage(
+  contextDirectory: string,
+  packageSegments: readonly string[],
+): VisiblePackageLocation | undefined {
   let directory = contextDirectory;
 
   for (let depth = 0; depth < MAX_PACKAGE_SEARCH_DEPTH; depth += 1) {
@@ -264,7 +271,7 @@ function findVisiblePackage(
     if (hasPackageManifest(candidate)) {
       return {
         packageRoot: candidate,
-        repositoryRoot: findWorkspaceRoot(contextDirectory) ?? directory,
+        repositoryRoot: visibleRepositoryRoot(contextDirectory, directory),
       };
     }
     rejectPlugAndPlayInstallation(directory);
@@ -277,6 +284,10 @@ function findVisiblePackage(
   }
 
   throw new InspectionLimitError("Inspection exceeded its package resolution traversal limit.");
+}
+
+function visibleRepositoryRoot(contextDirectory: string, fallback: string): string {
+  return findWorkspaceRoot(contextDirectory) ?? fallback;
 }
 
 function isDeclaredFromResolutionContext(contextDirectory: string, packageName: string): boolean {
@@ -320,11 +331,9 @@ function findAncestorManifest(
 ): AncestorManifest | undefined {
   let directory = startingDirectory;
   for (let depth = 0; depth < MAX_PACKAGE_SEARCH_DEPTH; depth += 1) {
-    if (hasPackageManifest(directory)) {
-      const manifest = readManifestRecord(directory);
-      if (predicate(directory, manifest)) {
-        return { directory, manifest };
-      }
+    const match = matchingAncestorManifest(directory, predicate);
+    if (match !== undefined) {
+      return match;
     }
     const parent = dirname(directory);
     if (parent === directory) {
@@ -333,6 +342,17 @@ function findAncestorManifest(
     directory = parent;
   }
   throw new InspectionLimitError("Inspection exceeded its package resolution traversal limit.");
+}
+
+function matchingAncestorManifest(
+  directory: string,
+  predicate: (directory: string, manifest: Readonly<Record<string, unknown>>) => boolean,
+): AncestorManifest | undefined {
+  if (!hasPackageManifest(directory)) {
+    return undefined;
+  }
+  const manifest = readManifestRecord(directory);
+  return predicate(directory, manifest) ? { directory, manifest } : undefined;
 }
 
 function hasWorkspaceDeclaration(manifest: Readonly<Record<string, unknown>>): boolean {
@@ -602,23 +622,41 @@ function authorizeExternalPackage(
     return true;
   }
   const packageSegments = parsePackageNameSegments(specifier);
-  if (
-    packageSegments === undefined ||
-    !isDeclaredByContainingPackage(containingFile, packageSegments.join("/"))
-  ) {
+  if (packageSegments === undefined) {
+    return false;
+  }
+  if (!isDeclaredByContainingPackage(containingFile, packageSegments.join("/"))) {
     return false;
   }
 
   // Every referenced Package Module must be declared by the containing
   // package, even when a hoisted physical installation happens to resolve.
-  const packageRoot =
-    findMaterializedPackageRoot(resolvedModule.resolvedFileName) ??
-    findReferencedPackageRoot(containingFile, specifier, resolvedModule.resolvedFileName);
-  if (packageRoot !== undefined) {
-    state.allowedPackageRoots.add(packageRoot);
-    return true;
+  return allowResolvedPackageRoot(
+    state,
+    resolvedExternalPackageRoot(containingFile, specifier, resolvedModule.resolvedFileName),
+  );
+}
+
+function resolvedExternalPackageRoot(
+  containingFile: string,
+  specifier: string,
+  resolvedFileName: string,
+): string | undefined {
+  return (
+    findMaterializedPackageRoot(resolvedFileName) ??
+    findReferencedPackageRoot(containingFile, specifier, resolvedFileName)
+  );
+}
+
+function allowResolvedPackageRoot(
+  state: CompilerHostState,
+  packageRoot: string | undefined,
+): boolean {
+  if (packageRoot === undefined) {
+    return false;
   }
-  return false;
+  state.allowedPackageRoots.add(packageRoot);
+  return true;
 }
 
 function isResolvedExternalPackage(
