@@ -21,6 +21,8 @@ export interface ResolutionVariantSelection {
   readonly request: NormalizedInspectionTarget;
   readonly packageRoot: string;
   readonly packageRootSpecifier: string;
+  readonly declarationRoots?: readonly string[];
+  readonly missingDeclarationMessage?: string;
   readonly subpathKey?: string;
   readonly exports: unknown;
 }
@@ -80,6 +82,8 @@ export function selectResolutionVariant({
   request,
   packageRoot,
   packageRootSpecifier,
+  declarationRoots = [packageRoot],
+  missingDeclarationMessage,
   subpathKey,
   exports,
 }: ResolutionVariantSelection): SelectedResolutionVariant {
@@ -88,12 +92,19 @@ export function selectResolutionVariant({
     declarationPath: resolveDeclarationPath(
       request.resolutionContext,
       request.specifier,
-      packageRoot,
+      declarationRoots,
       request.accessStyle,
+      missingDeclarationMessage,
     ),
     readPublicSubpaths: () =>
       subpathKey === undefined
-        ? publicSubpathSpecifiers(packageRootSpecifier, exports, request, packageRoot)
+        ? publicSubpathSpecifiers(
+            packageRootSpecifier,
+            exports,
+            request,
+            packageRoot,
+            declarationRoots,
+          )
         : [],
   };
 }
@@ -114,6 +125,7 @@ function publicSubpathSpecifiers(
   exports: unknown,
   request: NormalizedInspectionTarget,
   packageRoot: string,
+  declarationRoots: readonly string[],
 ): readonly PublicSubpath[] {
   return publicSubpathCandidates(
     packageRootSpecifier,
@@ -121,7 +133,7 @@ function publicSubpathSpecifiers(
     packageRoot,
     request.accessStyle,
   ).flatMap((specifier) =>
-    isResolvablePublicSubpath(specifier, request, packageRoot) ? [{ specifier }] : [],
+    isResolvablePublicSubpath(specifier, request, declarationRoots) ? [{ specifier }] : [],
   );
 }
 
@@ -193,7 +205,7 @@ function concretePublicSubpathSpecifier(
 function isResolvablePublicSubpath(
   specifier: string,
   request: NormalizedInspectionTarget,
-  packageRoot: string,
+  declarationRoots: readonly string[],
 ): boolean {
   const declarationPath = resolvePackageDeclaration(
     request.resolutionContext,
@@ -203,7 +215,8 @@ function isResolvablePublicSubpath(
   const canonicalDeclarationPath =
     declarationPath === undefined ? undefined : canonicalPath(declarationPath);
   return (
-    canonicalDeclarationPath !== undefined && isPathWithin(packageRoot, canonicalDeclarationPath)
+    canonicalDeclarationPath !== undefined &&
+    declarationRoots.some((root) => isPathWithin(root, canonicalDeclarationPath))
   );
 }
 
@@ -604,17 +617,20 @@ function publicSubpathKeyMatches(pattern: string, subpathKey: string): boolean {
 function resolveDeclarationPath(
   resolutionContext: string,
   specifier: string,
-  packageRoot: string,
+  declarationRoots: readonly string[],
   accessStyle: AccessStyle,
+  missingDeclarationMessage: string | undefined,
 ): string {
   const declarationPath = resolvePackageDeclaration(resolutionContext, specifier, accessStyle);
 
   if (declarationPath === undefined) {
-    throw new UnsupportedInspectionError("The package has no readable declaration entrypoint.");
+    throw new UnsupportedInspectionError(
+      missingDeclarationMessage ?? "The package has no readable declaration entrypoint.",
+    );
   }
 
   const canonicalDeclarationPath = canonicalDeclaration(declarationPath);
-  if (!isPathWithin(packageRoot, canonicalDeclarationPath)) {
+  if (!declarationRoots.some((root) => isPathWithin(root, canonicalDeclarationPath))) {
     throw new UnsupportedInspectionError(
       "The package declaration entrypoint escapes its installed package boundary.",
     );

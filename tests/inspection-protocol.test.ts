@@ -106,6 +106,38 @@ it("rejects a structurally valid success for a different inspection intent", () 
   });
 });
 
+it("accepts a provider-backed Platform Module without a Package Identity", () => {
+  const outcome = {
+    status: "success",
+    result: {
+      intent: "interface-overview",
+      specifier: "node:fs",
+      declarationProvider: { name: "@types/node", version: "24.13.3" },
+      publicSubpaths: [],
+      moduleExports: [{ name: "readFile" }],
+    },
+  } as const;
+
+  expect(enforceInspectionOutcome("interface-overview", outcome)).toEqual(outcome);
+});
+
+it("rejects a successful result without an evidence identity", () => {
+  expect(
+    enforceInspectionOutcome("interface-overview", {
+      status: "success",
+      result: {
+        intent: "interface-overview",
+        specifier: "identity-free",
+        publicSubpaths: [],
+        moduleExports: [],
+      },
+    }),
+  ).toEqual({
+    status: "unsupported",
+    message: "Inspection returned an invalid result.",
+  });
+});
+
 it("preserves an intent-neutral Inspection Failure", () => {
   const outcome = {
     status: "limit-exceeded",

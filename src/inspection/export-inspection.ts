@@ -1,7 +1,7 @@
 import ts from "@typescript/typescript6";
 
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
-import type { InstalledPackageModule } from "#typepeek/inspection/installed-evidence";
+import type { InspectableModuleEvidence } from "#typepeek/inspection/installed-evidence";
 import { inspectPackageDocumentation } from "#typepeek/inspection/package-documentation";
 import type {
   DeclarationKind,
@@ -23,6 +23,7 @@ import {
   publicDeclarations,
   renderPublicDeclaration,
 } from "#typepeek/inspection/public-declaration-rendering";
+import { shouldExpandSupportingDeclaration } from "#typepeek/inspection/supporting-type-policy";
 
 const MAX_DECLARATIONS_PER_SYMBOL = 128;
 const MAX_DECLARATION_BYTES = 64 * 1_024;
@@ -95,17 +96,17 @@ interface SupportingReference {
 }
 
 function inspectDeclaration(
-  evidence: InstalledPackageModule,
+  evidence: InspectableModuleEvidence,
   declaration: ts.Declaration,
   kindOverride: "alias",
 ): InspectedDeclaration & { readonly kind: "alias" };
 function inspectDeclaration(
-  evidence: InstalledPackageModule,
+  evidence: InspectableModuleEvidence,
   declaration: ts.Declaration,
   kindOverride?: DeclarationKind,
 ): InspectedDeclaration;
 function inspectDeclaration(
-  evidence: InstalledPackageModule,
+  evidence: InspectableModuleEvidence,
   declaration: ts.Declaration,
   kindOverride?: DeclarationKind,
 ): InspectedDeclaration {
@@ -192,12 +193,12 @@ function inspectedDeclarationKind(
 }
 
 /**
- * Produces a bounded Export Inspection from one Package Module backed by
+ * Produces a bounded Export Inspection from one Inspectable Module backed by
  * Installed Evidence. Returns `undefined` only when the named Module Export is
  * absent; unsupported declaration shapes and exhausted budgets use typed errors.
  */
 export function inspectFocusedModuleExport(
-  evidence: InstalledPackageModule,
+  evidence: InspectableModuleEvidence,
   exportName: string,
   specifier: string,
 ): ExportInspection | undefined {
@@ -224,7 +225,7 @@ export function inspectFocusedModuleExport(
   return {
     intent: "export-inspection",
     specifier,
-    packageIdentity: evidence.packageIdentity,
+    ...evidence.resultIdentity,
     moduleExport: inspectModuleExport(
       evidence,
       exportedSymbol,
@@ -252,7 +253,7 @@ function resolveExportTarget(checker: ts.TypeChecker, exportedSymbol: ts.Symbol)
 }
 
 function inspectModuleExport(
-  evidence: InstalledPackageModule,
+  evidence: InspectableModuleEvidence,
   exportedSymbol: ts.Symbol,
   targetSymbol: ts.Symbol,
   aliasDeclaration: AliasDeclaration | undefined,
@@ -275,7 +276,7 @@ function inspectModuleExport(
 }
 
 function inspectAlias(
-  evidence: InstalledPackageModule,
+  evidence: InspectableModuleEvidence,
   exportedSymbol: ts.Symbol,
   aliasDeclaration: AliasDeclaration | undefined,
   targetSymbol: ts.Symbol,
@@ -329,7 +330,7 @@ function occupiedDeclarationSpaces(
 }
 
 function inspectDeclarationSpaces(
-  evidence: InstalledPackageModule,
+  evidence: InspectableModuleEvidence,
   symbol: ts.Symbol,
   occupiedSpaces: readonly DeclarationSpace[],
   aliasDeclaration: AliasDeclaration | undefined,
@@ -355,7 +356,7 @@ function inspectDeclarationSpaces(
 }
 
 function inspectedDeclarations(
-  evidence: InstalledPackageModule,
+  evidence: InspectableModuleEvidence,
   declarations: readonly ts.Declaration[],
   aliasDeclaration: AliasDeclaration | undefined,
 ): readonly InspectedDeclaration[] {
@@ -448,7 +449,7 @@ function inspectNamespaceMember(
 }
 
 function inspectNamespaceMembers(
-  evidence: InstalledPackageModule,
+  evidence: InspectableModuleEvidence,
   members: readonly NamespaceMemberEvidence[],
 ): readonly ExportNamespaceMember[] {
   return members.map((member) => ({
@@ -589,7 +590,7 @@ function sourceRank(
 }
 
 function inspectSupportingTypes(
-  evidence: InstalledPackageModule,
+  evidence: InspectableModuleEvidence,
   selectedSymbol: ts.Symbol,
   namespaceMembers: readonly NamespaceMemberEvidence[],
 ): readonly SupportingType[] {
@@ -615,14 +616,16 @@ function inspectSupportingTypes(
       name: resolvedSymbol.getName(),
       declarations: declarations.map((declaration) => inspectDeclaration(evidence, declaration)),
     });
-    declarations.forEach((declaration) => {
-      visitTypeReferences(publicDeclarationSyntax(evidence.checker, declaration), (reference) =>
-        inspectReference(reference, depth + 1),
-      );
-      inferredPublicTypes(evidence.checker, declaration).forEach((type) => {
-        inspectInferredType(type, depth + 1);
+    declarations
+      .filter((declaration) => shouldExpandSupporting(evidence, declaration))
+      .forEach((declaration) => {
+        visitTypeReferences(publicDeclarationSyntax(evidence.checker, declaration), (reference) =>
+          inspectReference(reference, depth + 1),
+        );
+        inferredPublicTypes(evidence.checker, declaration).forEach((type) => {
+          inspectInferredType(type, depth + 1);
+        });
       });
-    });
     return true;
   };
 
@@ -657,6 +660,13 @@ function inspectSupportingTypes(
     }
   }
   return supportingTypes;
+}
+
+function shouldExpandSupporting(
+  evidence: InspectableModuleEvidence,
+  declaration: ts.Declaration,
+): boolean {
+  return shouldExpandSupportingDeclaration(evidence.supportingTypeScope, declaration);
 }
 
 function unvisitedSupportingDeclarations(

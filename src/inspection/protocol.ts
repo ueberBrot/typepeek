@@ -114,21 +114,42 @@ const inspectionSchemas = type.module({
     trust: "'untrusted'",
     text: "string",
   }),
-  interfaceOverview: record({
+  packageInterfaceOverview: record({
     intent: "'interface-overview'",
     specifier: "string",
     packageIdentity: "packageIdentity",
+    "declarationProvider?": "packageIdentity | undefined",
     publicSubpaths: "publicSubpath[]",
     moduleExports: "moduleExportIndexEntry[]",
   }),
-  exportInspection: record({
+  platformInterfaceOverview: record({
+    intent: "'interface-overview'",
+    specifier: "string",
+    "packageIdentity?": "undefined",
+    declarationProvider: "packageIdentity",
+    publicSubpaths: "publicSubpath[]",
+    moduleExports: "moduleExportIndexEntry[]",
+  }),
+  interfaceOverview: "packageInterfaceOverview | platformInterfaceOverview",
+  packageExportInspection: record({
     intent: "'export-inspection'",
     specifier: "string",
     packageIdentity: "packageIdentity",
+    "declarationProvider?": "packageIdentity | undefined",
     moduleExport: "inspectedModuleExport",
     supportingTypes: "supportingType[]",
     "packageDocumentation?": "packageDocumentation | undefined",
   }),
+  platformExportInspection: record({
+    intent: "'export-inspection'",
+    specifier: "string",
+    "packageIdentity?": "undefined",
+    declarationProvider: "packageIdentity",
+    moduleExport: "inspectedModuleExport",
+    supportingTypes: "supportingType[]",
+    "packageDocumentation?": "packageDocumentation | undefined",
+  }),
+  exportInspection: "packageExportInspection | platformExportInspection",
   inspectionResult: "interfaceOverview | exportInspection",
   inspectionFailure: record({
     status: "'not-found' | 'unsupported' | 'limit-exceeded'",
@@ -184,6 +205,15 @@ export type ModuleExportIndexEntry = ProtocolType<
 >;
 export type PublicSubpath = ProtocolType<typeof inspectionSchemas.publicSubpath.infer>;
 export type PackageIdentity = ProtocolType<typeof inspectionSchemas.packageIdentity.infer>;
+export type InspectionResultIdentity =
+  | {
+      readonly packageIdentity: PackageIdentity;
+      readonly declarationProvider?: PackageIdentity;
+    }
+  | {
+      readonly packageIdentity?: never;
+      readonly declarationProvider: PackageIdentity;
+    };
 export type InterfaceOverview = ProtocolType<typeof inspectionSchemas.interfaceOverview.infer>;
 export type DeclarationSpace = ProtocolType<typeof inspectionSchemas.declarationSpace.infer>;
 export type DeclarationKind = ProtocolType<typeof inspectionSchemas.declarationKind.infer>;

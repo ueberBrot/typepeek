@@ -1,8 +1,8 @@
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import { inspectFocusedModuleExport } from "#typepeek/inspection/export-inspection";
 import {
-  type InstalledPackageModule,
-  readInstalledPackageModule,
+  type InspectableModuleEvidence,
+  readInspectableModuleEvidence,
 } from "#typepeek/inspection/installed-evidence";
 import type { AnalysisRequest, InspectionOutcome } from "#typepeek/inspection/protocol";
 
@@ -23,7 +23,7 @@ export function analyzeInspection(analysisRequest: AnalysisRequest): InspectionO
 
 function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOutcome {
   const { request } = analysisRequest;
-  const evidence = readInstalledPackageModule(request);
+  const evidence = readInspectableModuleEvidence(request);
   if (evidence === undefined) {
     return {
       status: "not-found",
@@ -50,7 +50,7 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
     result: {
       intent: "interface-overview",
       specifier: request.specifier,
-      packageIdentity: evidence.packageIdentity,
+      ...evidence.resultIdentity,
       publicSubpaths: evidence.publicSubpaths,
       moduleExports: inspectModuleExports(evidence),
     },
@@ -60,7 +60,7 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
 function inspectModuleExports({
   checker,
   moduleSymbol,
-}: InstalledPackageModule): readonly { readonly name: string }[] {
+}: InspectableModuleEvidence): readonly { readonly name: string }[] {
   const moduleExports = checker
     .getExportsOfModule(moduleSymbol)
     .map((symbol) => ({ name: symbol.getName() }))

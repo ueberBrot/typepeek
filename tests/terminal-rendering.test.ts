@@ -24,6 +24,20 @@ it("renders a deterministic Interface Overview", () => {
   );
 });
 
+it("renders a Node Platform Module through its Declaration Provider", () => {
+  const rendered = renderInspection({
+    intent: "interface-overview",
+    specifier: "node:fs",
+    declarationProvider: { name: "@types/node", version: "24.13.3" },
+    publicSubpaths: [],
+    moduleExports: [{ name: "readFile" }],
+  });
+
+  expect(rendered).toContain("Specifier: node:fs");
+  expect(rendered).toContain("Declaration Provider: @types/node@24.13.3");
+  expect(rendered).not.toContain("Package:");
+});
+
 it("renders focused declaration information and untrusted Package Documentation", () => {
   const rendered = renderInspection({
     intent: "export-inspection",

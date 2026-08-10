@@ -32,7 +32,7 @@ function renderInterfaceOverview(result: InterfaceOverview): string {
   return [
     "Interface Overview",
     `Specifier: ${terminalSafeLine(result.specifier)}`,
-    `Package: ${renderPackageIdentity(result.packageIdentity)}`,
+    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
     ...(result.publicSubpaths.length === 0
       ? []
       : [
@@ -52,7 +52,7 @@ function renderExportInspection(result: ExportInspection): string {
   return [
     "Export Inspection",
     `Specifier: ${terminalSafeLine(result.specifier)}`,
-    `Package: ${renderPackageIdentity(result.packageIdentity)}`,
+    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
     `Module Export: ${terminalSafeLine(result.moduleExport.name)}${alias}`,
     ...(result.moduleExport.alias === undefined
       ? []
@@ -112,6 +112,20 @@ function renderPackageIdentity(packageIdentity: PackageIdentity): string {
   const version =
     packageIdentity.version === undefined ? "" : `@${terminalSafeLine(packageIdentity.version)}`;
   return `${terminalSafeLine(packageIdentity.name)}${version}`;
+}
+
+function renderEvidenceIdentities(
+  packageIdentity: PackageIdentity | undefined,
+  declarationProvider: PackageIdentity | undefined,
+): readonly string[] {
+  return [
+    ...(packageIdentity === undefined
+      ? []
+      : [`Package: ${renderPackageIdentity(packageIdentity)}`]),
+    ...(declarationProvider === undefined
+      ? []
+      : [`Declaration Provider: ${renderPackageIdentity(declarationProvider)}`]),
+  ];
 }
 
 function terminalSafeLine(value: string): string {

@@ -3,6 +3,13 @@ export {
   materializeCompiledPackageFixture,
 } from "./compiled-package-fixture.ts";
 export {
+  type DeclarationProviderFixture,
+  materializeAliasedTypeReferenceFixture,
+  materializeDeclarationProviderFixture,
+  materializeNodeProviderFixture,
+  materializeWorkspaceTypeReferenceFixture,
+} from "./declaration-provider-fixture.ts";
+export {
   type PackageManagerMatrix,
   materializePackageManagerMatrix,
 } from "./package-manager-matrix.ts";
