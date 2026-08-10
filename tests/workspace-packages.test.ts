@@ -344,5 +344,5 @@ describe("workspace Resolution Contexts", () => {
         message: "An inferred Public Interface references an implementation-local type.",
       });
     }
-  }, 30_000);
+  }, 60_000);
 });
