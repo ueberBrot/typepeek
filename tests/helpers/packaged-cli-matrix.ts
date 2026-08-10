@@ -21,7 +21,7 @@ const INSPECTION_TARGET_PINS = {
 const BUN_WINDOWS_SHIM_VERSION = 5478;
 
 export interface PackagedCliConsumer {
-  readonly analysisWorkerPath: string;
+  readonly analysisProcessEntryPath: string;
   readonly executableKind: "link" | "shim";
   readonly executablePath: string;
   readonly manager: PackageManagerPin["manager"];
@@ -137,9 +137,15 @@ async function materializeConsumer(
     packageManager,
     resolutionContext,
   );
+  const analysisProcessEntryPath = join(
+    typepeekPackageRoot,
+    "dist",
+    "inspection",
+    "analysis-process-entry.js",
+  );
 
   return {
-    analysisWorkerPath: join(typepeekPackageRoot, "dist", "inspection", "analysis-worker.js"),
+    analysisProcessEntryPath,
     executableKind,
     executablePath,
     manager: packageManager.manager,
@@ -148,7 +154,7 @@ async function materializeConsumer(
     resolutionContext,
     run: async (arguments_) => {
       return staticInspection.run({
-        adapter: { executablePath, kind: "installed" },
+        adapter: { analysisProcessEntryPath, executablePath, kind: "installed" },
         arguments_,
         diagnosticContext: `${packageManager.manager} consumer Resolution Context ${resolutionContext}, installed package ${arguments_[0] ?? "unknown"}`,
         resolutionContext,

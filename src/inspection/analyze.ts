@@ -5,11 +5,12 @@ import {
   readInspectableModuleEvidence,
 } from "#typepeek/inspection/installed-evidence";
 import type { AnalysisRequest, InspectionOutcome } from "#typepeek/inspection/protocol";
+import { constructInterfaceOverview } from "#typepeek/inspection/result-construction";
 
 const MAX_MODULE_EXPORTS = 200;
 
 /**
- * Runs one already-normalized analysis request inside the worker. Expected
+ * Runs one already-normalized request inside the analysis subprocess. Expected
  * inspection limits and unsupported cases retain their category; unexpected
  * analyzer failures are deliberately collapsed to a generic unsupported result.
  */
@@ -47,13 +48,12 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
 
   return {
     status: "success",
-    result: {
-      intent: "interface-overview",
-      specifier: request.specifier,
-      ...evidence.resultIdentity,
-      publicSubpaths: evidence.publicSubpaths,
-      moduleExports: inspectModuleExports(evidence),
-    },
+    result: constructInterfaceOverview(
+      request.specifier,
+      evidence.resultIdentity,
+      evidence.publicSubpaths,
+      inspectModuleExports(evidence),
+    ),
   };
 }
 
@@ -61,15 +61,11 @@ function inspectModuleExports({
   checker,
   moduleSymbol,
 }: InspectableModuleEvidence): readonly { readonly name: string }[] {
-  const moduleExports = checker
-    .getExportsOfModule(moduleSymbol)
-    .map((symbol) => ({ name: symbol.getName() }))
-    .sort(compareModuleExports);
-
-  if (moduleExports.length > MAX_MODULE_EXPORTS) {
+  const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
+  if (exportedSymbols.length > MAX_MODULE_EXPORTS) {
     throw new InspectionLimitError("Inspection exceeded its Module Export limit.");
   }
-  return moduleExports;
+  return exportedSymbols.map((symbol) => ({ name: symbol.getName() })).sort(compareModuleExports);
 }
 
 function compareModuleExports(

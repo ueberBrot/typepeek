@@ -1,8 +1,10 @@
 import ts from "@typescript/typescript6";
 
-import { UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 
 const INFERRED_TYPE_FLAGS = ts.NodeBuilderFlags.NoTruncation;
+const MAX_INFERRED_TYPE_TRAVERSAL_DEPTH = 64;
+const MAX_INFERRED_TYPE_TRAVERSAL_NODES = 4_096;
 const declarationPrinter = ts.createPrinter({
   newLine: ts.NewLineKind.LineFeed,
   removeComments: true,
@@ -313,14 +315,25 @@ function publicReturnType(
 }
 
 function assertReliableInferredType(typeNode: ts.TypeNode): void {
-  if (containsDegradedInferredType(typeNode)) {
+  if (containsDegradedInferredType(typeNode, { nodeCount: 0 }, 0)) {
     throw new UnsupportedInspectionError(
       "An inferred Public Interface type cannot be represented statically without standard libraries.",
     );
   }
 }
 
-function containsDegradedInferredType(node: ts.Node): boolean {
+function containsDegradedInferredType(
+  node: ts.Node,
+  traversal: { nodeCount: number },
+  depth: number,
+): boolean {
+  traversal.nodeCount += 1;
+  if (
+    depth > MAX_INFERRED_TYPE_TRAVERSAL_DEPTH ||
+    traversal.nodeCount > MAX_INFERRED_TYPE_TRAVERSAL_NODES
+  ) {
+    throw new InspectionLimitError("Inspection exceeded its inferred type traversal limit.");
+  }
   if (
     node.kind === ts.SyntaxKind.AnyKeyword ||
     node.kind === ts.SyntaxKind.UnknownKeyword ||
@@ -330,7 +343,7 @@ function containsDegradedInferredType(node: ts.Node): boolean {
   }
   let degraded = false;
   ts.forEachChild(node, (child) => {
-    degraded ||= containsDegradedInferredType(child);
+    degraded ||= containsDegradedInferredType(child, traversal, depth + 1);
   });
   return degraded;
 }
@@ -343,6 +356,9 @@ function assertNoImplementationLocalType(checker: ts.TypeChecker, rootType: ts.T
       continue;
     }
     visited.add(type);
+    if (visited.size > MAX_INFERRED_TYPE_TRAVERSAL_NODES) {
+      throw new InspectionLimitError("Inspection exceeded its inferred type traversal limit.");
+    }
     const symbol = type.aliasSymbol ?? type.getSymbol();
     if (symbol?.declarations?.some(isImplementationLocalDeclaration) === true) {
       throw new UnsupportedInspectionError(

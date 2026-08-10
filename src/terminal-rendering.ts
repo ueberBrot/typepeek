@@ -8,6 +8,7 @@ import type {
   InterfaceOverview,
   PackageIdentity,
 } from "#typepeek/inspection";
+import { InspectionLimitError } from "#typepeek/inspection/errors";
 
 const UNSAFE_TERMINAL_RANGES: readonly CodePointRange[] = [
   [0x00, 0x1f],
@@ -17,15 +18,21 @@ const UNSAFE_TERMINAL_RANGES: readonly CodePointRange[] = [
   [0x2028, 0x202e],
   [0x2066, 0x2069],
 ];
+const MAX_TERMINAL_OUTPUT_BYTES = 128 * 1_024;
 
 /**
  * Renders a validated Inspection Result as deterministic plain text. Every
  * value originating in Installed Evidence is escaped before terminal display.
  */
 export function renderInspection(result: InspectionResult): string {
-  return result.intent === "interface-overview"
-    ? renderInterfaceOverview(result)
-    : renderExportInspection(result);
+  const rendered =
+    result.intent === "interface-overview"
+      ? renderInterfaceOverview(result)
+      : renderExportInspection(result);
+  if (Buffer.byteLength(rendered) > MAX_TERMINAL_OUTPUT_BYTES) {
+    throw new InspectionLimitError("Inspection exceeded its terminal output limit.");
+  }
+  return rendered;
 }
 
 function renderInterfaceOverview(result: InterfaceOverview): string {

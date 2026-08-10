@@ -161,3 +161,15 @@ it("escapes controls in every dynamic terminal field", () => {
   expect(rendered).toContain("create\\u{1B}[2JExample");
   expect(rendered).toContain("():\\u{202E} string");
 });
+
+it("fails explicitly when terminal escaping expands otherwise bounded evidence too far", () => {
+  expect(() =>
+    renderInspection({
+      intent: "interface-overview",
+      specifier: "\0".repeat(30_000),
+      packageIdentity: { name: "example", version: "1.0.0" },
+      publicSubpaths: [],
+      moduleExports: [],
+    }),
+  ).toThrow("Inspection exceeded its terminal output limit.");
+});

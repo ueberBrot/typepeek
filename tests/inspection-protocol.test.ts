@@ -13,7 +13,7 @@ import {
   type PublicSubpath,
 } from "#typepeek/inspection/protocol";
 
-it("normalizes the default Access Style at the worker protocol seam", () => {
+it("normalizes the default Access Style at the process-entry protocol seam", () => {
   expect(
     readInspectionRequest("interface-overview", {
       resolutionContext: "/repository",
@@ -31,7 +31,7 @@ it("normalizes the default Access Style at the worker protocol seam", () => {
   });
 });
 
-it("rejects an invalid Access Style at the worker protocol seam", () => {
+it("rejects an invalid Access Style at the process-entry protocol seam", () => {
   expect(
     readInspectionRequest("interface-overview", {
       resolutionContext: "/repository",
@@ -47,7 +47,7 @@ it("rejects an invalid Access Style at the worker protocol seam", () => {
   });
 });
 
-it("rejects array-shaped records at the worker protocol seam", () => {
+it("rejects array-shaped records at the process-entry protocol seam", () => {
   const request = Object.assign([], {
     resolutionContext: "/repository",
     specifier: "example",
@@ -148,7 +148,7 @@ it("preserves an intent-neutral Inspection Failure", () => {
   expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual(outcome);
 });
 
-it("normalizes an Export Inspection request at the worker protocol seam", () => {
+it("normalizes an Export Inspection request at the process-entry protocol seam", () => {
   expect(
     readInspectionRequest("export-inspection", {
       resolutionContext: "/repository",
@@ -534,7 +534,7 @@ it("rejects non-portable declaration provenance", () => {
   });
 });
 
-it("preserves optional undefined values accepted by the worker protocol", () => {
+it("preserves optional undefined values accepted by the process-entry protocol", () => {
   const outcome = {
     status: "success",
     result: {

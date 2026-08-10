@@ -23,6 +23,7 @@ import {
   publicDeclarations,
   renderPublicDeclaration,
 } from "#typepeek/inspection/public-declaration-rendering";
+import { ExportInspectionConstruction } from "#typepeek/inspection/result-construction";
 import { shouldExpandSupportingDeclaration } from "#typepeek/inspection/supporting-type-policy";
 
 const MAX_DECLARATIONS_PER_SYMBOL = 128;
@@ -33,6 +34,9 @@ const MAX_SUPPORTING_TYPE_DEPTH = 8;
 const MAX_SUPPORTING_TYPES = 48;
 const MAX_SIGNATURE_BYTES = 16 * 1_024;
 const MAX_SIGNATURE_TOTAL_BYTES = 48 * 1_024;
+const MAX_SUPPORTING_TRAVERSAL_DEPTH = 64;
+const MAX_SUPPORTING_TRAVERSAL_NODES = 20_000;
+const MAX_INFERRED_TYPE_NODES = 4_096;
 
 const DECLARATION_KIND_BY_SYNTAX_KIND = new Map<ts.SyntaxKind, DeclarationKind>([
   [ts.SyntaxKind.ClassDeclaration, "class"],
@@ -88,6 +92,11 @@ interface NamespaceTraversalState {
   readonly visited: Set<ts.Symbol>;
 }
 
+interface SupportingTraversalState {
+  astNodeCount: number;
+  inferredTypeCount: number;
+}
+
 type SupportingReferenceKind = "type" | "type-query";
 
 interface SupportingReference {
@@ -98,16 +107,19 @@ interface SupportingReference {
 function inspectDeclaration(
   evidence: InspectableModuleEvidence,
   declaration: ts.Declaration,
+  construction: ExportInspectionConstruction,
   kindOverride: "alias",
 ): InspectedDeclaration & { readonly kind: "alias" };
 function inspectDeclaration(
   evidence: InspectableModuleEvidence,
   declaration: ts.Declaration,
+  construction: ExportInspectionConstruction,
   kindOverride?: DeclarationKind,
 ): InspectedDeclaration;
 function inspectDeclaration(
   evidence: InspectableModuleEvidence,
   declaration: ts.Declaration,
+  construction: ExportInspectionConstruction,
   kindOverride?: DeclarationKind,
 ): InspectedDeclaration {
   const sourceFile = declaration.getSourceFile();
@@ -118,7 +130,7 @@ function inspectDeclaration(
   }
   const kind = inspectedDeclarationKind(declaration, kindOverride);
   const provenance = evidence.declarationProvenance(sourceFile.fileName);
-  return {
+  const inspectedDeclaration: InspectedDeclaration = {
     kind,
     text,
     provenance: {
@@ -127,6 +139,7 @@ function inspectDeclaration(
       column: start.character + 1,
     },
   };
+  return construction.declaration(inspectedDeclaration);
 }
 
 function inspectableDeclarations(symbol: ts.Symbol): readonly ts.Declaration[] {
@@ -202,6 +215,7 @@ export function inspectFocusedModuleExport(
   exportName: string,
   specifier: string,
 ): ExportInspection | undefined {
+  const construction = new ExportInspectionConstruction();
   const exportedSymbol = evidence.checker
     .getExportsOfModule(evidence.moduleSymbol)
     .find((symbol) => symbol.getName() === exportName);
@@ -216,27 +230,38 @@ export function inspectFocusedModuleExport(
   const namespaceMembers = spaces.includes("namespace")
     ? inspectNamespaceMemberEvidence(evidence.checker, targetSymbol)
     : [];
-  const packageDocumentation = inspectPackageDocumentation(
+  const packageDocumentationEvidence = inspectPackageDocumentation(
     evidence.checker,
     exportedSymbol,
     targetSymbol,
     aliasDeclaration,
   );
-  return {
-    intent: "export-inspection",
+  const packageDocumentation =
+    packageDocumentationEvidence === undefined
+      ? undefined
+      : construction.documentation(packageDocumentationEvidence);
+  const moduleExport = inspectModuleExport(
+    evidence,
+    exportedSymbol,
+    targetSymbol,
+    aliasDeclaration,
+    spaces,
+    namespaceMembers,
+    construction,
+  );
+  const supportingTypes = inspectSupportingTypes(
+    evidence,
+    targetSymbol,
+    namespaceMembers,
+    construction,
+  );
+  return construction.result(
     specifier,
-    ...evidence.resultIdentity,
-    moduleExport: inspectModuleExport(
-      evidence,
-      exportedSymbol,
-      targetSymbol,
-      aliasDeclaration,
-      spaces,
-      namespaceMembers,
-    ),
-    supportingTypes: inspectSupportingTypes(evidence, targetSymbol, namespaceMembers),
-    ...(packageDocumentation === undefined ? {} : { packageDocumentation }),
-  };
+    evidence.resultIdentity,
+    moduleExport,
+    supportingTypes,
+    packageDocumentation,
+  );
 }
 
 function resolveExportTarget(checker: ts.TypeChecker, exportedSymbol: ts.Symbol): ts.Symbol {
@@ -259,20 +284,30 @@ function inspectModuleExport(
   aliasDeclaration: AliasDeclaration | undefined,
   spaces: readonly DeclarationSpace[],
   namespaceMembers: readonly NamespaceMemberEvidence[],
+  construction: ExportInspectionConstruction,
 ): InspectedModuleExport {
-  const alias = inspectAlias(evidence, exportedSymbol, aliasDeclaration, targetSymbol);
-  return {
+  const alias = inspectAlias(
+    evidence,
+    exportedSymbol,
+    aliasDeclaration,
+    targetSymbol,
+    construction,
+  );
+  const declarationSpaces = inspectDeclarationSpaces(
+    evidence,
+    targetSymbol,
+    spaces,
+    aliasDeclaration,
+    namespaceMembers,
+    construction,
+  );
+  const signatures = inspectSignatures(evidence.checker, targetSymbol, spaces, construction);
+  return construction.moduleExport({
     name: exportedSymbol.getName(),
     ...(alias === undefined ? {} : { alias }),
-    spaces: inspectDeclarationSpaces(
-      evidence,
-      targetSymbol,
-      spaces,
-      aliasDeclaration,
-      namespaceMembers,
-    ),
-    signatures: inspectSignatures(evidence.checker, targetSymbol, spaces),
-  };
+    spaces: declarationSpaces,
+    signatures,
+  });
 }
 
 function inspectAlias(
@@ -280,6 +315,7 @@ function inspectAlias(
   exportedSymbol: ts.Symbol,
   aliasDeclaration: AliasDeclaration | undefined,
   targetSymbol: ts.Symbol,
+  construction: ExportInspectionConstruction,
 ): ExportAlias | undefined {
   if (
     aliasDeclaration === undefined ||
@@ -287,10 +323,9 @@ function inspectAlias(
   ) {
     return undefined;
   }
-  return {
-    targetName: aliasTargetName(aliasDeclaration, targetSymbol),
-    declaration: inspectDeclaration(evidence, aliasDeclaration, "alias"),
-  };
+  const targetName = aliasTargetName(aliasDeclaration, targetSymbol);
+  const declaration = inspectDeclaration(evidence, aliasDeclaration, construction, "alias");
+  return construction.alias(targetName, declaration);
 }
 
 function aliasTargetName(aliasDeclaration: AliasDeclaration, targetSymbol: ts.Symbol): string {
@@ -335,23 +370,24 @@ function inspectDeclarationSpaces(
   occupiedSpaces: readonly DeclarationSpace[],
   aliasDeclaration: AliasDeclaration | undefined,
   namespaceMembers: readonly NamespaceMemberEvidence[],
+  construction: ExportInspectionConstruction,
 ): readonly ExportDeclarationSpace[] {
   const declarations = inspectableDeclarations(symbol);
   return occupiedSpaces.map((space): ExportDeclarationSpace => {
     if (space === "namespace") {
-      return {
-        space,
-        members: inspectNamespaceMembers(evidence, namespaceMembers),
-      };
+      return construction.namespaceSpace(
+        inspectNamespaceMembers(evidence, namespaceMembers, construction),
+      );
     }
-    return {
+    return construction.declarationSpace(
       space,
-      declarations: inspectedDeclarations(
+      inspectedDeclarations(
         evidence,
         declarations.filter((declaration) => declarationSpaces(declaration).includes(space)),
         aliasDeclaration,
+        construction,
       ),
-    };
+    );
   });
 }
 
@@ -359,13 +395,16 @@ function inspectedDeclarations(
   evidence: InspectableModuleEvidence,
   declarations: readonly ts.Declaration[],
   aliasDeclaration: AliasDeclaration | undefined,
+  construction: ExportInspectionConstruction,
 ): readonly InspectedDeclaration[] {
   if (declarations.length > 0) {
-    return declarations.map((declaration) => inspectDeclaration(evidence, declaration));
+    return declarations.map((declaration) =>
+      inspectDeclaration(evidence, declaration, construction),
+    );
   }
   return aliasDeclaration === undefined
     ? []
-    : [inspectDeclaration(evidence, aliasDeclaration, "alias")];
+    : [inspectDeclaration(evidence, aliasDeclaration, construction, "alias")];
 }
 
 function inspectNamespaceMemberEvidence(
@@ -451,14 +490,15 @@ function inspectNamespaceMember(
 function inspectNamespaceMembers(
   evidence: InspectableModuleEvidence,
   members: readonly NamespaceMemberEvidence[],
+  construction: ExportInspectionConstruction,
 ): readonly ExportNamespaceMember[] {
-  return members.map((member) => ({
-    name: member.name,
-    declarations: member.declarations.map((declaration) =>
-      inspectDeclaration(evidence, declaration),
-    ),
-    members: inspectNamespaceMembers(evidence, member.members),
-  }));
+  return members.map((member) => {
+    const declarations = member.declarations.map((declaration) =>
+      inspectDeclaration(evidence, declaration, construction),
+    );
+    const childMembers = inspectNamespaceMembers(evidence, member.members, construction);
+    return construction.namespaceMember(member.name, declarations, childMembers);
+  });
 }
 
 function namespaceMemberDeclarations(
@@ -483,6 +523,7 @@ function inspectSignatures(
   checker: ts.TypeChecker,
   symbol: ts.Symbol,
   spaces: readonly DeclarationSpace[],
+  construction: ExportInspectionConstruction,
 ): readonly ExportSignature[] {
   const declaration = signatureDeclaration(symbol);
   if (declaration === undefined) {
@@ -512,7 +553,8 @@ function inspectSignatures(
     if (signatureBytes > MAX_SIGNATURE_BYTES || totalBytes > MAX_SIGNATURE_TOTAL_BYTES) {
       throw new InspectionLimitError("Inspection exceeded its Module Export signature byte limit.");
     }
-    return { kind, text };
+    const inspectedSignature = { kind, text } as const;
+    return construction.signature(inspectedSignature);
   });
 }
 
@@ -593,12 +635,14 @@ function inspectSupportingTypes(
   evidence: InspectableModuleEvidence,
   selectedSymbol: ts.Symbol,
   namespaceMembers: readonly NamespaceMemberEvidence[],
+  construction: ExportInspectionConstruction,
 ): readonly SupportingType[] {
   // Traverse only references reachable from the selected Public Interface. The
   // visited set prevents cycles while depth and count budgets bound expansion.
   const supportingTypes: SupportingType[] = [];
   const visited = new Set<ts.Symbol>([selectedSymbol]);
   const visitedInferredTypes = new Set<ts.Type>();
+  const traversal: SupportingTraversalState = { astNodeCount: 0, inferredTypeCount: 0 };
 
   const inspectSymbol = (
     symbol: ts.Symbol,
@@ -612,15 +656,19 @@ function inspectSupportingTypes(
     }
     assertSupportingTypeBudget(depth, supportingTypes.length);
     visited.add(resolvedSymbol);
-    supportingTypes.push({
-      name: resolvedSymbol.getName(),
-      declarations: declarations.map((declaration) => inspectDeclaration(evidence, declaration)),
-    });
+    const inspectedSupportingDeclarations = declarations.map((declaration) =>
+      inspectDeclaration(evidence, declaration, construction),
+    );
+    supportingTypes.push(
+      construction.supportingType(resolvedSymbol.getName(), inspectedSupportingDeclarations),
+    );
     declarations
       .filter((declaration) => shouldExpandSupporting(evidence, declaration))
       .forEach((declaration) => {
-        visitTypeReferences(publicDeclarationSyntax(evidence.checker, declaration), (reference) =>
-          inspectReference(reference, depth + 1),
+        visitTypeReferences(
+          publicDeclarationSyntax(evidence.checker, declaration),
+          (reference) => inspectReference(reference, depth + 1),
+          traversal,
         );
         inferredPublicTypes(evidence.checker, declaration).forEach((type) => {
           inspectInferredType(type, depth + 1);
@@ -641,6 +689,7 @@ function inspectSupportingTypes(
     if (visitedInferredTypes.has(type)) {
       return;
     }
+    reserveInferredTypeTraversal(traversal, depth);
     visitedInferredTypes.add(type);
     const symbol = inferredTypeSymbol(type);
     if (symbol !== undefined) {
@@ -652,8 +701,10 @@ function inspectSupportingTypes(
   };
 
   for (const declaration of supportingRootDeclarations(selectedSymbol, namespaceMembers)) {
-    visitTypeReferences(publicDeclarationSyntax(evidence.checker, declaration), (reference) =>
-      inspectReference(reference, 1),
+    visitTypeReferences(
+      publicDeclarationSyntax(evidence.checker, declaration),
+      (reference) => inspectReference(reference, 1),
+      traversal,
     );
     for (const type of inferredPublicTypes(evidence.checker, declaration)) {
       inspectInferredType(type, 1);
@@ -703,7 +754,10 @@ function assertSupportingTypeBudget(depth: number, supportingTypeCount: number):
 function visitTypeReferences(
   node: ts.Node,
   visitReference: (reference: SupportingReference) => void,
+  traversal: SupportingTraversalState,
+  depth = 0,
 ): void {
+  reserveAstTraversal(traversal, depth);
   if (isPrivateDeclaration(node)) {
     return;
   }
@@ -711,7 +765,29 @@ function visitTypeReferences(
   if (reference !== undefined) {
     visitReference(reference);
   }
-  ts.forEachChild(node, (child) => visitTypeReferences(child, visitReference));
+  ts.forEachChild(node, (child) =>
+    visitTypeReferences(child, visitReference, traversal, depth + 1),
+  );
+}
+
+function reserveAstTraversal(traversal: SupportingTraversalState, depth: number): void {
+  traversal.astNodeCount += 1;
+  if (
+    depth > MAX_SUPPORTING_TRAVERSAL_DEPTH ||
+    traversal.astNodeCount > MAX_SUPPORTING_TRAVERSAL_NODES
+  ) {
+    throw new InspectionLimitError("Inspection exceeded its Supporting Type traversal limit.");
+  }
+}
+
+function reserveInferredTypeTraversal(traversal: SupportingTraversalState, depth: number): void {
+  traversal.inferredTypeCount += 1;
+  if (
+    depth > MAX_SUPPORTING_TRAVERSAL_DEPTH ||
+    traversal.inferredTypeCount > MAX_INFERRED_TYPE_NODES
+  ) {
+    throw new InspectionLimitError("Inspection exceeded its Supporting Type traversal limit.");
+  }
 }
 
 function supportingTypeDeclarations(

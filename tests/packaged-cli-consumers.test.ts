@@ -118,11 +118,11 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
     }
   }, 60_000);
 
-  it("ships executable metadata, production dependencies, and the analysis worker", async () => {
+  it("ships executable metadata, production dependencies, and the analysis process entry", async () => {
     await Promise.all(
       matrix.consumers.flatMap((consumer) => [
         access(consumer.executablePath),
-        access(consumer.analysisWorkerPath),
+        access(consumer.analysisProcessEntryPath),
         ...consumer.productionDependencyPaths.map((dependencyPath) => access(dependencyPath)),
       ]),
     );

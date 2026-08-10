@@ -3,7 +3,11 @@
 
   // Package exports and bins are discovered automatically. These additional
   // roots cover repository-only executables that are not published.
-  "entry": ["src/inspection/analysis-worker.ts", "taze.config.ts", "tests/package-output-smoke.ts"],
+  "entry": [
+    "src/inspection/analysis-process-entry.ts",
+    "taze.config.ts",
+    "tests/package-output-smoke.ts"
+  ],
 
   // Issue #2 intentionally establishes these parts of the approved runtime
   // stack before later issues introduce their production call sites. The

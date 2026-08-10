@@ -2,6 +2,8 @@ import { buildApplication, buildCommand } from "@stricli/core";
 import { resolve } from "node:path";
 
 import { inspectExport, inspectInterfaceOverview } from "#typepeek/inspection";
+import type { InspectionResult } from "#typepeek/inspection";
+import { InspectionLimitError } from "#typepeek/inspection/errors";
 import { renderInspection } from "#typepeek/terminal-rendering";
 
 import packageJson from "../package.json" with { type: "json" };
@@ -23,7 +25,11 @@ const rootCommand = buildCommand<{ context: string; export?: string }, [string]>
       return new Error(`${outcome.status}: ${outcome.message}`);
     }
 
-    this.process.stdout.write(`${renderInspection(outcome.result)}\n`);
+    const rendering = renderForCommand(outcome.result);
+    if (rendering instanceof Error) {
+      return rendering;
+    }
+    this.process.stdout.write(`${rendering}\n`);
   },
   parameters: {
     flags: {
@@ -55,6 +61,17 @@ const rootCommand = buildCommand<{ context: string; export?: string }, [string]>
     brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
   },
 });
+
+function renderForCommand(result: InspectionResult): string | Error {
+  try {
+    return renderInspection(result);
+  } catch (error) {
+    if (error instanceof InspectionLimitError) {
+      return new Error(`limit-exceeded: ${error.message}`);
+    }
+    throw error;
+  }
+}
 
 export const app = buildApplication(rootCommand, {
   name: "typepeek",

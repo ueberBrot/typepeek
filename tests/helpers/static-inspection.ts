@@ -3,8 +3,12 @@ import { access, mkdir, rm, symlink, unlink, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { analysisProcessNodeArguments } from "#typepeek/inspection/analysis-process";
+
 const PROTECTED_TRIPWIRE_ENVIRONMENT_NAMES = [
   "NODE_OPTIONS",
+  "TYPEPEEK_ALLOWED_ANALYSIS_PROCESS_ENTRY",
+  "TYPEPEEK_DENY_WORKERS",
   "TYPEPEEK_EXECUTABLE_PATHS",
   "TYPEPEEK_EXECUTABLE_ROOTS",
   "TYPEPEEK_FORBIDDEN_READ_PATHS",
@@ -14,7 +18,11 @@ const PROTECTED_TRIPWIRE_ENVIRONMENT_NAMES = [
 export interface StaticInspection {
   readonly run: (options: {
     readonly adapter:
-      | { readonly kind: "installed"; readonly executablePath: string }
+      | {
+          readonly kind: "installed";
+          readonly executablePath: string;
+          readonly analysisProcessEntryPath: string;
+        }
       | { readonly kind: "source-checkout"; readonly sourceCheckout: string };
     readonly arguments_: readonly string[];
     readonly diagnosticContext: string;
@@ -60,6 +68,10 @@ export async function materializeStaticInspection(
   return {
     run: async ({ adapter, arguments_, diagnosticContext, resolutionContext }) => {
       const command = adapter.kind === "installed" ? adapter.executablePath : process.execPath;
+      const analysisProcessEntryPath =
+        adapter.kind === "installed"
+          ? adapter.analysisProcessEntryPath
+          : join(adapter.sourceCheckout, "src", "inspection", "analysis-process-entry.ts");
       const commandArguments =
         adapter.kind === "installed"
           ? [...arguments_, "--context", resolutionContext]
@@ -72,7 +84,10 @@ export async function materializeStaticInspection(
       try {
         const result = await execa(command, commandArguments, {
           cwd: resolutionContext,
-          env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy),
+          env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
+            allowedAnalysisProcessEntry: analysisProcessEntryPath,
+            denyWorkers: true,
+          }),
         });
         await verifyNoIo();
         return { stdout: result.stdout };
@@ -296,6 +311,10 @@ function guardedEnvironment(
   preloadPath: string,
   sentinel: string,
   policy: TripwirePolicy,
+  processPolicy: {
+    readonly allowedAnalysisProcessEntry?: string;
+    readonly denyWorkers?: boolean;
+  } = {},
 ): Readonly<Record<string, string>> {
   // Temp roots can canonicalize differently; executable origin is checked separately.
   return {
@@ -304,9 +323,12 @@ function guardedEnvironment(
       "--permission",
       "--allow-fs-read=*",
       nodePathOption("--allow-fs-write", sentinel),
+      "--allow-child-process",
       "--allow-worker",
     ].join(" "),
     PATH: process.env["PATH"] ?? "",
+    TYPEPEEK_ALLOWED_ANALYSIS_PROCESS_ENTRY: processPolicy.allowedAnalysisProcessEntry ?? "",
+    TYPEPEEK_DENY_WORKERS: processPolicy.denyWorkers === true ? "true" : "false",
     TYPEPEEK_EXECUTABLE_PATHS: JSON.stringify(policy.executablePaths ?? []),
     TYPEPEEK_EXECUTABLE_ROOTS: JSON.stringify(policy.executableRoots ?? []),
     TYPEPEEK_FORBIDDEN_READ_PATHS: JSON.stringify(policy.forbiddenReadPaths ?? []),
@@ -328,6 +350,7 @@ function expandStaticInspectionPolicy(policy: StaticInspectionPolicy): TripwireP
 }
 
 function inspectionTripwireSource(): string {
+  const [heapArgument, stackArgument] = analysisProcessNodeArguments("<entrypoint>");
   return [
     'const fs = require("node:fs");',
     'const fsPromises = require("node:fs/promises");',
@@ -335,12 +358,15 @@ function inspectionTripwireSource(): string {
     'const path = require("node:path");',
     'const { fileURLToPath } = require("node:url");',
     'const workerThreads = require("node:worker_threads");',
+    'const childProcess = require("node:child_process");',
     "const originalWriteFileSync = fs.writeFileSync.bind(fs);",
     "const ioSentinel = process.env.TYPEPEEK_IO_SENTINEL;",
     `const protectedWorkerEnvironment = Object.freeze(Object.fromEntries(${JSON.stringify(PROTECTED_TRIPWIRE_ENVIRONMENT_NAMES)}.map((name) => [name, process.env[name]])));`,
     "const executablePaths = forbiddenPathSet(process.env.TYPEPEEK_EXECUTABLE_PATHS);",
     "const executableRoots = [...forbiddenPathSet(process.env.TYPEPEEK_EXECUTABLE_ROOTS)];",
     "const forbiddenReads = forbiddenPathSet(process.env.TYPEPEEK_FORBIDDEN_READ_PATHS);",
+    "const allowedAnalysisProcessEntries = forbiddenPathSet(process.env.TYPEPEEK_ALLOWED_ANALYSIS_PROCESS_ENTRY ? JSON.stringify([process.env.TYPEPEEK_ALLOWED_ANALYSIS_PROCESS_ENTRY]) : '[]');",
+    'const denyWorkers = process.env.TYPEPEEK_DENY_WORKERS === "true";',
     "function forbiddenPathSet(serialized) {",
     "  return new Set(JSON.parse(serialized || '[]').flatMap(normalizePaths));",
     "}",
@@ -393,12 +419,23 @@ function inspectionTripwireSource(): string {
     "const OriginalWorker = workerThreads.Worker;",
     "workerThreads.Worker = class StaticInspectionWorker extends OriginalWorker {",
     "  constructor(filename, options = {}) {",
+    '    if (denyWorkers) trip("worker");',
     '    if (options.eval !== true && isForbiddenWorkerEntry(filename)) trip("worker entry module load");',
     "    const requestedEnvironment = options.env === workerThreads.SHARE_ENV ? process.env : (options.env ?? process.env);",
     "    const env = { ...requestedEnvironment };",
     "    Object.assign(env, protectedWorkerEnvironment);",
     "    super(filename, { ...options, env });",
     "  }",
+    "};",
+    "function isAllowedAnalysisSpawn(command, args) {",
+    "  if (!Array.isArray(args) || !isForbiddenPath(new Set(normalizePaths(process.execPath)), command)) return false;",
+    `  if (args.length !== 3 || args[0] !== ${JSON.stringify(heapArgument)} || args[1] !== ${JSON.stringify(stackArgument)}) return false;`,
+    "  return isForbiddenPath(allowedAnalysisProcessEntries, args[2]);",
+    "}",
+    "const originalSpawn = childProcess.spawn;",
+    "childProcess.spawn = function guardedSpawn(command, args, options) {",
+    '  if (!isAllowedAnalysisSpawn(command, args)) trip("process activity");',
+    "  return Reflect.apply(originalSpawn, this, [command, args, options]);",
     "};",
     "const originalModuleLoad = Module._load;",
     "Module._load = function guardedModuleLoad(request, parent, isMain) {",
@@ -419,7 +456,7 @@ function inspectionTripwireSource(): string {
     "  },",
     "});",
     "for (const [moduleName, methods] of Object.entries({",
-    '  "node:child_process": ["exec", "execFile", "fork", "spawn", "execSync", "execFileSync", "spawnSync"],',
+    '  "node:child_process": ["exec", "execFile", "fork", "execSync", "execFileSync", "spawnSync"],',
     '  "node:dgram": ["createSocket"],',
     '  "node:dns": ["lookup", "resolve", "resolve4", "resolve6"],',
     '  "node:http": ["get", "request"],',

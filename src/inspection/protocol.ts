@@ -334,7 +334,7 @@ export function readInspectionRequest(
 }
 
 /**
- * Revalidates the request envelope received by the analysis worker and delegates
+ * Revalidates the request envelope received by the analysis process entry and delegates
  * nested request validation to the same seam used by direct callers.
  */
 export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
@@ -371,7 +371,7 @@ export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
 
 /**
  * Accepts only a bounded, dense, data-property-only outcome for the requested
- * intent. Invalid worker messages collapse to a generic failure rather than
+ * intent. Invalid process messages collapse to a generic failure rather than
  * exposing analyzer or transport details.
  */
 export function enforceInspectionOutcome(

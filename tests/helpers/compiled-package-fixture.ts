@@ -439,6 +439,24 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     runtime: 'throw new Error("Typepeek executed the broad Supporting Types fixture runtime");\n',
   },
   {
+    directory: "aggregate-output-package",
+    name: "@typepeek-fixture/aggregate-output",
+    version: "1.0.0",
+    declaration: [
+      ...Array.from(
+        { length: 48 },
+        (_, index) =>
+          `interface Aggregate${index} { readonly property${index}: "${"x".repeat(1_400)}"; }`,
+      ),
+      `export declare function inspect(value: [${Array.from(
+        { length: 48 },
+        (_, index) => `Aggregate${index}`,
+      ).join(", ")} ]): void;`,
+      "",
+    ].join("\n"),
+    runtime: 'throw new Error("Typepeek executed the aggregate output fixture runtime");\n',
+  },
+  {
     directory: "deep-supporting-types-package",
     name: "@typepeek-fixture/deep-supporting-types",
     version: "1.0.0",
@@ -452,6 +470,17 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "",
     ].join("\n"),
     runtime: 'throw new Error("Typepeek executed the deep Supporting Types fixture runtime");\n',
+  },
+  {
+    directory: "deep-anonymous-type-package",
+    name: "@typepeek-fixture/deep-anonymous-type",
+    version: "1.0.0",
+    declaration: [
+      "interface Leaf { readonly value: string; }",
+      `export declare function inspect(value: ${"[".repeat(80)}Leaf${"]".repeat(80)}): void;`,
+      "",
+    ].join("\n"),
+    runtime: 'throw new Error("Typepeek executed the deep anonymous fixture runtime");\n',
   },
   {
     directory: "broad-overloads-package",
@@ -532,6 +561,152 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "other.d.ts": 'export { A } from "./index.js";\n',
     },
     runtime: 'throw new Error("Typepeek executed the circular alias fixture runtime");\n',
+  },
+  {
+    directory: "failed-lookup-storm-package",
+    name: "@typepeek-fixture/failed-lookup-storm",
+    version: "1.0.0",
+    declaration: [
+      ...Array.from(
+        { length: 1_600 },
+        (_, index) => `import type {} from "@missing/package-${index}";`,
+      ),
+      "export declare const visible: string;",
+      "",
+    ].join("\n"),
+    runtime: 'throw new Error("Typepeek executed the failed lookup fixture runtime");\n',
+  },
+  {
+    directory: "duplicate-path-references-package",
+    name: "@typepeek-fixture/duplicate-path-references",
+    version: "1.0.0",
+    declaration: [
+      ...Array.from({ length: 11_000 }, () => '/// <reference path="./helper.d.ts" />'),
+      "export declare const visible: ReferencedValue;",
+      "",
+    ].join("\n"),
+    additionalDeclarations: {
+      "helper.d.ts": "interface ReferencedValue { readonly value: string; }\n",
+    },
+    runtime: 'throw new Error("Typepeek executed the duplicate reference fixture runtime");\n',
+  },
+  {
+    directory: "broad-declaration-files-package",
+    name: "@typepeek-fixture/broad-declaration-files",
+    version: "1.0.0",
+    declaration: [
+      ...Array.from(
+        { length: 128 },
+        (_, index) => `export { value${index} } from "./part-${index}.js";`,
+      ),
+      "",
+    ].join("\n"),
+    additionalDeclarations: Object.fromEntries(
+      Array.from({ length: 128 }, (_, index) => [
+        `part-${index}.d.ts`,
+        `export declare const value${index}: string;\n`,
+      ]),
+    ),
+    runtime: 'throw new Error("Typepeek executed the broad declaration files runtime");\n',
+  },
+  {
+    directory: "oversized-declaration-source-package",
+    name: "@typepeek-fixture/oversized-declaration-source",
+    version: "1.0.0",
+    declaration: `export type Oversized = "${"x".repeat(4 * 1_024 * 1_024)}";\n`,
+    runtime: 'throw new Error("Typepeek executed the oversized declaration runtime");\n',
+  },
+  {
+    directory: "merged-declarations-package",
+    name: "@typepeek-fixture/merged-declarations",
+    version: "1.0.0",
+    declaration: [
+      ...Array.from(
+        { length: 129 },
+        (_, index) => `export interface Merged { readonly value${index}: string; }`,
+      ),
+      "",
+    ].join("\n"),
+    runtime: 'throw new Error("Typepeek executed the merged declaration runtime");\n',
+  },
+  {
+    directory: "broad-namespace-package",
+    name: "@typepeek-fixture/broad-namespace",
+    version: "1.0.0",
+    declaration: [
+      "export declare namespace Broad {",
+      ...Array.from({ length: 129 }, (_, index) => `  const value${index}: string;`),
+      "}",
+      "",
+    ].join("\n"),
+    runtime: 'throw new Error("Typepeek executed the broad namespace runtime");\n',
+  },
+  {
+    directory: "aggregate-namespace-alias-package",
+    name: "@typepeek-fixture/aggregate-namespace-alias",
+    version: "1.0.0",
+    declaration: 'export * as Root from "./members.js";\n',
+    additionalDeclarations: {
+      "members.d.ts": [
+        ...Array.from(
+          { length: 128 },
+          (_, index) => `export declare const value${index}: "${"x".repeat(200)}";`,
+        ),
+        "",
+      ].join("\n"),
+    },
+    runtime: 'throw new Error("Typepeek executed the aggregate namespace runtime");\n',
+  },
+  {
+    directory: "deep-namespace-package",
+    name: "@typepeek-fixture/deep-namespace",
+    version: "1.0.0",
+    declaration: [
+      "export declare namespace Deep {",
+      ...Array.from({ length: 10 }, (_, index) => `${"  ".repeat(index + 1)}namespace N${index} {`),
+      `${"  ".repeat(11)}const leaf: string;`,
+      ...Array.from({ length: 10 }, (_, index) => `${"  ".repeat(10 - index)}}`),
+      "}",
+      "",
+    ].join("\n"),
+    runtime: 'throw new Error("Typepeek executed the deep namespace runtime");\n',
+  },
+  {
+    directory: "oversized-manifest-package",
+    name: "@typepeek-fixture/oversized-manifest",
+    version: "1.0.0",
+    declaration: "export declare const visible: string;\n",
+    installedManifest: JSON.stringify({
+      name: "@typepeek-fixture/oversized-manifest",
+      version: "1.0.0",
+      types: "./dist/index.d.ts",
+      padding: "x".repeat(256 * 1_024),
+    }),
+    runtime: 'throw new Error("Typepeek executed the oversized manifest runtime");\n',
+  },
+  {
+    directory: "oversized-resolution-dependency-package",
+    name: "@typepeek-fixture/oversized-resolution-dependency",
+    version: "1.0.0",
+    declaration: "export declare const dependencyValue: string;\n",
+    installedManifest: JSON.stringify({
+      name: "@typepeek-fixture/oversized-resolution-dependency",
+      version: "1.0.0",
+      types: "./dist/index.d.ts",
+      padding: "x".repeat(8 * 1_024 * 1_024),
+    }),
+    runtime: 'throw new Error("Typepeek executed the resolution dependency runtime");\n',
+  },
+  {
+    directory: "oversized-resolution-package",
+    name: "@typepeek-fixture/oversized-resolution",
+    version: "1.0.0",
+    declaration:
+      'export { dependencyValue } from "@typepeek-fixture/oversized-resolution-dependency";\n',
+    dependencies: {
+      "@typepeek-fixture/oversized-resolution-dependency": "1.0.0",
+    },
+    runtime: 'throw new Error("Typepeek executed the oversized resolution runtime");\n',
   },
   {
     directory: "malformed-manifest-package",

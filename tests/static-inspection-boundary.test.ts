@@ -55,7 +55,7 @@ describe("Static Inspection trust boundary", () => {
     await fixture.verifyInert();
   });
 
-  it("keeps compiler, plugin, config, script, runtime, process, and network traps inert in the CLI worker", async () => {
+  it("keeps compiler, plugin, config, script, runtime, process, and network traps inert in the CLI subprocess", async () => {
     const inspection = await materializeStaticInspection(
       fixture.primaryContext,
       fixture.staticInspectionPolicy,

@@ -1,0 +1,180 @@
+import { InspectionLimitError } from "#typepeek/inspection/errors";
+import type {
+  DeclarationSpace,
+  ExportAlias,
+  ExportDeclarationSpace,
+  ExportInspection,
+  ExportNamespaceMember,
+  ExportSignature,
+  InspectedDeclaration,
+  InspectedModuleExport,
+  InspectionResultIdentity,
+  InterfaceOverview,
+  PackageDocumentation,
+  PublicSubpath,
+  SupportingType,
+} from "#typepeek/inspection/protocol";
+
+const MAX_RESULT_CONSTRUCTION_BYTES = 60 * 1_024;
+const MAX_RESULT_NODES = 4_096;
+
+interface FragmentSize {
+  readonly bytes: number;
+  readonly nodes: number;
+}
+
+class ResultConstructionBudget {
+  readonly #fragmentSizes = new WeakMap<object, FragmentSize>();
+  #bytes = 0;
+  #nodes = 0;
+
+  leaf<Value extends object>(value: Value): Value {
+    return this.#retain(value, []);
+  }
+
+  container<Value extends object>(value: Value, children: readonly object[]): Value {
+    return this.#retain(value, children);
+  }
+
+  #retain<Value extends object>(value: Value, children: readonly object[]): Value {
+    const size = measuredFragmentSize(value);
+    const childSize = children.reduce<FragmentSize>(
+      (total, child) => {
+        const retained = this.#fragmentSizes.get(child);
+        if (retained === undefined) {
+          throw new Error("Inspection Result construction received an unretained child fragment.");
+        }
+        return { bytes: total.bytes + retained.bytes, nodes: total.nodes + retained.nodes };
+      },
+      { bytes: 0, nodes: 0 } satisfies FragmentSize,
+    );
+    this.#bytes += size.bytes - childSize.bytes;
+    this.#nodes += size.nodes - childSize.nodes;
+    if (this.#bytes > MAX_RESULT_CONSTRUCTION_BYTES || this.#nodes > MAX_RESULT_NODES) {
+      throw new InspectionLimitError("Inspection exceeded its output limit.");
+    }
+    this.#fragmentSizes.set(value, size);
+    return value;
+  }
+}
+
+/** Owns exact aggregate accounting and assembly for one Export Inspection. */
+export class ExportInspectionConstruction {
+  readonly #budget = new ResultConstructionBudget();
+
+  declaration<Value extends InspectedDeclaration>(value: Value): Value {
+    return this.#budget.leaf(value);
+  }
+
+  signature(value: ExportSignature): ExportSignature {
+    return this.#budget.leaf(value);
+  }
+
+  documentation(value: PackageDocumentation): PackageDocumentation {
+    return this.#budget.leaf(value);
+  }
+
+  alias(targetName: string, declaration: ExportAlias["declaration"]): ExportAlias {
+    return this.#budget.container({ targetName, declaration }, [declaration]);
+  }
+
+  declarationSpace(
+    space: Exclude<DeclarationSpace, "namespace">,
+    declarations: readonly InspectedDeclaration[],
+  ): ExportDeclarationSpace {
+    return this.#budget.container({ space, declarations }, declarations);
+  }
+
+  namespaceMember(
+    name: string,
+    declarations: readonly InspectedDeclaration[],
+    members: readonly ExportNamespaceMember[],
+  ): ExportNamespaceMember {
+    return this.#budget.container({ name, declarations, members }, [...declarations, ...members]);
+  }
+
+  namespaceSpace(members: readonly ExportNamespaceMember[]): ExportDeclarationSpace {
+    return this.#budget.container({ space: "namespace", members }, members);
+  }
+
+  moduleExport(options: {
+    readonly alias?: ExportAlias;
+    readonly name: string;
+    readonly signatures: readonly ExportSignature[];
+    readonly spaces: readonly ExportDeclarationSpace[];
+  }): InspectedModuleExport {
+    const value = {
+      name: options.name,
+      ...(options.alias === undefined ? {} : { alias: options.alias }),
+      spaces: options.spaces,
+      signatures: options.signatures,
+    };
+    return this.#budget.container(value, [
+      ...(options.alias === undefined ? [] : [options.alias]),
+      ...options.spaces,
+      ...options.signatures,
+    ]);
+  }
+
+  supportingType(name: string, declarations: readonly InspectedDeclaration[]): SupportingType {
+    return this.#budget.container({ name, declarations }, declarations);
+  }
+
+  result(
+    specifier: string,
+    identity: InspectionResultIdentity,
+    moduleExport: InspectedModuleExport,
+    supportingTypes: readonly SupportingType[],
+    packageDocumentation: PackageDocumentation | undefined,
+  ): ExportInspection {
+    const result: ExportInspection = {
+      intent: "export-inspection",
+      specifier,
+      ...identity,
+      moduleExport,
+      supportingTypes,
+      ...(packageDocumentation === undefined ? {} : { packageDocumentation }),
+    };
+    return this.#budget.container(result, [
+      moduleExport,
+      ...supportingTypes,
+      ...(packageDocumentation === undefined ? [] : [packageDocumentation]),
+    ]);
+  }
+}
+
+/** Assembles and exactly charges one bounded Interface Overview. */
+export function constructInterfaceOverview(
+  specifier: string,
+  identity: InspectionResultIdentity,
+  publicSubpaths: readonly PublicSubpath[],
+  moduleExports: readonly { readonly name: string }[],
+): InterfaceOverview {
+  const budget = new ResultConstructionBudget();
+  const retainedSubpaths = publicSubpaths.map((subpath) => budget.leaf(subpath));
+  const retainedExports = moduleExports.map((moduleExport) => budget.leaf(moduleExport));
+  return budget.container(
+    {
+      intent: "interface-overview",
+      specifier,
+      ...identity,
+      publicSubpaths: retainedSubpaths,
+      moduleExports: retainedExports,
+    },
+    [...retainedSubpaths, ...retainedExports],
+  );
+}
+
+function measuredFragmentSize(value: object): FragmentSize {
+  return {
+    bytes: Buffer.byteLength(JSON.stringify(value)),
+    nodes: countResultNodes(value),
+  };
+}
+
+function countResultNodes(value: unknown): number {
+  if (value === null || typeof value !== "object") {
+    return 1;
+  }
+  return 1 + Object.values(value).reduce((count, child) => count + countResultNodes(child), 0);
+}

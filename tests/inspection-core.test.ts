@@ -3,6 +3,7 @@ import { access } from "node:fs/promises";
 import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
 import { inspectExport, inspectInterfaceOverview } from "#typepeek/inspection";
+import { analyzeInspection } from "#typepeek/inspection/analyze";
 
 import { type CompiledPackageFixture, materializeCompiledPackageFixture } from "./helpers/index.ts";
 
@@ -14,6 +15,18 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await fixture?.cleanup();
+});
+
+it("fails explicitly before an oversized request crosses the analysis process seam", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "x".repeat(17 * 1_024),
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its request input limit.",
+  });
 });
 
 it("describes a compiled Package Module without executing its runtime", async () => {
@@ -858,6 +871,59 @@ it("fails explicitly when Supporting Type traversal exceeds its depth bound", as
   });
 });
 
+it("fails explicitly when an anonymous Public Interface type exceeds traversal depth", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/deep-anonymous-type",
+    exportName: "inspect",
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its Supporting Type traversal limit.",
+  });
+});
+
+it("fails explicitly before bounded result parts multiply into oversized aggregate output", async () => {
+  const analysisOutcome = analyzeInspection({
+    intent: "export-inspection",
+    request: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/aggregate-output",
+      exportName: "inspect",
+      accessStyle: "import",
+    },
+  });
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/aggregate-output",
+    exportName: "inspect",
+  });
+
+  const expected = {
+    status: "limit-exceeded",
+    message: "Inspection exceeded its output limit.",
+  } as const;
+  expect(analysisOutcome).toEqual(expected);
+  expect(outcome).toEqual(expected);
+});
+
+it("accounts for namespace containers before aggregate output crosses its construction bound", async () => {
+  const request = {
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/aggregate-namespace-alias",
+    exportName: "Root",
+    accessStyle: "import",
+  } as const;
+  const expected = {
+    status: "limit-exceeded",
+    message: "Inspection exceeded its output limit.",
+  } as const;
+
+  expect(analyzeInspection({ intent: "export-inspection", request })).toEqual(expected);
+  await expect(inspectExport(request)).resolves.toEqual(expected);
+});
+
 it("fails explicitly when overload rendering exceeds its bound", async () => {
   const outcome = await inspectExport({
     resolutionContext: fixture.resolutionContext,
@@ -882,6 +948,125 @@ it("fails explicitly when one rendered signature exceeds its byte bound", async 
     status: "limit-exceeded",
     message: "Inspection exceeded its Module Export signature byte limit.",
   });
+});
+
+it("fails explicitly when compiler resolution exhausts its filesystem work budget", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/failed-lookup-storm",
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its compiler host work limit.",
+  });
+});
+
+it("fails explicitly when duplicate path references exhaust compiler work", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/duplicate-path-references",
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its compiler host work limit.",
+  });
+});
+
+it.each([
+  [
+    "declaration files",
+    "@typepeek-fixture/broad-declaration-files",
+    "Inspection exceeded its declaration file limit.",
+  ],
+  [
+    "declaration source bytes",
+    "@typepeek-fixture/oversized-declaration-source",
+    "Inspection exceeded its declaration byte limit.",
+  ],
+  [
+    "package manifest bytes",
+    "@typepeek-fixture/oversized-manifest",
+    "Inspection exceeded its package manifest size limit.",
+  ],
+  [
+    "compiler resolution bytes",
+    "@typepeek-fixture/oversized-resolution",
+    "Inspection exceeded its compiler host byte limit.",
+  ],
+])(
+  "fails explicitly when $name exceed their installed-evidence budget",
+  async (_name, specifier, message) => {
+    const outcome = await inspectInterfaceOverview({
+      resolutionContext: fixture.resolutionContext,
+      specifier,
+    });
+
+    expect(outcome).toEqual({ status: "limit-exceeded", message });
+  },
+);
+
+it.each([
+  [
+    "merged declarations",
+    "@typepeek-fixture/merged-declarations",
+    "Merged",
+    "Inspection exceeded its declaration merge limit.",
+  ],
+  [
+    "namespace members",
+    "@typepeek-fixture/broad-namespace",
+    "Broad",
+    "Inspection exceeded its namespace member limit.",
+  ],
+  [
+    "namespace depth",
+    "@typepeek-fixture/deep-namespace",
+    "Deep",
+    "Inspection exceeded its namespace traversal depth limit.",
+  ],
+])(
+  "fails explicitly when $name exceed their result budget",
+  async (_name, specifier, exportName, message) => {
+    const outcome = await inspectExport({
+      resolutionContext: fixture.resolutionContext,
+      specifier,
+      exportName,
+    });
+
+    expect(outcome).toEqual({ status: "limit-exceeded", message });
+  },
+);
+
+it("returns deterministic unchanged evidence before and after hostile bounded inspections", async () => {
+  const inspectStableExport = () =>
+    inspectExport({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/focused",
+      exportName: "createWidget",
+    });
+  const baseline = await inspectStableExport();
+
+  await Promise.all([
+    inspectInterfaceOverview({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/failed-lookup-storm",
+    }),
+    inspectExport({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/aggregate-output",
+      exportName: "inspect",
+    }),
+  ]);
+  const sequential = [];
+  for (let index = 0; index < 4; index += 1) {
+    sequential.push(await inspectStableExport());
+  }
+  const concurrent = await Promise.all(Array.from({ length: 4 }, inspectStableExport));
+
+  expect(baseline).toMatchObject({ status: "success" });
+  expect([...sequential, ...concurrent]).toEqual(Array(8).fill(baseline));
 });
 
 it("rejects malformed Package Identity evidence explicitly", async () => {

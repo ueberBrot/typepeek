@@ -41,7 +41,7 @@ export default defineConfig({
       level: "error",
       profile: "esm-only",
     },
-    entry: ["src/index.ts", "src/cli.ts", "src/inspection/analysis-worker.ts"],
+    entry: ["src/index.ts", "src/cli.ts", "src/inspection/analysis-process-entry.ts"],
     dts: true,
     format: ["esm"],
     outExtensions: () => ({
