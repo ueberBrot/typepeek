@@ -17,6 +17,10 @@ const inspectionSchemas = type.module({
     "...": "inspectionTarget",
     exportName: "string",
   }),
+  signatureInspectionRequest: record({
+    "...": "inspectionTarget",
+    exportName: "string",
+  }),
   normalizedInspectionTarget: record({
     resolutionContext: "string",
     specifier: "string",
@@ -26,28 +30,38 @@ const inspectionSchemas = type.module({
     "...": "normalizedInspectionTarget",
     exportName: "string",
   }),
-  analysisRequestEnvelope: [
-    record({
-      intent: "'interface-overview'",
-      request: "unknown",
-    }),
-    "|",
-    record({
-      intent: "'export-inspection'",
-      request: "unknown",
-    }),
-  ],
-  analysisRequest: [
-    record({
-      intent: "'interface-overview'",
-      request: "normalizedInspectionTarget",
-    }),
-    "|",
-    record({
-      intent: "'export-inspection'",
-      request: "normalizedExportInspectionRequest",
-    }),
-  ],
+  normalizedSignatureInspectionRequest: record({
+    "...": "normalizedInspectionTarget",
+    exportName: "string",
+  }),
+  interfaceOverviewAnalysisEnvelope: record({
+    intent: "'interface-overview'",
+    request: "unknown",
+  }),
+  exportInspectionAnalysisEnvelope: record({
+    intent: "'export-inspection'",
+    request: "unknown",
+  }),
+  signatureInspectionAnalysisEnvelope: record({
+    intent: "'signature-inspection'",
+    request: "unknown",
+  }),
+  analysisRequestEnvelope:
+    "interfaceOverviewAnalysisEnvelope | exportInspectionAnalysisEnvelope | signatureInspectionAnalysisEnvelope",
+  interfaceOverviewAnalysisRequest: record({
+    intent: "'interface-overview'",
+    request: "normalizedInspectionTarget",
+  }),
+  exportInspectionAnalysisRequest: record({
+    intent: "'export-inspection'",
+    request: "normalizedExportInspectionRequest",
+  }),
+  signatureInspectionAnalysisRequest: record({
+    intent: "'signature-inspection'",
+    request: "normalizedSignatureInspectionRequest",
+  }),
+  analysisRequest:
+    "interfaceOverviewAnalysisRequest | exportInspectionAnalysisRequest | signatureInspectionAnalysisRequest",
   moduleExportIndexEntry: record({
     name: "string",
   }),
@@ -105,6 +119,11 @@ const inspectionSchemas = type.module({
     spaces: "exportDeclarationSpace[]",
     signatures: "exportSignature[]",
   }),
+  inspectedModuleExportSignatures: record({
+    name: "string",
+    "aliasTargetName?": "string | undefined",
+    signatures: "exportSignature[]",
+  }),
   supportingType: record({
     name: "string",
     declarations: "inspectedDeclaration[]",
@@ -150,7 +169,22 @@ const inspectionSchemas = type.module({
     "packageDocumentation?": "packageDocumentation | undefined",
   }),
   exportInspection: "packageExportInspection | platformExportInspection",
-  inspectionResult: "interfaceOverview | exportInspection",
+  packageSignatureInspection: record({
+    intent: "'signature-inspection'",
+    specifier: "string",
+    packageIdentity: "packageIdentity",
+    "declarationProvider?": "packageIdentity | undefined",
+    moduleExport: "inspectedModuleExportSignatures",
+  }),
+  platformSignatureInspection: record({
+    intent: "'signature-inspection'",
+    specifier: "string",
+    "packageIdentity?": "undefined",
+    declarationProvider: "packageIdentity",
+    moduleExport: "inspectedModuleExportSignatures",
+  }),
+  signatureInspection: "packageSignatureInspection | platformSignatureInspection",
+  inspectionResult: "interfaceOverview | exportInspection | signatureInspection",
   inspectionFailure: record({
     status: "'not-found' | 'unsupported' | 'static-boundary' | 'limit-exceeded'",
     message: "string",
@@ -165,6 +199,7 @@ const inspectionSchemas = type.module({
 const inspectionOutcomeSchema = inspectionSchemas.inspectionOutcome.onDeepUndeclaredKey("reject");
 const interfaceOverviewRequestSchema = inspectionSchemas.inspectionTarget;
 const exportInspectionRequestSchema = inspectionSchemas.exportInspectionRequest;
+const signatureInspectionRequestSchema = inspectionSchemas.signatureInspectionRequest;
 const analysisRequestEnvelopeSchema = inspectionSchemas.analysisRequestEnvelope;
 
 /**
@@ -199,6 +234,12 @@ export type ExportInspectionRequest = ProtocolType<
 >;
 export type NormalizedExportInspectionRequest = ProtocolType<
   typeof inspectionSchemas.normalizedExportInspectionRequest.infer
+>;
+export type SignatureInspectionRequest = ProtocolType<
+  typeof inspectionSchemas.signatureInspectionRequest.infer
+>;
+export type NormalizedSignatureInspectionRequest = ProtocolType<
+  typeof inspectionSchemas.normalizedSignatureInspectionRequest.infer
 >;
 export type ModuleExportIndexEntry = ProtocolType<
   typeof inspectionSchemas.moduleExportIndexEntry.infer
@@ -236,6 +277,10 @@ export type PackageDocumentation = ProtocolType<
   typeof inspectionSchemas.packageDocumentation.infer
 >;
 export type ExportInspection = ProtocolType<typeof inspectionSchemas.exportInspection.infer>;
+export type InspectedModuleExportSignatures = ProtocolType<
+  typeof inspectionSchemas.inspectedModuleExportSignatures.infer
+>;
+export type SignatureInspection = ProtocolType<typeof inspectionSchemas.signatureInspection.infer>;
 export type InspectionResult = ProtocolType<typeof inspectionSchemas.inspectionResult.infer>;
 export type InspectionFailure = ProtocolType<typeof inspectionSchemas.inspectionFailure.infer>;
 
@@ -282,6 +327,10 @@ const INVALID_REQUEST_OUTCOMES = {
     status: "unsupported",
     message: "Inspection received an invalid Export Inspection request.",
   },
+  "signature-inspection": {
+    status: "unsupported",
+    message: "Inspection received an invalid Signature Inspection request.",
+  },
 } as const satisfies Readonly<Record<InspectionResult["intent"], InspectionFailure>>;
 const INVALID_RESULT_OUTCOME: InspectionFailure = {
   status: "unsupported",
@@ -302,11 +351,16 @@ export function readInspectionRequest(
   value: unknown,
 ): InspectionRequestReading<NormalizedExportInspectionRequest>;
 export function readInspectionRequest(
+  intent: "signature-inspection",
+  value: unknown,
+): InspectionRequestReading<NormalizedSignatureInspectionRequest>;
+export function readInspectionRequest(
   intent: InspectionResult["intent"],
   value: unknown,
 ):
   | InspectionRequestReading<NormalizedInterfaceOverviewRequest>
-  | InspectionRequestReading<NormalizedExportInspectionRequest> {
+  | InspectionRequestReading<NormalizedExportInspectionRequest>
+  | InspectionRequestReading<NormalizedSignatureInspectionRequest> {
   try {
     const candidate = snapshotRecord(value);
     if (candidate === undefined) {
@@ -318,7 +372,10 @@ export function readInspectionRequest(
         ? { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] }
         : { accepted: true, request: normalizeInspectionTarget(request) };
     }
-    const request = exportInspectionRequestSchema(candidate);
+    const request =
+      intent === "export-inspection"
+        ? exportInspectionRequestSchema(candidate)
+        : signatureInspectionRequestSchema(candidate);
     return request instanceof type.errors
       ? { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] }
       : {
@@ -357,11 +414,20 @@ export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
           }
         : { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
     }
-    const reading = readInspectionRequest(envelope.intent, envelope.request);
+    if (envelope.intent === "export-inspection") {
+      const reading = readInspectionRequest(envelope.intent, envelope.request);
+      return reading.accepted
+        ? {
+            accepted: true,
+            request: { intent: envelope.intent, request: reading.request },
+          }
+        : { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
+    }
+    const reading = readInspectionRequest("signature-inspection", envelope.request);
     return reading.accepted
       ? {
           accepted: true,
-          request: { intent: envelope.intent, request: reading.request },
+          request: { intent: "signature-inspection", request: reading.request },
         }
       : { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
   } catch {
@@ -382,6 +448,10 @@ export function enforceInspectionOutcome(
   intent: "export-inspection",
   value: unknown,
 ): InspectionOutcome<ExportInspection>;
+export function enforceInspectionOutcome(
+  intent: "signature-inspection",
+  value: unknown,
+): InspectionOutcome<SignatureInspection>;
 export function enforceInspectionOutcome(
   intent: InspectionResult["intent"],
   value: unknown,

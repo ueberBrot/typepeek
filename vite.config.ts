@@ -5,6 +5,7 @@ export default defineConfig({
     lib: {
       entry: {
         cli: "src/cli.ts",
+        "inspection-api": "src/inspection-api.ts",
         "analysis-process-entry": "src/inspection/analysis-process-entry.ts",
       },
       fileName: (_format, entryName) => `${entryName}.js`,
@@ -52,7 +53,7 @@ export default defineConfig({
     },
   },
   pack: {
-    entry: ["src/cli.ts", "src/inspection/analysis-process-entry.ts"],
+    entry: ["src/cli.ts", "src/inspection-api.ts", "src/inspection/analysis-process-entry.ts"],
     dts: true,
     format: ["esm"],
     outExtensions: () => ({

@@ -11,3 +11,11 @@ assert.match(
   cli.stdout,
   /Describe the TypeScript-visible Public Interface of Inspectable Modules\./u,
 );
+const inspectionApiPath = "../dist/inspection-api.js";
+const inspectionApi: unknown = await import(inspectionApiPath);
+if (typeof inspectionApi !== "object" || inspectionApi === null) {
+  throw new TypeError("The packed Inspection Core entrypoint did not export a module object.");
+}
+assert.equal(typeof Reflect.get(inspectionApi, "inspectInterfaceOverview"), "function");
+assert.equal(typeof Reflect.get(inspectionApi, "inspectExport"), "function");
+assert.equal(typeof Reflect.get(inspectionApi, "inspectExportSignatures"), "function");

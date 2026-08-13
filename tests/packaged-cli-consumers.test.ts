@@ -40,21 +40,33 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
     const outcomes = await Promise.all(
       matrix.consumers.map(async (consumer) => {
         const overviewArguments = ["publint"];
+        const expandedOverviewArguments = ["publint", "--subpaths"];
         const publicSubpathArguments = ["publint/utils", "--export", "formatMessage"];
         const zodArguments = ["zod", "--export", "ZodError"];
+        const zodJsonArguments = ["zod", "--export", "ZodError", "--signatures-only", "--json"];
         const overview = await consumer.run(overviewArguments);
+        const expandedOverview = await consumer.run(expandedOverviewArguments);
         const publicSubpathInspection = await consumer.run(publicSubpathArguments);
         const zodInspection = await consumer.run(zodArguments);
+        const zodJsonInspection = await consumer.run(zodJsonArguments);
 
         return {
-          commands: [overviewArguments, publicSubpathArguments, zodArguments],
+          commands: [
+            overviewArguments,
+            expandedOverviewArguments,
+            publicSubpathArguments,
+            zodArguments,
+            zodJsonArguments,
+          ],
           installedPackages: ["publint", "publint/utils", "zod"],
           manager: consumer.manager,
           resolutionContext: consumer.resolutionContext,
           semantics: {
             overview: readCliSemantics(overview.stdout),
+            expandedOverview: readCliSemantics(expandedOverview.stdout),
             publicSubpathInspection: readCliSemantics(publicSubpathInspection.stdout),
             zodInspection: readCliSemantics(zodInspection.stdout),
+            zodJsonInspection: readJsonSignatureSemantics(zodJsonInspection.stdout),
           },
         };
       }),
@@ -84,6 +96,11 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
       semantics: {
         overview: {
           packageIdentity: "publint@0.3.22",
+          publicSubpaths: [],
+          specifier: "publint",
+        },
+        expandedOverview: {
+          packageIdentity: "publint@0.3.22",
           publicSubpaths: ["publint/utils"],
           specifier: "publint",
         },
@@ -96,6 +113,14 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
           moduleExport: "ZodError",
           packageIdentity: "zod@4.4.3",
           specifier: "zod",
+        },
+        zodJsonInspection: {
+          intent: "signature-inspection",
+          moduleExport: "ZodError",
+          packageIdentity: "zod@4.4.3",
+          signatureKinds: ["construct"],
+          specifier: "zod",
+          status: "success",
         },
       },
       zodSignature: expect.stringMatching(/^construct:/u),
@@ -128,6 +153,20 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
     );
   });
 
+  it("exposes every Inspection Core intent without importing the CLI adapter", async () => {
+    const outcomes = await Promise.all(
+      matrix.consumers.map((consumer) => consumer.runInspectionApi()),
+    );
+
+    for (const outcome of outcomes) {
+      expect(outcome).toMatchObject({
+        overview: { status: "success", result: { intent: "interface-overview" } },
+        focused: { status: "success", result: { intent: "export-inspection" } },
+        signatures: { status: "success", result: { intent: "signature-inspection" } },
+      });
+    }
+  });
+
   it("keeps package scripts, process spawning, and network access disabled", async () => {
     await Promise.all(
       matrix.consumers.map(({ packageScriptSentinel, verifyNoInspectionIo }) =>
@@ -146,6 +185,36 @@ interface CliSemantics {
   readonly publicSubpaths: readonly string[];
   readonly signatures: readonly string[];
   readonly specifier: string | undefined;
+}
+
+function readJsonSignatureSemantics(output: string): {
+  readonly intent: string;
+  readonly moduleExport: string;
+  readonly packageIdentity: string;
+  readonly signatureKinds: readonly string[];
+  readonly specifier: string;
+  readonly status: string;
+} {
+  const outcome = JSON.parse(output) as {
+    readonly status: string;
+    readonly result: {
+      readonly intent: string;
+      readonly moduleExport: {
+        readonly name: string;
+        readonly signatures: readonly { readonly kind: string }[];
+      };
+      readonly packageIdentity: { readonly name: string; readonly version?: string };
+      readonly specifier: string;
+    };
+  };
+  return {
+    intent: outcome.result.intent,
+    moduleExport: outcome.result.moduleExport.name,
+    packageIdentity: `${outcome.result.packageIdentity.name}@${outcome.result.packageIdentity.version}`,
+    signatureKinds: outcome.result.moduleExport.signatures.map(({ kind }) => kind),
+    specifier: outcome.result.specifier,
+    status: outcome.status,
+  };
 }
 
 function readCliSemantics(output: string): CliSemantics {

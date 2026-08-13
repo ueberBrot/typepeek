@@ -213,8 +213,11 @@ function probeSignatureText(
 ): string {
   return checker.signatureToString(
     signature,
-    declaration,
-    ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseSingleQuotesForStringLiteralType,
+    signature.getDeclaration() ?? declaration,
+    ts.TypeFormatFlags.NoTruncation |
+      ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope |
+      ts.TypeFormatFlags.NoTypeReduction |
+      ts.TypeFormatFlags.UseSingleQuotesForStringLiteralType,
     kind,
   );
 }

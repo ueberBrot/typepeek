@@ -7,6 +7,8 @@ import {
   type InspectionOutcome,
   type InterfaceOverview,
   type InterfaceOverviewRequest,
+  type SignatureInspection,
+  type SignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
 
 /**
@@ -48,6 +50,27 @@ export async function inspectExport(
     "export-inspection",
     await runBoundedAnalysis({
       intent: "export-inspection",
+      request: requestReading.request,
+    }),
+  );
+}
+
+/**
+ * Validates a request and returns only the public call and construct signatures
+ * for one Module Export, without traversing Supporting Types.
+ */
+export async function inspectExportSignatures(
+  request: SignatureInspectionRequest,
+): Promise<InspectionOutcome<SignatureInspection>> {
+  const requestReading = readInspectionRequest("signature-inspection", request);
+  if (!requestReading.accepted) {
+    return requestReading.outcome;
+  }
+
+  return enforceInspectionOutcome(
+    "signature-inspection",
+    await runBoundedAnalysis({
+      intent: "signature-inspection",
       request: requestReading.request,
     }),
   );

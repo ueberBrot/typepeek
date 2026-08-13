@@ -10,8 +10,10 @@ import type {
   InspectedModuleExport,
   InspectionResultIdentity,
   InterfaceOverview,
+  InspectedModuleExportSignatures,
   PackageDocumentation,
   PublicSubpath,
+  SignatureInspection,
   SupportingType,
 } from "#typepeek/inspection/protocol";
 
@@ -140,6 +142,46 @@ export class ExportInspectionConstruction {
       ...supportingTypes,
       ...(packageDocumentation === undefined ? [] : [packageDocumentation]),
     ]);
+  }
+}
+
+/** Owns aggregate accounting and assembly for one Signature Inspection. */
+export class SignatureInspectionConstruction {
+  readonly #budget = new ResultConstructionBudget();
+
+  signature(value: ExportSignature): ExportSignature {
+    return this.#budget.leaf(value);
+  }
+
+  moduleExport(
+    name: string,
+    aliasTargetName: string | undefined,
+    signatures: readonly ExportSignature[],
+  ): InspectedModuleExportSignatures {
+    return this.#budget.container(
+      {
+        name,
+        ...(aliasTargetName === undefined ? {} : { aliasTargetName }),
+        signatures,
+      },
+      signatures,
+    );
+  }
+
+  result(
+    specifier: string,
+    identity: InspectionResultIdentity,
+    moduleExport: InspectedModuleExportSignatures,
+  ): SignatureInspection {
+    return this.#budget.container(
+      {
+        intent: "signature-inspection",
+        specifier,
+        ...identity,
+        moduleExport,
+      },
+      [moduleExport],
+    );
   }
 }
 

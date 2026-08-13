@@ -21,8 +21,8 @@
     "unplugin-unused"
   ],
 
-  // Type-aware analysis protects the package's exported boundary while the
-  // transport-neutral Inspection Core remains internal and unstable.
+  // Type-aware analysis protects the package's exported CLI and transport-neutral
+  // Inspection Core boundaries.
   "typeAware": {
     "enabled": true,
     "projects": ["tsconfig.json"],

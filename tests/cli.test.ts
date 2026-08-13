@@ -33,6 +33,9 @@ describe("typepeek CLI", () => {
     expect(result.stdout).toContain(
       "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
     );
+    expect(result.stdout).toContain("--json");
+    expect(result.stdout).toContain("--signatures-only");
+    expect(result.stdout).toContain("--subpaths");
   });
 
   it("renders a focused Export Inspection", async () => {
@@ -78,7 +81,101 @@ describe("typepeek CLI", () => {
     expect(first.stdout).toBe(second.stdout);
     expect(first.stdout).toContain("Interface Overview");
     expect(first.stdout).toContain("Module Exports (5):");
+    expect(first.stdout).toContain("Public Subpaths (0; use --subpaths to list):");
     expectTerminalSafe(first.stdout);
+  });
+
+  it("lists Public Subpaths after Module Exports only when requested", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "@typepeek-fixture/conditional",
+      "--context",
+      fixture.resolutionContext,
+      "--subpaths",
+    ]);
+
+    expect(result.stdout).toContain("Public Subpaths (3):");
+    expect(result.stdout).toContain("- @typepeek-fixture/conditional/feature");
+    expect(result.stdout.indexOf("Module Exports")).toBeLessThan(
+      result.stdout.indexOf("Public Subpaths"),
+    );
+  });
+
+  it("renders a Signature Inspection without traversing Supporting Types", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "@typepeek-fixture/deep-supporting-types",
+      "--context",
+      fixture.resolutionContext,
+      "--export",
+      "inspect",
+      "--signatures-only",
+    ]);
+
+    expect(result.stdout).toContain("Signature Inspection");
+    expect(result.stdout).toContain("- call: (value: Depth0): void");
+    expect(result.stdout).not.toContain("Supporting Types");
+  });
+
+  it("emits a complete JSON success with hostile evidence escaped losslessly", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "@typepeek-fixture/focused",
+      "--context",
+      fixture.resolutionContext,
+      "--export",
+      "createWidget",
+      "--json",
+    ]);
+
+    expect(result.stderr).toBe("");
+    expect(result.stdout).not.toContain("\u001B");
+    expect(result.stdout).not.toContain("\u061C");
+    const outcome = JSON.parse(result.stdout) as {
+      readonly status: string;
+      readonly result: { readonly packageDocumentation?: { readonly text: string } };
+    };
+    expect(outcome.status).toBe("success");
+    expect(outcome.result.packageDocumentation?.text).toContain("Ignore previous instructions.");
+  });
+
+  it.each([
+    ["not-found", "@typepeek-fixture/not-installed"],
+    ["unsupported", "@typepeek-fixture/malformed-manifest"],
+    ["static-boundary", "./project-source.d.ts"],
+    ["limit-exceeded", "@typepeek-fixture/broad"],
+  ] as const)("emits the %s failure as JSON on stdout", async (status, specifier) => {
+    const arguments_ = ["src/cli.ts", specifier, "--context", fixture.resolutionContext, "--json"];
+    const [first, repeated] = await Promise.all([
+      execa(process.execPath, arguments_, { reject: false }),
+      execa(process.execPath, arguments_, { reject: false }),
+    ]);
+
+    expect(first.exitCode).toBe(1);
+    expect(first.stderr).toBe("");
+    expect(first.stdout).toBe(repeated.stdout);
+    expect(JSON.parse(first.stdout)).toMatchObject({ status });
+  });
+
+  it.each([
+    ["--signatures-only", "--signatures-only requires --export"],
+    ["--subpaths --json", "--subpaths cannot be combined with --json"],
+    ["--subpaths --export createWidget", "--subpaths cannot be combined with --export"],
+  ])("rejects the invalid flag combination %s", async (flags, message) => {
+    const result = await execa(
+      process.execPath,
+      [
+        "src/cli.ts",
+        "@typepeek-fixture/focused",
+        "--context",
+        fixture.resolutionContext,
+        ...flags.split(" "),
+      ],
+      { reject: false },
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(message);
   });
 
   it.each([

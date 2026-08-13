@@ -148,6 +148,7 @@ it.each(["not-found", "unsupported", "static-boundary", "limit-exceeded"] as con
 
     expect(enforceInspectionOutcome("interface-overview", outcome)).toEqual(outcome);
     expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual(outcome);
+    expect(enforceInspectionOutcome("signature-inspection", outcome)).toEqual(outcome);
   },
 );
 
@@ -191,6 +192,61 @@ it("discriminates the Export Inspection analysis intent", () => {
         accessStyle: "require",
       },
     },
+  });
+});
+
+it("normalizes and discriminates a Signature Inspection request", () => {
+  const request = {
+    resolutionContext: "/repository",
+    specifier: "example",
+    exportName: "createExample",
+  };
+
+  expect(readInspectionRequest("signature-inspection", request)).toEqual({
+    accepted: true,
+    request: { ...request, accessStyle: "import" },
+  });
+  expect(
+    readAnalysisRequest({
+      intent: "signature-inspection",
+      request: { ...request, accessStyle: "require" },
+    }),
+  ).toEqual({
+    accepted: true,
+    request: {
+      intent: "signature-inspection",
+      request: { ...request, accessStyle: "require" },
+    },
+  });
+});
+
+it("accepts only the bounded Signature Inspection result shape", () => {
+  const outcome = {
+    status: "success",
+    result: {
+      intent: "signature-inspection",
+      specifier: "example",
+      packageIdentity: { name: "example", version: "1.0.0" },
+      moduleExport: {
+        name: "createExample",
+        aliasTargetName: "buildExample",
+        signatures: [{ kind: "call", text: "(input: string): number" }],
+      },
+    },
+  } as const;
+
+  expect(enforceInspectionOutcome("signature-inspection", outcome)).toEqual(outcome);
+  expect(
+    enforceInspectionOutcome("signature-inspection", {
+      ...outcome,
+      result: {
+        ...outcome.result,
+        supportingTypes: [],
+      },
+    }),
+  ).toEqual({
+    status: "unsupported",
+    message: "Inspection returned an invalid result.",
   });
 });
 

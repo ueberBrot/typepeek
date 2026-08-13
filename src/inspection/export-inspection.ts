@@ -1,6 +1,14 @@
 import ts from "@typescript/typescript6";
 
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import {
+  type AliasDeclaration,
+  findFocusedExportAliasDeclaration,
+  type FocusedExportResolution,
+  resolveFocusedExport,
+  resolveFocusedExportSymbol,
+  resolveFocusedExportTarget,
+} from "#typepeek/inspection/focused-export";
 import type { InspectableModuleEvidence } from "#typepeek/inspection/installed-evidence";
 import { inspectPackageDocumentation } from "#typepeek/inspection/package-documentation";
 import type {
@@ -24,6 +32,7 @@ import {
 import { renderPublicDeclaration } from "#typepeek/inspection/public-declaration-rendering";
 import { ExportInspectionConstruction } from "#typepeek/inspection/result-construction";
 import { shouldExpandSupportingDeclaration } from "#typepeek/inspection/supporting-type-policy";
+import { isTypeScriptStandardLibraryDeclaration } from "#typepeek/inspection/typescript-standard-library";
 
 const MAX_DECLARATIONS_PER_SYMBOL = 128;
 const MAX_DECLARATION_BYTES = 64 * 1_024;
@@ -67,12 +76,6 @@ const DECLARATION_SPACES_BY_KIND: Readonly<Record<DeclarationKind, readonly Decl
   "type-alias": ["type"],
   variable: ["value"],
 };
-
-type AliasDeclaration =
-  | ts.ExportAssignment
-  | ts.ExportSpecifier
-  | ts.ImportEqualsDeclaration
-  | ts.NamespaceExport;
 
 interface SignatureCandidate {
   readonly compilerOrder: number;
@@ -192,10 +195,6 @@ function declarationKind(declaration: ts.Declaration): DeclarationKind | undefin
   return DECLARATION_KIND_BY_SYNTAX_KIND.get(declaration.kind);
 }
 
-function isAliasDeclaration(declaration: ts.Declaration): declaration is AliasDeclaration {
-  return DECLARATION_KIND_BY_SYNTAX_KIND.get(declaration.kind) === "alias";
-}
-
 function inspectedDeclarationKind(
   declaration: ts.Declaration,
   kindOverride: DeclarationKind | undefined,
@@ -220,15 +219,13 @@ export function inspectFocusedModuleExport(
   specifier: string,
 ): ExportInspection | undefined {
   const construction = new ExportInspectionConstruction();
-  const exportedSymbol = evidence.checker
-    .getExportsOfModule(evidence.moduleSymbol)
-    .find((symbol) => symbol.getName() === exportName);
-  if (exportedSymbol === undefined) {
+  const resolution = resolveFocusedExport(evidence.checker, evidence.moduleSymbol, exportName);
+  if (resolution === undefined) {
     return undefined;
   }
 
-  const targetSymbol = resolveExportTarget(evidence.checker, exportedSymbol);
-  const aliasDeclaration = findAliasDeclaration(exportedSymbol);
+  const { exportedSymbol, targetSymbol } = resolution;
+  const aliasDeclaration = findFocusedExportAliasDeclaration(exportedSymbol);
   assertSupportedSelectedDeclarationKind(evidence.checker, targetSymbol, aliasDeclaration);
   const spaces = occupiedDeclarationSpaces(exportedSymbol, targetSymbol, aliasDeclaration);
   const namespaceMembers = spaces.includes("namespace")
@@ -248,6 +245,7 @@ export function inspectFocusedModuleExport(
     evidence,
     exportedSymbol,
     targetSymbol,
+    resolution,
     aliasDeclaration,
     spaces,
     namespaceMembers,
@@ -268,35 +266,17 @@ export function inspectFocusedModuleExport(
   );
 }
 
-function resolveExportTarget(checker: ts.TypeChecker, exportedSymbol: ts.Symbol): ts.Symbol {
-  if ((exportedSymbol.flags & ts.SymbolFlags.Alias) === 0) {
-    return exportedSymbol;
-  }
-  const targetSymbol = checker.getAliasedSymbol(exportedSymbol);
-  if (targetSymbol.declarations === undefined || targetSymbol.declarations.length === 0) {
-    throw new UnsupportedInspectionError(
-      "The selected Module Export alias could not be resolved from Installed Evidence.",
-    );
-  }
-  return targetSymbol;
-}
-
 function inspectModuleExport(
   evidence: InspectableModuleEvidence,
   exportedSymbol: ts.Symbol,
   targetSymbol: ts.Symbol,
+  resolution: FocusedExportResolution,
   aliasDeclaration: AliasDeclaration | undefined,
   spaces: readonly DeclarationSpace[],
   namespaceMembers: readonly NamespaceMemberEvidence[],
   construction: ExportInspectionConstruction,
 ): InspectedModuleExport {
-  const alias = inspectAlias(
-    evidence,
-    exportedSymbol,
-    aliasDeclaration,
-    targetSymbol,
-    construction,
-  );
+  const alias = inspectAlias(evidence, resolution, aliasDeclaration, construction);
   const declarationSpaces = inspectDeclarationSpaces(
     evidence,
     targetSymbol,
@@ -305,7 +285,7 @@ function inspectModuleExport(
     namespaceMembers,
     construction,
   );
-  const signatures = inspectSignatures(evidence.checker, targetSymbol, spaces, construction);
+  const signatures = inspectResolvedExportSignatures(evidence.checker, resolution, construction);
   return construction.moduleExport({
     name: exportedSymbol.getName(),
     ...(alias === undefined ? {} : { alias }),
@@ -316,43 +296,15 @@ function inspectModuleExport(
 
 function inspectAlias(
   evidence: InspectableModuleEvidence,
-  exportedSymbol: ts.Symbol,
+  resolution: FocusedExportResolution,
   aliasDeclaration: AliasDeclaration | undefined,
-  targetSymbol: ts.Symbol,
   construction: ExportInspectionConstruction,
 ): ExportAlias | undefined {
-  if (
-    aliasDeclaration === undefined ||
-    (ts.isExportSpecifier(aliasDeclaration) && exportedSymbol.getName() === targetSymbol.getName())
-  ) {
+  if (aliasDeclaration === undefined || resolution.aliasTargetName === undefined) {
     return undefined;
   }
-  const targetName = aliasTargetName(aliasDeclaration, targetSymbol);
   const declaration = inspectDeclaration(evidence, aliasDeclaration, construction, "alias");
-  return construction.alias(targetName, declaration);
-}
-
-function aliasTargetName(aliasDeclaration: AliasDeclaration, targetSymbol: ts.Symbol): string {
-  if (!ts.isNamespaceExport(aliasDeclaration)) {
-    return targetSymbol.getName();
-  }
-  const moduleSpecifier = aliasDeclaration.parent.moduleSpecifier;
-  return moduleSpecifier !== undefined && ts.isStringLiteralLike(moduleSpecifier)
-    ? moduleSpecifier.text
-    : "namespace module";
-}
-
-function findAliasDeclaration(exportedSymbol: ts.Symbol): AliasDeclaration | undefined {
-  if ((exportedSymbol.flags & ts.SymbolFlags.Alias) === 0) {
-    return undefined;
-  }
-  const declaration = exportedSymbol.declarations?.find(isAliasDeclaration);
-  if (declaration === undefined) {
-    throw new UnsupportedInspectionError(
-      "The selected Module Export alias has no declaration provenance.",
-    );
-  }
-  return declaration;
+  return construction.alias(resolution.aliasTargetName, declaration);
 }
 
 function occupiedDeclarationSpaces(
@@ -476,8 +428,8 @@ function inspectNamespaceMember(
   state: NamespaceTraversalState,
   depth: number,
 ): NamespaceMemberEvidence {
-  const aliasDeclaration = findAliasDeclaration(member);
-  const target = resolveExportTarget(checker, member);
+  const aliasDeclaration = findFocusedExportAliasDeclaration(member);
+  const target = resolveFocusedExportSymbol(checker, member).targetSymbol;
   const namespaceAliasDeclaration =
     aliasDeclaration !== undefined && ts.isNamespaceExport(aliasDeclaration)
       ? [aliasDeclaration]
@@ -523,17 +475,17 @@ function declarationSpaces(declaration: ts.Declaration): readonly DeclarationSpa
   return kind === undefined ? [] : DECLARATION_SPACES_BY_KIND[kind];
 }
 
-function inspectSignatures(
+export function inspectResolvedExportSignatures(
   checker: ts.TypeChecker,
-  symbol: ts.Symbol,
-  spaces: readonly DeclarationSpace[],
-  construction: ExportInspectionConstruction,
+  resolution: FocusedExportResolution,
+  construction: Pick<ExportInspectionConstruction, "signature">,
 ): readonly ExportSignature[] {
+  const symbol = resolution.targetSymbol;
   const declaration = signatureDeclaration(symbol);
   if (declaration === undefined) {
     return [];
   }
-  const type = signatureType(checker, symbol, declaration, spaces);
+  const type = signatureType(checker, symbol, declaration, resolution.valueAccessible);
   const candidates = [
     ...signatureCandidates(checker, type, ts.SignatureKind.Call, "call"),
     ...signatureCandidates(checker, type, ts.SignatureKind.Construct, "construct"),
@@ -546,10 +498,14 @@ function inspectSignatures(
 
   let totalBytes = 0;
   return candidates.map(({ kind, signature, signatureKind }) => {
+    const signatureDeclaration = signature.getDeclaration();
     const text = checker.signatureToString(
       signature,
-      declaration,
-      ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseSingleQuotesForStringLiteralType,
+      signatureDeclaration,
+      ts.TypeFormatFlags.NoTruncation |
+        ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope |
+        ts.TypeFormatFlags.NoTypeReduction |
+        ts.TypeFormatFlags.UseSingleQuotesForStringLiteralType,
       signatureKind,
     );
     const signatureBytes = Buffer.byteLength(text);
@@ -570,9 +526,9 @@ function signatureType(
   checker: ts.TypeChecker,
   symbol: ts.Symbol,
   declaration: ts.Declaration,
-  spaces: readonly DeclarationSpace[],
+  valueAccessible: boolean,
 ): ts.Type {
-  return spaces.includes("value")
+  return valueAccessible
     ? checker.getTypeOfSymbolAtLocation(symbol, declaration)
     : checker.getDeclaredTypeOfSymbol(symbol);
 }
@@ -696,7 +652,7 @@ function inspectSupportingTypes(
     referenceKind: SupportingReferenceKind,
     depth: number,
   ): boolean => {
-    const resolvedSymbol = resolveExportTarget(evidence.checker, symbol);
+    const resolvedSymbol = resolveFocusedExportTarget(evidence.checker, symbol);
     const declarations = unvisitedSupportingDeclarations(resolvedSymbol, referenceKind, visited);
     if (declarations.length === 0) {
       return false;
@@ -850,10 +806,12 @@ function supportingTypeDeclarations(
 ): readonly ts.Declaration[] {
   // `typeof X` needs X's value declaration; ordinary type references admit only
   // named type declarations and must not drift into implementation symbols.
-  const declarations = (symbol.declarations ?? []).filter((declaration) =>
-    referenceKind === "type-query"
-      ? declarationSpaces(declaration).some((space) => space === "value" || space === "namespace")
-      : isNamedTypeDeclaration(declaration),
+  const declarations = (symbol.declarations ?? []).filter(
+    (declaration) =>
+      !isTypeScriptStandardLibraryDeclaration(declaration.getSourceFile().fileName) &&
+      (referenceKind === "type-query"
+        ? declarationSpaces(declaration).some((space) => space === "value" || space === "namespace")
+        : isNamedTypeDeclaration(declaration)),
   );
   assertDeclarationLimit(declarations);
   return declarations;

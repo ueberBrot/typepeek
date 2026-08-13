@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import {
   inspectExport,
+  inspectExportSignatures,
   inspectInterfaceOverview,
   type InspectionResult,
 } from "#typepeek/inspection";
@@ -48,6 +49,7 @@ const QUESTIONS: readonly CorpusQuestion[] = [
     exportName: "ParseError",
     expectedPackage: "arktype",
     expectedSurface: /class ParseError/u,
+    probeSignatures: true,
     probe:
       'import { ParseError } from "arktype"; const error: Error = new ParseError("bad"); void error;',
   },
@@ -195,6 +197,27 @@ const QUESTIONS: readonly CorpusQuestion[] = [
   },
 ];
 
+const SIGNATURE_QUESTIONS = [
+  {
+    expectedParameters: ["def:", "params:", "_0:"],
+    exportName: "type",
+    probe: 'import { type } from "arktype"; type({ name: "string" });',
+    specifier: "arktype",
+  },
+  {
+    expectedParameters: ["file:", "templateString_0:"],
+    exportName: "execa",
+    probe: 'import { execa } from "execa"; execa("node", ["--version"]);',
+    specifier: "execa",
+  },
+  {
+    expectedParameters: ["def:"],
+    exportName: "ZodError",
+    probe: 'import { ZodError } from "zod"; new ZodError([]);',
+    specifier: "zod",
+  },
+] as const;
+
 describe("pinned real-package corpus", () => {
   let corpus: RealPackageCorpus;
 
@@ -261,6 +284,34 @@ describe("pinned real-package corpus", () => {
     (question) => answerCorpusQuestion(corpus, question),
     20_000,
   );
+
+  it.each(SIGNATURE_QUESTIONS)(
+    "answers a bounded Signature Inspection for $specifier::$exportName",
+    async ({ expectedParameters, exportName, probe: source, specifier }) => {
+      const probe = await corpus.compileProbe({ exportName, source, specifier });
+      expect(probe.diagnostics).toEqual([]);
+      const outcome = await inspectExportSignatures({
+        exportName,
+        resolutionContext: corpus.resolutionContext,
+        specifier,
+      });
+
+      expect(outcome.status, JSON.stringify(outcome)).toBe("success");
+      if (outcome.status === "success") {
+        expect(outcome.result.moduleExport.signatures.length).toBeGreaterThan(0);
+        expect(outcome.result.moduleExport.signatures.map(({ kind }) => kind)).toEqual(
+          probe.signatures.map(({ kind }) => kind),
+        );
+        const renderedSignatures = signatureLabels(outcome.result.moduleExport.signatures).join(
+          "\n",
+        );
+        for (const parameter of expectedParameters) {
+          expect(renderedSignatures).toContain(parameter);
+        }
+      }
+    },
+    20_000,
+  );
 });
 
 async function assertStaticCorpusQuestions(
@@ -275,13 +326,18 @@ async function assertStaticCorpusQuestions(
       arguments_: [
         question.specifier,
         ...(question.exportName === undefined ? [] : ["--export", question.exportName]),
+        ...(question.probeSignatures === true ? ["--signatures-only"] : []),
         ...(question.accessStyle === undefined ? [] : ["--access", question.accessStyle]),
       ],
       diagnosticContext: `real-package corpus Static Inspection ${question.specifier}`,
       resolutionContext,
     });
     expect(result.stdout).toContain(
-      question.exportName === undefined ? "Interface Overview" : "Export Inspection",
+      question.exportName === undefined
+        ? "Interface Overview"
+        : question.probeSignatures === true
+          ? "Signature Inspection"
+          : "Export Inspection",
     );
   }
 }

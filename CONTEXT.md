@@ -44,8 +44,12 @@ _Avoid_: wildcard Specifier, Public Subpath
 A focused description of one Module Export, including its relevant declarations, bounded Supporting Types, and Package Documentation.
 _Avoid_: show, lookup
 
+**Signature Inspection**:
+A bounded focused Inspection Result containing every statically visible public call and construct signature for one Module Export in a Resolution Variant, together with Installed Evidence identity and an alias target name when applicable. It intentionally omits declaration spaces, Supporting Types, and Package Documentation; zero signatures authoritatively means the Module Export is neither publicly callable nor publicly constructable.
+_Avoid_: partial Export Inspection, fallback result
+
 **Inspection Result**:
-A bounded, deterministic presentation of Installed Evidence for an Interface Overview or Export Inspection. It describes one Resolution Variant and contains no generated explanation, usage example, or behavioral claim.
+A bounded, deterministic presentation of Installed Evidence for an Interface Overview, Export Inspection, or Signature Inspection. It describes one Resolution Variant and contains no generated explanation, usage example, or behavioral claim.
 _Avoid_: answer, summary
 
 **Resolution Context**:
