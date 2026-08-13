@@ -2,7 +2,11 @@ import { execa } from "execa";
 import { access } from "node:fs/promises";
 import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
-import { inspectExport, inspectInterfaceOverview } from "#typepeek/inspection";
+import {
+  inspectExport,
+  inspectExportSignatures,
+  inspectInterfaceOverview,
+} from "#typepeek/inspection";
 import { analyzeInspection } from "#typepeek/inspection/analyze";
 
 import { type CompiledPackageFixture, materializeCompiledPackageFixture } from "./helpers/index.ts";
@@ -73,6 +77,7 @@ it("renders an Interface Overview through the CLI", async () => {
       "- createWidget",
       "- default",
       "- dependencyExport",
+      "Public Subpaths (0; use --subpaths to list):",
     ].join("\n"),
   );
   await expect(access(fixture.runtimeSentinel)).rejects.toMatchObject({ code: "ENOENT" });
@@ -540,6 +545,30 @@ it("preserves callable and constructable signature order", async () => {
   ]);
 });
 
+it("inspects signatures without traversing Supporting Types", async () => {
+  const outcome = await inspectExportSignatures({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/deep-supporting-types",
+    exportName: "inspect",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "signature-inspection",
+      specifier: "@typepeek-fixture/deep-supporting-types",
+      packageIdentity: {
+        name: "@typepeek-fixture/deep-supporting-types",
+        version: "1.0.0",
+      },
+      moduleExport: {
+        name: "inspect",
+        signatures: [{ kind: "call", text: "(value: Depth0): void" }],
+      },
+    },
+  });
+});
+
 it("renders signatures on a callable and constructable type-only Module Export", async () => {
   const outcome = await inspectExport({
     resolutionContext: fixture.resolutionContext,
@@ -600,6 +629,58 @@ it("preserves public constructor inputs without exposing private parameter prope
     "private readonly input",
   );
 });
+
+it.each([
+  ["Export Inspection", inspectExport],
+  ["Signature Inspection", inspectExportSignatures],
+] as const)("preserves inherited standard-library constructor inputs in %s", async (_, inspect) => {
+  const outcome = await inspect({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "InheritedError",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.moduleExport.signatures).toEqual([
+    { kind: "construct", text: "new (message?: string): InheritedError" },
+    {
+      kind: "construct",
+      text: "new (message?: string, options?: ErrorOptions): InheritedError",
+    },
+  ]);
+  if (outcome.result.intent === "export-inspection") {
+    expect(outcome.result.supportingTypes).toEqual([]);
+  }
+});
+
+it.each([
+  ["TransitiveError", 2],
+  ["ErrorFactory", 4],
+] as const)(
+  "preserves the standard-library constructor surface of %s",
+  async (exportName, signatureCount) => {
+    const outcome = await inspectExportSignatures({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/focused",
+      exportName,
+    });
+
+    expect(outcome.status).toBe("success");
+    if (outcome.status !== "success") {
+      return;
+    }
+    expect(outcome.result.moduleExport.signatures).toHaveLength(signatureCount);
+    expect(outcome.result.moduleExport.signatures.map(({ text }) => text).join("\n")).toContain(
+      "message?: string",
+    );
+    expect(outcome.result.moduleExport.signatures.map(({ text }) => text).join("\n")).toContain(
+      "options?: ErrorOptions",
+    );
+  },
+);
 
 it("preserves private-constructor instance properties without advertising construction", async () => {
   const outcome = await inspectExport({
@@ -953,7 +1034,10 @@ it("returns equivalent domain information for bundled and split declarations", a
     }),
   ]);
 
-  expect([bundled.status, split.status]).toEqual(["success", "success"]);
+  expect([bundled.status, split.status], JSON.stringify({ bundled, split })).toEqual([
+    "success",
+    "success",
+  ]);
   if (
     bundled.status !== "success" ||
     split.status !== "success" ||

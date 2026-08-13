@@ -20,6 +20,10 @@ import {
   readInstalledManifest,
 } from "#typepeek/inspection/installed-package-boundary";
 import { selectNodeDeclarationProgram } from "#typepeek/inspection/node-declaration-authority";
+import {
+  INSPECTION_STANDARD_LIBRARY,
+  isTypeScriptStandardLibraryDeclaration,
+} from "#typepeek/inspection/typescript-standard-library";
 
 const MAX_SOURCE_FILES = 384;
 const MAX_SOURCE_BYTES = 4 * 1_024 * 1_024;
@@ -94,10 +98,17 @@ export interface InstalledProgramEvidence {
   readonly moduleSymbol: ts.Symbol;
 }
 
+export type InstalledProgramInspection =
+  | { readonly intent: "interface-overview" }
+  | {
+      readonly intent: "export-inspection" | "signature-inspection";
+      readonly exportName: string;
+    };
+
 /** Materializes and validates one bounded TypeScript declaration program. */
 export function materializeInstalledProgram(
   selection: InstalledProgramSelection,
-  selectedExportName?: string,
+  inspection: InstalledProgramInspection,
 ): InstalledProgramEvidence {
   const traversal: DeclarationGraphTraversalState = { nodeCount: 0 };
   const compilerOptions = inspectionCompilerOptions();
@@ -112,22 +123,40 @@ export function materializeInstalledProgram(
     options: compilerOptions,
     host,
   });
-  const initialSourceFile = initialProgram.getSourceFile(selection.declarationPath);
+  const initialEvidence = initialPackageEvidence(initialProgram, selection);
+  const publicInterfaceProgram =
+    inspection.intent !== "interface-overview" &&
+    initialEvidence !== undefined &&
+    selectedExportNeedsStandardLibrary(
+      initialProgram.getTypeChecker(),
+      initialEvidence.moduleSymbol,
+      inspection.exportName,
+    )
+      ? ts.createProgram({
+          rootNames: [selection.declarationPath],
+          options: inspectionCompilerOptions(true),
+          host,
+        })
+      : initialProgram;
+  const initialSourceFile = publicInterfaceProgram.getSourceFile(selection.declarationPath);
   const initialModuleSymbol =
     selection.kind === "package" && initialSourceFile !== undefined
       ? packageModuleSymbol(
-          initialProgram.getTypeChecker(),
+          publicInterfaceProgram.getTypeChecker(),
           initialSourceFile,
           selection.ambientSpecifier,
         )
       : undefined;
+  const selectedExportName =
+    inspection.intent === "interface-overview" ? undefined : inspection.exportName;
   const nodeProgram =
     selection.kind === "platform" ||
+    inspection.intent === "signature-inspection" ||
     initialSourceFile === undefined ||
     initialModuleSymbol === undefined
       ? undefined
       : selectNodeDeclarationProgram(
-          initialProgram,
+          publicInterfaceProgram,
           initialModuleSymbol,
           initialSourceFile,
           () => {
@@ -148,8 +177,96 @@ export function materializeInstalledProgram(
           () => reserveDeclarationGraphNodes(traversal, 1),
           selectedExportName,
         );
-  const program = nodeProgram ?? initialProgram;
+  const program = nodeProgram ?? publicInterfaceProgram;
   return inspectSelectedModule(program, selection, host, traversal);
+}
+
+function initialPackageEvidence(
+  program: ts.Program,
+  selection: InstalledProgramSelection,
+): { readonly moduleSymbol: ts.Symbol } | undefined {
+  if (selection.kind !== "package") {
+    return undefined;
+  }
+  const sourceFile = program.getSourceFile(selection.declarationPath);
+  const moduleSymbol =
+    sourceFile === undefined
+      ? undefined
+      : packageModuleSymbol(program.getTypeChecker(), sourceFile, selection.ambientSpecifier);
+  return moduleSymbol === undefined ? undefined : { moduleSymbol };
+}
+
+function selectedExportNeedsStandardLibrary(
+  checker: ts.TypeChecker,
+  moduleSymbol: ts.Symbol,
+  exportName: string,
+): boolean {
+  const exportedSymbol = checker
+    .getExportsOfModule(moduleSymbol)
+    .find((symbol) => symbol.getName() === exportName);
+  if (exportedSymbol === undefined) {
+    return false;
+  }
+  const symbol =
+    exportedSymbol.flags & ts.SymbolFlags.Alias
+      ? checker.getAliasedSymbol(exportedSymbol)
+      : exportedSymbol;
+  return (
+    selectedValueNeedsStandardLibrary(checker, symbol) ||
+    (symbol.declarations ?? []).some(
+      (declaration) =>
+        ts.isClassDeclaration(declaration) &&
+        inheritedConstructorNeedsStandardLibrary(checker, declaration, new Set(), 0),
+    )
+  );
+}
+
+function selectedValueNeedsStandardLibrary(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
+  const declaration = symbol.valueDeclaration;
+  if (declaration === undefined || !ts.isVariableDeclaration(declaration)) {
+    return false;
+  }
+  const type = declaration.type;
+  const typeSymbol =
+    type !== undefined && ts.isTypeReferenceNode(type)
+      ? checker.getSymbolAtLocation(type.typeName)
+      : undefined;
+  return (
+    type !== undefined &&
+    ts.isTypeReferenceNode(type) &&
+    (typeSymbol === undefined || (typeSymbol.declarations ?? []).length === 0)
+  );
+}
+
+function inheritedConstructorNeedsStandardLibrary(
+  checker: ts.TypeChecker,
+  declaration: ts.ClassDeclaration,
+  visited: Set<ts.ClassDeclaration>,
+  depth: number,
+): boolean {
+  if (
+    declaration.members.some(ts.isConstructorDeclaration) ||
+    visited.has(declaration) ||
+    depth > 64
+  ) {
+    return false;
+  }
+  visited.add(declaration);
+  return (declaration.heritageClauses ?? []).some((clause) =>
+    clause.types.some((heritage) => {
+      const symbol = checker.getSymbolAtLocation(heritage.expression);
+      if (symbol === undefined) {
+        return true;
+      }
+      const target =
+        symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+      return (target.declarations ?? []).some(
+        (baseDeclaration) =>
+          ts.isClassDeclaration(baseDeclaration) &&
+          inheritedConstructorNeedsStandardLibrary(checker, baseDeclaration, visited, depth + 1),
+      );
+    }),
+  );
 }
 
 function inspectSelectedModule(
@@ -176,13 +293,12 @@ function inspectSelectedModule(
   );
 }
 
-function inspectionCompilerOptions(): ts.CompilerOptions {
+function inspectionCompilerOptions(includeStandardLibrary = false): ts.CompilerOptions {
   return {
+    ...(includeStandardLibrary ? { lib: [INSPECTION_STANDARD_LIBRARY] } : { noLib: true }),
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     noEmit: true,
-    // Exclude ambient libraries from bounded Interface Overviews.
-    noLib: true,
     skipLibCheck: true,
     target: ts.ScriptTarget.ES2024,
     types: [],
@@ -1109,7 +1225,10 @@ function resolveReadablePath(
 }
 
 function assertAllowedSource(allowedRoots: ReadonlySet<string>, sourcePath: string): void {
-  if (![...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, sourcePath))) {
+  if (
+    !isTypeScriptStandardLibraryDeclaration(sourcePath) &&
+    ![...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, sourcePath))
+  ) {
     throw new StaticBoundaryInspectionError(
       "A declaration references source outside its installed package boundary.",
     );

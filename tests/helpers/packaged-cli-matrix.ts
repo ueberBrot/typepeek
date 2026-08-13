@@ -29,6 +29,7 @@ export interface PackagedCliConsumer {
   readonly productionDependencyPaths: readonly string[];
   readonly resolutionContext: string;
   readonly run: (arguments_: readonly string[]) => Promise<{ readonly stdout: string }>;
+  readonly runInspectionApi: () => Promise<unknown>;
   readonly typepeekTarballPath: string;
   readonly version: string;
   readonly verifyNoInspectionIo: () => Promise<void>;
@@ -159,6 +160,20 @@ async function materializeConsumer(
         diagnosticContext: `${packageManager.manager} consumer Resolution Context ${resolutionContext}, installed package ${arguments_[0] ?? "unknown"}`,
         resolutionContext,
       });
+    },
+    runInspectionApi: async () => {
+      const script = [
+        'import { inspectExport, inspectExportSignatures, inspectInterfaceOverview } from "typepeek/inspection";',
+        `const resolutionContext = ${JSON.stringify(resolutionContext)};`,
+        'const overview = await inspectInterfaceOverview({ resolutionContext, specifier: "publint" });',
+        'const focused = await inspectExport({ resolutionContext, specifier: "publint/utils", exportName: "formatMessage" });',
+        'const signatures = await inspectExportSignatures({ resolutionContext, specifier: "zod", exportName: "ZodError" });',
+        "process.stdout.write(JSON.stringify({ overview, focused, signatures }));",
+      ].join("\n");
+      const result = await execa(process.execPath, ["--input-type=module", "--eval", script], {
+        cwd: resolutionContext,
+      });
+      return JSON.parse(result.stdout) as unknown;
     },
     typepeekTarballPath,
     version,

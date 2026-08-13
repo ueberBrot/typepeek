@@ -10,6 +10,7 @@ import {
 } from "#typepeek/inspection/installed-evidence";
 import type { AnalysisRequest, InspectionOutcome } from "#typepeek/inspection/protocol";
 import { constructInterfaceOverview } from "#typepeek/inspection/result-construction";
+import { inspectModuleExportSignatures } from "#typepeek/inspection/signature-inspection";
 
 const MAX_MODULE_EXPORTS = 320;
 
@@ -28,10 +29,7 @@ export function analyzeInspection(analysisRequest: AnalysisRequest): InspectionO
 
 function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOutcome {
   const { request } = analysisRequest;
-  const evidence = readInspectableModuleEvidence(
-    request,
-    analysisRequest.intent === "export-inspection" ? analysisRequest.request.exportName : undefined,
-  );
+  const evidence = readInspectableModuleEvidence(request, evidenceInspection(analysisRequest));
   if (evidence === undefined) {
     return {
       status: "not-found",
@@ -53,6 +51,17 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
       : { status: "success", result };
   }
 
+  if (analysisRequest.intent === "signature-inspection") {
+    const result = inspectModuleExportSignatures(
+      evidence,
+      analysisRequest.request.exportName,
+      request.specifier,
+    );
+    return result === undefined
+      ? missingExportOutcome(analysisRequest.request.exportName, request.specifier)
+      : { status: "success", result };
+  }
+
   return {
     status: "success",
     result: constructInterfaceOverview(
@@ -61,6 +70,28 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
       evidence.publicSubpaths,
       inspectModuleExports(evidence),
     ),
+  };
+}
+
+function evidenceInspection(
+  analysisRequest: AnalysisRequest,
+): Parameters<typeof readInspectableModuleEvidence>[1] {
+  switch (analysisRequest.intent) {
+    case "export-inspection":
+    case "signature-inspection":
+      return {
+        intent: analysisRequest.intent,
+        exportName: analysisRequest.request.exportName,
+      };
+    case "interface-overview":
+      return { intent: analysisRequest.intent };
+  }
+}
+
+function missingExportOutcome(exportName: string, specifier: string): InspectionOutcome {
+  return {
+    status: "not-found",
+    message: `Module Export "${exportName}" was not found in "${specifier}".`,
   };
 }
 

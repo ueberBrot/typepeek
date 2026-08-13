@@ -15,6 +15,12 @@
     "#typepeek/inspection": "./src/inspection/index.ts",
     "#typepeek/*": "./src/*.ts"
   },
+  "exports": {
+    "./inspection": {
+      "types": "./dist/inspection-api.d.ts",
+      "import": "./dist/inspection-api.js"
+    }
+  },
   "scripts": {
     "prepare": "vp config --no-agent"
   },

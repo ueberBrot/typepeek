@@ -1,4 +1,3 @@
-import { isCodePointInRanges, type CodePointRange } from "#typepeek/code-point-ranges";
 import type {
   ExportDeclarationSpace,
   ExportInspection,
@@ -7,47 +6,62 @@ import type {
   InspectionResult,
   InterfaceOverview,
   PackageIdentity,
+  SignatureInspection,
 } from "#typepeek/inspection";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
+import { isUnsafeOutputCodePoint } from "#typepeek/output-safety";
 
-const UNSAFE_TERMINAL_RANGES: readonly CodePointRange[] = [
-  [0x00, 0x1f],
-  [0x7f, 0x9f],
-  [0x061c, 0x061c],
-  [0x200e, 0x200f],
-  [0x2028, 0x202e],
-  [0x2066, 0x2069],
-];
 const MAX_TERMINAL_OUTPUT_BYTES = 128 * 1_024;
+
+export interface TerminalRenderingOptions {
+  readonly includePublicSubpaths?: boolean;
+}
 
 /**
  * Renders a validated Inspection Result as deterministic plain text. Every
  * value originating in Installed Evidence is escaped before terminal display.
  */
-export function renderInspection(result: InspectionResult): string {
-  const rendered =
-    result.intent === "interface-overview"
-      ? renderInterfaceOverview(result)
-      : renderExportInspection(result);
+export function renderInspection(
+  result: InspectionResult,
+  options: TerminalRenderingOptions = {},
+): string {
+  const rendered = renderInspectionResult(result, options);
   if (Buffer.byteLength(rendered) > MAX_TERMINAL_OUTPUT_BYTES) {
     throw new InspectionLimitError("Inspection exceeded its terminal output limit.");
   }
   return rendered;
 }
 
-function renderInterfaceOverview(result: InterfaceOverview): string {
+function renderInspectionResult(
+  result: InspectionResult,
+  options: TerminalRenderingOptions,
+): string {
+  switch (result.intent) {
+    case "interface-overview":
+      return renderInterfaceOverview(result, options.includePublicSubpaths === true);
+    case "export-inspection":
+      return renderExportInspection(result);
+    case "signature-inspection":
+      return renderSignatureInspection(result);
+  }
+}
+
+function renderInterfaceOverview(
+  result: InterfaceOverview,
+  includePublicSubpaths: boolean,
+): string {
   return [
     "Interface Overview",
     `Specifier: ${terminalSafeLine(result.specifier)}`,
     ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
-    ...(result.publicSubpaths.length === 0
-      ? []
-      : [
-          `Public Subpaths (${result.publicSubpaths.length}):`,
-          ...result.publicSubpaths.map(({ specifier }) => `- ${terminalSafeLine(specifier)}`),
-        ]),
     `Module Exports (${result.moduleExports.length}):`,
     ...result.moduleExports.map(({ name }) => `- ${terminalSafeLine(name)}`),
+    includePublicSubpaths
+      ? `Public Subpaths (${result.publicSubpaths.length}):`
+      : `Public Subpaths (${result.publicSubpaths.length}; use --subpaths to list):`,
+    ...(includePublicSubpaths
+      ? result.publicSubpaths.map(({ specifier }) => `- ${terminalSafeLine(specifier)}`)
+      : []),
   ].join("\n");
 }
 
@@ -83,6 +97,23 @@ function renderExportInspection(result: ExportInspection): string {
             .split("\n")
             .map((line) => `| ${terminalSafeLine(line)}`),
         ]),
+  ].join("\n");
+}
+
+function renderSignatureInspection(result: SignatureInspection): string {
+  const alias =
+    result.moduleExport.aliasTargetName === undefined
+      ? ""
+      : ` (alias of ${terminalSafeLine(result.moduleExport.aliasTargetName)})`;
+  return [
+    "Signature Inspection",
+    `Specifier: ${terminalSafeLine(result.specifier)}`,
+    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
+    `Module Export: ${terminalSafeLine(result.moduleExport.name)}${alias}`,
+    `Signatures (${result.moduleExport.signatures.length}):`,
+    ...result.moduleExport.signatures.map(
+      ({ kind, text }) => `- ${terminalSafeLine(kind)}: ${terminalSafeLine(text)}`,
+    ),
   ].join("\n");
 }
 
@@ -140,12 +171,8 @@ function terminalSafeLine(value: string): string {
   // remains visible without gaining terminal control semantics.
   return Array.from(value, (character) => {
     const codePoint = character.codePointAt(0) ?? 0;
-    return isUnsafeTerminalCodePoint(codePoint)
+    return isUnsafeOutputCodePoint(codePoint)
       ? `\\u{${codePoint.toString(16).toUpperCase()}}`
       : character;
   }).join("");
-}
-
-function isUnsafeTerminalCodePoint(codePoint: number): boolean {
-  return isCodePointInRanges(codePoint, UNSAFE_TERMINAL_RANGES);
 }

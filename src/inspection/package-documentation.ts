@@ -2,6 +2,7 @@ import ts from "@typescript/typescript6";
 
 import { isCodePointInRanges, type CodePointRange } from "#typepeek/code-point-ranges";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
+import type { AliasDeclaration } from "#typepeek/inspection/focused-export";
 import type { PackageDocumentation } from "#typepeek/inspection/protocol";
 
 const MAX_DOCUMENTATION_BYTES = 16 * 1_024;
@@ -16,12 +17,6 @@ const UNSAFE_PRESENTATION_RANGES: readonly CodePointRange[] = [
   [0x2066, 0x2069],
 ];
 const ANSI_CONTROL_SEQUENCE_PREFIX = String.fromCodePoint(0x1b, 0x5b);
-
-export type AliasDeclaration =
-  | ts.ExportAssignment
-  | ts.ExportSpecifier
-  | ts.ImportEqualsDeclaration
-  | ts.NamespaceExport;
 
 /**
  * Extracts the first attached Package Documentation visible on an alias, export,

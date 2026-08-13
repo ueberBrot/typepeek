@@ -22,7 +22,10 @@ import {
   readInstalledManifest,
   type VisiblePackageLocation,
 } from "#typepeek/inspection/installed-package-boundary";
-import { materializeInstalledProgram } from "#typepeek/inspection/installed-program";
+import {
+  type InstalledProgramInspection,
+  materializeInstalledProgram,
+} from "#typepeek/inspection/installed-program";
 import {
   isKnownNodePlatformSpecifier,
   isNodePlatformSpecifier,
@@ -84,13 +87,11 @@ interface PackageSpecifier {
  */
 export function readInspectableModuleEvidence(
   request: NormalizedInspectionTarget,
-  selectedExportName?: string,
+  inspection: InstalledProgramInspection,
 ): InspectableModuleEvidence | undefined {
   assertAbsoluteResolutionContext(request.resolutionContext);
   const selection = selectDeclarationProvider(request, createCompilerWorkSession());
-  return selection === undefined
-    ? undefined
-    : materializeInspectableModule(selection, selectedExportName);
+  return selection === undefined ? undefined : materializeInspectableModule(selection, inspection);
 }
 
 function selectDeclarationProvider(
@@ -237,9 +238,9 @@ function selectNodeDeclarationProvider(
 
 function materializeInspectableModule(
   selection: DeclarationProviderSelection,
-  selectedExportName: string | undefined,
+  inspection: InstalledProgramInspection,
 ): InspectableModuleEvidence {
-  const { checker, moduleSymbol } = materializeInstalledProgram(selection, selectedExportName);
+  const { checker, moduleSymbol } = materializeInstalledProgram(selection, inspection);
   return {
     checker,
     moduleSymbol,

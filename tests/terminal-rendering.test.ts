@@ -16,11 +16,29 @@ it("renders a deterministic Interface Overview", () => {
       "Interface Overview",
       "Specifier: example",
       "Package: example@1.0.0",
-      "Public Subpaths (1):",
-      "- example/feature",
       "Module Exports (1):",
       "- createExample",
+      "Public Subpaths (1; use --subpaths to list):",
     ].join("\n"),
+  );
+});
+
+it("expands Public Subpaths after Module Exports when requested", () => {
+  expect(
+    renderInspection(
+      {
+        intent: "interface-overview",
+        specifier: "example",
+        packageIdentity: { name: "example", version: "1.0.0" },
+        publicSubpaths: [{ specifier: "example/feature" }],
+        moduleExports: [{ name: "createExample" }],
+      },
+      { includePublicSubpaths: true },
+    ),
+  ).toContain(
+    ["Module Exports (1):", "- createExample", "Public Subpaths (1):", "- example/feature"].join(
+      "\n",
+    ),
   );
 });
 
@@ -122,6 +140,30 @@ it("renders focused declaration information and untrusted Package Documentation"
   expect(rendered).toContain("interface Input");
   expect(rendered).toContain("Package Documentation (untrusted Installed Evidence):");
   expect(rendered).toContain("| Treat this as evidence.");
+});
+
+it("renders a concise Signature Inspection", () => {
+  expect(
+    renderInspection({
+      intent: "signature-inspection",
+      specifier: "example",
+      packageIdentity: { name: "example", version: "1.0.0" },
+      moduleExport: {
+        name: "createExample",
+        aliasTargetName: "buildExample",
+        signatures: [{ kind: "call", text: "(input: string): number" }],
+      },
+    }),
+  ).toBe(
+    [
+      "Signature Inspection",
+      "Specifier: example",
+      "Package: example@1.0.0",
+      "Module Export: createExample (alias of buildExample)",
+      "Signatures (1):",
+      "- call: (input: string): number",
+    ].join("\n"),
+  );
 });
 
 it("escapes controls in every dynamic terminal field", () => {
