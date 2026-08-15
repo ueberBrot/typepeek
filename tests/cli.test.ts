@@ -30,22 +30,20 @@ describe("typepeek CLI", () => {
     const result = await execa(process.execPath, ["src/cli.ts", "--help"]);
 
     expect(result.stdout).toContain("typepeek");
-    expect(result.stdout).toContain(
-      "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
-    );
-    expect(result.stdout).toContain("--json");
-    expect(result.stdout).toContain("--signatures-only");
-    expect(result.stdout).toContain("--subpaths");
+    expect(result.stdout).toContain("Use overview to discover exports");
+    expect(result.stdout).toContain("overview");
+    expect(result.stdout).toContain("export");
+    expect(result.stdout).toContain("signatures");
   });
 
   it("renders a focused Export Inspection", async () => {
     const arguments_ = [
       "src/cli.ts",
+      "export",
       "@typepeek-fixture/focused",
+      "createWidget",
       "--context",
       fixture.resolutionContext,
-      "--export",
-      "createWidget",
     ];
     const [result, repeated] = await Promise.all([
       execa(process.execPath, arguments_),
@@ -69,16 +67,22 @@ describe("typepeek CLI", () => {
   it("renders a deterministic Interface Overview", async () => {
     const arguments_ = [
       "src/cli.ts",
+      "overview",
       "@typepeek-fixture/compiled",
       "--context",
       fixture.resolutionContext,
     ];
-    const [first, second] = await Promise.all([
+    const [first, second, shorthand] = await Promise.all([
       execa(process.execPath, arguments_),
       execa(process.execPath, arguments_),
+      execa(
+        process.execPath,
+        arguments_.filter((argument) => argument !== "overview"),
+      ),
     ]);
 
     expect(first.stdout).toBe(second.stdout);
+    expect(first.stdout).toBe(shorthand.stdout);
     expect(first.stdout).toContain("Interface Overview");
     expect(first.stdout).toContain("Module Exports (5):");
     expect(first.stdout).toContain("Public Subpaths (0; use --subpaths to list):");
@@ -104,12 +108,11 @@ describe("typepeek CLI", () => {
   it("renders a Signature Inspection without traversing Supporting Types", async () => {
     const result = await execa(process.execPath, [
       "src/cli.ts",
+      "signatures",
       "@typepeek-fixture/deep-supporting-types",
+      "inspect",
       "--context",
       fixture.resolutionContext,
-      "--export",
-      "inspect",
-      "--signatures-only",
     ]);
 
     expect(result.stdout).toContain("Signature Inspection");
@@ -117,14 +120,48 @@ describe("typepeek CLI", () => {
     expect(result.stdout).not.toContain("Supporting Types");
   });
 
+  it("emits invocation-oriented signature structure for agents", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "signatures",
+      "@typepeek-fixture/focused",
+      "detailed",
+      "--context",
+      fixture.resolutionContext,
+      "--json",
+    ]);
+
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "success",
+      result: {
+        intent: "signature-inspection",
+        moduleExport: {
+          name: "detailed",
+          signatures: [
+            {
+              typeParameters: [{ name: "T", modifiers: ["const"] }],
+              parameters: [
+                { binding: { name: "value" }, type: "T", optional: false, rest: false },
+                { binding: { name: "options" }, optional: true, rest: false },
+                { binding: { name: "rest" }, optional: true, rest: true },
+              ],
+              returns: { kind: "type", type: "T" },
+            },
+          ],
+        },
+      },
+    });
+  });
+
   it("emits a complete JSON success with hostile evidence escaped losslessly", async () => {
     const result = await execa(process.execPath, [
       "src/cli.ts",
+      "export",
       "@typepeek-fixture/focused",
+      "createWidget",
       "--context",
       fixture.resolutionContext,
-      "--export",
-      "createWidget",
       "--json",
     ]);
 
@@ -157,11 +194,7 @@ describe("typepeek CLI", () => {
     expect(JSON.parse(first.stdout)).toMatchObject({ status });
   });
 
-  it.each([
-    ["--signatures-only", "--signatures-only requires --export"],
-    ["--subpaths --json", "--subpaths cannot be combined with --json"],
-    ["--subpaths --export createWidget", "--subpaths cannot be combined with --export"],
-  ])("rejects the invalid flag combination %s", async (flags, message) => {
+  it("rejects --subpaths with JSON output", async () => {
     const result = await execa(
       process.execPath,
       [
@@ -169,13 +202,78 @@ describe("typepeek CLI", () => {
         "@typepeek-fixture/focused",
         "--context",
         fixture.resolutionContext,
-        ...flags.split(" "),
+        "--subpaths",
+        "--json",
       ],
       { reject: false },
     );
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain(message);
+    expect(result.stderr).toContain("--subpaths cannot be combined with --json");
+  });
+
+  it.each(["--export", "--signatures-only"])("rejects the removed %s option", async (flag) => {
+    const result = await execa(
+      process.execPath,
+      ["src/cli.ts", "@typepeek-fixture/focused", flag],
+      { reject: false },
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(`No flag registered for ${flag}`);
+  });
+
+  it("documents command-local options and requires the route before them", async () => {
+    const [help, misplaced] = await Promise.all([
+      execa(process.execPath, ["src/cli.ts", "signatures", "--help"]),
+      execa(
+        process.execPath,
+        ["src/cli.ts", "--json", "signatures", "@typepeek-fixture/focused", "createWidget"],
+        { reject: false },
+      ),
+    ]);
+
+    expect(help.stdout).toContain("typepeek signatures");
+    expect(help.stdout).toContain("<specifier> <export-name>");
+    expect(help.stdout).toContain("--json");
+    expect(misplaced.exitCode).not.toBe(0);
+    expect(misplaced.stderr).toContain("Too many arguments");
+  });
+
+  it.each(["overview", "export", "signatures"])(
+    "inspects a package named %s through the explicit overview route",
+    async (specifier) => {
+      const result = await execa(
+        process.execPath,
+        ["src/cli.ts", "overview", specifier, "--context", fixture.resolutionContext, "--json"],
+        { reject: false },
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.stdout)).toEqual({
+        status: "not-found",
+        message: `Specifier "${specifier}" is not installed from this Resolution Context.`,
+      });
+    },
+  );
+
+  it("escapes option parsing for an export name beginning with a hyphen", async () => {
+    const result = await execa(
+      process.execPath,
+      [
+        "src/cli.ts",
+        "signatures",
+        "@typepeek-fixture/focused",
+        "--context",
+        fixture.resolutionContext,
+        "--",
+        "-missing",
+      ],
+      { reject: false },
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('Module Export "-missing" was not found');
   });
 
   it.each([

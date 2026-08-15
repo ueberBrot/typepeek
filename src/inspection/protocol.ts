@@ -1,5 +1,8 @@
 import { type } from "arktype";
 
+const MAX_PROTOCOL_GRAPH_OBJECTS = 4_096;
+const MAX_PROTOCOL_GRAPH_VALUES = 16_384;
+
 const portableRelativePathSchema = type("string").narrow(isPortableRelativePath);
 const positiveIntegerSchema = type("number.integer").narrow((value) => value > 0);
 const nonArrayRecordSchema = type("object").narrow((value): boolean => isRecord(value));
@@ -113,6 +116,56 @@ const inspectionSchemas = type.module({
     kind: "'call' | 'construct'",
     text: "string",
   }),
+  signatureIdentifierBinding: record({
+    kind: "'identifier'",
+    name: "string",
+    synthetic: "boolean",
+  }),
+  signaturePatternBinding: record({
+    kind: "'pattern'",
+    text: "string",
+  }),
+  signatureBinding: "signatureIdentifierBinding | signaturePatternBinding",
+  signatureParameter: record({
+    binding: "signatureBinding",
+    type: "string",
+    optional: "boolean",
+    rest: "boolean",
+  }),
+  signatureThisParameter: record({
+    type: "string",
+  }),
+  signatureTypeParameterModifier: "'const' | 'in' | 'out'",
+  signatureTypeParameter: record({
+    name: "string",
+    modifiers: "signatureTypeParameterModifier[]",
+    "constraint?": "string | undefined",
+    "default?": "string | undefined",
+    synthetic: "boolean",
+  }),
+  signatureTypeReturn: record({
+    kind: "'type'",
+    type: "string",
+  }),
+  signaturePredicateReturn: record({
+    kind: "'predicate'",
+    parameter: "string",
+    type: "string",
+  }),
+  signatureAssertionReturn: record({
+    kind: "'assertion'",
+    parameter: "string",
+    "type?": "string | undefined",
+  }),
+  signatureReturn: "signatureTypeReturn | signaturePredicateReturn | signatureAssertionReturn",
+  inspectedSignature: record({
+    kind: "'call' | 'construct'",
+    text: "string",
+    typeParameters: "signatureTypeParameter[]",
+    "thisParameter?": "signatureThisParameter | undefined",
+    parameters: "signatureParameter[]",
+    returns: "signatureReturn",
+  }),
   inspectedModuleExport: record({
     name: "string",
     "alias?": "exportAlias | undefined",
@@ -122,7 +175,7 @@ const inspectionSchemas = type.module({
   inspectedModuleExportSignatures: record({
     name: "string",
     "aliasTargetName?": "string | undefined",
-    signatures: "exportSignature[]",
+    signatures: "inspectedSignature[]",
   }),
   supportingType: record({
     name: "string",
@@ -269,6 +322,19 @@ export type ExportDeclarationSpace = ProtocolType<
 >;
 export type ExportAlias = ProtocolType<typeof inspectionSchemas.exportAlias.infer>;
 export type ExportSignature = ProtocolType<typeof inspectionSchemas.exportSignature.infer>;
+export type SignatureBinding = ProtocolType<typeof inspectionSchemas.signatureBinding.infer>;
+export type SignatureParameter = ProtocolType<typeof inspectionSchemas.signatureParameter.infer>;
+export type SignatureThisParameter = ProtocolType<
+  typeof inspectionSchemas.signatureThisParameter.infer
+>;
+export type SignatureTypeParameterModifier = ProtocolType<
+  typeof inspectionSchemas.signatureTypeParameterModifier.infer
+>;
+export type SignatureTypeParameter = ProtocolType<
+  typeof inspectionSchemas.signatureTypeParameter.infer
+>;
+export type SignatureReturn = ProtocolType<typeof inspectionSchemas.signatureReturn.infer>;
+export type InspectedSignature = ProtocolType<typeof inspectionSchemas.inspectedSignature.infer>;
 export type InspectedModuleExport = ProtocolType<
   typeof inspectionSchemas.inspectedModuleExport.infer
 >;
@@ -502,8 +568,11 @@ function hasDenseProtocolArrays(value: unknown): boolean {
       continue;
     }
     visited.add(candidate);
+    if (visited.size > MAX_PROTOCOL_GRAPH_OBJECTS) {
+      return false;
+    }
 
-    if (!queueProtocolChildren(candidate, pending)) {
+    if (!queueProtocolChildren(candidate, pending) || pending.length > MAX_PROTOCOL_GRAPH_VALUES) {
       return false;
     }
   }

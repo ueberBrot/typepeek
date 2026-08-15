@@ -230,7 +230,22 @@ it("accepts only the bounded Signature Inspection result shape", () => {
       moduleExport: {
         name: "createExample",
         aliasTargetName: "buildExample",
-        signatures: [{ kind: "call", text: "(input: string): number" }],
+        signatures: [
+          {
+            kind: "call",
+            text: "(input: string): number",
+            typeParameters: [],
+            parameters: [
+              {
+                binding: { kind: "identifier", name: "input", synthetic: false },
+                type: "string",
+                optional: false,
+                rest: false,
+              },
+            ],
+            returns: { kind: "type", type: "number" },
+          },
+        ],
       },
     },
   } as const;
@@ -242,6 +257,41 @@ it("accepts only the bounded Signature Inspection result shape", () => {
       result: {
         ...outcome.result,
         supportingTypes: [],
+      },
+    }),
+  ).toEqual({
+    status: "unsupported",
+    message: "Inspection returned an invalid result.",
+  });
+  expect(
+    enforceInspectionOutcome("signature-inspection", {
+      ...outcome,
+      result: {
+        ...outcome.result,
+        moduleExport: {
+          ...outcome.result.moduleExport,
+          signatures: outcome.result.moduleExport.signatures.map(
+            ({ returns: _, ...signature }) => signature,
+          ),
+        },
+      },
+    }),
+  ).toEqual({
+    status: "unsupported",
+    message: "Inspection returned an invalid result.",
+  });
+});
+
+it("bounds protocol graph validation before structural schema checking", () => {
+  expect(
+    enforceInspectionOutcome("interface-overview", {
+      status: "success",
+      result: {
+        intent: "interface-overview",
+        specifier: "example",
+        packageIdentity: { name: "example" },
+        publicSubpaths: [],
+        moduleExports: Array.from({ length: 4_097 }, (_, index) => ({ name: `item${index}` })),
       },
     }),
   ).toEqual({

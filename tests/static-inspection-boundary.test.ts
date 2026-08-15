@@ -62,7 +62,7 @@ describe("Static Inspection trust boundary", () => {
     );
     const result = await inspection.run({
       adapter: { kind: "source-checkout", sourceCheckout: process.cwd() },
-      arguments_: [PACKAGE_NAME, "--export", "inspect"],
+      arguments_: ["export", PACKAGE_NAME, "inspect"],
       diagnosticContext: "Static Inspection trust-boundary CLI fixture",
       resolutionContext: fixture.primaryContext,
     });

@@ -10,6 +10,7 @@ export type {
   ExportInspectionRequest,
   ExportNamespaceMember,
   InspectedDeclaration,
+  InspectedSignature,
   InspectionOutcome,
   InspectionResult,
   InterfaceOverview,
@@ -17,4 +18,10 @@ export type {
   PackageIdentity,
   SignatureInspection,
   SignatureInspectionRequest,
+  SignatureBinding,
+  SignatureParameter,
+  SignatureReturn,
+  SignatureThisParameter,
+  SignatureTypeParameter,
+  SignatureTypeParameterModifier,
 } from "#typepeek/inspection/protocol";

@@ -563,9 +563,126 @@ it("inspects signatures without traversing Supporting Types", async () => {
       },
       moduleExport: {
         name: "inspect",
-        signatures: [{ kind: "call", text: "(value: Depth0): void" }],
+        signatures: [
+          {
+            kind: "call",
+            text: "(value: Depth0): void",
+            typeParameters: [],
+            parameters: [
+              {
+                binding: { kind: "identifier", name: "value", synthetic: false },
+                type: "Depth0",
+                optional: false,
+                rest: false,
+              },
+            ],
+            returns: { kind: "type", type: "void" },
+          },
+        ],
       },
     },
+  });
+});
+
+it("structures generic, this, optional, and rest Signature Inspection inputs", async () => {
+  const outcome = await inspectExportSignatures({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "detailed",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.moduleExport.signatures).toHaveLength(1);
+  expect(outcome.result.moduleExport.signatures[0]).toMatchObject({
+    kind: "call",
+    typeParameters: [
+      {
+        name: "T",
+        modifiers: ["const"],
+        constraint: "string",
+        default: "string",
+        synthetic: false,
+      },
+    ],
+    thisParameter: { type: "{ readonly scope: T; }" },
+    parameters: [
+      {
+        binding: { kind: "identifier", name: "value", synthetic: false },
+        type: "T",
+        optional: false,
+        rest: false,
+      },
+      {
+        binding: { kind: "identifier", name: "options", synthetic: false },
+        type: "WidgetOptions | undefined",
+        optional: true,
+        rest: false,
+      },
+      {
+        binding: { kind: "identifier", name: "rest", synthetic: false },
+        type: "[count?: number | undefined]",
+        optional: true,
+        rest: true,
+      },
+    ],
+    returns: { kind: "type", type: "T" },
+  });
+});
+
+it("preserves binding patterns, predicates, assertions, and constructed instance types", async () => {
+  const outcomes = await Promise.all(
+    ["destructure", "isWidget", "assertWidget", "assertPresent", "detailedConstructor"].map(
+      (exportName) =>
+        inspectExportSignatures({
+          resolutionContext: fixture.resolutionContext,
+          specifier: "@typepeek-fixture/focused",
+          exportName,
+        }),
+    ),
+  );
+  expect(outcomes.every(({ status }) => status === "success")).toBe(true);
+  const results = outcomes.map((outcome) => {
+    if (outcome.status !== "success") {
+      throw new Error(outcome.message);
+    }
+    return outcome.result;
+  });
+  const [destructure, predicate, assertion, bareAssertion, constructor] = results;
+  expect(destructure?.moduleExport.signatures[0]).toMatchObject({
+    parameters: [
+      {
+        binding: { kind: "pattern", text: "{ name: renamed, nested: [first] }" },
+        optional: false,
+        rest: false,
+      },
+      {
+        binding: { kind: "identifier", name: "rest", synthetic: false },
+        optional: true,
+        rest: true,
+      },
+    ],
+  });
+  expect(predicate?.moduleExport.signatures[0]?.returns).toEqual({
+    kind: "predicate",
+    parameter: "value",
+    type: "Widget",
+  });
+  expect(assertion?.moduleExport.signatures[0]?.returns).toEqual({
+    kind: "assertion",
+    parameter: "value",
+    type: "Widget",
+  });
+  expect(bareAssertion?.moduleExport.signatures[0]?.returns).toEqual({
+    kind: "assertion",
+    parameter: "value",
+  });
+  expect(constructor?.moduleExport.signatures[0]).toMatchObject({
+    kind: "construct",
+    typeParameters: [{ name: "T", constraint: "WidgetInput" }],
+    returns: { kind: "type", type: "T & WidgetResult" },
   });
 });
 
@@ -644,7 +761,7 @@ it.each([
   if (outcome.status !== "success") {
     return;
   }
-  expect(outcome.result.moduleExport.signatures).toEqual([
+  expect(outcome.result.moduleExport.signatures.map(({ kind, text }) => ({ kind, text }))).toEqual([
     { kind: "construct", text: "new (message?: string): InheritedError" },
     {
       kind: "construct",
@@ -1194,6 +1311,24 @@ it("fails explicitly when one rendered signature exceeds its byte bound", async 
   expect(outcome).toEqual({
     status: "limit-exceeded",
     message: "Inspection exceeded its Module Export signature byte limit.",
+  });
+});
+
+it("bounds detailed parameters without shrinking the compact Export Inspection", async () => {
+  const request = {
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/broad-parameters",
+    exportName: "inspect",
+  };
+  const [focused, signatures] = await Promise.all([
+    inspectExport(request),
+    inspectExportSignatures(request),
+  ]);
+
+  expect(focused.status).toBe("success");
+  expect(signatures).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its signature parameter limit.",
   });
 });
 

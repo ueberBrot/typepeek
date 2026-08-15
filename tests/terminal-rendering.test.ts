@@ -151,7 +151,22 @@ it("renders a concise Signature Inspection", () => {
       moduleExport: {
         name: "createExample",
         aliasTargetName: "buildExample",
-        signatures: [{ kind: "call", text: "(input: string): number" }],
+        signatures: [
+          {
+            kind: "call",
+            text: "(input: string): number",
+            typeParameters: [],
+            parameters: [
+              {
+                binding: { kind: "identifier", name: "input", synthetic: false },
+                type: "string",
+                optional: false,
+                rest: false,
+              },
+            ],
+            returns: { kind: "type", type: "number" },
+          },
+        ],
       },
     }),
   ).toBe(

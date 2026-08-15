@@ -1,4 +1,9 @@
-import { type ApplicationContext, buildApplication, buildCommand } from "@stricli/core";
+import {
+  type ApplicationContext,
+  buildApplication,
+  buildCommand,
+  buildRouteMap,
+} from "@stricli/core";
 import { resolve } from "node:path";
 
 import {
@@ -14,51 +19,61 @@ import { renderInspection } from "#typepeek/terminal-rendering";
 
 import packageJson from "../package.json" with { type: "json" };
 
-interface CliOptions {
+interface InspectionTargetOptions {
   readonly access: "import" | "require";
   readonly context: string;
-  readonly export?: string;
   readonly json: boolean;
-  readonly signaturesOnly: boolean;
+}
+
+interface OverviewOptions extends InspectionTargetOptions {
   readonly subpaths: boolean;
 }
 
-const rootCommand = buildCommand<CliOptions, [string], ApplicationContext>({
+const inspectionTargetFlags = {
+  access: {
+    kind: "parsed",
+    parse: parseAccessStyle,
+    default: "import",
+    brief: "Access Style whose package conditions select the Resolution Variant.",
+  },
+  context: {
+    kind: "parsed",
+    parse: resolve,
+    default: ".",
+    brief: "Resolution Context used to locate the installed Package Module.",
+  },
+  json: {
+    kind: "boolean",
+    default: false,
+    withNegated: false,
+    brief: "Emit one pre-stable structured Inspection Outcome as JSON.",
+  },
+} as const;
+
+const specifierParameter = {
+  parse: (input: string) => input,
+  brief: "Package-root or Public Subpath Specifier to inspect.",
+  placeholder: "specifier",
+} as const;
+
+const exportNameParameter = {
+  parse: (input: string) => input,
+  brief: "Exact Module Export name to inspect.",
+  placeholder: "export-name",
+} as const;
+
+const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationContext>({
   async func(options, specifier) {
-    return runCliInspection(this, options, specifier);
+    const optionError = subpathsJsonOptionError(options);
+    if (optionError !== undefined) {
+      return optionError;
+    }
+    const outcome = await inspectInterfaceOverview(inspectionRequest(options, specifier));
+    return writeCliOutcome(this, options, outcome, { includePublicSubpaths: options.subpaths });
   },
   parameters: {
     flags: {
-      access: {
-        kind: "parsed",
-        parse: parseAccessStyle,
-        default: "import",
-        brief: "Access Style whose package conditions select the Resolution Variant.",
-      },
-      context: {
-        kind: "parsed",
-        parse: resolve,
-        default: ".",
-        brief: "Resolution Context used to locate the installed Package Module.",
-      },
-      export: {
-        kind: "parsed",
-        parse: (input) => input,
-        optional: true,
-        brief: "Module Export to inspect after discovering it in the overview.",
-      },
-      json: {
-        kind: "boolean",
-        default: false,
-        withNegated: false,
-        brief: "Emit one pre-stable structured Inspection Outcome as JSON.",
-      },
-      signaturesOnly: {
-        kind: "boolean",
-        default: false,
-        withNegated: false,
-        brief: "Inspect only call and construct signatures; requires --export.",
-      },
+      ...inspectionTargetFlags,
       subpaths: {
         kind: "boolean",
         default: false,
@@ -68,52 +83,91 @@ const rootCommand = buildCommand<CliOptions, [string], ApplicationContext>({
     },
     positional: {
       kind: "tuple",
-      parameters: [
-        {
-          parse: (input) => input,
-          brief: "Package-root or Public Subpath Specifier to inspect.",
-          placeholder: "specifier",
-        },
-      ],
+      parameters: [specifierParameter],
     },
   },
   docs: {
-    brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
+    brief: "Index the Module Exports and Public Subpaths of one Inspectable Module.",
+    fullDescription:
+      "Example: typepeek overview zod --context . Use --json for one structured Inspection Outcome.",
   },
 });
 
-async function runCliInspection(
-  context: ApplicationContext,
-  options: CliOptions,
-  specifier: string,
-): Promise<Error | undefined> {
-  const optionError = validateOptions(options);
-  if (optionError !== undefined) {
-    return optionError;
-  }
-  const outcome = await inspectCliRequest(options, specifier);
-  return writeCliOutcome(context, options, outcome);
-}
+const exportCommand = buildCommand<InspectionTargetOptions, [string, string], ApplicationContext>({
+  async func(options, specifier, exportName) {
+    const outcome = await inspectExport({
+      ...inspectionRequest(options, specifier),
+      exportName,
+    });
+    return writeCliOutcome(this, options, outcome);
+  },
+  parameters: {
+    flags: inspectionTargetFlags,
+    positional: {
+      kind: "tuple",
+      parameters: [specifierParameter, exportNameParameter],
+    },
+  },
+  docs: {
+    brief: "Inspect one Module Export with declarations and bounded Supporting Types.",
+    fullDescription:
+      "Example: typepeek export zod ZodError --context . Use it when you need declarations or Supporting Types.",
+  },
+});
 
-function inspectCliRequest(options: CliOptions, specifier: string): Promise<InspectionOutcome> {
-  const request = {
+const signaturesCommand = buildCommand<
+  InspectionTargetOptions,
+  [string, string],
+  ApplicationContext
+>({
+  async func(options, specifier, exportName) {
+    const outcome = await inspectExportSignatures({
+      ...inspectionRequest(options, specifier),
+      exportName,
+    });
+    return writeCliOutcome(this, options, outcome);
+  },
+  parameters: {
+    flags: inspectionTargetFlags,
+    positional: {
+      kind: "tuple",
+      parameters: [specifierParameter, exportNameParameter],
+    },
+  },
+  docs: {
+    brief: "Inspect only the public call and construct signatures of one Module Export.",
+    fullDescription:
+      "Example: typepeek signatures arktype type --context . --json emits structured type parameters, parameters, and return semantics.",
+  },
+});
+
+const rootRoute = buildRouteMap({
+  routes: {
+    overview: overviewCommand,
+    export: exportCommand,
+    signatures: signaturesCommand,
+  },
+  defaultCommand: "overview",
+  docs: {
+    brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
+    fullDescription:
+      "Use overview to discover exports, signatures to inspect parameters, or export for declarations and Supporting Types. Command flags follow the command name.",
+  },
+});
+
+function inspectionRequest(options: InspectionTargetOptions, specifier: string) {
+  return {
     resolutionContext: options.context,
     specifier,
     accessStyle: options.access,
   } as const;
-  if (options.export === undefined) {
-    return inspectInterfaceOverview(request);
-  }
-  return (options.signaturesOnly ? inspectExportSignatures : inspectExport)({
-    ...request,
-    exportName: options.export,
-  });
 }
 
 function writeCliOutcome(
   context: ApplicationContext,
-  options: CliOptions,
+  options: InspectionTargetOptions,
   outcome: InspectionOutcome,
+  renderingOptions: { readonly includePublicSubpaths?: boolean } = {},
 ): Error | undefined {
   if (options.json) {
     writeJsonOutcome(context, outcome);
@@ -122,7 +176,7 @@ function writeCliOutcome(
   if (outcome.status !== "success") {
     return new Error(`${outcome.status}: ${outcome.message}`);
   }
-  const rendering = renderForCommand(outcome.result, options.subpaths);
+  const rendering = renderForCommand(outcome.result, renderingOptions);
   if (rendering instanceof Error) {
     return rendering;
   }
@@ -147,10 +201,10 @@ function parseAccessStyle(input: string): "import" | "require" {
 
 function renderForCommand(
   result: InspectionResult,
-  includePublicSubpaths: boolean,
+  options: { readonly includePublicSubpaths?: boolean },
 ): string | Error {
   try {
-    return renderInspection(result, { includePublicSubpaths });
+    return renderInspection(result, options);
   } catch (error) {
     if (error instanceof InspectionLimitError) {
       return new Error(`limit-exceeded: ${error.message}`);
@@ -159,35 +213,16 @@ function renderForCommand(
   }
 }
 
-function validateOptions(options: CliOptions): Error | undefined {
-  return [
-    signaturesOnlyOptionError(options),
-    subpathsJsonOptionError(options),
-    subpathsExportOptionError(options),
-  ].find((error) => error !== undefined);
-}
-
-function signaturesOnlyOptionError(options: CliOptions): Error | undefined {
-  return options.signaturesOnly && options.export === undefined
-    ? new Error("--signatures-only requires --export.")
-    : undefined;
-}
-
-function subpathsJsonOptionError(options: CliOptions): Error | undefined {
+function subpathsJsonOptionError(options: OverviewOptions): Error | undefined {
   return options.subpaths && options.json
     ? new Error("--subpaths cannot be combined with --json.")
     : undefined;
 }
 
-function subpathsExportOptionError(options: CliOptions): Error | undefined {
-  return options.subpaths && options.export !== undefined
-    ? new Error("--subpaths cannot be combined with --export.")
-    : undefined;
-}
-
-export const app = buildApplication(rootCommand, {
+export const app = buildApplication(rootRoute, {
   name: "typepeek",
   scanner: {
+    allowArgumentEscapeSequence: true,
     caseStyle: "allow-kebab-for-camel",
   },
   versionInfo: {

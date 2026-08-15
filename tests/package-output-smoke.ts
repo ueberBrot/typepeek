@@ -7,10 +7,8 @@ const cli = spawnSync(process.execPath, ["dist/cli.js", "--help"], {
 
 assert.equal(cli.status, 0, cli.stderr);
 assert.match(cli.stdout, /typepeek/u);
-assert.match(
-  cli.stdout,
-  /Describe the TypeScript-visible Public Interface of Inspectable Modules\./u,
-);
+assert.match(cli.stdout, /Use overview to discover exports/u);
+assert.match(cli.stdout, /signatures\s+Inspect only the public call and construct signatures/u);
 const inspectionApiPath = "../dist/inspection-api.js";
 const inspectionApi: unknown = await import(inspectionApiPath);
 if (typeof inspectionApi !== "object" || inspectionApi === null) {

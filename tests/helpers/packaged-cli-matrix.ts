@@ -30,6 +30,7 @@ export interface PackagedCliConsumer {
   readonly resolutionContext: string;
   readonly run: (arguments_: readonly string[]) => Promise<{ readonly stdout: string }>;
   readonly runInspectionApi: () => Promise<unknown>;
+  readonly typecheckInspectionApi: () => Promise<void>;
   readonly typepeekTarballPath: string;
   readonly version: string;
   readonly verifyNoInspectionIo: () => Promise<void>;
@@ -174,6 +175,36 @@ async function materializeConsumer(
         cwd: resolutionContext,
       });
       return JSON.parse(result.stdout) as unknown;
+    },
+    typecheckInspectionApi: async () => {
+      const sourcePath = join(resolutionContext, "inspection-api-consumer.mts");
+      await writeFile(
+        sourcePath,
+        [
+          'import type { InspectedSignature, SignatureBinding, SignatureParameter, SignatureReturn, SignatureThisParameter, SignatureTypeParameter, SignatureTypeParameterModifier } from "typepeek/inspection";',
+          "declare const signature: InspectedSignature;",
+          "declare const binding: SignatureBinding;",
+          "declare const parameter: SignatureParameter;",
+          "declare const returned: SignatureReturn;",
+          "declare const thisParameter: SignatureThisParameter;",
+          "declare const typeParameter: SignatureTypeParameter;",
+          "declare const modifier: SignatureTypeParameterModifier;",
+          "void [signature, binding, parameter, returned, thisParameter, typeParameter, modifier];",
+        ].join("\n"),
+      );
+      await execa(join(sourceCheckout, "node_modules", ".bin", "tsc6"), [
+        "--ignoreConfig",
+        "--noEmit",
+        "--strict",
+        "--skipLibCheck",
+        "--target",
+        "ES2024",
+        "--module",
+        "NodeNext",
+        "--moduleResolution",
+        "NodeNext",
+        sourcePath,
+      ]);
     },
     typepeekTarballPath,
     version,

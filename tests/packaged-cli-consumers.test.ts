@@ -41,9 +41,9 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
       matrix.consumers.map(async (consumer) => {
         const overviewArguments = ["publint"];
         const expandedOverviewArguments = ["publint", "--subpaths"];
-        const publicSubpathArguments = ["publint/utils", "--export", "formatMessage"];
-        const zodArguments = ["zod", "--export", "ZodError"];
-        const zodJsonArguments = ["zod", "--export", "ZodError", "--signatures-only", "--json"];
+        const publicSubpathArguments = ["export", "publint/utils", "formatMessage"];
+        const zodArguments = ["export", "zod", "ZodError"];
+        const zodJsonArguments = ["signatures", "zod", "ZodError", "--json"];
         const overview = await consumer.run(overviewArguments);
         const expandedOverview = await consumer.run(expandedOverviewArguments);
         const publicSubpathInspection = await consumer.run(publicSubpathArguments);
@@ -165,6 +165,10 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
         signatures: { status: "success", result: { intent: "signature-inspection" } },
       });
     }
+  });
+
+  it("publishes the structured Signature Inspection types to TypeScript consumers", async () => {
+    await Promise.all(matrix.consumers.map((consumer) => consumer.typecheckInspectionApi()));
   });
 
   it("keeps package scripts, process spawning, and network access disabled", async () => {

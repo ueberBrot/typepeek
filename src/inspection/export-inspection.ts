@@ -18,7 +18,6 @@ import type {
   ExportDeclarationSpace,
   ExportInspection,
   ExportNamespaceMember,
-  ExportSignature,
   InspectedDeclaration,
   InspectedModuleExport,
   SupportingType,
@@ -31,6 +30,7 @@ import {
 } from "#typepeek/inspection/public-declaration-projection";
 import { renderPublicDeclaration } from "#typepeek/inspection/public-declaration-rendering";
 import { ExportInspectionConstruction } from "#typepeek/inspection/result-construction";
+import { inspectResolvedExportSignatures } from "#typepeek/inspection/signature-inspection";
 import { shouldExpandSupportingDeclaration } from "#typepeek/inspection/supporting-type-policy";
 import { isTypeScriptStandardLibraryDeclaration } from "#typepeek/inspection/typescript-standard-library";
 
@@ -38,11 +38,8 @@ const MAX_DECLARATIONS_PER_SYMBOL = 128;
 const MAX_DECLARATION_BYTES = 64 * 1_024;
 const MAX_NAMESPACE_MEMBERS = 128;
 const MAX_NAMESPACE_DEPTH = 8;
-const MAX_SIGNATURES = 64;
 const MAX_SUPPORTING_TYPE_DEPTH = 12;
 const MAX_SUPPORTING_TYPES = 96;
-const MAX_SIGNATURE_BYTES = 16 * 1_024;
-const MAX_SIGNATURE_TOTAL_BYTES = 48 * 1_024;
 const MAX_SUPPORTING_TRAVERSAL_DEPTH = 64;
 const MAX_SUPPORTING_TRAVERSAL_NODES = 20_000;
 const MAX_INFERRED_TYPE_NODES = 4_096;
@@ -76,13 +73,6 @@ const DECLARATION_SPACES_BY_KIND: Readonly<Record<DeclarationKind, readonly Decl
   "type-alias": ["type"],
   variable: ["value"],
 };
-
-interface SignatureCandidate {
-  readonly compilerOrder: number;
-  readonly kind: ExportSignature["kind"];
-  readonly signature: ts.Signature;
-  readonly signatureKind: ts.SignatureKind;
-}
 
 interface NamespaceMemberEvidence {
   readonly name: string;
@@ -285,7 +275,9 @@ function inspectModuleExport(
     namespaceMembers,
     construction,
   );
-  const signatures = inspectResolvedExportSignatures(evidence.checker, resolution, construction);
+  const signatures = inspectResolvedExportSignatures(evidence.checker, resolution, (value) =>
+    construction.signature(value),
+  );
   return construction.moduleExport({
     name: exportedSymbol.getName(),
     ...(alias === undefined ? {} : { alias }),
@@ -473,165 +465,6 @@ function symbolOccupiesSpace(symbol: ts.Symbol, space: DeclarationSpace): boolea
 function declarationSpaces(declaration: ts.Declaration): readonly DeclarationSpace[] {
   const kind = declarationKind(declaration);
   return kind === undefined ? [] : DECLARATION_SPACES_BY_KIND[kind];
-}
-
-export function inspectResolvedExportSignatures(
-  checker: ts.TypeChecker,
-  resolution: FocusedExportResolution,
-  construction: Pick<ExportInspectionConstruction, "signature">,
-): readonly ExportSignature[] {
-  const symbol = resolution.targetSymbol;
-  const declaration = signatureDeclaration(symbol);
-  if (declaration === undefined) {
-    return [];
-  }
-  const type = signatureType(checker, symbol, declaration, resolution.valueAccessible);
-  const candidates = [
-    ...signatureCandidates(checker, type, ts.SignatureKind.Call, "call"),
-    ...signatureCandidates(checker, type, ts.SignatureKind.Construct, "construct"),
-  ];
-  const sourceOrder = declarationSourceOrder(symbol, type);
-  candidates.sort((left, right) => compareSignatureCandidates(left, right, sourceOrder));
-  if (candidates.length > MAX_SIGNATURES) {
-    throw new InspectionLimitError("Inspection exceeded its Module Export signature limit.");
-  }
-
-  let totalBytes = 0;
-  return candidates.map(({ kind, signature, signatureKind }) => {
-    const signatureDeclaration = signature.getDeclaration();
-    const text = checker.signatureToString(
-      signature,
-      signatureDeclaration,
-      ts.TypeFormatFlags.NoTruncation |
-        ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope |
-        ts.TypeFormatFlags.NoTypeReduction |
-        ts.TypeFormatFlags.UseSingleQuotesForStringLiteralType,
-      signatureKind,
-    );
-    const signatureBytes = Buffer.byteLength(text);
-    totalBytes += signatureBytes;
-    if (signatureBytes > MAX_SIGNATURE_BYTES || totalBytes > MAX_SIGNATURE_TOTAL_BYTES) {
-      throw new InspectionLimitError("Inspection exceeded its Module Export signature byte limit.");
-    }
-    const inspectedSignature = { kind, text } as const;
-    return construction.signature(inspectedSignature);
-  });
-}
-
-function signatureDeclaration(symbol: ts.Symbol): ts.Declaration | undefined {
-  return symbol.valueDeclaration ?? symbol.declarations?.[0];
-}
-
-function signatureType(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol,
-  declaration: ts.Declaration,
-  valueAccessible: boolean,
-): ts.Type {
-  return valueAccessible
-    ? checker.getTypeOfSymbolAtLocation(symbol, declaration)
-    : checker.getDeclaredTypeOfSymbol(symbol);
-}
-
-function signatureCandidates(
-  checker: ts.TypeChecker,
-  type: ts.Type,
-  signatureKind: ts.SignatureKind,
-  kind: ExportSignature["kind"],
-): readonly SignatureCandidate[] {
-  return checker
-    .getSignaturesOfType(type, signatureKind)
-    .filter(
-      (signature) =>
-        signatureKind !== ts.SignatureKind.Construct || isPublicConstructorSignature(signature),
-    )
-    .map((signature, compilerOrder) => ({
-      compilerOrder,
-      kind,
-      signature,
-      signatureKind,
-    }));
-}
-
-function isPublicConstructorSignature(signature: ts.Signature): boolean {
-  const declaration = signature.getDeclaration();
-  if (declaration === undefined) {
-    return true;
-  }
-  if (abstractConstructorDeclaration(declaration)) {
-    return false;
-  }
-  if (!ts.isConstructorDeclaration(declaration)) {
-    return true;
-  }
-  return !hasAnyModifier(declaration, [
-    ts.SyntaxKind.PrivateKeyword,
-    ts.SyntaxKind.ProtectedKeyword,
-  ]);
-}
-
-function abstractConstructorDeclaration(declaration: ts.SignatureDeclaration): boolean {
-  if (ts.isConstructorTypeNode(declaration)) {
-    return hasAnyModifier(declaration, [ts.SyntaxKind.AbstractKeyword]);
-  }
-  if (ts.isConstructorDeclaration(declaration)) {
-    return hasAnyModifier(declaration.parent, [ts.SyntaxKind.AbstractKeyword]);
-  }
-  return ts.isClassDeclaration(declaration)
-    ? hasAnyModifier(declaration, [ts.SyntaxKind.AbstractKeyword])
-    : false;
-}
-
-function hasAnyModifier(node: ts.Node, kinds: readonly ts.SyntaxKind[]): boolean {
-  return (
-    (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some(({ kind }) =>
-      kinds.includes(kind),
-    ) ?? false
-  );
-}
-
-function declarationSourceOrder(symbol: ts.Symbol, type: ts.Type): ReadonlyMap<string, number> {
-  // TypeScript preserves order within one source file but can interleave
-  // signatures from merged declarations. Rank their source files explicitly.
-  const declarations = [...symbolDeclarations(symbol), ...symbolDeclarations(type.symbol)];
-  const sources = declarations.map((declaration) => declaration.getSourceFile().fileName);
-  return new Map(Array.from(new Set(sources), (source, index) => [source, index]));
-}
-
-function symbolDeclarations(symbol: ts.Symbol | undefined): readonly ts.Declaration[] {
-  return symbol?.declarations ?? [];
-}
-
-function compareSignatureCandidates(
-  left: SignatureCandidate,
-  right: SignatureCandidate,
-  sourceOrder: ReadonlyMap<string, number>,
-): number {
-  const leftDeclaration = left.signature.getDeclaration();
-  const rightDeclaration = right.signature.getDeclaration();
-  const sameSourceOrder = comparePositionsInSameSource(leftDeclaration, rightDeclaration);
-  if (sameSourceOrder !== undefined) {
-    return sameSourceOrder;
-  }
-  const sourceDifference =
-    sourceRank(sourceOrder, leftDeclaration) - sourceRank(sourceOrder, rightDeclaration);
-  return sourceDifference === 0 ? left.compilerOrder - right.compilerOrder : sourceDifference;
-}
-
-function comparePositionsInSameSource(
-  left: ts.SignatureDeclaration,
-  right: ts.SignatureDeclaration,
-): number | undefined {
-  return left.getSourceFile() === right.getSourceFile()
-    ? left.getStart() - right.getStart()
-    : undefined;
-}
-
-function sourceRank(
-  sourceOrder: ReadonlyMap<string, number>,
-  declaration: ts.SignatureDeclaration,
-): number {
-  return sourceOrder.get(declaration.getSourceFile().fileName) ?? Number.MAX_SAFE_INTEGER;
 }
 
 function inspectSupportingTypes(

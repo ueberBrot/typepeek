@@ -8,21 +8,22 @@ Inspection Core starts one execa-managed Node subprocess per normalized request.
 
 ## Budgets
 
-| Area                                            | Bound                                                              |
-| ----------------------------------------------- | ------------------------------------------------------------------ |
-| Request / result construction / stdout / stderr | 16 / 60 / 64 / 64 KiB                                              |
-| Terminal / JSON adapter output                  | 128 / 128 KiB                                                      |
-| Compiler host                                   | 50,000 operations; 8 MiB resolution reads; 384 files; 4 MiB source |
-| Trusted standard-library catalog                | 128 files; 4 MiB source; 20,000 global names                       |
-| Manifests                                       | 256 KiB each                                                       |
-| Package search / export targets                 | depth 64; 1,024 targets at depth 32                                |
-| Public Subpaths / candidates                    | 512; 4,096 at depth 64                                             |
-| Module Exports / merged declarations            | 320; 128, with 64 KiB per declaration                              |
-| Namespaces                                      | 128 members at depth 8                                             |
-| Overloads                                       | 64; 16 KiB each and 48 KiB total                                   |
-| Supporting Types                                | 96 at depth 12                                                     |
-| Syntax / inferred / declaration-graph traversal | 20,000 / 4,096 / 250,000 nodes; depth 64 / 64 / 256                |
-| Aggregate result / Package Documentation        | 4,096 nodes / 16 KiB                                               |
+| Area                                            | Bound                                                                  |
+| ----------------------------------------------- | ---------------------------------------------------------------------- |
+| Request / result construction / stdout / stderr | 16 / 60 / 64 / 64 KiB                                                  |
+| Terminal / JSON adapter output                  | 128 / 128 KiB                                                          |
+| Compiler host                                   | 50,000 operations; 8 MiB resolution reads; 384 files; 4 MiB source     |
+| Trusted standard-library catalog                | 128 files; 4 MiB source; 20,000 global names                           |
+| Manifests                                       | 256 KiB each                                                           |
+| Package search / export targets                 | depth 64; 1,024 targets at depth 32                                    |
+| Public Subpaths / candidates                    | 512; 4,096 at depth 64                                                 |
+| Module Exports / merged declarations            | 320; 128, with 64 KiB per declaration                                  |
+| Namespaces                                      | 128 members at depth 8                                                 |
+| Signatures                                      | 64; serialized 16 KiB each / 48 KiB total; 256 params / 64 type params |
+| Supporting Types                                | 96 at depth 12                                                         |
+| Syntax / inferred / declaration-graph traversal | 20,000 / 4,096 / 250,000 nodes; depth 64 / 64 / 256                    |
+| Aggregate result / Package Documentation        | 4,096 nodes / 16 KiB                                                   |
+| Untrusted protocol graph validation             | 4,096 objects / 16,384 queued values                                   |
 
 Failed lookups, directory entries, containers, and rendered fragments consume these aggregate budgets. This makes hostile breadth fail deterministically before elapsed time, memory, or final transport becomes the only guard.
 

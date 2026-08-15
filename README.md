@@ -5,10 +5,12 @@ Modules. Coding agents are the primary consumers; terminal users are secondary.
 
 ## Usage
 
-Inspect a package-root or Public Subpath Specifier from the dependency
-installation visible to a Resolution Context:
+Start with an Interface Overview of a package-root or Public Subpath Specifier
+from the dependency installation visible to a Resolution Context:
 
 ```bash
+typepeek overview zod --context .
+# The overview command is also the default:
 typepeek zod --context .
 ```
 
@@ -33,38 +35,48 @@ Installed Evidence and only concrete Specifiers in the selected Resolution
 Variant are advertised:
 
 ```bash
-typepeek zod --context . --subpaths
-typepeek "@scope/package/public-subpath" --context .
+typepeek overview zod --context . --subpaths
+typepeek overview "@scope/package/public-subpath" --context .
 ```
 
-Select one Module Export for a focused Export Inspection:
+Use Signature Inspection when you need the call or construct parameters for
+one Module Export. It skips declarations and Supporting Types:
 
 ```bash
-typepeek zod --context . --export z
+typepeek signatures zod ZodError --context .
 ```
 
-The focused result keeps callable and constructable signatures in declaration
-order, represents type, value, and namespace declaration spaces independently,
-and follows only the bounded Supporting Types reachable from the selected
-Module Export. Attached Package Documentation is labeled as untrusted Installed
-Evidence and sanitized before terminal presentation.
-
-When signatures and their parameters are the question, skip declaration and
-Supporting Type traversal entirely:
+Human output shows the exact compiler-rendered signatures. For agents, `--json`
+adds structured type parameters, an explicit `this` parameter, ordinary
+parameters, and return semantics. It also keeps the exact signature text:
 
 ```bash
-typepeek zod --context . --export ZodError --signatures-only
+typepeek signatures arktype type --context . --json
 ```
 
-For agents, `--json` emits one complete, newline-terminated Inspection Outcome
-on stdout. Successful inspections exit with status 0; typed inspection failures
-exit with status 1 and are also emitted as JSON on stdout. Valid inspection
-invocations leave stderr empty. The structured schema is pre-stable and may
-change before Typepeek 1.0.
+Use Export Inspection when you also need declarations, Package Documentation,
+or bounded Supporting Types:
 
 ```bash
-typepeek zod --context . --export ZodError --signatures-only --json
+typepeek export zod ZodError --context .
+typepeek export zod ZodError --context . --json
 ```
+
+The focused result keeps compact callable and constructable signature text in
+declaration order, represents type, value, and namespace declaration spaces
+independently, and follows only the bounded Supporting Types reachable from the
+selected Module Export. Attached Package Documentation is labeled as untrusted
+Installed Evidence and sanitized before terminal presentation.
+
+`--json` emits one complete, newline-terminated Inspection Outcome on stdout.
+Successful inspections exit with status 0; typed inspection failures exit with
+status 1 and are also emitted as JSON on stdout. Valid inspection invocations
+leave stderr empty. The structured schema is pre-stable and may change before
+Typepeek 1.0.
+
+Options follow the command name. Put `--` before a Module Export name that
+begins with a hyphen. The `export` and `signatures` commands replace the old
+`--export` and `--signatures-only` options.
 
 The current slice supports installed, compiled Package Modules with declaration
 entrypoints at package roots and manifest-declared Public Subpaths. Inspection
@@ -77,7 +89,7 @@ authoritative result.
 
 ```bash
 vp install --frozen-lockfile
-vp run validate              # check → Fallow → test → pack → package smoke
+vp run validate              # check → Fallow → test → build smoke → package smoke
 vp run dependencies          # find eligible dependency updates
 vp run dependencies:update   # select and apply updates
 ```
@@ -85,15 +97,22 @@ vp run dependencies:update   # select and apply updates
 Run the source entry directly while developing:
 
 ```bash
-node src/cli.ts zod --context /path/to/consumer
+node src/cli.ts signatures zod ZodError --context /path/to/consumer
 ```
 
-To test the publishable artifact, build `dist`, then invoke its CLI against a
-consumer whose installed packages you want to inspect:
+To test the application bundle, build it and invoke its CLI against a consumer
+whose installed packages you want to inspect:
+
+```bash
+vp build
+node .vite-plus/build/cli.js signatures zod ZodError --context /path/to/consumer --json
+```
+
+To test the publishable artifact, build `dist` and invoke that CLI:
 
 ```bash
 vp pack
-node dist/cli.js zod --context /path/to/consumer --export ZodError --signatures-only
+node dist/cli.js signatures zod ZodError --context /path/to/consumer --json
 ```
 
 `vp build` produces the application bundle under `.vite-plus/build`; `vp pack`
@@ -102,9 +121,9 @@ smoke tests.
 
 ## Inspection API
 
-CLI, MCP, and other adapters share the transport-neutral package API. It returns
-typed Inspection Outcomes and never requires consumers to parse terminal or JSON
-rendering:
+The CLI and future adapters use the same transport-neutral package interface.
+It returns typed Inspection Outcomes, so consumers do not need to parse CLI
+output:
 
 ```ts
 import {
@@ -116,8 +135,9 @@ import {
 
 All three functions accept a `resolutionContext` and `specifier`;
 `inspectExport` and `inspectExportSignatures` additionally accept an
-`exportName`. The CLI is one adapter over this API, not a prerequisite for using
-the Inspection Core.
+`exportName`. The CLI is one adapter over this interface. An MCP adapter is not
+implemented yet; it can live in this package later and call the same functions
+without invoking the CLI.
 
 pnpm rejects package versions published less than seven days ago.
 

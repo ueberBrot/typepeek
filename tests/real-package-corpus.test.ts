@@ -324,9 +324,13 @@ async function assertStaticCorpusQuestions(
     const result = await inspection.run({
       adapter: { kind: "source-checkout", sourceCheckout: process.cwd() },
       arguments_: [
-        question.specifier,
-        ...(question.exportName === undefined ? [] : ["--export", question.exportName]),
-        ...(question.probeSignatures === true ? ["--signatures-only"] : []),
+        ...(question.exportName === undefined
+          ? [question.specifier]
+          : [
+              question.probeSignatures === true ? "signatures" : "export",
+              question.specifier,
+              question.exportName,
+            ]),
         ...(question.accessStyle === undefined ? [] : ["--access", question.accessStyle]),
       ],
       diagnosticContext: `real-package corpus Static Inspection ${question.specifier}`,

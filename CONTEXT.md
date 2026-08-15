@@ -46,6 +46,7 @@ _Avoid_: show, lookup
 
 **Signature Inspection**:
 A bounded focused Inspection Result containing every statically visible public call and construct signature for one Module Export in a Resolution Variant, together with Installed Evidence identity and an alias target name when applicable. It intentionally omits declaration spaces, Supporting Types, and Package Documentation; zero signatures authoritatively means the Module Export is neither publicly callable nor publicly constructable.
+Each signature keeps the compiler rendering plus structured type parameters, an explicit `this` parameter, ordinary parameters, and return or predicate semantics.
 _Avoid_: partial Export Inspection, fallback result
 
 **Inspection Result**:

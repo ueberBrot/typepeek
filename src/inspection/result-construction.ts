@@ -10,6 +10,7 @@ import type {
   InspectedModuleExport,
   InspectionResultIdentity,
   InterfaceOverview,
+  InspectedSignature,
   InspectedModuleExportSignatures,
   PackageDocumentation,
   PublicSubpath,
@@ -149,14 +150,14 @@ export class ExportInspectionConstruction {
 export class SignatureInspectionConstruction {
   readonly #budget = new ResultConstructionBudget();
 
-  signature(value: ExportSignature): ExportSignature {
+  signature(value: InspectedSignature): InspectedSignature {
     return this.#budget.leaf(value);
   }
 
   moduleExport(
     name: string,
     aliasTargetName: string | undefined,
-    signatures: readonly ExportSignature[],
+    signatures: readonly InspectedSignature[],
   ): InspectedModuleExportSignatures {
     return this.#budget.container(
       {

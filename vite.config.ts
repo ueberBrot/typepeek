@@ -6,7 +6,7 @@ export default defineConfig({
       entry: {
         cli: "src/cli.ts",
         "inspection-api": "src/inspection-api.ts",
-        "analysis-process-entry": "src/inspection/analysis-process-entry.ts",
+        "inspection/analysis-process-entry": "src/inspection/analysis-process-entry.ts",
       },
       fileName: (_format, entryName) => `${entryName}.js`,
       formats: ["es"],
@@ -14,6 +14,11 @@ export default defineConfig({
     outDir: ".vite-plus/build",
     rolldownOptions: {
       external: [/^node:/u, "@stricli/core", "@typescript/typescript6", "arktype", "execa"],
+      output: {
+        // analysis-process.ts resolves the emitted worker relative to a shared
+        // implementation chunk, so shared chunks deliberately remain at root.
+        chunkFileNames: "[name]-[hash].js",
+      },
     },
     sourcemap: true,
   },
@@ -79,6 +84,16 @@ export default defineConfig({
         command: "vp check",
         output: [],
       },
+      build: {
+        command: "vp build",
+        input: [{ auto: true }, "!.vite-plus/build/**"],
+        output: [".vite-plus/build/**"],
+      },
+      "build-smoke": {
+        command: "node tests/build-output-smoke.ts",
+        dependsOn: ["build"],
+        output: [],
+      },
       pack: {
         command: "vp pack",
         input: [{ auto: true }, "!dist/**"],
@@ -106,7 +121,13 @@ export default defineConfig({
         output: [],
       },
       validate: {
-        command: ["vp run check", "vp run fallow", "vp run test", "vp run package-smoke"],
+        command: [
+          "vp run check",
+          "vp run fallow",
+          "vp run test",
+          "vp run build-smoke",
+          "vp run package-smoke",
+        ],
       },
     },
   },
