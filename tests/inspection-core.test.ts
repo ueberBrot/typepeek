@@ -70,6 +70,7 @@ it("renders an Interface Overview through the CLI", async () => {
     [
       "Interface Overview",
       "Specifier: @typepeek-fixture/compiled",
+      "Access Style: import",
       "Package: @typepeek-fixture/compiled@1.2.3",
       "Module Exports (5):",
       "- VERSION",
@@ -280,9 +281,18 @@ it("selects the declaration Resolution Variant for the requested Access Style", 
     return;
   }
   expect([
-    importOutcome.result.moduleExports.map(({ name }) => name),
-    requireOutcome.result.moduleExports.map(({ name }) => name),
-  ]).toEqual([["importExport"], ["requireExport"]]);
+    {
+      moduleExports: importOutcome.result.moduleExports.map(({ name }) => name),
+      resolutionVariant: importOutcome.result.resolutionVariant,
+    },
+    {
+      moduleExports: requireOutcome.result.moduleExports.map(({ name }) => name),
+      resolutionVariant: requireOutcome.result.resolutionVariant,
+    },
+  ]).toEqual([
+    { moduleExports: ["importExport"], resolutionVariant: { accessStyle: "import" } },
+    { moduleExports: ["requireExport"], resolutionVariant: { accessStyle: "require" } },
+  ]);
 });
 
 it("advertises manifest-declared Public Subpaths without inspecting them", async () => {
@@ -345,8 +355,8 @@ it("inspects an exact Specifier matched by a Public Subpath pattern", async () =
   });
 });
 
-it("inspects a selected Public Subpath through both Inspection Core intents", async () => {
-  const [overview, focused] = await Promise.all([
+it("binds one target provenance across all Inspection Core intents", async () => {
+  const [overview, focused, signatures] = await Promise.all([
     inspectInterfaceOverview({
       resolutionContext: fixture.resolutionContext,
       specifier: "@typepeek-fixture/conditional/feature",
@@ -356,7 +366,30 @@ it("inspects a selected Public Subpath through both Inspection Core intents", as
       specifier: "@typepeek-fixture/conditional/feature",
       exportName: "featureExport",
     }),
+    inspectExportSignatures({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/conditional/feature",
+      exportName: "featureExport",
+    }),
   ]);
+
+  const successfulOutcomes = [overview, focused, signatures].filter(
+    (outcome) => outcome.status === "success",
+  );
+  expect(successfulOutcomes).toHaveLength(3);
+  expect(
+    successfulOutcomes.map(({ result }) => ({
+      specifier: result.specifier,
+      resolutionVariant: result.resolutionVariant,
+      packageIdentity: result.packageIdentity,
+    })),
+  ).toEqual(
+    Array.from({ length: 3 }, () => ({
+      specifier: "@typepeek-fixture/conditional/feature",
+      resolutionVariant: { accessStyle: "import" },
+      packageIdentity: { name: "@typepeek-fixture/conditional", version: "1.0.0" },
+    })),
+  );
 
   expect(overview).toMatchObject({
     status: "success",

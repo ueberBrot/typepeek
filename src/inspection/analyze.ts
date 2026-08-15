@@ -9,7 +9,10 @@ import {
   readInspectableModuleEvidence,
 } from "#typepeek/inspection/installed-evidence";
 import type { AnalysisRequest, InspectionOutcome } from "#typepeek/inspection/protocol";
-import { constructInterfaceOverview } from "#typepeek/inspection/result-construction";
+import {
+  constructInterfaceOverview,
+  type InspectionResultConstructionContext,
+} from "#typepeek/inspection/result-construction";
 import { inspectModuleExportSignatures } from "#typepeek/inspection/signature-inspection";
 
 const MAX_MODULE_EXPORTS = 320;
@@ -36,12 +39,17 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
       message: `Specifier "${request.specifier}" is not installed from this Resolution Context.`,
     };
   }
+  const constructionContext: InspectionResultConstructionContext = {
+    specifier: request.specifier,
+    resolutionVariant: { accessStyle: request.accessStyle },
+    identity: evidence.resultIdentity,
+  };
 
   if (analysisRequest.intent === "export-inspection") {
     const result = inspectFocusedModuleExport(
       evidence,
       analysisRequest.request.exportName,
-      request.specifier,
+      constructionContext,
     );
     return result === undefined
       ? {
@@ -55,7 +63,7 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
     const result = inspectModuleExportSignatures(
       evidence,
       analysisRequest.request.exportName,
-      request.specifier,
+      constructionContext,
     );
     return result === undefined
       ? missingExportOutcome(analysisRequest.request.exportName, request.specifier)
@@ -65,8 +73,7 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
   return {
     status: "success",
     result: constructInterfaceOverview(
-      request.specifier,
-      evidence.resultIdentity,
+      constructionContext,
       evidence.publicSubpaths,
       inspectModuleExports(evidence),
     ),

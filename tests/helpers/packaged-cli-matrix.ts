@@ -181,7 +181,7 @@ async function materializeConsumer(
       await writeFile(
         sourcePath,
         [
-          'import type { InspectedSignature, SignatureBinding, SignatureParameter, SignatureReturn, SignatureThisParameter, SignatureTypeParameter, SignatureTypeParameterModifier } from "typepeek/inspection";',
+          'import type { InspectedSignature, ResolutionVariant, SignatureBinding, SignatureParameter, SignatureReturn, SignatureThisParameter, SignatureTypeParameter, SignatureTypeParameterModifier } from "typepeek/inspection";',
           "declare const signature: InspectedSignature;",
           "declare const binding: SignatureBinding;",
           "declare const parameter: SignatureParameter;",
@@ -189,7 +189,8 @@ async function materializeConsumer(
           "declare const thisParameter: SignatureThisParameter;",
           "declare const typeParameter: SignatureTypeParameter;",
           "declare const modifier: SignatureTypeParameterModifier;",
-          "void [signature, binding, parameter, returned, thisParameter, typeParameter, modifier];",
+          "declare const resolutionVariant: ResolutionVariant;",
+          "void [signature, binding, parameter, returned, thisParameter, typeParameter, modifier, resolutionVariant];",
         ].join("\n"),
       );
       await execa(join(sourceCheckout, "node_modules", ".bin", "tsc6"), [

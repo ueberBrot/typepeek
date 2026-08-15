@@ -75,6 +75,9 @@ const inspectionSchemas = type.module({
     name: "string",
     "version?": "string | undefined",
   }),
+  resolutionVariant: record({
+    accessStyle: "accessStyle",
+  }),
   declarationSpace: "'type' | 'value' | 'namespace'",
   declarationKind:
     "'alias' | 'class' | 'enum' | 'function' | 'interface' | 'namespace' | 'type-alias' | 'variable'",
@@ -189,6 +192,7 @@ const inspectionSchemas = type.module({
   packageInterfaceOverview: record({
     intent: "'interface-overview'",
     specifier: "string",
+    resolutionVariant: "resolutionVariant",
     packageIdentity: "packageIdentity",
     "declarationProvider?": "packageIdentity | undefined",
     publicSubpaths: "publicSubpath[]",
@@ -197,6 +201,7 @@ const inspectionSchemas = type.module({
   platformInterfaceOverview: record({
     intent: "'interface-overview'",
     specifier: "string",
+    resolutionVariant: "resolutionVariant",
     "packageIdentity?": "undefined",
     declarationProvider: "packageIdentity",
     publicSubpaths: "publicSubpath[]",
@@ -206,6 +211,7 @@ const inspectionSchemas = type.module({
   packageExportInspection: record({
     intent: "'export-inspection'",
     specifier: "string",
+    resolutionVariant: "resolutionVariant",
     packageIdentity: "packageIdentity",
     "declarationProvider?": "packageIdentity | undefined",
     moduleExport: "inspectedModuleExport",
@@ -215,6 +221,7 @@ const inspectionSchemas = type.module({
   platformExportInspection: record({
     intent: "'export-inspection'",
     specifier: "string",
+    resolutionVariant: "resolutionVariant",
     "packageIdentity?": "undefined",
     declarationProvider: "packageIdentity",
     moduleExport: "inspectedModuleExport",
@@ -225,6 +232,7 @@ const inspectionSchemas = type.module({
   packageSignatureInspection: record({
     intent: "'signature-inspection'",
     specifier: "string",
+    resolutionVariant: "resolutionVariant",
     packageIdentity: "packageIdentity",
     "declarationProvider?": "packageIdentity | undefined",
     moduleExport: "inspectedModuleExportSignatures",
@@ -232,6 +240,7 @@ const inspectionSchemas = type.module({
   platformSignatureInspection: record({
     intent: "'signature-inspection'",
     specifier: "string",
+    resolutionVariant: "resolutionVariant",
     "packageIdentity?": "undefined",
     declarationProvider: "packageIdentity",
     moduleExport: "inspectedModuleExportSignatures",
@@ -299,6 +308,7 @@ export type ModuleExportIndexEntry = ProtocolType<
 >;
 export type PublicSubpath = ProtocolType<typeof inspectionSchemas.publicSubpath.infer>;
 export type PackageIdentity = ProtocolType<typeof inspectionSchemas.packageIdentity.infer>;
+export type ResolutionVariant = ProtocolType<typeof inspectionSchemas.resolutionVariant.infer>;
 export type InspectionResultIdentity =
   | {
       readonly packageIdentity: PackageIdentity;

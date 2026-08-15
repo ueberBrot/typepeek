@@ -36,6 +36,21 @@ describe("typepeek CLI", () => {
     expect(result.stdout).toContain("signatures");
   });
 
+  it("presents root help when invoked without arguments", async () => {
+    const result = await execa(process.execPath, ["src/cli.ts"]);
+
+    expect(result.stdout).toContain("USAGE");
+    expect(result.stdout).toContain("typepeek overview");
+    expect(result.stderr).toBe("");
+  });
+
+  it("documents every supported Inspectable Module and Access Style", async () => {
+    const result = await execa(process.execPath, ["src/cli.ts", "overview", "--help"]);
+
+    expect(result.stdout).toContain("Package root, Public Subpath, or Node Platform Module");
+    expect(result.stdout).toContain("--access import|require");
+  });
+
   it("renders a focused Export Inspection", async () => {
     const arguments_ = [
       "src/cli.ts",
@@ -103,6 +118,24 @@ describe("typepeek CLI", () => {
     expect(result.stdout.indexOf("Module Exports")).toBeLessThan(
       result.stdout.indexOf("Public Subpaths"),
     );
+  });
+
+  it("matches Module Exports deterministically without presenting a complete overview", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "overview",
+      "@typepeek-fixture/focused",
+      "--context",
+      fixture.resolutionContext,
+      "--match",
+      "error",
+    ]);
+
+    expect(result.stdout).toMatch(/Module Exports \(3 matching "error"; \d+ total\):/u);
+    expect(result.stdout).toContain("- ErrorFactory");
+    expect(result.stdout).toContain("- InheritedError");
+    expect(result.stdout).toContain("- TransitiveError");
+    expect(result.stdout).not.toContain("- createWidget");
   });
 
   it("renders a Signature Inspection without traversing Supporting Types", async () => {
@@ -194,23 +227,31 @@ describe("typepeek CLI", () => {
     expect(JSON.parse(first.stdout)).toMatchObject({ status });
   });
 
-  it("rejects --subpaths with JSON output", async () => {
-    const result = await execa(
-      process.execPath,
-      [
-        "src/cli.ts",
-        "@typepeek-fixture/focused",
-        "--context",
-        fixture.resolutionContext,
-        "--subpaths",
-        "--json",
-      ],
-      { reject: false },
-    );
+  it.each(["--subpaths", "--match"] as const)(
+    "rejects the human-only %s option with JSON output",
+    async (flag) => {
+      const flagArguments = flag === "--match" ? [flag, "error"] : [flag];
+      const result = await execa(
+        process.execPath,
+        [
+          "src/cli.ts",
+          "@typepeek-fixture/focused",
+          "--context",
+          fixture.resolutionContext,
+          ...flagArguments,
+          "--json",
+        ],
+        { reject: false },
+      );
 
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("--subpaths cannot be combined with --json");
-  });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({
+        status: "invalid-invocation",
+        message: `${flag} cannot be combined with --json.`,
+      });
+    },
+  );
 
   it.each(["--export", "--signatures-only"])("rejects the removed %s option", async (flag) => {
     const result = await execa(
@@ -223,21 +264,12 @@ describe("typepeek CLI", () => {
     expect(result.stderr).toContain(`No flag registered for ${flag}`);
   });
 
-  it("documents command-local options and requires the route before them", async () => {
-    const [help, misplaced] = await Promise.all([
-      execa(process.execPath, ["src/cli.ts", "signatures", "--help"]),
-      execa(
-        process.execPath,
-        ["src/cli.ts", "--json", "signatures", "@typepeek-fixture/focused", "createWidget"],
-        { reject: false },
-      ),
-    ]);
+  it("documents common options on focused commands", async () => {
+    const help = await execa(process.execPath, ["src/cli.ts", "signatures", "--help"]);
 
     expect(help.stdout).toContain("typepeek signatures");
     expect(help.stdout).toContain("<specifier> <export-name>");
     expect(help.stdout).toContain("--json");
-    expect(misplaced.exitCode).not.toBe(0);
-    expect(misplaced.stderr).toContain("Too many arguments");
   });
 
   it.each(["overview", "export", "signatures"])(
@@ -296,6 +328,88 @@ describe("typepeek CLI", () => {
   ] as const)("communicates the %s outcome deterministically", (status, specifier, message) =>
     assertDeterministicFailure(fixture, status, specifier, message),
   );
+
+  it("escapes terminal controls in failed inspection diagnostics", async () => {
+    const result = await execa(
+      process.execPath,
+      ["src/cli.ts", "missing\u001B[31m-package", "--context", fixture.resolutionContext],
+      { reject: false },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Specifier "missing\\u{1B}[31m-package"');
+    expectTerminalSafe(result.stderr);
+  });
+
+  it("escapes terminal controls in invalid invocation diagnostics", async () => {
+    const result = await execa(
+      process.execPath,
+      ["src/cli.ts", "overview", "example", "--access", "invalid\u001B[31m"],
+      { reject: false },
+    );
+
+    expect(result.stderr).toContain('Failed to parse "invalid\\u{1B}[31m" for access');
+    expectTerminalSafe(result.stderr);
+  });
+
+  it("bounds invalid invocation diagnostics after terminal escaping", async () => {
+    const result = await execa(
+      process.execPath,
+      ["src/cli.ts", "overview", "example", "--access", "\u001B".repeat(24 * 1_024)],
+      { reject: false },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(Buffer.byteLength(result.stderr)).toBeLessThanOrEqual(128 * 1_024);
+    expect(result.stderr).toContain("CLI diagnostic exceeded its output limit");
+    expectTerminalSafe(result.stderr);
+  });
+
+  it("uses the conventional usage exit status for invalid invocations", async () => {
+    const result = await execa(process.execPath, ["src/cli.ts", "signatures", "arktype"], {
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("Expected argument for export-name");
+  });
+
+  it("emits invalid invocations as structured diagnostics in machine mode", async () => {
+    const result = await execa(
+      process.execPath,
+      ["src/cli.ts", "signatures", "arktype", "--json"],
+      { reject: false },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({
+      status: "invalid-invocation",
+      message: "Expected argument for export-name",
+    });
+  });
+
+  it("accepts common options before an explicit inspection command", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "--json",
+      "--context",
+      fixture.resolutionContext,
+      "signatures",
+      "@typepeek-fixture/focused",
+      "detailed",
+    ]);
+
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "success",
+      result: {
+        intent: "signature-inspection",
+        resolutionVariant: { accessStyle: "import" },
+        moduleExport: { name: "detailed" },
+      },
+    });
+  });
 });
 
 async function assertDeterministicFailure(

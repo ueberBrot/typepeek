@@ -5,8 +5,8 @@ Modules. Coding agents are the primary consumers; terminal users are secondary.
 
 ## Usage
 
-Start with an Interface Overview of a package-root or Public Subpath Specifier
-from the dependency installation visible to a Resolution Context:
+Start with an Interface Overview of a Package Module root, Public Subpath, or
+Node Platform Module visible from a Resolution Context:
 
 ```bash
 typepeek overview zod --context .
@@ -19,6 +19,7 @@ The initial command prints a deterministic Interface Overview:
 ```text
 Interface Overview
 Specifier: zod
+Access Style: import
 Package: zod@<installed-version>
 Module Exports (...):
 - ZodError
@@ -37,6 +38,14 @@ Variant are advertised:
 ```bash
 typepeek overview zod --context . --subpaths
 typepeek overview "@scope/package/public-subpath" --context .
+```
+
+For a large Interface Overview, match Module Export names with a deterministic,
+case-insensitive substring. The heading reports both the match count and the
+complete count so filtered output is never mistaken for a complete overview:
+
+```bash
+typepeek overview zod --match error
 ```
 
 Use Signature Inspection when you need the call or construct parameters for
@@ -68,22 +77,29 @@ independently, and follows only the bounded Supporting Types reachable from the
 selected Module Export. Attached Package Documentation is labeled as untrusted
 Installed Evidence and sanitized before terminal presentation.
 
-`--json` emits one complete, newline-terminated Inspection Outcome on stdout.
-Successful inspections exit with status 0; typed inspection failures exit with
-status 1 and are also emitted as JSON on stdout. Valid inspection invocations
-leave stderr empty. The structured schema is pre-stable and may change before
-Typepeek 1.0.
+`--json` emits one complete, newline-terminated Inspection Outcome on stdout,
+including the selected Access Style. Successful inspections exit with status 0;
+typed inspection failures exit with status 1 and are also emitted as JSON on
+stdout. Invalid invocations exit with status 2 and emit an
+`invalid-invocation` CLI diagnostic as JSON. Unexpected CLI failures use status 70. Machine-mode invocations leave stderr empty. The structured schemas are
+pre-stable and may change before Typepeek 1.0.
 
-Options follow the command name. Put `--` before a Module Export name that
-begins with a hyphen. The `export` and `signatures` commands replace the old
-`--export` and `--signatures-only` options.
+The common `--access`, `--context`, and `--json` options may precede or follow an
+explicit command. `--subpaths` and `--match` affect only human Interface
+Overview rendering and cannot be combined with `--json`, whose complete result
+already contains every Public Subpath and Module Export. Put `--` before a
+Module Export name that begins with a hyphen. The `export` and `signatures`
+commands replace the old `--export` and `--signatures-only` options. Invoking
+`typepeek` without arguments prints root help.
 
-The current slice supports installed, compiled Package Modules with declaration
-entrypoints at package roots and manifest-declared Public Subpaths. Inspection
-reads Installed Evidence only: it does not import the package runtime, run
-package scripts, or download missing material. Unsupported, not-found, and
-limit-exceeded inspections fail explicitly rather than returning a partial
-authoritative result.
+Typepeek supports installed Package Modules backed by declarations or
+package-exposed TypeScript source, manifest-declared Public Subpaths, separate
+Declaration Providers, linked workspace packages, and Node Platform Modules
+backed by a visible `@types/node`. Inspection reads Installed Evidence only: it
+does not import the package runtime, run package scripts, or download missing
+material. Unsupported, not-found, static-boundary, and limit-exceeded
+inspections fail explicitly rather than returning a partial authoritative
+result.
 
 ## Development
 

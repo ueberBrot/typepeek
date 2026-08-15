@@ -7,6 +7,7 @@ it("renders a deterministic Interface Overview", () => {
     renderInspection({
       intent: "interface-overview",
       specifier: "example",
+      resolutionVariant: { accessStyle: "import" },
       packageIdentity: { name: "example", version: "1.0.0" },
       publicSubpaths: [{ specifier: "example/feature" }],
       moduleExports: [{ name: "createExample" }],
@@ -15,6 +16,7 @@ it("renders a deterministic Interface Overview", () => {
     [
       "Interface Overview",
       "Specifier: example",
+      "Access Style: import",
       "Package: example@1.0.0",
       "Module Exports (1):",
       "- createExample",
@@ -29,6 +31,7 @@ it("expands Public Subpaths after Module Exports when requested", () => {
       {
         intent: "interface-overview",
         specifier: "example",
+        resolutionVariant: { accessStyle: "import" },
         packageIdentity: { name: "example", version: "1.0.0" },
         publicSubpaths: [{ specifier: "example/feature" }],
         moduleExports: [{ name: "createExample" }],
@@ -46,6 +49,7 @@ it("renders a Node Platform Module through its Declaration Provider", () => {
   const rendered = renderInspection({
     intent: "interface-overview",
     specifier: "node:fs",
+    resolutionVariant: { accessStyle: "import" },
     declarationProvider: { name: "@types/node", version: "24.13.3" },
     publicSubpaths: [],
     moduleExports: [{ name: "readFile" }],
@@ -60,6 +64,7 @@ it("renders focused declaration information and untrusted Package Documentation"
   const rendered = renderInspection({
     intent: "export-inspection",
     specifier: "example",
+    resolutionVariant: { accessStyle: "import" },
     packageIdentity: { name: "example", version: "1.0.0" },
     moduleExport: {
       name: "createExample",
@@ -147,6 +152,7 @@ it("renders a concise Signature Inspection", () => {
     renderInspection({
       intent: "signature-inspection",
       specifier: "example",
+      resolutionVariant: { accessStyle: "require" },
       packageIdentity: { name: "example", version: "1.0.0" },
       moduleExport: {
         name: "createExample",
@@ -173,6 +179,7 @@ it("renders a concise Signature Inspection", () => {
     [
       "Signature Inspection",
       "Specifier: example",
+      "Access Style: require",
       "Package: example@1.0.0",
       "Module Export: createExample (alias of buildExample)",
       "Signatures (1):",
@@ -185,6 +192,7 @@ it("escapes controls in every dynamic terminal field", () => {
   const rendered = renderInspection({
     intent: "export-inspection",
     specifier: "example\nforged",
+    resolutionVariant: { accessStyle: "import" },
     packageIdentity: { name: "example\u001B[31m", version: "1\u200E.0" },
     moduleExport: {
       name: "create\u001B[2JExample",
@@ -224,6 +232,7 @@ it("fails explicitly when terminal escaping expands otherwise bounded evidence t
     renderInspection({
       intent: "interface-overview",
       specifier: "\0".repeat(30_000),
+      resolutionVariant: { accessStyle: "import" },
       packageIdentity: { name: "example", version: "1.0.0" },
       publicSubpaths: [],
       moduleExports: [],

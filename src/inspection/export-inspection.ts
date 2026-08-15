@@ -29,7 +29,10 @@ import {
   publicDeclarations,
 } from "#typepeek/inspection/public-declaration-projection";
 import { renderPublicDeclaration } from "#typepeek/inspection/public-declaration-rendering";
-import { ExportInspectionConstruction } from "#typepeek/inspection/result-construction";
+import {
+  ExportInspectionConstruction,
+  type InspectionResultConstructionContext,
+} from "#typepeek/inspection/result-construction";
 import { inspectResolvedExportSignatures } from "#typepeek/inspection/signature-inspection";
 import { shouldExpandSupportingDeclaration } from "#typepeek/inspection/supporting-type-policy";
 import { isTypeScriptStandardLibraryDeclaration } from "#typepeek/inspection/typescript-standard-library";
@@ -206,9 +209,9 @@ function inspectedDeclarationKind(
 export function inspectFocusedModuleExport(
   evidence: InspectableModuleEvidence,
   exportName: string,
-  specifier: string,
+  constructionContext: InspectionResultConstructionContext,
 ): ExportInspection | undefined {
-  const construction = new ExportInspectionConstruction();
+  const construction = new ExportInspectionConstruction(constructionContext);
   const resolution = resolveFocusedExport(evidence.checker, evidence.moduleSymbol, exportName);
   if (resolution === undefined) {
     return undefined;
@@ -247,13 +250,7 @@ export function inspectFocusedModuleExport(
     namespaceMembers,
     construction,
   );
-  return construction.result(
-    specifier,
-    evidence.resultIdentity,
-    moduleExport,
-    supportingTypes,
-    packageDocumentation,
-  );
+  return construction.result(moduleExport, supportingTypes, packageDocumentation);
 }
 
 function inspectModuleExport(

@@ -16,6 +16,7 @@ export type {
   InterfaceOverview,
   InterfaceOverviewRequest,
   PackageIdentity,
+  ResolutionVariant,
   SignatureInspection,
   SignatureInspectionRequest,
   SignatureBinding,

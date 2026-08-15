@@ -16,7 +16,10 @@ import type {
   SignatureTypeParameter,
   SignatureTypeParameterModifier,
 } from "#typepeek/inspection/protocol";
-import { SignatureInspectionConstruction } from "#typepeek/inspection/result-construction";
+import {
+  type InspectionResultConstructionContext,
+  SignatureInspectionConstruction,
+} from "#typepeek/inspection/result-construction";
 
 const MAX_SIGNATURES = 64;
 const MAX_SIGNATURE_BYTES = 16 * 1_024;
@@ -48,14 +51,14 @@ interface SignatureProjection<Value> {
 export function inspectModuleExportSignatures(
   evidence: InspectableModuleEvidence,
   exportName: string,
-  specifier: string,
+  constructionContext: InspectionResultConstructionContext,
 ): SignatureInspection | undefined {
   const resolution = resolveFocusedExport(evidence.checker, evidence.moduleSymbol, exportName);
   if (resolution === undefined) {
     return undefined;
   }
 
-  const construction = new SignatureInspectionConstruction();
+  const construction = new SignatureInspectionConstruction(constructionContext);
   const signatures = inspectResolvedExportSignatureDetails(evidence.checker, resolution, (value) =>
     construction.signature(value),
   );
@@ -64,7 +67,7 @@ export function inspectModuleExportSignatures(
     resolution.aliasTargetName,
     signatures,
   );
-  return construction.result(specifier, evidence.resultIdentity, moduleExport);
+  return construction.result(moduleExport);
 }
 
 export function inspectResolvedExportSignatures(

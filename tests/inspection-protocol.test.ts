@@ -94,6 +94,7 @@ it("rejects a structurally valid success for a different inspection intent", () 
     result: {
       intent: "interface-overview",
       specifier: "example",
+      resolutionVariant: { accessStyle: "import" },
       packageIdentity: { name: "example" },
       publicSubpaths: [],
       moduleExports: [{ name: "createExample" }],
@@ -112,6 +113,7 @@ it("accepts a provider-backed Platform Module without a Package Identity", () =>
     result: {
       intent: "interface-overview",
       specifier: "node:fs",
+      resolutionVariant: { accessStyle: "import" },
       declarationProvider: { name: "@types/node", version: "24.13.3" },
       publicSubpaths: [],
       moduleExports: [{ name: "readFile" }],
@@ -226,6 +228,7 @@ it("accepts only the bounded Signature Inspection result shape", () => {
     result: {
       intent: "signature-inspection",
       specifier: "example",
+      resolutionVariant: { accessStyle: "require" },
       packageIdentity: { name: "example", version: "1.0.0" },
       moduleExport: {
         name: "createExample",
@@ -483,6 +486,7 @@ it("accepts recursively named namespace members in a focused Inspection Outcome"
     result: {
       intent: "export-inspection",
       specifier: "example",
+      resolutionVariant: { accessStyle: "import" },
       packageIdentity: { name: "example" },
       moduleExport: {
         name: "tools",
@@ -649,6 +653,7 @@ it("preserves optional undefined values accepted by the process-entry protocol",
     result: {
       intent: "export-inspection",
       specifier: "example",
+      resolutionVariant: { accessStyle: "import" },
       packageIdentity: { name: "example", version: undefined },
       moduleExport: {
         name: "createExample",
@@ -725,6 +730,7 @@ function namespaceOutcome(members: readonly MutableNamespaceMember[]) {
     result: {
       intent: "export-inspection",
       specifier: "example",
+      resolutionVariant: { accessStyle: "import" },
       packageIdentity: { name: "example" },
       moduleExport: {
         name: "tools",

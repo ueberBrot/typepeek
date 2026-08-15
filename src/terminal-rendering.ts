@@ -6,15 +6,17 @@ import type {
   InspectionResult,
   InterfaceOverview,
   PackageIdentity,
+  ResolutionVariant,
   SignatureInspection,
 } from "#typepeek/inspection";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
-import { isUnsafeOutputCodePoint } from "#typepeek/output-safety";
+import { terminalSafeLine } from "#typepeek/output-safety";
 
 const MAX_TERMINAL_OUTPUT_BYTES = 128 * 1_024;
 
 export interface TerminalRenderingOptions {
   readonly includePublicSubpaths?: boolean;
+  readonly moduleExportMatch?: string;
 }
 
 /**
@@ -38,7 +40,11 @@ function renderInspectionResult(
 ): string {
   switch (result.intent) {
     case "interface-overview":
-      return renderInterfaceOverview(result, options.includePublicSubpaths === true);
+      return renderInterfaceOverview(
+        result,
+        options.includePublicSubpaths === true,
+        options.moduleExportMatch,
+      );
     case "export-inspection":
       return renderExportInspection(result);
     case "signature-inspection":
@@ -49,13 +55,15 @@ function renderInspectionResult(
 function renderInterfaceOverview(
   result: InterfaceOverview,
   includePublicSubpaths: boolean,
+  moduleExportMatch: string | undefined,
 ): string {
+  const moduleExports = matchingModuleExports(result, moduleExportMatch);
   return [
     "Interface Overview",
-    `Specifier: ${terminalSafeLine(result.specifier)}`,
+    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
     ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
-    `Module Exports (${result.moduleExports.length}):`,
-    ...result.moduleExports.map(({ name }) => `- ${terminalSafeLine(name)}`),
+    renderModuleExportsHeading(result, moduleExports.length, moduleExportMatch),
+    ...moduleExports.map(({ name }) => `- ${terminalSafeLine(name)}`),
     includePublicSubpaths
       ? `Public Subpaths (${result.publicSubpaths.length}):`
       : `Public Subpaths (${result.publicSubpaths.length}; use --subpaths to list):`,
@@ -65,6 +73,27 @@ function renderInterfaceOverview(
   ].join("\n");
 }
 
+function matchingModuleExports(
+  result: InterfaceOverview,
+  match: string | undefined,
+): InterfaceOverview["moduleExports"] {
+  if (match === undefined) {
+    return result.moduleExports;
+  }
+  const normalizedMatch = match.toLowerCase();
+  return result.moduleExports.filter(({ name }) => name.toLowerCase().includes(normalizedMatch));
+}
+
+function renderModuleExportsHeading(
+  result: InterfaceOverview,
+  matchedCount: number,
+  match: string | undefined,
+): string {
+  return match === undefined
+    ? `Module Exports (${result.moduleExports.length}):`
+    : `Module Exports (${matchedCount} matching "${terminalSafeLine(match)}"; ${result.moduleExports.length} total):`;
+}
+
 function renderExportInspection(result: ExportInspection): string {
   const alias =
     result.moduleExport.alias === undefined
@@ -72,7 +101,7 @@ function renderExportInspection(result: ExportInspection): string {
       : ` (alias of ${terminalSafeLine(result.moduleExport.alias.targetName)})`;
   return [
     "Export Inspection",
-    `Specifier: ${terminalSafeLine(result.specifier)}`,
+    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
     ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
     `Module Export: ${terminalSafeLine(result.moduleExport.name)}${alias}`,
     ...(result.moduleExport.alias === undefined
@@ -107,7 +136,7 @@ function renderSignatureInspection(result: SignatureInspection): string {
       : ` (alias of ${terminalSafeLine(result.moduleExport.aliasTargetName)})`;
   return [
     "Signature Inspection",
-    `Specifier: ${terminalSafeLine(result.specifier)}`,
+    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
     ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
     `Module Export: ${terminalSafeLine(result.moduleExport.name)}${alias}`,
     `Signatures (${result.moduleExport.signatures.length}):`,
@@ -166,13 +195,12 @@ function renderEvidenceIdentities(
   ];
 }
 
-function terminalSafeLine(value: string): string {
-  // Escape rather than delete unsafe characters so hostile or ambiguous input
-  // remains visible without gaining terminal control semantics.
-  return Array.from(value, (character) => {
-    const codePoint = character.codePointAt(0) ?? 0;
-    return isUnsafeOutputCodePoint(codePoint)
-      ? `\\u{${codePoint.toString(16).toUpperCase()}}`
-      : character;
-  }).join("");
+function renderInspectionTarget(
+  specifier: string,
+  resolutionVariant: ResolutionVariant,
+): readonly string[] {
+  return [
+    `Specifier: ${terminalSafeLine(specifier)}`,
+    `Access Style: ${terminalSafeLine(resolutionVariant.accessStyle)}`,
+  ];
 }

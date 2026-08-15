@@ -14,6 +14,7 @@ import type {
   InspectedModuleExportSignatures,
   PackageDocumentation,
   PublicSubpath,
+  ResolutionVariant,
   SignatureInspection,
   SupportingType,
 } from "#typepeek/inspection/protocol";
@@ -24,6 +25,12 @@ const MAX_RESULT_NODES = 4_096;
 interface FragmentSize {
   readonly bytes: number;
   readonly nodes: number;
+}
+
+export interface InspectionResultConstructionContext {
+  readonly identity: InspectionResultIdentity;
+  readonly resolutionVariant: ResolutionVariant;
+  readonly specifier: string;
 }
 
 class ResultConstructionBudget {
@@ -64,6 +71,11 @@ class ResultConstructionBudget {
 /** Owns exact aggregate accounting and assembly for one Export Inspection. */
 export class ExportInspectionConstruction {
   readonly #budget = new ResultConstructionBudget();
+  readonly #context: InspectionResultConstructionContext;
+
+  constructor(context: InspectionResultConstructionContext) {
+    this.#context = context;
+  }
 
   declaration<Value extends InspectedDeclaration>(value: Value): Value {
     return this.#budget.leaf(value);
@@ -124,16 +136,15 @@ export class ExportInspectionConstruction {
   }
 
   result(
-    specifier: string,
-    identity: InspectionResultIdentity,
     moduleExport: InspectedModuleExport,
     supportingTypes: readonly SupportingType[],
     packageDocumentation: PackageDocumentation | undefined,
   ): ExportInspection {
     const result: ExportInspection = {
       intent: "export-inspection",
-      specifier,
-      ...identity,
+      specifier: this.#context.specifier,
+      resolutionVariant: this.#context.resolutionVariant,
+      ...this.#context.identity,
       moduleExport,
       supportingTypes,
       ...(packageDocumentation === undefined ? {} : { packageDocumentation }),
@@ -149,6 +160,11 @@ export class ExportInspectionConstruction {
 /** Owns aggregate accounting and assembly for one Signature Inspection. */
 export class SignatureInspectionConstruction {
   readonly #budget = new ResultConstructionBudget();
+  readonly #context: InspectionResultConstructionContext;
+
+  constructor(context: InspectionResultConstructionContext) {
+    this.#context = context;
+  }
 
   signature(value: InspectedSignature): InspectedSignature {
     return this.#budget.leaf(value);
@@ -169,16 +185,13 @@ export class SignatureInspectionConstruction {
     );
   }
 
-  result(
-    specifier: string,
-    identity: InspectionResultIdentity,
-    moduleExport: InspectedModuleExportSignatures,
-  ): SignatureInspection {
+  result(moduleExport: InspectedModuleExportSignatures): SignatureInspection {
     return this.#budget.container(
       {
         intent: "signature-inspection",
-        specifier,
-        ...identity,
+        specifier: this.#context.specifier,
+        resolutionVariant: this.#context.resolutionVariant,
+        ...this.#context.identity,
         moduleExport,
       },
       [moduleExport],
@@ -188,8 +201,7 @@ export class SignatureInspectionConstruction {
 
 /** Assembles and exactly charges one bounded Interface Overview. */
 export function constructInterfaceOverview(
-  specifier: string,
-  identity: InspectionResultIdentity,
+  context: InspectionResultConstructionContext,
   publicSubpaths: readonly PublicSubpath[],
   moduleExports: readonly { readonly name: string }[],
 ): InterfaceOverview {
@@ -199,8 +211,9 @@ export function constructInterfaceOverview(
   return budget.container(
     {
       intent: "interface-overview",
-      specifier,
-      ...identity,
+      specifier: context.specifier,
+      resolutionVariant: context.resolutionVariant,
+      ...context.identity,
       publicSubpaths: retainedSubpaths,
       moduleExports: retainedExports,
     },
