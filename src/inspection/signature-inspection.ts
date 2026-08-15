@@ -38,6 +38,12 @@ interface SignatureCandidate {
 
 type RetainSignature<Value> = (value: Value) => Value;
 
+interface SignatureProjection<Value> {
+  readonly project: (candidate: SignatureCandidate) => Value;
+  readonly retain: RetainSignature<Value>;
+  readonly serializeForBudget: (value: Value) => string;
+}
+
 /** Produces a focused result without declaration or Supporting Type traversal. */
 export function inspectModuleExportSignatures(
   evidence: InspectableModuleEvidence,
@@ -66,22 +72,18 @@ export function inspectResolvedExportSignatures(
   resolution: FocusedExportResolution,
   retainSignature: (value: ExportSignature) => ExportSignature,
 ): readonly ExportSignature[] {
-  const candidates = orderedSignatureCandidates(checker, resolution);
-  let totalBytes = 0;
-  return candidates.map(({ kind, signature, signatureKind }) => {
-    const signatureDeclaration = signature.getDeclaration();
-    const text = checker.signatureToString(
-      signature,
-      signatureDeclaration,
-      SIGNATURE_TYPE_FORMAT_FLAGS,
-      signatureKind,
-    );
-    const signatureBytes = Buffer.byteLength(text);
-    totalBytes += signatureBytes;
-    if (signatureBytes > MAX_SIGNATURE_BYTES || totalBytes > MAX_SIGNATURE_TOTAL_BYTES) {
-      throw new InspectionLimitError("Inspection exceeded its Module Export signature byte limit.");
-    }
-    return retainSignature({ kind, text });
+  return inspectBoundedSignatures(checker, resolution, {
+    project: ({ kind, signature, signatureKind }) => ({
+      kind,
+      text: checker.signatureToString(
+        signature,
+        signature.getDeclaration(),
+        SIGNATURE_TYPE_FORMAT_FLAGS,
+        signatureKind,
+      ),
+    }),
+    retain: retainSignature,
+    serializeForBudget: ({ text }) => text,
   });
 }
 
@@ -90,16 +92,28 @@ function inspectResolvedExportSignatureDetails(
   resolution: FocusedExportResolution,
   retainSignature: RetainSignature<InspectedSignature>,
 ): readonly InspectedSignature[] {
-  const candidates = orderedSignatureCandidates(checker, resolution);
+  return inspectBoundedSignatures(checker, resolution, {
+    project: ({ kind, signature, signatureKind }) =>
+      inspectSignatureDetails(checker, kind, signature, signatureKind),
+    retain: retainSignature,
+    serializeForBudget: (signature) => JSON.stringify(signature),
+  });
+}
+
+function inspectBoundedSignatures<Value>(
+  checker: ts.TypeChecker,
+  resolution: FocusedExportResolution,
+  projection: SignatureProjection<Value>,
+): readonly Value[] {
   let totalBytes = 0;
-  return candidates.map(({ kind, signature, signatureKind }) => {
-    const inspectedSignature = inspectSignatureDetails(checker, kind, signature, signatureKind);
-    const signatureBytes = Buffer.byteLength(JSON.stringify(inspectedSignature));
+  return orderedSignatureCandidates(checker, resolution).map((candidate) => {
+    const inspectedSignature = projection.project(candidate);
+    const signatureBytes = Buffer.byteLength(projection.serializeForBudget(inspectedSignature));
     totalBytes += signatureBytes;
     if (signatureBytes > MAX_SIGNATURE_BYTES || totalBytes > MAX_SIGNATURE_TOTAL_BYTES) {
       throw new InspectionLimitError("Inspection exceeded its Module Export signature byte limit.");
     }
-    return retainSignature(inspectedSignature);
+    return projection.retain(inspectedSignature);
   });
 }
 
@@ -227,7 +241,7 @@ function inspectSignatureTypeParameter(
     name: signatureTypeParameterName(checker, typeParameter, declaration, location),
     modifiers: inspectTypeParameterModifiers(declaration),
     ...signatureTypeParameterConstraint(checker, typeParameter, declaration, location),
-    ...signatureTypeParameterDefault(declaration),
+    ...signatureTypeParameterDefault(checker, typeParameter, location),
     synthetic: declaration === undefined,
   };
 }
@@ -264,11 +278,15 @@ function signatureTypeParameterConstraint(
 }
 
 function signatureTypeParameterDefault(
-  declaration: ts.TypeParameterDeclaration | undefined,
+  checker: ts.TypeChecker,
+  typeParameter: ts.TypeParameter,
+  location: ts.Node,
 ): Partial<Pick<SignatureTypeParameter, "default">> {
-  return declaration?.default === undefined
+  const defaultType =
+    typeParameter.getDefault() ?? checker.getDefaultFromTypeParameter(typeParameter);
+  return defaultType === undefined
     ? {}
-    : { default: declaration.default.getText(declaration.getSourceFile()) };
+    : { default: renderSignatureType(checker, defaultType, location) };
 }
 
 function inspectTypeParameterModifiers(

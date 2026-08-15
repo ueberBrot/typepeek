@@ -1332,6 +1332,60 @@ it("bounds detailed parameters without shrinking the compact Export Inspection",
   });
 });
 
+it("bounds detailed type parameters without shrinking the compact Export Inspection", async () => {
+  const request = {
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/broad-type-parameters",
+    exportName: "inspect",
+  };
+  const [focused, signatures] = await Promise.all([
+    inspectExport(request),
+    inspectExportSignatures(request),
+  ]);
+
+  expect(focused.status).toBe("success");
+  expect(signatures).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its signature type parameter limit.",
+  });
+});
+
+it("bounds one detailed signature by its serialized size", async () => {
+  const request = {
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/detailed-wide-signature",
+    exportName: "inspect",
+  };
+  const [focused, signatures] = await Promise.all([
+    inspectExport(request),
+    inspectExportSignatures(request),
+  ]);
+
+  expect(focused.status).toBe("success");
+  expect(signatures).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its Module Export signature byte limit.",
+  });
+});
+
+it("bounds the aggregate serialized size of detailed signatures", async () => {
+  const request = {
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/detailed-wide-overloads",
+    exportName: "inspect",
+  };
+  const [focused, signatures] = await Promise.all([
+    inspectExport(request),
+    inspectExportSignatures(request),
+  ]);
+
+  expect(focused.status).toBe("success");
+  expect(signatures).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its Module Export signature byte limit.",
+  });
+});
+
 it("fails explicitly when compiler resolution exhausts its filesystem work budget", async () => {
   const outcome = await inspectInterfaceOverview({
     resolutionContext: fixture.resolutionContext,

@@ -552,13 +552,13 @@ function isInspectionOutcome(value: unknown): value is InspectionOutcome {
   // Manual graph guards run before ArkType so cyclic, sparse, accessor-backed,
   // or excessively deep values cannot make recursive schema validation unsafe.
   return (
-    hasDenseProtocolArrays(value) &&
+    hasBoundedDataPropertyGraph(value) &&
     hasBoundedNamespaceGraph(value) &&
     inspectionOutcomeSchema.allows(value)
   );
 }
 
-function hasDenseProtocolArrays(value: unknown): boolean {
+function hasBoundedDataPropertyGraph(value: unknown): boolean {
   const pending = [value];
   const visited = new Set<object>();
 

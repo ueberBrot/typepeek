@@ -605,6 +605,43 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     runtime: 'throw new Error("Typepeek executed the broad parameter fixture runtime");\n',
   },
   {
+    directory: "broad-type-parameters-package",
+    name: "@typepeek-fixture/broad-type-parameters",
+    version: "1.0.0",
+    declaration: `export declare function inspect<${Array.from(
+      { length: 65 },
+      (_, index) => `Type${index}`,
+    ).join(", ")}>(): void;\n`,
+    runtime: 'throw new Error("Typepeek executed the broad type parameters fixture runtime");\n',
+  },
+  {
+    directory: "detailed-wide-signature-package",
+    name: "@typepeek-fixture/detailed-wide-signature",
+    version: "1.0.0",
+    declaration: `export declare function inspect(value: { ${Array.from(
+      { length: 450 },
+      (_, index) => `readonly property${index}: string;`,
+    ).join(" ")} }): void;\n`,
+    runtime: 'throw new Error("Typepeek executed the detailed wide signature fixture runtime");\n',
+  },
+  {
+    directory: "detailed-wide-overloads-package",
+    name: "@typepeek-fixture/detailed-wide-overloads",
+    version: "1.0.0",
+    declaration: [
+      ...Array.from(
+        { length: 5 },
+        (_, overload) =>
+          `export declare function inspect(value: { ${Array.from(
+            { length: 175 },
+            (_, index) => `readonly property${overload}_${index}: string;`,
+          ).join(" ")} }): ${overload};`,
+      ),
+      "",
+    ].join("\n"),
+    runtime: 'throw new Error("Typepeek executed the detailed wide overloads fixture runtime");\n',
+  },
+  {
     directory: "alias-forms-package",
     name: "@typepeek-fixture/alias-forms",
     version: "1.0.0",

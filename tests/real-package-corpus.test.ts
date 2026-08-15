@@ -312,6 +312,25 @@ describe("pinned real-package corpus", () => {
     },
     20_000,
   );
+
+  it("uses the effective generic default from ExecaError's selected constructor signature", async () => {
+    const outcome = await inspectExportSignatures({
+      exportName: "ExecaError",
+      resolutionContext: corpus.resolutionContext,
+      specifier: "execa",
+    });
+
+    expect(outcome.status, JSON.stringify(outcome)).toBe("success");
+    if (outcome.status !== "success") {
+      return;
+    }
+    const signature = outcome.result.moduleExport.signatures[0];
+    expect(signature?.text).toContain("<OptionsType extends Options = any>");
+    expect(signature?.typeParameters[0]).toMatchObject({
+      constraint: "Options",
+      default: "any",
+    });
+  });
 });
 
 async function assertStaticCorpusQuestions(
