@@ -1,8 +1,10 @@
 import { expect, expectTypeOf, it } from "vite-plus/test";
 
 import {
+  enforceDeclarationInspectionOutcome,
   enforceInspectionOutcome,
   enforceInspectionPlanOutcome,
+  enforceMemberInspectionOutcome,
   type ExportDeclarationSpace,
   type ExportInspection,
   type ExportNamespaceMember,
@@ -31,6 +33,130 @@ it("normalizes the default Access Style at the process-entry protocol seam", () 
   });
 });
 
+it("correlates direct declaration and Member outcomes with their exact requests", () => {
+  const declaration = {
+    status: "success",
+    result: {
+      intent: "declaration-inspection",
+      specifier: "example",
+      resolutionVariant: { accessStyle: "import" },
+      packageIdentity: { name: "example" },
+      moduleExport: {
+        name: "Example",
+        spaces: [
+          {
+            space: "type",
+            declarations: [
+              {
+                kind: "interface",
+                text: "interface Example {}",
+                provenance: {
+                  packageIdentity: { name: "example" },
+                  file: "index.d.ts",
+                  line: 1,
+                  column: 1,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  } as const;
+  const target = {
+    resolutionContext: "/repository",
+    specifier: "example",
+    accessStyle: "import",
+  } as const;
+  expect(
+    enforceDeclarationInspectionOutcome({ ...target, exportName: "Example" }, declaration),
+  ).toEqual(declaration);
+  expect(
+    enforceDeclarationInspectionOutcome({ ...target, exportName: "Other" }, declaration),
+  ).toMatchObject({
+    status: "unsupported",
+  });
+  expect(
+    enforceDeclarationInspectionOutcome(
+      { ...target, specifier: "other", exportName: "Example" },
+      declaration,
+    ),
+  ).toMatchObject({ status: "unsupported" });
+
+  const member = {
+    status: "success",
+    result: {
+      intent: "member-inspection",
+      specifier: "example",
+      resolutionVariant: { accessStyle: "import" },
+      packageIdentity: { name: "example" },
+      moduleExportName: "Example",
+      memberPath: ["value"],
+      declarations: [
+        {
+          kind: "property",
+          text: "value: string;",
+          provenance: {
+            packageIdentity: { name: "example" },
+            file: "index.d.ts",
+            line: 1,
+            column: 1,
+          },
+        },
+      ],
+    },
+  } as const;
+  expect(
+    enforceMemberInspectionOutcome(
+      { ...target, exportName: "Example", memberPath: ["value"] },
+      member,
+    ),
+  ).toEqual(member);
+  expect(
+    enforceMemberInspectionOutcome(
+      { ...target, exportName: "Other", memberPath: ["value"] },
+      member,
+    ),
+  ).toMatchObject({
+    status: "unsupported",
+  });
+  expect(
+    enforceMemberInspectionOutcome(
+      { ...target, accessStyle: "require", exportName: "Example", memberPath: ["value"] },
+      member,
+    ),
+  ).toMatchObject({ status: "unsupported" });
+  const overlongPath = Array.from({ length: 17 }, () => "value");
+  expect(
+    enforceMemberInspectionOutcome(
+      { ...target, exportName: "Example", memberPath: overlongPath },
+      {
+        ...member,
+        result: { ...member.result, memberPath: overlongPath },
+      },
+    ),
+  ).toMatchObject({ status: "unsupported" });
+  const oversizedPath = ["x".repeat(257)];
+  expect(
+    enforceMemberInspectionOutcome(
+      { ...target, exportName: "Example", memberPath: oversizedPath },
+      {
+        ...member,
+        result: { ...member.result, memberPath: oversizedPath },
+      },
+    ),
+  ).toMatchObject({ status: "unsupported" });
+  expect(
+    enforceMemberInspectionOutcome(
+      { ...target, exportName: "Example", memberPath: ["value"] },
+      {
+        ...member,
+        result: { ...member.result, declarations: [] },
+      },
+    ),
+  ).toMatchObject({ status: "unsupported" });
+});
+
 it("normalizes a bounded inspection plan at the process-entry protocol seam", () => {
   expect(
     readInspectionRequest("inspection-plan", {
@@ -41,6 +167,8 @@ it("normalizes a bounded inspection plan at the process-entry protocol seam", ()
         { intent: "signature-inspection", exportName: "createExample" },
         { intent: "export-search", query: "example" },
         { intent: "public-subpath-discovery" },
+        { intent: "declaration-inspection", exportName: "createExample" },
+        { intent: "member-inspection", exportName: "Example", memberPath: ["value"] },
       ],
     }),
   ).toEqual({
@@ -54,9 +182,64 @@ it("normalizes a bounded inspection plan at the process-entry protocol seam", ()
         { intent: "signature-inspection", exportName: "createExample" },
         { intent: "export-search", query: "example" },
         { intent: "public-subpath-discovery" },
+        { intent: "declaration-inspection", exportName: "createExample" },
+        { intent: "member-inspection", exportName: "Example", memberPath: ["value"] },
       ],
     },
   });
+});
+
+it("normalizes declaration and bounded member requests without invoking array accessors", () => {
+  const target = { resolutionContext: "/repository", specifier: "example" };
+  expect(
+    readInspectionRequest("declaration-inspection", {
+      ...target,
+      exportName: "createExample",
+    }),
+  ).toMatchObject({
+    accepted: true,
+    request: { ...target, accessStyle: "import", exportName: "createExample" },
+  });
+  expect(
+    readInspectionRequest("member-inspection", {
+      ...target,
+      exportName: "Example",
+      memberPath: ["nested", "value"],
+    }),
+  ).toMatchObject({
+    accepted: true,
+    request: {
+      ...target,
+      accessStyle: "import",
+      exportName: "Example",
+      memberPath: ["nested", "value"],
+    },
+  });
+
+  let accessorRead = false;
+  const accessorPath = Array.from({ length: 1 }) as string[];
+  Object.defineProperty(accessorPath, "0", {
+    enumerable: true,
+    get() {
+      accessorRead = true;
+      return "value";
+    },
+  });
+  expect(
+    readInspectionRequest("member-inspection", {
+      ...target,
+      exportName: "Example",
+      memberPath: accessorPath,
+    }),
+  ).toMatchObject({ accepted: false });
+  expect(accessorRead).toBe(false);
+  expect(
+    readInspectionRequest("member-inspection", {
+      ...target,
+      exportName: "Example",
+      memberPath: [],
+    }),
+  ).toMatchObject({ accepted: false });
 });
 
 it("rejects empty and oversized inspection plans", () => {
@@ -214,16 +397,66 @@ it("rejects a plan result that omits or reorders requested inspections", () => {
   } as const;
 
   expect(
-    enforceInspectionPlanOutcome(queries, {
-      status: "success",
-      result: { intent: "inspection-plan", inspections: [overview] },
-    }),
+    enforceInspectionPlanOutcome(
+      {
+        resolutionContext: "/repository",
+        specifier: "example",
+        accessStyle: "import",
+        queries,
+      },
+      {
+        status: "success",
+        result: { intent: "inspection-plan", inspections: [overview] },
+      },
+    ),
   ).toEqual(invalid);
   expect(
-    enforceInspectionPlanOutcome(queries, {
-      status: "success",
-      result: { intent: "inspection-plan", inspections: [signatures, overview] },
-    }),
+    enforceInspectionPlanOutcome(
+      {
+        resolutionContext: "/repository",
+        specifier: "requested",
+        accessStyle: "import",
+        queries: [{ intent: "interface-overview" }],
+      },
+      {
+        status: "success",
+        result: { intent: "inspection-plan", inspections: [overview] },
+      },
+    ),
+  ).toEqual(invalid);
+  expect(
+    enforceInspectionPlanOutcome(
+      {
+        resolutionContext: "/repository",
+        specifier: "example",
+        accessStyle: "import",
+        queries,
+      },
+      {
+        status: "success",
+        result: {
+          intent: "inspection-plan",
+          inspections: [
+            overview,
+            { ...signatures, packageIdentity: { name: "different-evidence" } },
+          ],
+        },
+      },
+    ),
+  ).toEqual(invalid);
+  expect(
+    enforceInspectionPlanOutcome(
+      {
+        resolutionContext: "/repository",
+        specifier: "example",
+        accessStyle: "import",
+        queries,
+      },
+      {
+        status: "success",
+        result: { intent: "inspection-plan", inspections: [signatures, overview] },
+      },
+    ),
   ).toEqual(invalid);
 
   const search = {
@@ -236,10 +469,55 @@ it("rejects a plan result that omits or reorders requested inspections", () => {
     matches: [],
   } as const;
   expect(
-    enforceInspectionPlanOutcome([{ intent: "export-search", query: "requested" }], {
-      status: "success",
-      result: { intent: "inspection-plan", inspections: [search] },
-    }),
+    enforceInspectionPlanOutcome(
+      {
+        resolutionContext: "/repository",
+        specifier: "example",
+        accessStyle: "import",
+        queries: [{ intent: "export-search", query: "requested" }],
+      },
+      {
+        status: "success",
+        result: { intent: "inspection-plan", inspections: [search] },
+      },
+    ),
+  ).toEqual(invalid);
+
+  const member = {
+    intent: "member-inspection",
+    specifier: "example",
+    resolutionVariant: { accessStyle: "import" },
+    packageIdentity: { name: "example" },
+    moduleExportName: "Example",
+    memberPath: ["actual"],
+    declarations: [
+      {
+        kind: "property",
+        text: "actual: string;",
+        provenance: {
+          packageIdentity: { name: "example" },
+          file: "index.d.ts",
+          line: 1,
+          column: 1,
+        },
+      },
+    ],
+  } as const;
+  expect(
+    enforceInspectionPlanOutcome(
+      {
+        resolutionContext: "/repository",
+        specifier: "example",
+        accessStyle: "import",
+        queries: [
+          { intent: "member-inspection", exportName: "Example", memberPath: ["requested"] },
+        ],
+      },
+      {
+        status: "success",
+        result: { intent: "inspection-plan", inspections: [member] },
+      },
+    ),
   ).toEqual(invalid);
 });
 

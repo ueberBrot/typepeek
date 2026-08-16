@@ -2,8 +2,12 @@ import { runBoundedAnalysis } from "#typepeek/inspection/analysis-process";
 import {
   enforceInspectionOutcome,
   enforceInspectionPlanOutcome,
+  enforceDeclarationInspectionOutcome,
+  enforceMemberInspectionOutcome,
   type ExportInspection,
   type ExportInspectionRequest,
+  type DeclarationInspection,
+  type DeclarationInspectionRequest,
   type ExportSearch,
   type ExportSearchRequest,
   type InspectionOutcome,
@@ -11,6 +15,8 @@ import {
   type InspectionPlanRequest,
   type InterfaceOverview,
   type InterfaceOverviewRequest,
+  type MemberInspection,
+  type MemberInspectionRequest,
   type PublicSubpathDiscovery,
   type PublicSubpathDiscoveryRequest,
   type SignatureInspection,
@@ -62,7 +68,7 @@ export async function inspectPlan(
   }
 
   return enforceInspectionPlanOutcome(
-    requestReading.request.queries,
+    requestReading.request,
     await runBoundedAnalysis({ intent: "inspection-plan", request: requestReading.request }),
   );
 }
@@ -129,5 +135,38 @@ export async function inspectExportSignatures(
       intent: "signature-inspection",
       request: requestReading.request,
     }),
+  );
+}
+
+/** Returns one Module Export's declarations without signatures or Supporting Types. */
+export async function inspectExportDeclarations(
+  request: DeclarationInspectionRequest,
+): Promise<InspectionOutcome<DeclarationInspection>> {
+  const requestReading = readInspectionRequest("declaration-inspection", request);
+  if (!requestReading.accepted) {
+    return requestReading.outcome;
+  }
+
+  return enforceDeclarationInspectionOutcome(
+    requestReading.request,
+    await runBoundedAnalysis({
+      intent: "declaration-inspection",
+      request: requestReading.request,
+    }),
+  );
+}
+
+/** Returns exactly one public member path without unrelated declaration traversal. */
+export async function inspectExportMember(
+  request: MemberInspectionRequest,
+): Promise<InspectionOutcome<MemberInspection>> {
+  const requestReading = readInspectionRequest("member-inspection", request);
+  if (!requestReading.accepted) {
+    return requestReading.outcome;
+  }
+
+  return enforceMemberInspectionOutcome(
+    requestReading.request,
+    await runBoundedAnalysis({ intent: "member-inspection", request: requestReading.request }),
   );
 }

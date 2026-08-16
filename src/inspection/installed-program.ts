@@ -20,6 +20,7 @@ import {
   readInstalledManifest,
 } from "#typepeek/inspection/installed-package-boundary";
 import { selectNodeDeclarationProgram } from "#typepeek/inspection/node-declaration-authority";
+import type { InspectionPlanQuery } from "#typepeek/inspection/protocol";
 import {
   INSPECTION_STANDARD_LIBRARY,
   isTypeScriptStandardLibraryDeclaration,
@@ -102,20 +103,17 @@ export type InstalledProgramInspection =
   | { readonly intent: "interface-overview" }
   | { readonly intent: "export-search" }
   | {
-      readonly intent: "export-inspection" | "signature-inspection";
+      readonly intent: "export-inspection" | "signature-inspection" | "declaration-inspection";
       readonly exportName: string;
     }
   | {
+      readonly intent: "member-inspection";
+      readonly exportName: string;
+      readonly memberPath: readonly string[];
+    }
+  | {
       readonly intent: "inspection-plan";
-      readonly queries: readonly (
-        | {
-            readonly intent: "interface-overview" | "export-search" | "public-subpath-discovery";
-          }
-        | {
-            readonly intent: "export-inspection" | "signature-inspection";
-            readonly exportName: string;
-          }
-      )[];
+      readonly queries: readonly InspectionPlanQuery[];
     };
 
 /** Materializes and validates one bounded TypeScript declaration program. */
@@ -205,11 +203,7 @@ function inspectionFocusedExportNames(inspection: InstalledProgramInspection): r
   if (inspection.intent !== "inspection-plan") {
     return [inspection.exportName];
   }
-  return inspection.queries.flatMap((query) =>
-    query.intent === "export-inspection" || query.intent === "signature-inspection"
-      ? [query.exportName]
-      : [],
-  );
+  return inspection.queries.flatMap((query) => ("exportName" in query ? [query.exportName] : []));
 }
 
 function inspectionNeedsNodeAugmentation(inspection: InstalledProgramInspection): boolean {
@@ -217,8 +211,7 @@ function inspectionNeedsNodeAugmentation(inspection: InstalledProgramInspection)
     ? inspection.queries.some(
         (query) =>
           query.intent === "interface-overview" ||
-          query.intent === "export-inspection" ||
-          query.intent === "export-search",
+          (query.intent !== "signature-inspection" && query.intent !== "public-subpath-discovery"),
       )
     : inspection.intent !== "signature-inspection";
 }
@@ -241,7 +234,11 @@ function selectedNodeAugmentationExportName(
   }
   const exportNames = new Set(
     inspection.queries.flatMap((query) =>
-      query.intent === "export-inspection" ? [query.exportName] : [],
+      query.intent === "export-inspection" ||
+      query.intent === "declaration-inspection" ||
+      query.intent === "member-inspection"
+        ? [query.exportName]
+        : [],
     ),
   );
   return exportNames.size === 1 ? [...exportNames][0] : undefined;

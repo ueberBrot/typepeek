@@ -4,6 +4,8 @@ import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
 import {
   inspectExport,
+  inspectExportDeclarations,
+  inspectExportMember,
   inspectExportSearch,
   inspectExportSignatures,
   inspectInterfaceOverview,
@@ -87,6 +89,40 @@ it("applies one aggregate result-construction budget to an inspection plan", asy
   await expect(inspectPlan(request)).resolves.toEqual(expected);
 });
 
+it("applies one aggregate Member type traversal budget to an inspection plan", async () => {
+  const outcome = await inspectPlan({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    queries: Array.from(
+      { length: 16 },
+      (_, index) =>
+        ({ intent: "export-inspection", exportName: `PlanMemberTypeBudget${index}` }) as const,
+    ),
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its Supporting Type traversal limit.",
+  });
+});
+
+it("applies one aggregate inferred declaration budget to an inspection plan", async () => {
+  const outcome = await inspectPlan({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/private-constructor-source",
+    queries: Array.from(
+      { length: 16 },
+      (_, index) =>
+        ({ intent: "declaration-inspection", exportName: `inferredPlanBudget${index}` }) as const,
+    ),
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its Supporting Type traversal limit.",
+  });
+});
+
 it("searches Module Export names without returning a complete Interface Overview", async () => {
   const outcome = await inspectExportSearch({
     resolutionContext: fixture.resolutionContext,
@@ -137,6 +173,235 @@ it("discovers Public Subpaths without materializing a TypeScript program", async
         { specifier: "@typepeek-fixture/conditional/feature" },
         { specifier: "@typepeek-fixture/conditional/nested/feature" },
         { specifier: "@typepeek-fixture/conditional/patterns/red" },
+      ],
+    },
+  });
+});
+
+it("inspects only the declaration surface of one Module Export", async () => {
+  const outcome = await inspectExportDeclarations({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "createWidget",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "declaration-inspection",
+      moduleExport: {
+        name: "createWidget",
+        spaces: [{ space: "value" }, { space: "namespace" }],
+      },
+    },
+  });
+  if (outcome.status === "success") {
+    expect(outcome.result).not.toHaveProperty("supportingTypes");
+    expect(outcome.result.moduleExport).not.toHaveProperty("signatures");
+  }
+});
+
+it("inspects declarations without consuming the Supporting Type traversal budget", async () => {
+  const outcome = await inspectExportDeclarations({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/deep-supporting-types",
+    exportName: "inspect",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "declaration-inspection",
+      moduleExport: { name: "inspect" },
+    },
+  });
+});
+
+it("inspects one exact public member without traversing the complete export", async () => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "PublicShape",
+    memberPath: ["visible"],
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "member-inspection",
+      moduleExportName: "PublicShape",
+      memberPath: ["visible"],
+      declarations: [{ kind: "property", text: "readonly visible: VisibleOnly;" }],
+    },
+  });
+});
+
+it("does not expose a private member through focused Member Inspection", async () => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "PublicShape",
+    memberPath: ["secret"],
+  });
+
+  expect(outcome).toEqual({
+    status: "not-found",
+    message: 'Public Member "PublicShape.secret" was not found in "@typepeek-fixture/focused".',
+  });
+});
+
+it("does not expose a protected member through focused Member Inspection", async () => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "PublicShape",
+    memberPath: ["inherited"],
+  });
+
+  expect(outcome).toEqual({
+    status: "not-found",
+    message: 'Public Member "PublicShape.inherited" was not found in "@typepeek-fixture/focused".',
+  });
+});
+
+it("inspects an exact enum Member", async () => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "PublicValues",
+    memberPath: ["First"],
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "member-inspection",
+      moduleExportName: "PublicValues",
+      memberPath: ["First"],
+      declarations: [{ kind: "enum-member", text: expect.stringContaining("First") }],
+    },
+  });
+});
+
+it("rejects a Member path that is ambiguous across declaration spaces", async () => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "AmbiguousShape",
+    memberPath: ["shared"],
+  });
+
+  expect(outcome).toEqual({
+    status: "unsupported",
+    message: 'Public Member "AmbiguousShape.shared" is ambiguous across declaration spaces.',
+  });
+});
+
+it("returns unsupported rather than not-found for source-backed inferred object members", async () => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/private-constructor-source",
+    exportName: "inferredObject",
+    memberPath: ["visible"],
+  });
+
+  expect(outcome).toEqual({
+    status: "unsupported",
+    message:
+      'Public Member "inferredObject.visible" has no declaration-safe static representation.',
+  });
+});
+
+it.each(["InferredArrayMember", "InferredPromiseMember"])(
+  "rejects the degraded source-inferred Member type %s",
+  async (exportName) => {
+    const outcome = await inspectExport({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/private-constructor-source",
+      exportName,
+    });
+
+    expect(outcome).toEqual({
+      status: "unsupported",
+      message:
+        "An inferred Public Interface type cannot be represented statically without standard libraries.",
+    });
+  },
+);
+
+it("looks up one namespace Member directly without consuming unrelated breadth", async () => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/broad-namespace",
+    exportName: "Broad",
+    memberPath: ["value128"],
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "member-inspection",
+      moduleExportName: "Broad",
+      memberPath: ["value128"],
+      declarations: [{ kind: "variable" }],
+    },
+  });
+});
+
+it("resolves each segment of an exact nested Member path", async () => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "NestedShape",
+    memberPath: ["nested", "leaf"],
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "member-inspection",
+      moduleExportName: "NestedShape",
+      memberPath: ["nested", "leaf"],
+      declarations: [{ kind: "property", text: "readonly leaf: VisibleOnly;" }],
+    },
+  });
+});
+
+it("enforces the merged-declaration bound before resolving an intermediate Member path", async () => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/merged-declarations",
+    exportName: "Merged",
+    memberPath: ["value0"],
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its declaration merge limit.",
+  });
+});
+
+it("executes declaration and member queries atomically in an Inspection Plan", async () => {
+  const outcome = await inspectPlan({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    queries: [
+      { intent: "declaration-inspection", exportName: "createWidget" },
+      { intent: "member-inspection", exportName: "PublicShape", memberPath: ["visible"] },
+    ],
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "inspection-plan",
+      inspections: [
+        { intent: "declaration-inspection", moduleExport: { name: "createWidget" } },
+        {
+          intent: "member-inspection",
+          moduleExportName: "PublicShape",
+          memberPath: ["visible"],
+        },
       ],
     },
   });
@@ -1136,6 +1401,238 @@ it("follows value declarations and their shapes referenced through typeof", asyn
   ).toEqual([
     { name: "defaults", declarationKinds: ["variable"] },
     { name: "DefaultOptions", declarationKinds: ["interface"] },
+  ]);
+});
+
+it("follows a referenced Member's type without representing the Member as a Supporting Type", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "MemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toEqual(["MemberTypeValue"]);
+});
+
+it("bounds Supporting Type traversal reached through a Member", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "DeepMemberTypeQuery",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its Supporting Type depth limit.",
+  });
+});
+
+it("does not represent a namespace Member value declaration as a Supporting Type", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "NamespaceMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toEqual(["MemberTypeValue"]);
+});
+
+it("serializes a literal Member type into the authoritative declaration", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "LiteralMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const declaration = outcome.result.moduleExport.spaces.flatMap((space) =>
+    "declarations" in space ? space.declarations : [],
+  )[0]?.text;
+  expect(declaration).toBe("type LiteralMemberTypeQuery = 200;");
+});
+
+it("serializes an anonymous Member type into the authoritative declaration", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "AnonymousMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const declaration = outcome.result.moduleExport.spaces.flatMap((space) =>
+    "declarations" in space ? space.declarations : [],
+  )[0]?.text;
+  expect(declaration).toContain("readonly enabled: true;");
+  expect(declaration).not.toContain("typeQueryContainer");
+});
+
+it("preserves a safe standard-library query reached through a Member", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "StandardLibraryMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const declaration = outcome.result.moduleExport.spaces.flatMap((space) =>
+    "declarations" in space ? space.declarations : [],
+  )[0]?.text;
+  expect(declaration).toBe("type StandardLibraryMemberTypeQuery = typeof Symbol.iterator;");
+  expect(outcome.result.supportingTypes).toEqual([]);
+});
+
+it("projects a package-local Symbol member instead of trusting its spelling", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "ShadowedSymbolMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const declaration = outcome.result.moduleExport.spaces.flatMap((space) =>
+    "declarations" in space ? space.declarations : [],
+  )[0]?.text;
+  expect(declaration).toContain("export type Result = ShadowedSymbolSecret;");
+  expect(declaration).not.toContain("typeof Symbol.iterator");
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toEqual(["ShadowedSymbolSecret"]);
+});
+
+it("projects a declaration-less synthetic Member type", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "SyntheticMappedMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const declaration = outcome.result.moduleExport.spaces.flatMap((space) =>
+    "declarations" in space ? space.declarations : [],
+  )[0]?.text;
+  expect(declaration).toBe("type SyntheticMappedMemberTypeQuery = MemberTypeValue;");
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toEqual(["MemberTypeValue"]);
+});
+
+it("projects a private namespace-import Member type", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "ImportedNamespaceMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const declaration = outcome.result.moduleExport.spaces.flatMap((space) =>
+    "declarations" in space ? space.declarations : [],
+  )[0]?.text;
+  expect(declaration).not.toContain("typeof InternalMemberTypes.value");
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toContain("ImportedMemberType");
+});
+
+it.each([
+  ["AnyMemberTypeQuery", "any"],
+  ["UnknownMemberTypeQuery", "unknown"],
+  ["EmptyMemberTypeQuery", "{}"],
+] as const)("serializes the exact %s Member type", async (exportName, expectedType) => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName,
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const declaration = outcome.result.moduleExport.spaces.flatMap((space) =>
+    "declarations" in space ? space.declarations : [],
+  )[0]?.text;
+  expect(declaration).toBe(`type ${exportName} = ${expectedType};`);
+});
+
+it("serializes an unqualified private namespace Member type", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "UnqualifiedMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const declaration = outcome.result.moduleExport.spaces.flatMap((space) =>
+    "declarations" in space ? space.declarations : [],
+  )[0]?.text;
+  expect(declaration).toContain("export type Result = { readonly enabled: true; };");
+  expect(declaration).not.toContain("typeof local");
+  expect(declaration).not.toContain("const local");
+});
+
+it("rejects a merged namespace class Member type that cannot be represented independently", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "NamespaceClassMemberTypeQuery",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "unsupported",
+    message: "A Member type query could not be represented independently.",
+  });
+});
+
+it("rejects a nested namespace enum Member type that cannot be represented independently", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "NamespaceEnumMemberTypeQuery",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "unsupported",
+    message: "A Member type query could not be represented independently.",
+  });
+});
+
+it("retains a standalone class reached through a Member type query", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "StandaloneClassMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toEqual([
+    "StandaloneMemberClass",
+    "MemberTypeValue",
   ]);
 });
 

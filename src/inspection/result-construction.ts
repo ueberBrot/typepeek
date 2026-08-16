@@ -1,6 +1,7 @@
 import { InspectionLimitError } from "#typepeek/inspection/errors";
 import type {
   DeclarationSpace,
+  DeclarationInspection,
   ExportAlias,
   ExportDeclarationSpace,
   ExportInspection,
@@ -9,6 +10,7 @@ import type {
   ExportSearch,
   InspectedDeclaration,
   InspectedModuleExport,
+  InspectedModuleExportDeclarations,
   InspectionPlan,
   InspectionResultIdentity,
   InterfaceOverview,
@@ -21,6 +23,7 @@ import type {
   SignatureInspection,
   SupportingType,
   AtomicInspectionResult,
+  MemberInspection,
 } from "#typepeek/inspection/protocol";
 
 const MAX_RESULT_CONSTRUCTION_BYTES = 60 * 1_024;
@@ -96,7 +99,7 @@ function constructionBudget(
 }
 
 /** Owns exact aggregate accounting and assembly for one Export Inspection. */
-export class ExportInspectionConstruction {
+export class FocusedInspectionConstruction {
   readonly #budget: ResultConstructionBudget;
   readonly #context: InspectionResultConstructionContext;
 
@@ -159,11 +162,27 @@ export class ExportInspectionConstruction {
     ]);
   }
 
+  moduleExportDeclarations(options: {
+    readonly alias?: ExportAlias;
+    readonly name: string;
+    readonly spaces: readonly ExportDeclarationSpace[];
+  }): InspectedModuleExportDeclarations {
+    const value = {
+      name: options.name,
+      ...(options.alias === undefined ? {} : { alias: options.alias }),
+      spaces: options.spaces,
+    };
+    return this.#budget.container(value, [
+      ...(options.alias === undefined ? [] : [options.alias]),
+      ...options.spaces,
+    ]);
+  }
+
   supportingType(name: string, declarations: readonly InspectedDeclaration[]): SupportingType {
     return this.#budget.container({ name, declarations }, declarations);
   }
 
-  result(
+  exportResult(
     moduleExport: InspectedModuleExport,
     supportingTypes: readonly SupportingType[],
     packageDocumentation: PackageDocumentation | undefined,
@@ -182,6 +201,38 @@ export class ExportInspectionConstruction {
       ...supportingTypes,
       ...(packageDocumentation === undefined ? [] : [packageDocumentation]),
     ]);
+  }
+
+  declarationResult(moduleExport: InspectedModuleExportDeclarations): DeclarationInspection {
+    return this.#budget.container(
+      {
+        intent: "declaration-inspection",
+        specifier: this.#context.specifier,
+        resolutionVariant: this.#context.resolutionVariant,
+        ...this.#context.identity,
+        moduleExport,
+      },
+      [moduleExport],
+    );
+  }
+
+  memberResult(
+    moduleExportName: string,
+    memberPath: readonly string[],
+    declarations: readonly InspectedDeclaration[],
+  ): MemberInspection {
+    return this.#budget.container(
+      {
+        intent: "member-inspection",
+        specifier: this.#context.specifier,
+        resolutionVariant: this.#context.resolutionVariant,
+        ...this.#context.identity,
+        moduleExportName,
+        memberPath,
+        declarations,
+      },
+      declarations,
+    );
   }
 }
 

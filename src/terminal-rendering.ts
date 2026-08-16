@@ -1,4 +1,5 @@
 import type {
+  DeclarationInspection,
   ExportDeclarationSpace,
   ExportInspection,
   ExportNamespaceMember,
@@ -7,6 +8,7 @@ import type {
   InspectionResult,
   InterfaceOverview,
   InspectionPlan,
+  MemberInspection,
   PackageIdentity,
   PublicSubpathDiscovery,
   ResolutionVariant,
@@ -58,7 +60,39 @@ function renderInspectionResult(
       return renderExportSearch(result);
     case "public-subpath-discovery":
       return renderPublicSubpathDiscovery(result);
+    case "declaration-inspection":
+      return renderDeclarationInspection(result);
+    case "member-inspection":
+      return renderMemberInspection(result);
   }
+}
+
+function renderDeclarationInspection(result: DeclarationInspection): string {
+  const alias =
+    result.moduleExport.alias === undefined
+      ? ""
+      : ` (alias of ${terminalSafeLine(result.moduleExport.alias.targetName)})`;
+  return [
+    "Declaration Inspection",
+    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
+    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
+    `Module Export: ${terminalSafeLine(result.moduleExport.name)}${alias}`,
+    ...(result.moduleExport.alias === undefined
+      ? []
+      : ["Alias Declaration:", ...renderDeclaration(result.moduleExport.alias.declaration)]),
+    "Declaration Spaces:",
+    ...result.moduleExport.spaces.flatMap(renderDeclarationSpace),
+  ].join("\n");
+}
+
+function renderMemberInspection(result: MemberInspection): string {
+  return [
+    "Member Inspection",
+    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
+    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
+    `Member: ${terminalSafeLine([result.moduleExportName, ...result.memberPath].join("."))}`,
+    ...result.declarations.flatMap(renderDeclaration),
+  ].join("\n");
 }
 
 function renderExportSearch(result: ExportSearch): string {

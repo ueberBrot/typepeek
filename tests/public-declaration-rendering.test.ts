@@ -280,6 +280,31 @@ describe("Public Interface declaration rendering", () => {
       "A source-backed default expression cannot be represented without implementation.",
     );
   });
+
+  it("charges declaration projections to one caller-owned traversal budget", () => {
+    const first = exportedDeclarations("export type First = string;", "First");
+    let reservations = 0;
+    let limit = Number.POSITIVE_INFINITY;
+    const context = {
+      moduleSymbol: first.moduleSymbol,
+      reserveTraversal: () => {
+        reservations += 1;
+        if (reservations > limit) {
+          throw new Error("aggregate projection traversal exhausted");
+        }
+      },
+      reserveTypeTraversal: () => {},
+      validatedTypes: new Set<ts.Type>(),
+    };
+    expect(
+      projectPublicDeclaration(first.checker, first.declarations[0]!, context).syntax,
+    ).toBeDefined();
+    limit = reservations;
+
+    expect(
+      () => projectPublicDeclaration(first.checker, first.declarations[0]!, context).syntax,
+    ).toThrow("aggregate projection traversal exhausted");
+  });
 });
 
 function renderExport(sourceText: string, exportName: string): string {
@@ -292,7 +317,11 @@ function renderExport(sourceText: string, exportName: string): string {
 function exportedDeclarations(
   sourceText: string,
   exportName: string,
-): { readonly checker: ts.TypeChecker; readonly declarations: readonly ts.Declaration[] } {
+): {
+  readonly checker: ts.TypeChecker;
+  readonly declarations: readonly ts.Declaration[];
+  readonly moduleSymbol: ts.Symbol;
+} {
   const fileName = "/typepeek-public-interface.ts";
   const sourceFile = ts.createSourceFile(
     fileName,
@@ -331,5 +360,5 @@ function exportedDeclarations(
   if (declarations.length === 0) {
     throw new Error(`Test source did not export ${exportName}.`);
   }
-  return { checker, declarations };
+  return { checker, declarations, moduleSymbol };
 }

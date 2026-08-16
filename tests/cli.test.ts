@@ -35,6 +35,85 @@ describe("typepeek CLI", () => {
     expect(result.stdout).toContain("plan");
     expect(result.stdout).toContain("search");
     expect(result.stdout).toContain("subpaths");
+    expect(result.stdout).toContain("declarations");
+    expect(result.stdout).toContain("member");
+  });
+
+  it("renders declaration-only inspection", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "declarations",
+      "@typepeek-fixture/focused",
+      "createWidget",
+      "--context",
+      fixture.resolutionContext,
+    ]);
+
+    expect(result.stdout).toContain("Declaration Inspection");
+    expect(result.stdout).toContain("Module Export: createWidget");
+    expect(result.stdout).not.toContain("Supporting Types");
+    expect(result.stdout).not.toContain("Signatures");
+  });
+
+  it("renders one exact public member", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "member",
+      "@typepeek-fixture/focused",
+      "PublicShape",
+      "visible",
+      "--context",
+      fixture.resolutionContext,
+    ]);
+
+    expect(result.stdout).toContain("Member Inspection");
+    expect(result.stdout).toContain("Member: PublicShape.visible");
+    expect(result.stdout).toContain("readonly visible: VisibleOnly;");
+    expect(result.stdout).not.toContain("private readonly secret");
+  });
+
+  it("preserves a dotted property name as one exact Member path segment", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "member",
+      "@typepeek-fixture/focused",
+      "PublicShape",
+      "a.b",
+      "--context",
+      fixture.resolutionContext,
+      "--json",
+    ]);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "success",
+      result: {
+        intent: "member-inspection",
+        moduleExportName: "PublicShape",
+        memberPath: ["a.b"],
+      },
+    });
+  });
+
+  it("accepts an unambiguous JSON array for a nested Member path", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "member",
+      "@typepeek-fixture/focused",
+      "NestedShape",
+      '["nested","leaf"]',
+      "--context",
+      fixture.resolutionContext,
+      "--json",
+    ]);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "success",
+      result: {
+        intent: "member-inspection",
+        moduleExportName: "NestedShape",
+        memberPath: ["nested", "leaf"],
+      },
+    });
   });
 
   it("searches Module Export names through a focused discovery command", async () => {

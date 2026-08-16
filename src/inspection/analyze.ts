@@ -3,7 +3,11 @@ import {
   StaticBoundaryInspectionError,
   UnsupportedInspectionError,
 } from "#typepeek/inspection/errors";
-import { inspectFocusedModuleExport } from "#typepeek/inspection/export-inspection";
+import {
+  inspectFocusedModuleExport,
+  inspectFocusedModuleExportDeclarations,
+  inspectFocusedModuleExportMember,
+} from "#typepeek/inspection/export-inspection";
 import {
   type InspectableModuleEvidence,
   type InspectableModuleDiscoveryEvidence,
@@ -94,7 +98,14 @@ function inspectionQuery(analysisRequest: AnalysisRequest): InspectionPlanQuery 
       return { intent: analysisRequest.intent };
     case "export-inspection":
     case "signature-inspection":
+    case "declaration-inspection":
       return { intent: analysisRequest.intent, exportName: analysisRequest.request.exportName };
+    case "member-inspection":
+      return {
+        intent: analysisRequest.intent,
+        exportName: analysisRequest.request.exportName,
+        memberPath: analysisRequest.request.memberPath,
+      };
     case "export-search":
       return { intent: analysisRequest.intent, query: analysisRequest.request.query };
     case "public-subpath-discovery":
@@ -157,39 +168,128 @@ function inspectEvidenceQuery(
   query: InspectionPlanQuery,
   constructionContext: InspectionResultConstructionContext,
 ): AtomicInspectionResult | InspectionFailure {
-  if (query.intent === "export-inspection") {
-    const result = inspectFocusedModuleExport(evidence, query.exportName, constructionContext);
-    return result === undefined
-      ? missingExportOutcome(query.exportName, constructionContext.specifier)
-      : result;
-  }
+  const handler = INSPECTION_QUERY_HANDLERS[query.intent] as EvidenceQueryHandler;
+  return handler(evidence, query, constructionContext);
+}
 
-  if (query.intent === "signature-inspection") {
-    const result = inspectModuleExportSignatures(evidence, query.exportName, constructionContext);
-    return result === undefined
-      ? missingExportOutcome(query.exportName, constructionContext.specifier)
-      : result;
-  }
+type EvidenceQueryResult = AtomicInspectionResult | InspectionFailure;
+type EvidenceQueryHandler<Query extends InspectionPlanQuery = InspectionPlanQuery> = (
+  evidence: InspectableModuleEvidence,
+  query: Query,
+  context: InspectionResultConstructionContext,
+) => EvidenceQueryResult;
 
-  if (query.intent === "export-search") {
-    const search = searchModuleExports(evidence, query.query);
-    return constructExportSearch(
-      constructionContext,
-      query.query,
-      search.totalModuleExports,
-      search.matches,
-    );
-  }
+const INSPECTION_QUERY_HANDLERS = {
+  "interface-overview": inspectInterfaceOverviewQuery,
+  "export-inspection": inspectExportQuery,
+  "signature-inspection": inspectSignatureQuery,
+  "declaration-inspection": inspectDeclarationQuery,
+  "member-inspection": inspectMemberQuery,
+  "export-search": inspectExportSearchQuery,
+  "public-subpath-discovery": inspectPublicSubpathQuery,
+} as const satisfies {
+  readonly [Intent in InspectionPlanQuery["intent"]]: EvidenceQueryHandler<
+    Extract<InspectionPlanQuery, { readonly intent: Intent }>
+  >;
+};
 
-  if (query.intent === "public-subpath-discovery") {
-    return constructPublicSubpathDiscovery(constructionContext, evidence.publicSubpaths);
-  }
-
+function inspectInterfaceOverviewQuery(
+  evidence: InspectableModuleEvidence,
+  _query: Extract<InspectionPlanQuery, { readonly intent: "interface-overview" }>,
+  context: InspectionResultConstructionContext,
+): EvidenceQueryResult {
   return constructInterfaceOverview(
-    constructionContext,
+    context,
     evidence.publicSubpaths,
     inspectModuleExports(evidence),
   );
+}
+
+function inspectExportQuery(
+  evidence: InspectableModuleEvidence,
+  query: Extract<InspectionPlanQuery, { readonly intent: "export-inspection" }>,
+  context: InspectionResultConstructionContext,
+): EvidenceQueryResult {
+  return focusedQueryResult(
+    inspectFocusedModuleExport(evidence, query.exportName, context),
+    query.exportName,
+    context.specifier,
+  );
+}
+
+function inspectSignatureQuery(
+  evidence: InspectableModuleEvidence,
+  query: Extract<InspectionPlanQuery, { readonly intent: "signature-inspection" }>,
+  context: InspectionResultConstructionContext,
+): EvidenceQueryResult {
+  return focusedQueryResult(
+    inspectModuleExportSignatures(evidence, query.exportName, context),
+    query.exportName,
+    context.specifier,
+  );
+}
+
+function inspectDeclarationQuery(
+  evidence: InspectableModuleEvidence,
+  query: Extract<InspectionPlanQuery, { readonly intent: "declaration-inspection" }>,
+  context: InspectionResultConstructionContext,
+): EvidenceQueryResult {
+  return focusedQueryResult(
+    inspectFocusedModuleExportDeclarations(evidence, query.exportName, context),
+    query.exportName,
+    context.specifier,
+  );
+}
+
+function focusedQueryResult(
+  result: AtomicInspectionResult | undefined,
+  exportName: string,
+  specifier: string,
+): EvidenceQueryResult {
+  return result ?? missingExportOutcome(exportName, specifier);
+}
+
+function inspectMemberQuery(
+  evidence: InspectableModuleEvidence,
+  query: Extract<InspectionPlanQuery, { readonly intent: "member-inspection" }>,
+  context: InspectionResultConstructionContext,
+): EvidenceQueryResult {
+  const outcome = inspectFocusedModuleExportMember(
+    evidence,
+    query.exportName,
+    query.memberPath,
+    context,
+  );
+  if (outcome.status === "success") {
+    return outcome.result;
+  }
+  if (outcome.status === "export-not-found") {
+    return missingExportOutcome(query.exportName, context.specifier);
+  }
+  if (outcome.status === "ambiguous-member") {
+    return ambiguousMemberOutcome(query.exportName, query.memberPath);
+  }
+  if (outcome.status === "unsupported-member") {
+    return unsupportedMemberOutcome(query.exportName, query.memberPath);
+  }
+  return missingMemberOutcome(query.exportName, query.memberPath, context.specifier);
+}
+
+function inspectExportSearchQuery(
+  evidence: InspectableModuleEvidence,
+  query: Extract<InspectionPlanQuery, { readonly intent: "export-search" }>,
+  context: InspectionResultConstructionContext,
+): EvidenceQueryResult {
+  const search = searchModuleExports(evidence, query.query);
+  return constructExportSearch(context, query.query, search.totalModuleExports, search.matches);
+}
+
+function inspectPublicSubpathQuery(
+  evidence: InspectableModuleEvidence,
+  _query: Extract<InspectionPlanQuery, { readonly intent: "public-subpath-discovery" }>,
+  context: InspectionResultConstructionContext,
+): EvidenceQueryResult {
+  return constructPublicSubpathDiscovery(context, evidence.publicSubpaths);
 }
 
 function evidenceInspection(
@@ -198,9 +298,16 @@ function evidenceInspection(
   switch (analysisRequest.intent) {
     case "export-inspection":
     case "signature-inspection":
+    case "declaration-inspection":
       return {
         intent: analysisRequest.intent,
         exportName: analysisRequest.request.exportName,
+      };
+    case "member-inspection":
+      return {
+        intent: analysisRequest.intent,
+        exportName: analysisRequest.request.exportName,
+        memberPath: analysisRequest.request.memberPath,
       };
     case "interface-overview":
       return { intent: analysisRequest.intent };
@@ -226,6 +333,37 @@ function missingExportOutcome(exportName: string, specifier: string): Inspection
   return {
     status: "not-found",
     message: `Module Export "${exportName}" was not found in "${specifier}".`,
+  };
+}
+
+function missingMemberOutcome(
+  exportName: string,
+  memberPath: readonly string[],
+  specifier: string,
+): InspectionFailure {
+  return {
+    status: "not-found",
+    message: `Public Member "${[exportName, ...memberPath].join(".")}" was not found in "${specifier}".`,
+  };
+}
+
+function ambiguousMemberOutcome(
+  exportName: string,
+  memberPath: readonly string[],
+): InspectionFailure {
+  return {
+    status: "unsupported",
+    message: `Public Member "${[exportName, ...memberPath].join(".")}" is ambiguous across declaration spaces.`,
+  };
+}
+
+function unsupportedMemberOutcome(
+  exportName: string,
+  memberPath: readonly string[],
+): InspectionFailure {
+  return {
+    status: "unsupported",
+    message: `Public Member "${[exportName, ...memberPath].join(".")}" has no declaration-safe static representation.`,
   };
 }
 

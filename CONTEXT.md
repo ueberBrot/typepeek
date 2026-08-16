@@ -57,12 +57,20 @@ A bounded focused Inspection Result containing every statically visible public c
 Each signature keeps the compiler rendering plus structured type parameters, an explicit `this` parameter, ordinary parameters, and return or predicate semantics.
 _Avoid_: partial Export Inspection, fallback result
 
+**Declaration Inspection**:
+A bounded focused Inspection Result containing the complete declaration spaces of one Module Export while intentionally omitting signatures, Supporting Types, and Package Documentation. It is authoritative for the selected Module Export's declarations in one Resolution Variant rather than a partial Export Inspection.
+_Avoid_: stripped Export Inspection, declaration preview
+
+**Member Inspection**:
+A bounded focused Inspection Result containing the complete public declarations for one exact Member path beneath a Module Export. It resolves only that path and omits unrelated Members, Supporting Types, signatures, and Package Documentation.
+_Avoid_: member search, object traversal, runtime property lookup
+
 **Inspection Plan**:
 A bounded ordered set of inspection queries for one Specifier, Resolution Context, and Access Style. It shares one Installed Evidence selection and compiler-work budget, and succeeds only when every query produces its complete Inspection Result in the same order. Any failure or aggregate budget exhaustion fails the whole plan without partial authority.
 _Avoid_: session, batch of independent inspections, partial plan
 
 **Inspection Result**:
-A bounded, deterministic presentation of Installed Evidence for an Interface Overview, Module Export Search, Public Subpath Discovery, Export Inspection, Signature Inspection, or atomic Inspection Plan. It describes one Resolution Variant and contains no generated explanation, usage example, or behavioral claim.
+A bounded, deterministic presentation of Installed Evidence for an Interface Overview, Module Export Search, Public Subpath Discovery, Export Inspection, Signature Inspection, Declaration Inspection, Member Inspection, or atomic Inspection Plan. It describes one Resolution Variant and contains no generated explanation, usage example, or behavioral claim.
 _Avoid_: answer, summary
 
 **Resolution Context**:

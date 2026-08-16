@@ -5,8 +5,10 @@ import {
   inspectionProfilingEnabled,
 } from "#typepeek/inspection/performance-profile";
 import {
+  enforceDeclarationInspectionOutcome,
   enforceInspectionOutcome,
   enforceInspectionPlanOutcome,
+  enforceMemberInspectionOutcome,
   type AnalysisRequest,
   type InspectionOutcome,
 } from "#typepeek/inspection/protocol";
@@ -137,9 +139,16 @@ async function runProcess(
 }
 
 function enforceAnalysisOutcome(request: AnalysisRequest, value: unknown): InspectionOutcome {
-  return request.intent === "inspection-plan"
-    ? enforceInspectionPlanOutcome(request.request.queries, value)
-    : enforceInspectionOutcome(request.intent, value);
+  if (request.intent === "inspection-plan") {
+    return enforceInspectionPlanOutcome(request.request, value);
+  }
+  if (request.intent === "declaration-inspection") {
+    return enforceDeclarationInspectionOutcome(request.request, value);
+  }
+  if (request.intent === "member-inspection") {
+    return enforceMemberInspectionOutcome(request.request, value);
+  }
+  return enforceInspectionOutcome(request.intent, value);
 }
 
 function analysisProcessEntryUrl(): URL {

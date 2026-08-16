@@ -10,6 +10,8 @@ import { resolve } from "node:path";
 
 import {
   inspectExport,
+  inspectExportDeclarations,
+  inspectExportMember,
   inspectExportSearch,
   inspectExportSignatures,
   inspectInterfaceOverview,
@@ -18,6 +20,7 @@ import {
 } from "#typepeek/inspection";
 import type { InspectionPlanQuery, InspectionResult } from "#typepeek/inspection";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
+import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { renderJsonOutcome } from "#typepeek/json-rendering";
 import { serializeTerminalSafeJson, terminalSafeLine } from "#typepeek/output-safety";
@@ -42,6 +45,8 @@ const INSPECTION_COMMANDS = new Set([
   "plan",
   "search",
   "subpaths",
+  "declarations",
+  "member",
 ]);
 const INVALID_INVOCATION_EXIT_CODES = new Set([-5, -4]);
 
@@ -163,6 +168,12 @@ const exportSearchQueryParameter = {
   placeholder: "query",
 } as const;
 
+const memberPathParameter = {
+  parse: parseMemberPath,
+  brief: "One exact Member name or a JSON string array for a nested Member path.",
+  placeholder: "member-path",
+} as const;
+
 const inspectionPlanQueriesParameter = {
   parse: parseInspectionPlanQueries,
   brief: "Bounded JSON array of overview, focused, search, or subpath inspection queries.",
@@ -257,6 +268,59 @@ const signaturesCommand = buildCommand<
   },
 });
 
+const declarationsCommand = buildCommand<
+  InspectionTargetOptions,
+  [string, string],
+  ApplicationContext
+>({
+  async func(options, specifier, exportName) {
+    const outcome = await inspectExportDeclarations({
+      ...inspectionRequest(options, specifier),
+      exportName,
+    });
+    return writeCliOutcome(this, options, outcome);
+  },
+  parameters: {
+    flags: inspectionTargetFlags,
+    positional: {
+      kind: "tuple",
+      parameters: [specifierParameter, exportNameParameter],
+    },
+  },
+  docs: {
+    brief: "Inspect only the declarations of one Module Export.",
+    fullDescription:
+      "Example: typepeek declarations zod ZodError --context . avoids Signature and Supporting Type traversal.",
+  },
+});
+
+const memberCommand = buildCommand<
+  InspectionTargetOptions,
+  [string, string, readonly string[]],
+  ApplicationContext
+>({
+  async func(options, specifier, exportName, memberPath) {
+    const outcome = await inspectExportMember({
+      ...inspectionRequest(options, specifier),
+      exportName,
+      memberPath,
+    });
+    return writeCliOutcome(this, options, outcome);
+  },
+  parameters: {
+    flags: inspectionTargetFlags,
+    positional: {
+      kind: "tuple",
+      parameters: [specifierParameter, exportNameParameter, memberPathParameter],
+    },
+  },
+  docs: {
+    brief: "Inspect exactly one public Member path of a Module Export.",
+    fullDescription:
+      "Example: typepeek member zod ZodError issues --context . avoids unrelated declaration traversal.",
+  },
+});
+
 const planCommand = buildCommand<
   InspectionTargetOptions,
   [string, readonly InspectionPlanQuery[]],
@@ -332,12 +396,14 @@ const rootRoute = buildRouteMap({
     plan: planCommand,
     search: searchCommand,
     subpaths: subpathsCommand,
+    declarations: declarationsCommand,
+    member: memberCommand,
   },
   defaultCommand: "overview",
   docs: {
     brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
     fullDescription:
-      "Use overview to discover exports; use search or subpaths for lighter discovery, signatures for parameters, export for declarations and Supporting Types, or plan to share one evidence snapshot. Common flags may precede or follow an explicit command.",
+      "Use overview to discover exports; use search or subpaths for lighter discovery, declarations or member for narrow declaration questions, signatures for parameters, export for declarations and Supporting Types, or plan to share one evidence snapshot. Common flags may precede or follow an explicit command.",
   },
 });
 
@@ -518,6 +584,24 @@ function parseAccessStyle(input: string): "import" | "require" {
   throw new Error('Access Style must be "import" or "require".');
 }
 
+function parseMemberPath(input: string): readonly string[] {
+  const memberPath = readBoundedMemberPath(
+    input.startsWith("[") ? parseMemberPathJson(input) : [input],
+  );
+  if (memberPath === undefined) {
+    throw new Error("Member path must contain from 1 through 16 bounded non-empty segments.");
+  }
+  return memberPath;
+}
+
+function parseMemberPathJson(input: string): unknown {
+  try {
+    return JSON.parse(input) as unknown;
+  } catch {
+    throw new Error("Member path must be a valid JSON string array.");
+  }
+}
+
 function parseInspectionPlanQueries(input: string): readonly InspectionPlanQuery[] {
   if (Buffer.byteLength(input) > MAX_PLAN_QUERY_JSON_BYTES) {
     throw new Error("Inspection Plan query JSON exceeds its input limit.");
@@ -559,6 +643,8 @@ const INSPECTION_PLAN_QUERY_INTENTS = new Set<InspectionPlanQuery["intent"]>([
   "signature-inspection",
   "export-search",
   "public-subpath-discovery",
+  "declaration-inspection",
+  "member-inspection",
 ]);
 
 const INSPECTION_PLAN_QUERY_PARSERS = {
@@ -569,6 +655,9 @@ const INSPECTION_PLAN_QUERY_PARSERS = {
     parseFocusedInspectionPlanQuery("export-inspection", value["exportName"]),
   "signature-inspection": (value) =>
     parseFocusedInspectionPlanQuery("signature-inspection", value["exportName"]),
+  "declaration-inspection": (value) =>
+    parseFocusedInspectionPlanQuery("declaration-inspection", value["exportName"]),
+  "member-inspection": (value) => parseMemberInspectionPlanQuery(value),
 } as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryParser>>;
 
 function isInspectionPlanQueryIntent(value: unknown): value is InspectionPlanQuery["intent"] {
@@ -586,13 +675,24 @@ function parseExportSearchInspectionPlanQuery(query: unknown): InspectionPlanQue
 }
 
 function parseFocusedInspectionPlanQuery(
-  intent: "export-inspection" | "signature-inspection",
+  intent: "export-inspection" | "signature-inspection" | "declaration-inspection",
   exportName: unknown,
 ): InspectionPlanQuery {
   if (typeof exportName !== "string") {
     throw new Error("Each focused Inspection Plan query requires a string exportName.");
   }
   return { intent, exportName };
+}
+
+function parseMemberInspectionPlanQuery(
+  value: Readonly<Record<string, unknown>>,
+): InspectionPlanQuery {
+  const exportName = value["exportName"];
+  const memberPath = readBoundedMemberPath(value["memberPath"]);
+  if (typeof exportName !== "string" || memberPath === undefined) {
+    throw new Error("Each Member Inspection query requires an exportName and memberPath.");
+  }
+  return { intent: "member-inspection", exportName, memberPath };
 }
 
 function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {

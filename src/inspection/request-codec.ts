@@ -1,3 +1,4 @@
+import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import type {
   AccessStyle,
   AnalysisRequest,
@@ -10,6 +11,8 @@ import type {
   NormalizedExportSearchRequest,
   NormalizedInterfaceOverviewRequest,
   NormalizedInspectionPlanRequest,
+  NormalizedDeclarationInspectionRequest,
+  NormalizedMemberInspectionRequest,
   NormalizedPublicSubpathDiscoveryRequest,
   NormalizedSignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
@@ -43,6 +46,14 @@ const INVALID_REQUEST_OUTCOMES = {
     status: "unsupported",
     message: "Inspection received an invalid Public Subpath Discovery request.",
   },
+  "declaration-inspection": {
+    status: "unsupported",
+    message: "Inspection received an invalid Declaration Inspection request.",
+  },
+  "member-inspection": {
+    status: "unsupported",
+    message: "Inspection received an invalid Member Inspection request.",
+  },
 } as const satisfies Readonly<Record<InspectionResult["intent"], InspectionFailure>>;
 
 const MAX_INSPECTION_PLAN_QUERIES = 16;
@@ -60,6 +71,8 @@ const INSPECTION_INTENTS = new Set<InspectionResult["intent"]>([
   "inspection-plan",
   "export-search",
   "public-subpath-discovery",
+  "declaration-inspection",
+  "member-inspection",
 ]);
 const INSPECTION_PLAN_QUERY_INTENTS = new Set<InspectionPlanQuery["intent"]>([
   "interface-overview",
@@ -67,6 +80,8 @@ const INSPECTION_PLAN_QUERY_INTENTS = new Set<InspectionPlanQuery["intent"]>([
   "signature-inspection",
   "export-search",
   "public-subpath-discovery",
+  "declaration-inspection",
+  "member-inspection",
 ]);
 
 /** Snapshots and validates one untrusted caller request without loading the outcome codec. */
@@ -95,18 +110,21 @@ export function readInspectionRequest(
   value: unknown,
 ): InspectionRequestReading<NormalizedPublicSubpathDiscoveryRequest>;
 export function readInspectionRequest(
+  intent: "declaration-inspection",
+  value: unknown,
+): InspectionRequestReading<NormalizedDeclarationInspectionRequest>;
+export function readInspectionRequest(
+  intent: "member-inspection",
+  value: unknown,
+): InspectionRequestReading<NormalizedMemberInspectionRequest>;
+export function readInspectionRequest(
   intent: InspectionResult["intent"],
   value: unknown,
 ): InspectionRequestReading<AnalysisRequest["request"]>;
 export function readInspectionRequest(
   intent: InspectionResult["intent"],
   value: unknown,
-):
-  | InspectionRequestReading<NormalizedInterfaceOverviewRequest>
-  | InspectionRequestReading<NormalizedExportInspectionRequest>
-  | InspectionRequestReading<NormalizedSignatureInspectionRequest>
-  | InspectionRequestReading<NormalizedInspectionPlanRequest>
-  | InspectionRequestReading<NormalizedExportSearchRequest> {
+): InspectionRequestReading<AnalysisRequest["request"]> {
   try {
     const candidate = snapshotRecord(value);
     const target = candidate === undefined ? undefined : readInspectionTarget(candidate);
@@ -129,9 +147,16 @@ export function readInspectionRequest(
         : { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
     }
     const exportName = candidate?.["exportName"];
-    return typeof exportName === "string"
-      ? { accepted: true, request: { ...target, exportName } }
-      : { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
+    if (typeof exportName !== "string") {
+      return { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
+    }
+    if (intent !== "member-inspection") {
+      return { accepted: true, request: { ...target, exportName } };
+    }
+    const memberPath = readBoundedMemberPath(candidate?.["memberPath"]);
+    return memberPath === undefined
+      ? { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] }
+      : { accepted: true, request: { ...target, exportName, memberPath } };
   } catch {
     return { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
   }
@@ -168,6 +193,8 @@ const ANALYSIS_REQUEST_READERS = {
   "inspection-plan": analysisRequestReader("inspection-plan"),
   "export-search": analysisRequestReader("export-search"),
   "public-subpath-discovery": analysisRequestReader("public-subpath-discovery"),
+  "declaration-inspection": analysisRequestReader("declaration-inspection"),
+  "member-inspection": analysisRequestReader("member-inspection"),
 } as const satisfies Readonly<Record<InspectionResult["intent"], AnalysisRequestReader>>;
 
 function analysisRequestReader(intent: InspectionResult["intent"]): AnalysisRequestReader {
@@ -237,14 +264,26 @@ const INSPECTION_PLAN_QUERY_READERS = {
   },
   "export-inspection": (value) => readFocusedPlanQuery("export-inspection", value),
   "signature-inspection": (value) => readFocusedPlanQuery("signature-inspection", value),
+  "declaration-inspection": (value) => readFocusedPlanQuery("declaration-inspection", value),
+  "member-inspection": (value) => readMemberPlanQuery(value),
 } as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryReader>>;
 
 function readFocusedPlanQuery(
-  intent: "export-inspection" | "signature-inspection",
+  intent: "export-inspection" | "signature-inspection" | "declaration-inspection",
   value: Readonly<Record<string, unknown>>,
 ): InspectionPlanQuery | undefined {
   const exportName = value["exportName"];
   return typeof exportName === "string" ? { intent, exportName } : undefined;
+}
+
+function readMemberPlanQuery(
+  value: Readonly<Record<string, unknown>>,
+): InspectionPlanQuery | undefined {
+  const exportName = value["exportName"];
+  const memberPath = readBoundedMemberPath(value["memberPath"]);
+  return typeof exportName === "string" && memberPath !== undefined
+    ? { intent: "member-inspection", exportName, memberPath }
+    : undefined;
 }
 
 function isInspectionPlanQueryIntent(value: unknown): value is InspectionPlanQuery["intent"] {
