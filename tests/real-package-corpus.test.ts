@@ -16,6 +16,10 @@ interface CorpusQuestion {
   readonly accessStyle?: "import" | "require";
   readonly context?: "legacy" | "root";
   readonly expectedExport?: string;
+  readonly expectedInspectionFailure?: {
+    readonly message: string;
+    readonly status: "limit-exceeded";
+  };
   readonly expectedPackage?: string;
   readonly expectedProvider?: string;
   readonly expectedSurface?: RegExp;
@@ -146,6 +150,10 @@ const QUESTIONS: readonly CorpusQuestion[] = [
     exportName: "json",
     expectedPackage: "express",
     expectedProvider: "@types/express",
+    expectedInspectionFailure: {
+      status: "limit-exceeded",
+      message: "Inspection exceeded its Supporting Type depth limit.",
+    },
     expectedSurface: /json/u,
     probeSignatures: true,
     probe: 'import { json } from "express"; const middleware = json(); void middleware;',
@@ -429,6 +437,10 @@ function assertCorpusOutcome(
   expectedPackageIdentity: string | undefined,
   expectedProviderIdentity: string | undefined,
 ): void {
+  if (question.expectedInspectionFailure !== undefined) {
+    expect(outcome).toMatchObject(question.expectedInspectionFailure);
+    return;
+  }
   expect(outcome.status, JSON.stringify(outcome)).toBe("success");
   if (outcome.status === "success") {
     assertCorpusResult(outcome.result, question, expectedPackageIdentity, expectedProviderIdentity);

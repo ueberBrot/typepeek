@@ -52,6 +52,14 @@ const MAX_SUPPORTING_TYPES = 96;
 const MAX_SUPPORTING_TRAVERSAL_DEPTH = 64;
 const MAX_SUPPORTING_TRAVERSAL_NODES = 20_000;
 const MAX_INFERRED_TYPE_NODES = 4_096;
+const MEMBER_CONTAINER_KINDS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.ClassDeclaration,
+  ts.SyntaxKind.ClassExpression,
+  ts.SyntaxKind.EnumDeclaration,
+  ts.SyntaxKind.InterfaceDeclaration,
+  ts.SyntaxKind.ObjectLiteralExpression,
+  ts.SyntaxKind.TypeLiteral,
+]);
 
 const DECLARATION_KIND_BY_SYNTAX_KIND = new Map<ts.SyntaxKind, DeclarationKind>([
   [ts.SyntaxKind.ClassDeclaration, "class"],
@@ -627,7 +635,12 @@ function inspectSupportingTypes(
     depth: number,
   ): boolean => {
     const resolvedSymbol = resolveFocusedExportTarget(evidence.checker, symbol);
-    const declarations = unvisitedSupportingDeclarations(resolvedSymbol, referenceKind, visited);
+    const declarations = unvisitedSupportingDeclarations(
+      evidence,
+      resolvedSymbol,
+      referenceKind,
+      visited,
+    );
     if (declarations.length === 0) {
       return false;
     }
@@ -658,6 +671,10 @@ function inspectSupportingTypes(
   const inspectReference = (reference: SupportingReference, depth: number): void => {
     const referenced = evidence.checker.getSymbolAtLocation(reference.location);
     if (referenced === undefined) {
+      return;
+    }
+    if (referenceTargetsMember(evidence, reference, referenced)) {
+      inspectInferredType(evidence.checker.getTypeAtLocation(reference.location), depth);
       return;
     }
     inspectSymbol(referenced, reference.kind, depth);
@@ -704,11 +721,12 @@ function shouldExpandSupporting(
 }
 
 function unvisitedSupportingDeclarations(
+  evidence: InspectableModuleEvidence,
   symbol: ts.Symbol,
   referenceKind: SupportingReferenceKind,
   visited: ReadonlySet<ts.Symbol>,
 ): readonly ts.Declaration[] {
-  return visited.has(symbol) ? [] : supportingTypeDeclarations(symbol, referenceKind);
+  return visited.has(symbol) ? [] : supportingTypeDeclarations(evidence, symbol, referenceKind);
 }
 
 function inferredTypeSymbol(type: ts.Type): ts.Symbol | undefined {
@@ -775,6 +793,7 @@ function reserveInferredTypeTraversal(traversal: SupportingTraversalState, depth
 }
 
 function supportingTypeDeclarations(
+  evidence: InspectableModuleEvidence,
   symbol: ts.Symbol,
   referenceKind: SupportingReferenceKind,
 ): readonly ts.Declaration[] {
@@ -784,16 +803,55 @@ function supportingTypeDeclarations(
     (declaration) =>
       !isTypeScriptStandardLibraryDeclaration(declaration.getSourceFile().fileName) &&
       (referenceKind === "type-query"
-        ? supportsTypeQuery(declaration)
+        ? supportsTypeQuery(evidence, declaration)
         : isNamedTypeDeclaration(declaration)),
   );
   assertDeclarationLimit(declarations);
   return declarations;
 }
 
-function supportsTypeQuery(declaration: ts.Declaration): boolean {
+function supportsTypeQuery(
+  evidence: InspectableModuleEvidence,
+  declaration: ts.Declaration,
+): boolean {
   const kind = declarationKind(declaration);
-  return kind === undefined ? false : DECLARATION_POLICY_BY_KIND[kind].supportsTypeQuery;
+  if (kind === undefined) {
+    return false;
+  }
+  return (
+    DECLARATION_POLICY_BY_KIND[kind].supportsTypeQuery &&
+    !declarationOwnerIsMember(evidence, declaration)
+  );
+}
+
+function referenceTargetsMember(
+  evidence: InspectableModuleEvidence,
+  reference: SupportingReference,
+  symbol: ts.Symbol,
+): boolean {
+  if (reference.kind !== "type-query") {
+    return false;
+  }
+  if (ts.isQualifiedName(reference.location)) {
+    return true;
+  }
+  return (symbol.declarations ?? []).some((declaration) =>
+    declarationOwnerIsMember(evidence, declaration),
+  );
+}
+
+function declarationOwnerIsMember(evidence: InspectableModuleEvidence, node: ts.Node): boolean {
+  const parent = node.parent;
+  if (parent === undefined || ts.isSourceFile(parent)) {
+    return false;
+  }
+  if (ts.isModuleBlock(parent)) {
+    return evidence.checker.getSymbolAtLocation(parent.parent.name) !== evidence.moduleSymbol;
+  }
+  if (MEMBER_CONTAINER_KINDS.has(parent.kind)) {
+    return true;
+  }
+  return declarationOwnerIsMember(evidence, parent);
 }
 
 function isNamedTypeDeclaration(

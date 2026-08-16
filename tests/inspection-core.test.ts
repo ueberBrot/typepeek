@@ -1353,7 +1353,7 @@ it("follows value declarations and their shapes referenced through typeof", asyn
   ]);
 });
 
-it("does not treat a referenced Member declaration as a Supporting Type", async () => {
+it("follows a referenced Member's type without representing the Member as a Supporting Type", async () => {
   const outcome = await inspectExport({
     resolutionContext: fixture.resolutionContext,
     specifier: "@typepeek-fixture/focused",
@@ -1364,7 +1364,34 @@ it("does not treat a referenced Member declaration as a Supporting Type", async 
   if (outcome.status !== "success") {
     return;
   }
-  expect(outcome.result.supportingTypes).toEqual([]);
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toEqual(["MemberTypeValue"]);
+});
+
+it("bounds Supporting Type traversal reached through a Member", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "DeepMemberTypeQuery",
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    message: "Inspection exceeded its Supporting Type depth limit.",
+  });
+});
+
+it("does not represent a namespace Member value declaration as a Supporting Type", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "NamespaceMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toEqual(["MemberTypeValue"]);
 });
 
 it("preserves nested namespace ownership", async () => {
