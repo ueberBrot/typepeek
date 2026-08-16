@@ -52,6 +52,11 @@ export interface InspectableModuleEvidence {
   };
 }
 
+export interface InspectableModuleDiscoveryEvidence {
+  readonly resultIdentity: InspectionResultIdentity;
+  readonly publicSubpaths: readonly PublicSubpath[];
+}
+
 interface DeclarationProviderSelectionBase {
   readonly compilerWorkSession: CompilerWorkSession;
   readonly resolutionContextDirectory: string;
@@ -99,6 +104,24 @@ export function readInspectableModuleEvidence(
     : profileInspectionPhase("program-materialization", () =>
         materializeInspectableModule(selection, inspection),
       );
+}
+
+/** Resolves package identity and manifest Public Subpaths without creating a TypeScript program. */
+export function readInspectableModuleDiscoveryEvidence(
+  request: NormalizedInspectionTarget,
+): InspectableModuleDiscoveryEvidence | undefined {
+  assertAbsoluteResolutionContext(request.resolutionContext);
+  const selection = profileInspectionPhase("declaration-provider-selection", () =>
+    selectDeclarationProvider(request, createCompilerWorkSession()),
+  );
+  return selection === undefined
+    ? undefined
+    : {
+        resultIdentity: selection.resultIdentity,
+        get publicSubpaths() {
+          return selection.readPublicSubpaths();
+        },
+      };
 }
 
 function selectDeclarationProvider(
@@ -168,10 +191,20 @@ function selectPackageDeclarationProvider(
       declarationPackage,
       canonicalPackageRoot,
     ),
-    readPublicSubpaths: resolutionVariant.readPublicSubpaths,
+    readPublicSubpaths: memoizePublicSubpaths(resolutionVariant.readPublicSubpaths),
     supportingTypeScope: { kind: "package" },
     providerIdentity: declarationPackage.identity,
     readNodeDeclarationProvider: () => visibleNodeDeclarationProvider(request, compilerWorkSession),
+  };
+}
+
+function memoizePublicSubpaths(
+  readPublicSubpaths: () => readonly PublicSubpath[],
+): () => readonly PublicSubpath[] {
+  let publicSubpaths: readonly PublicSubpath[] | undefined;
+  return () => {
+    publicSubpaths ??= readPublicSubpaths();
+    return publicSubpaths;
   };
 }
 

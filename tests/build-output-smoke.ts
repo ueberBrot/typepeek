@@ -58,6 +58,8 @@ const inspectionApi = (await import(inspectionApiPath)) as {
     readonly specifier: string;
     readonly queries: readonly { readonly intent: "interface-overview" }[];
   }) => Promise<unknown>;
+  readonly inspectExportSearch: unknown;
+  readonly inspectPublicSubpaths: unknown;
 };
 const outcome = await inspectionApi.inspectExportSignatures({
   resolutionContext: resolve("."),
@@ -75,3 +77,5 @@ assert.equal(
   "success",
   JSON.stringify(planOutcome),
 );
+assert.equal(typeof inspectionApi.inspectExportSearch, "function");
+assert.equal(typeof inspectionApi.inspectPublicSubpaths, "function");

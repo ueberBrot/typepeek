@@ -4,9 +4,11 @@ import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
 import {
   inspectExport,
+  inspectExportSearch,
   inspectExportSignatures,
   inspectInterfaceOverview,
   inspectPlan,
+  inspectPublicSubpaths,
 } from "#typepeek/inspection";
 import { analyzeInspection } from "#typepeek/inspection/analyze";
 
@@ -30,6 +32,8 @@ it("executes one atomic inspection plan over shared Installed Evidence", async (
       { intent: "interface-overview" },
       { intent: "signature-inspection", exportName: "detailed" },
       { intent: "export-inspection", exportName: "createWidget" },
+      { intent: "export-search", query: "error" },
+      { intent: "public-subpath-discovery" },
     ],
   });
 
@@ -41,6 +45,8 @@ it("executes one atomic inspection plan over shared Installed Evidence", async (
         { intent: "interface-overview" },
         { intent: "signature-inspection", moduleExport: { name: "detailed" } },
         { intent: "export-inspection", moduleExport: { name: "createWidget" } },
+        { intent: "export-search", query: "error" },
+        { intent: "public-subpath-discovery" },
       ],
     },
   });
@@ -79,6 +85,61 @@ it("applies one aggregate result-construction budget to an inspection plan", asy
 
   expect(analyzeInspection({ intent: "inspection-plan", request })).toEqual(expected);
   await expect(inspectPlan(request)).resolves.toEqual(expected);
+});
+
+it("searches Module Export names without returning a complete Interface Overview", async () => {
+  const outcome = await inspectExportSearch({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    query: "error",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "export-search",
+      query: "error",
+      matches: [{ name: "ErrorFactory" }, { name: "InheritedError" }, { name: "TransitiveError" }],
+    },
+  });
+  if (outcome.status === "success") {
+    expect(outcome.result.totalModuleExports).toBeGreaterThan(outcome.result.matches.length);
+  }
+});
+
+it("searches a broad Module Export index that exceeds the overview limit", async () => {
+  const outcome = await inspectExportSearch({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/broad",
+    query: "item320",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      totalModuleExports: 321,
+      matches: [{ name: "item320" }],
+    },
+  });
+});
+
+it("discovers Public Subpaths without materializing a TypeScript program", async () => {
+  const outcome = await inspectPublicSubpaths({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/conditional",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "public-subpath-discovery",
+      publicSubpaths: [
+        { specifier: "@typepeek-fixture/conditional/feature" },
+        { specifier: "@typepeek-fixture/conditional/nested/feature" },
+        { specifier: "@typepeek-fixture/conditional/patterns/red" },
+      ],
+    },
+  });
 });
 
 it("fails explicitly before an oversized request crosses the analysis process seam", async () => {

@@ -4,15 +4,50 @@ import {
   enforceInspectionPlanOutcome,
   type ExportInspection,
   type ExportInspectionRequest,
+  type ExportSearch,
+  type ExportSearchRequest,
   type InspectionOutcome,
   type InspectionPlan,
   type InspectionPlanRequest,
   type InterfaceOverview,
   type InterfaceOverviewRequest,
+  type PublicSubpathDiscovery,
+  type PublicSubpathDiscoveryRequest,
   type SignatureInspection,
   type SignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
 import { readInspectionRequest } from "#typepeek/inspection/request-codec";
+
+/** Searches the bounded Module Export index without returning Public Subpaths. */
+export async function inspectExportSearch(
+  request: ExportSearchRequest,
+): Promise<InspectionOutcome<ExportSearch>> {
+  const requestReading = readInspectionRequest("export-search", request);
+  if (!requestReading.accepted) {
+    return requestReading.outcome;
+  }
+  return enforceInspectionOutcome(
+    "export-search",
+    await runBoundedAnalysis({ intent: "export-search", request: requestReading.request }),
+  );
+}
+
+/** Discovers manifest Public Subpaths without materializing a TypeScript program. */
+export async function inspectPublicSubpaths(
+  request: PublicSubpathDiscoveryRequest,
+): Promise<InspectionOutcome<PublicSubpathDiscovery>> {
+  const requestReading = readInspectionRequest("public-subpath-discovery", request);
+  if (!requestReading.accepted) {
+    return requestReading.outcome;
+  }
+  return enforceInspectionOutcome(
+    "public-subpath-discovery",
+    await runBoundedAnalysis({
+      intent: "public-subpath-discovery",
+      request: requestReading.request,
+    }),
+  );
+}
 
 /**
  * Executes a bounded, all-or-nothing query list in one analysis process while

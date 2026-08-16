@@ -2,11 +2,13 @@ import type {
   ExportDeclarationSpace,
   ExportInspection,
   ExportNamespaceMember,
+  ExportSearch,
   InspectedDeclaration,
   InspectionResult,
   InterfaceOverview,
   InspectionPlan,
   PackageIdentity,
+  PublicSubpathDiscovery,
   ResolutionVariant,
   SignatureInspection,
 } from "#typepeek/inspection";
@@ -52,7 +54,31 @@ function renderInspectionResult(
       return renderSignatureInspection(result);
     case "inspection-plan":
       return renderInspectionPlan(result, options);
+    case "export-search":
+      return renderExportSearch(result);
+    case "public-subpath-discovery":
+      return renderPublicSubpathDiscovery(result);
   }
+}
+
+function renderExportSearch(result: ExportSearch): string {
+  return [
+    "Export Search",
+    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
+    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
+    `Module Exports (${result.matches.length} matching "${terminalSafeLine(result.query)}"; ${result.totalModuleExports} total):`,
+    ...result.matches.map(({ name }) => `- ${terminalSafeLine(name)}`),
+  ].join("\n");
+}
+
+function renderPublicSubpathDiscovery(result: PublicSubpathDiscovery): string {
+  return [
+    "Public Subpath Discovery",
+    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
+    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
+    `Public Subpaths (${result.publicSubpaths.length}):`,
+    ...result.publicSubpaths.map(({ specifier }) => `- ${terminalSafeLine(specifier)}`),
+  ].join("\n");
 }
 
 function renderInspectionPlan(result: InspectionPlan, options: TerminalRenderingOptions): string {

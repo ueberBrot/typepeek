@@ -7,8 +7,10 @@ import type {
   InspectionRequestReading,
   InspectionResult,
   NormalizedExportInspectionRequest,
+  NormalizedExportSearchRequest,
   NormalizedInterfaceOverviewRequest,
   NormalizedInspectionPlanRequest,
+  NormalizedPublicSubpathDiscoveryRequest,
   NormalizedSignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
 
@@ -33,9 +35,18 @@ const INVALID_REQUEST_OUTCOMES = {
     status: "unsupported",
     message: "Inspection received an invalid Inspection Plan request.",
   },
+  "export-search": {
+    status: "unsupported",
+    message: "Inspection received an invalid Export Search request.",
+  },
+  "public-subpath-discovery": {
+    status: "unsupported",
+    message: "Inspection received an invalid Public Subpath Discovery request.",
+  },
 } as const satisfies Readonly<Record<InspectionResult["intent"], InspectionFailure>>;
 
 const MAX_INSPECTION_PLAN_QUERIES = 16;
+const MAX_EXPORT_SEARCH_QUERY_BYTES = 256;
 
 /** Snapshots and validates one untrusted caller request without loading the outcome codec. */
 export function readInspectionRequest(
@@ -55,20 +66,29 @@ export function readInspectionRequest(
   value: unknown,
 ): InspectionRequestReading<NormalizedInspectionPlanRequest>;
 export function readInspectionRequest(
+  intent: "export-search",
+  value: unknown,
+): InspectionRequestReading<NormalizedExportSearchRequest>;
+export function readInspectionRequest(
+  intent: "public-subpath-discovery",
+  value: unknown,
+): InspectionRequestReading<NormalizedPublicSubpathDiscoveryRequest>;
+export function readInspectionRequest(
   intent: InspectionResult["intent"],
   value: unknown,
 ):
   | InspectionRequestReading<NormalizedInterfaceOverviewRequest>
   | InspectionRequestReading<NormalizedExportInspectionRequest>
   | InspectionRequestReading<NormalizedSignatureInspectionRequest>
-  | InspectionRequestReading<NormalizedInspectionPlanRequest> {
+  | InspectionRequestReading<NormalizedInspectionPlanRequest>
+  | InspectionRequestReading<NormalizedExportSearchRequest> {
   try {
     const candidate = snapshotRecord(value);
     const target = candidate === undefined ? undefined : readInspectionTarget(candidate);
     if (target === undefined) {
       return { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
     }
-    if (intent === "interface-overview") {
+    if (intent === "interface-overview" || intent === "public-subpath-discovery") {
       return { accepted: true, request: target };
     }
     if (intent === "inspection-plan") {
@@ -76,6 +96,12 @@ export function readInspectionRequest(
       return queries === undefined
         ? { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] }
         : { accepted: true, request: { ...target, queries } };
+    }
+    if (intent === "export-search") {
+      const query = candidate?.["query"];
+      return isExportSearchQuery(query)
+        ? { accepted: true, request: { ...target, query } }
+        : { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
     }
     const exportName = candidate?.["exportName"];
     return typeof exportName === "string"
@@ -119,6 +145,14 @@ function readRequestForIntent(
     const reading = readInspectionRequest(intent, value);
     return reading.accepted ? { intent, request: reading.request } : undefined;
   }
+  if (intent === "export-search") {
+    const reading = readInspectionRequest(intent, value);
+    return reading.accepted ? { intent, request: reading.request } : undefined;
+  }
+  if (intent === "public-subpath-discovery") {
+    const reading = readInspectionRequest(intent, value);
+    return reading.accepted ? { intent, request: reading.request } : undefined;
+  }
   const reading = readInspectionRequest(intent, value);
   return reading.accepted ? { intent, request: reading.request } : undefined;
 }
@@ -148,7 +182,9 @@ function isInspectionIntent(value: unknown): value is InspectionResult["intent"]
     value === "interface-overview" ||
     value === "export-inspection" ||
     value === "signature-inspection" ||
-    value === "inspection-plan"
+    value === "inspection-plan" ||
+    value === "export-search" ||
+    value === "public-subpath-discovery"
   );
 }
 
@@ -177,11 +213,26 @@ function readInspectionPlanQuery(value: unknown): InspectionPlanQuery | undefine
   if (intent === "interface-overview") {
     return { intent };
   }
+  if (intent === "public-subpath-discovery") {
+    return { intent };
+  }
+  if (intent === "export-search") {
+    const queryText = query?.["query"];
+    return isExportSearchQuery(queryText) ? { intent, query: queryText } : undefined;
+  }
   if (intent !== "export-inspection" && intent !== "signature-inspection") {
     return undefined;
   }
   const exportName = query?.["exportName"];
   return typeof exportName === "string" ? { intent, exportName } : undefined;
+}
+
+function isExportSearchQuery(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    Buffer.byteLength(value) <= MAX_EXPORT_SEARCH_QUERY_BYTES
+  );
 }
 
 function snapshotRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {

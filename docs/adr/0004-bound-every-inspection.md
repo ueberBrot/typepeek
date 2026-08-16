@@ -6,7 +6,7 @@ Every inspection is bounded in work, memory, traversal, and output. Exceeding a 
 
 Inspection Core starts one execa-managed Node subprocess per normalized request. It accepts one JSON result over byte-limited stdout only after exit code zero. The parent enforces a 10-second deadline, 100-millisecond kill escalation, 128 MiB old-generation heap, and 4 MiB stack. A process, rather than a worker thread, provides independent termination and startup-time memory enforcement.
 
-An Inspection Plan is still one normalized request and one subprocess. It contains at most 16 ordered queries for one Specifier and Access Style. The subprocess selects one Declaration Provider, materializes one bounded TypeScript program, and evaluates every query against that shared Installed Evidence. Compiler, traversal, result-construction, protocol, and transport limits are aggregate plan budgets. Any query failure or aggregate exhaustion fails the complete plan; partial results never cross the process boundary.
+An Inspection Plan is still one normalized request and one subprocess. It contains at most 16 ordered queries for one Specifier and Access Style. The subprocess selects one Declaration Provider and evaluates every query against that shared Installed Evidence. It materializes one bounded TypeScript program when any query needs declaration evidence; a plan containing only Public Subpath Discovery queries remains manifest-only. Compiler, traversal, result-construction, protocol, and transport limits are aggregate plan budgets. Any query failure or aggregate exhaustion fails the complete plan; partial results never cross the process boundary.
 
 ## Budgets
 
@@ -21,6 +21,7 @@ An Inspection Plan is still one normalized request and one subprocess. It contai
 | Package search / export targets                 | depth 64; 1,024 targets at depth 32                                    |
 | Public Subpaths / candidates                    | 512; 4,096 at depth 64                                                 |
 | Module Exports / merged declarations            | 320; 128, with 64 KiB per declaration                                  |
+| Export Search candidates / matches              | 4,096 / 320                                                            |
 | Namespaces                                      | 128 members at depth 8                                                 |
 | Signatures                                      | 64; serialized 16 KiB each / 48 KiB total; 256 params / 64 type params |
 | Supporting Types                                | 96 at depth 12                                                         |

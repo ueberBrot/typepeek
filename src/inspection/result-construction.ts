@@ -6,6 +6,7 @@ import type {
   ExportInspection,
   ExportNamespaceMember,
   ExportSignature,
+  ExportSearch,
   InspectedDeclaration,
   InspectedModuleExport,
   InspectionPlan,
@@ -15,6 +16,7 @@ import type {
   InspectedModuleExportSignatures,
   PackageDocumentation,
   PublicSubpath,
+  PublicSubpathDiscovery,
   ResolutionVariant,
   SignatureInspection,
   SupportingType,
@@ -245,6 +247,48 @@ export function constructInterfaceOverview(
       moduleExports: retainedExports,
     },
     [...retainedSubpaths, ...retainedExports],
+  );
+}
+
+/** Assembles one bounded case-insensitive Module Export search result. */
+export function constructExportSearch(
+  context: InspectionResultConstructionContext,
+  query: string,
+  totalModuleExports: number,
+  matches: readonly { readonly name: string }[],
+): ExportSearch {
+  const budget = constructionBudget(context);
+  const retainedMatches = matches.map((match) => budget.leaf(match));
+  return budget.container(
+    {
+      intent: "export-search",
+      specifier: context.specifier,
+      resolutionVariant: context.resolutionVariant,
+      ...context.identity,
+      query,
+      totalModuleExports,
+      matches: retainedMatches,
+    },
+    retainedMatches,
+  );
+}
+
+/** Assembles bounded manifest-only Public Subpath discovery evidence. */
+export function constructPublicSubpathDiscovery(
+  context: InspectionResultConstructionContext,
+  publicSubpaths: readonly PublicSubpath[],
+): PublicSubpathDiscovery {
+  const budget = constructionBudget(context);
+  const retainedSubpaths = publicSubpaths.map((subpath) => budget.leaf(subpath));
+  return budget.container(
+    {
+      intent: "public-subpath-discovery",
+      specifier: context.specifier,
+      resolutionVariant: context.resolutionVariant,
+      ...context.identity,
+      publicSubpaths: retainedSubpaths,
+    },
+    retainedSubpaths,
   );
 }
 

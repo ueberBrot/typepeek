@@ -6,6 +6,8 @@ import {
 import { inspectFocusedModuleExport } from "#typepeek/inspection/export-inspection";
 import {
   type InspectableModuleEvidence,
+  type InspectableModuleDiscoveryEvidence,
+  readInspectableModuleDiscoveryEvidence,
   readInspectableModuleEvidence,
 } from "#typepeek/inspection/installed-evidence";
 import type {
@@ -16,14 +18,18 @@ import type {
   InspectionPlanQuery,
 } from "#typepeek/inspection/protocol";
 import {
+  constructExportSearch,
   constructInspectionPlan,
   constructInterfaceOverview,
+  constructPublicSubpathDiscovery,
   createInspectionResultConstructionContext,
   type InspectionResultConstructionContext,
 } from "#typepeek/inspection/result-construction";
 import { inspectModuleExportSignatures } from "#typepeek/inspection/signature-inspection";
 
 const MAX_MODULE_EXPORTS = 320;
+const MAX_EXPORT_SEARCH_CANDIDATES = 4_096;
+const MAX_EXPORT_SEARCH_MATCHES = 320;
 
 /**
  * Runs one already-normalized request inside the analysis subprocess. Expected
@@ -39,6 +45,12 @@ export function analyzeInspection(analysisRequest: AnalysisRequest): InspectionO
 }
 
 function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOutcome {
+  return analysisRequiresProgram(analysisRequest)
+    ? inspectInstalledPackageProgram(analysisRequest)
+    : inspectInstalledPackageDiscovery(analysisRequest);
+}
+
+function inspectInstalledPackageProgram(analysisRequest: AnalysisRequest): InspectionOutcome {
   const { request } = analysisRequest;
   const evidence = readInspectableModuleEvidence(request, evidenceInspection(analysisRequest));
   if (evidence === undefined) {
@@ -70,12 +82,74 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
 
   const inspection = inspectEvidenceQuery(
     evidence,
-    analysisRequest.intent === "interface-overview"
-      ? { intent: analysisRequest.intent }
-      : { intent: analysisRequest.intent, exportName: analysisRequest.request.exportName },
+    inspectionQuery(analysisRequest),
     constructionContext,
   );
   return "status" in inspection ? inspection : { status: "success", result: inspection };
+}
+
+function inspectionQuery(analysisRequest: AnalysisRequest): InspectionPlanQuery {
+  switch (analysisRequest.intent) {
+    case "interface-overview":
+      return { intent: analysisRequest.intent };
+    case "export-inspection":
+    case "signature-inspection":
+      return { intent: analysisRequest.intent, exportName: analysisRequest.request.exportName };
+    case "export-search":
+      return { intent: analysisRequest.intent, query: analysisRequest.request.query };
+    case "public-subpath-discovery":
+    case "inspection-plan":
+      throw new UnsupportedInspectionError(
+        "Inspection request requires a different evidence path.",
+      );
+  }
+}
+
+function inspectInstalledPackageDiscovery(analysisRequest: AnalysisRequest): InspectionOutcome {
+  const { request } = analysisRequest;
+  const evidence = readInspectableModuleDiscoveryEvidence(request);
+  if (evidence === undefined) {
+    return missingSpecifierOutcome(request.specifier);
+  }
+  const context = inspectionConstructionContext(request, evidence.resultIdentity);
+  const publicSubpaths = evidence.publicSubpaths;
+  if (analysisRequest.intent === "public-subpath-discovery") {
+    return {
+      status: "success",
+      result: constructPublicSubpathDiscovery(context, publicSubpaths),
+    };
+  }
+  if (analysisRequest.intent !== "inspection-plan") {
+    throw new UnsupportedInspectionError("Inspection requires TypeScript program evidence.");
+  }
+  const inspections = analysisRequest.request.queries.map(() =>
+    constructPublicSubpathDiscovery(context, publicSubpaths),
+  );
+  return {
+    status: "success",
+    result: constructInspectionPlan(context, inspections),
+  };
+}
+
+function analysisRequiresProgram(analysisRequest: AnalysisRequest): boolean {
+  if (analysisRequest.intent === "public-subpath-discovery") {
+    return false;
+  }
+  return (
+    analysisRequest.intent !== "inspection-plan" ||
+    analysisRequest.request.queries.some((query) => query.intent !== "public-subpath-discovery")
+  );
+}
+
+function inspectionConstructionContext(
+  request: AnalysisRequest["request"],
+  identity: InspectableModuleDiscoveryEvidence["resultIdentity"],
+): InspectionResultConstructionContext {
+  return createInspectionResultConstructionContext({
+    specifier: request.specifier,
+    resolutionVariant: { accessStyle: request.accessStyle },
+    identity,
+  });
 }
 
 function inspectEvidenceQuery(
@@ -97,6 +171,20 @@ function inspectEvidenceQuery(
       : result;
   }
 
+  if (query.intent === "export-search") {
+    const search = searchModuleExports(evidence, query.query);
+    return constructExportSearch(
+      constructionContext,
+      query.query,
+      search.totalModuleExports,
+      search.matches,
+    );
+  }
+
+  if (query.intent === "public-subpath-discovery") {
+    return constructPublicSubpathDiscovery(constructionContext, evidence.publicSubpaths);
+  }
+
   return constructInterfaceOverview(
     constructionContext,
     evidence.publicSubpaths,
@@ -116,9 +204,22 @@ function evidenceInspection(
       };
     case "interface-overview":
       return { intent: analysisRequest.intent };
+    case "export-search":
+      return { intent: analysisRequest.intent };
+    case "public-subpath-discovery":
+      throw new UnsupportedInspectionError(
+        "Public Subpath Discovery does not materialize a TypeScript program.",
+      );
     case "inspection-plan":
       return { intent: analysisRequest.intent, queries: analysisRequest.request.queries };
   }
+}
+
+function missingSpecifierOutcome(specifier: string): InspectionFailure {
+  return {
+    status: "not-found",
+    message: `Specifier "${specifier}" is not installed from this Resolution Context.`,
+  };
 }
 
 function missingExportOutcome(exportName: string, specifier: string): InspectionFailure {
@@ -137,6 +238,28 @@ function inspectModuleExports({
     throw new InspectionLimitError("Inspection exceeded its Module Export limit.");
   }
   return exportedSymbols.map((symbol) => ({ name: symbol.getName() })).sort(compareModuleExports);
+}
+
+function searchModuleExports(
+  { checker, moduleSymbol }: InspectableModuleEvidence,
+  query: string,
+): {
+  readonly totalModuleExports: number;
+  readonly matches: readonly { readonly name: string }[];
+} {
+  const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
+  if (exportedSymbols.length > MAX_EXPORT_SEARCH_CANDIDATES) {
+    throw new InspectionLimitError("Inspection exceeded its Module Export search limit.");
+  }
+  const normalizedQuery = query.toLowerCase();
+  const matches = exportedSymbols
+    .map((symbol) => ({ name: symbol.getName() }))
+    .filter(({ name }) => name.toLowerCase().includes(normalizedQuery))
+    .sort(compareModuleExports);
+  if (matches.length > MAX_EXPORT_SEARCH_MATCHES) {
+    throw new InspectionLimitError("Inspection exceeded its Module Export search match limit.");
+  }
+  return { totalModuleExports: exportedSymbols.length, matches };
 }
 
 function compareModuleExports(

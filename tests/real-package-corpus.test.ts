@@ -4,7 +4,8 @@ import {
   inspectExport,
   inspectExportSignatures,
   inspectInterfaceOverview,
-  type AtomicInspectionResult,
+  type ExportInspection,
+  type InterfaceOverview,
 } from "#typepeek/inspection";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 
@@ -410,7 +411,7 @@ function assertCompileProbe(
 function inspectCorpusQuestion(
   question: CorpusQuestion,
   resolutionContext: string,
-): Promise<InspectionOutcome<AtomicInspectionResult>> {
+): Promise<InspectionOutcome<InterfaceOverview | ExportInspection>> {
   const request = {
     resolutionContext,
     specifier: question.specifier,
@@ -422,7 +423,7 @@ function inspectCorpusQuestion(
 }
 
 function assertCorpusOutcome(
-  outcome: InspectionOutcome<AtomicInspectionResult>,
+  outcome: InspectionOutcome<InterfaceOverview | ExportInspection>,
   probe: Awaited<ReturnType<RealPackageCorpus["compileProbe"]>>,
   question: CorpusQuestion,
   expectedPackageIdentity: string | undefined,
@@ -457,7 +458,7 @@ function expectedIdentity(
 }
 
 function assertCorpusResult(
-  result: AtomicInspectionResult,
+  result: InterfaceOverview | ExportInspection,
   question: CorpusQuestion,
   expectedPackageIdentity: string | undefined,
   expectedProviderIdentity: string | undefined,

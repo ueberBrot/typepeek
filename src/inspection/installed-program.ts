@@ -100,6 +100,7 @@ export interface InstalledProgramEvidence {
 
 export type InstalledProgramInspection =
   | { readonly intent: "interface-overview" }
+  | { readonly intent: "export-search" }
   | {
       readonly intent: "export-inspection" | "signature-inspection";
       readonly exportName: string;
@@ -107,7 +108,9 @@ export type InstalledProgramInspection =
   | {
       readonly intent: "inspection-plan";
       readonly queries: readonly (
-        | { readonly intent: "interface-overview" }
+        | {
+            readonly intent: "interface-overview" | "export-search" | "public-subpath-discovery";
+          }
         | {
             readonly intent: "export-inspection" | "signature-inspection";
             readonly exportName: string;
@@ -196,30 +199,44 @@ function inspectionFocusedExportNames(inspection: InstalledProgramInspection): r
   if (inspection.intent === "interface-overview") {
     return [];
   }
+  if (inspection.intent === "export-search") {
+    return [];
+  }
   if (inspection.intent !== "inspection-plan") {
     return [inspection.exportName];
   }
   return inspection.queries.flatMap((query) =>
-    query.intent === "interface-overview" ? [] : [query.exportName],
+    query.intent === "export-inspection" || query.intent === "signature-inspection"
+      ? [query.exportName]
+      : [],
   );
 }
 
 function inspectionNeedsNodeAugmentation(inspection: InstalledProgramInspection): boolean {
   return inspection.intent === "inspection-plan"
-    ? inspection.queries.some((query) => query.intent !== "signature-inspection")
+    ? inspection.queries.some(
+        (query) =>
+          query.intent === "interface-overview" ||
+          query.intent === "export-inspection" ||
+          query.intent === "export-search",
+      )
     : inspection.intent !== "signature-inspection";
 }
 
 function selectedNodeAugmentationExportName(
   inspection: InstalledProgramInspection,
 ): string | undefined {
-  if (inspection.intent === "interface-overview") {
+  if (inspection.intent === "interface-overview" || inspection.intent === "export-search") {
     return undefined;
   }
   if (inspection.intent !== "inspection-plan") {
     return inspection.exportName;
   }
-  if (inspection.queries.some((query) => query.intent === "interface-overview")) {
+  if (
+    inspection.queries.some(
+      (query) => query.intent === "interface-overview" || query.intent === "export-search",
+    )
+  ) {
     return undefined;
   }
   const exportNames = new Set(

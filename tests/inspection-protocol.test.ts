@@ -39,6 +39,8 @@ it("normalizes a bounded inspection plan at the process-entry protocol seam", ()
       queries: [
         { intent: "interface-overview" },
         { intent: "signature-inspection", exportName: "createExample" },
+        { intent: "export-search", query: "example" },
+        { intent: "public-subpath-discovery" },
       ],
     }),
   ).toEqual({
@@ -50,6 +52,8 @@ it("normalizes a bounded inspection plan at the process-entry protocol seam", ()
       queries: [
         { intent: "interface-overview" },
         { intent: "signature-inspection", exportName: "createExample" },
+        { intent: "export-search", query: "example" },
+        { intent: "public-subpath-discovery" },
       ],
     },
   });
@@ -66,6 +70,21 @@ it("rejects empty and oversized inspection plans", () => {
       queries: Array.from({ length: 17 }, () => ({ intent: "interface-overview" })),
     }),
   ).toMatchObject({ accepted: false });
+});
+
+it("normalizes lightweight discovery requests", () => {
+  const target = { resolutionContext: "/repository", specifier: "example" };
+  expect(readInspectionRequest("export-search", { ...target, query: "error" })).toEqual({
+    accepted: true,
+    request: { ...target, query: "error", accessStyle: "import" },
+  });
+  expect(readInspectionRequest("public-subpath-discovery", target)).toEqual({
+    accepted: true,
+    request: { ...target, accessStyle: "import" },
+  });
+  expect(readInspectionRequest("export-search", { ...target, query: "" })).toMatchObject({
+    accepted: false,
+  });
 });
 
 it("rejects an invalid Access Style at the process-entry protocol seam", () => {
@@ -204,6 +223,22 @@ it("rejects a plan result that omits or reorders requested inspections", () => {
     enforceInspectionPlanOutcome(queries, {
       status: "success",
       result: { intent: "inspection-plan", inspections: [signatures, overview] },
+    }),
+  ).toEqual(invalid);
+
+  const search = {
+    intent: "export-search",
+    specifier: "example",
+    resolutionVariant: { accessStyle: "import" },
+    packageIdentity: { name: "example" },
+    query: "different",
+    totalModuleExports: 1,
+    matches: [],
+  } as const;
+  expect(
+    enforceInspectionPlanOutcome([{ intent: "export-search", query: "requested" }], {
+      status: "success",
+      result: { intent: "inspection-plan", inspections: [search] },
     }),
   ).toEqual(invalid);
 });

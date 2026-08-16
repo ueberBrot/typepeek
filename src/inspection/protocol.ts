@@ -5,6 +5,7 @@ const MAX_PROTOCOL_GRAPH_VALUES = 16_384;
 
 const portableRelativePathSchema = type("string").narrow(isPortableRelativePath);
 const positiveIntegerSchema = type("number.integer").narrow((value) => value > 0);
+const nonnegativeIntegerSchema = type("number.integer").narrow((value) => value >= 0);
 const nonArrayRecordSchema = type("object").narrow((value): boolean => isRecord(value));
 const record = <const Definition extends object>(definition: Definition) =>
   [nonArrayRecordSchema, "&", definition] as const;
@@ -192,7 +193,46 @@ const inspectionSchemas = type.module({
     moduleExport: "inspectedModuleExportSignatures",
   }),
   signatureInspection: "packageSignatureInspection | platformSignatureInspection",
-  inspectionResult: "interfaceOverview | exportInspection | signatureInspection",
+  packageExportSearch: record({
+    intent: "'export-search'",
+    specifier: "string",
+    resolutionVariant: "resolutionVariant",
+    packageIdentity: "packageIdentity",
+    "declarationProvider?": "packageIdentity | undefined",
+    query: "string",
+    totalModuleExports: nonnegativeIntegerSchema,
+    matches: "moduleExportIndexEntry[]",
+  }),
+  platformExportSearch: record({
+    intent: "'export-search'",
+    specifier: "string",
+    resolutionVariant: "resolutionVariant",
+    "packageIdentity?": "undefined",
+    declarationProvider: "packageIdentity",
+    query: "string",
+    totalModuleExports: nonnegativeIntegerSchema,
+    matches: "moduleExportIndexEntry[]",
+  }),
+  exportSearch: "packageExportSearch | platformExportSearch",
+  packagePublicSubpathDiscovery: record({
+    intent: "'public-subpath-discovery'",
+    specifier: "string",
+    resolutionVariant: "resolutionVariant",
+    packageIdentity: "packageIdentity",
+    "declarationProvider?": "packageIdentity | undefined",
+    publicSubpaths: "publicSubpath[]",
+  }),
+  platformPublicSubpathDiscovery: record({
+    intent: "'public-subpath-discovery'",
+    specifier: "string",
+    resolutionVariant: "resolutionVariant",
+    "packageIdentity?": "undefined",
+    declarationProvider: "packageIdentity",
+    publicSubpaths: "publicSubpath[]",
+  }),
+  publicSubpathDiscovery: "packagePublicSubpathDiscovery | platformPublicSubpathDiscovery",
+  inspectionResult:
+    "interfaceOverview | exportInspection | signatureInspection | exportSearch | publicSubpathDiscovery",
   inspectionFailure: record({
     status: "'not-found' | 'unsupported' | 'static-boundary' | 'limit-exceeded'",
     message: "string",
@@ -251,10 +291,20 @@ export interface SignatureInspectionRequest extends InterfaceOverviewRequest {
 export interface NormalizedSignatureInspectionRequest extends NormalizedInspectionTarget {
   readonly exportName: string;
 }
+export interface ExportSearchRequest extends InterfaceOverviewRequest {
+  readonly query: string;
+}
+export interface NormalizedExportSearchRequest extends NormalizedInspectionTarget {
+  readonly query: string;
+}
+export type PublicSubpathDiscoveryRequest = InterfaceOverviewRequest;
+export type NormalizedPublicSubpathDiscoveryRequest = NormalizedInspectionTarget;
 export type InspectionPlanQuery =
   | { readonly intent: "interface-overview" }
   | { readonly intent: "export-inspection"; readonly exportName: string }
-  | { readonly intent: "signature-inspection"; readonly exportName: string };
+  | { readonly intent: "signature-inspection"; readonly exportName: string }
+  | { readonly intent: "export-search"; readonly query: string }
+  | { readonly intent: "public-subpath-discovery" };
 export interface InspectionPlanRequest extends InterfaceOverviewRequest {
   readonly queries: readonly InspectionPlanQuery[];
 }
@@ -315,7 +365,16 @@ export type InspectedModuleExportSignatures = ProtocolType<
   typeof inspectionSchemas.inspectedModuleExportSignatures.infer
 >;
 export type SignatureInspection = ProtocolType<typeof inspectionSchemas.signatureInspection.infer>;
-export type AtomicInspectionResult = InterfaceOverview | ExportInspection | SignatureInspection;
+export type ExportSearch = ProtocolType<typeof inspectionSchemas.exportSearch.infer>;
+export type PublicSubpathDiscovery = ProtocolType<
+  typeof inspectionSchemas.publicSubpathDiscovery.infer
+>;
+export type AtomicInspectionResult =
+  | InterfaceOverview
+  | ExportInspection
+  | SignatureInspection
+  | ExportSearch
+  | PublicSubpathDiscovery;
 export interface InspectionPlan {
   readonly intent: "inspection-plan";
   readonly inspections: readonly AtomicInspectionResult[];
@@ -347,6 +406,11 @@ export type AnalysisRequest =
   | {
       readonly intent: "signature-inspection";
       readonly request: NormalizedSignatureInspectionRequest;
+    }
+  | { readonly intent: "export-search"; readonly request: NormalizedExportSearchRequest }
+  | {
+      readonly intent: "public-subpath-discovery";
+      readonly request: NormalizedPublicSubpathDiscoveryRequest;
     }
   | { readonly intent: "inspection-plan"; readonly request: NormalizedInspectionPlanRequest };
 
@@ -386,6 +450,14 @@ export function enforceInspectionOutcome(
   intent: "inspection-plan",
   value: unknown,
 ): InspectionOutcome<InspectionPlan>;
+export function enforceInspectionOutcome(
+  intent: "export-search",
+  value: unknown,
+): InspectionOutcome<ExportSearch>;
+export function enforceInspectionOutcome(
+  intent: "public-subpath-discovery",
+  value: unknown,
+): InspectionOutcome<PublicSubpathDiscovery>;
 export function enforceInspectionOutcome(
   intent: InspectionResult["intent"],
   value: unknown,
@@ -432,7 +504,10 @@ function inspectionMatchesPlanQuery(
   }
   switch (query.intent) {
     case "interface-overview":
+    case "public-subpath-discovery":
       return true;
+    case "export-search":
+      return inspection.intent === query.intent && inspection.query === query.query;
     case "export-inspection":
     case "signature-inspection":
       return (

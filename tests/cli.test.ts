@@ -33,6 +33,80 @@ describe("typepeek CLI", () => {
     expect(result.stdout).toContain("export");
     expect(result.stdout).toContain("signatures");
     expect(result.stdout).toContain("plan");
+    expect(result.stdout).toContain("search");
+    expect(result.stdout).toContain("subpaths");
+  });
+
+  it("searches Module Export names through a focused discovery command", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "search",
+      "@typepeek-fixture/focused",
+      "error",
+      "--context",
+      fixture.resolutionContext,
+    ]);
+
+    expect(result.stdout).toContain('Module Exports (3 matching "error";');
+    expect(result.stdout).toContain("- ErrorFactory");
+    expect(result.stdout).not.toContain("Public Subpaths");
+  });
+
+  it("discovers Public Subpaths without program materialization", async () => {
+    const arguments_ = [
+      "src/cli.ts",
+      "subpaths",
+      "@typepeek-fixture/conditional",
+      "--context",
+      fixture.resolutionContext,
+      "--json",
+    ];
+    const result = await execa(process.execPath, arguments_, {
+      env: { TYPEPEEK_PROFILE: "1" },
+    });
+    const profile = JSON.parse(result.stderr) as {
+      readonly phases: readonly { readonly name: string }[];
+    };
+
+    expect(profile.phases.map(({ name }) => name)).not.toContain("program-materialization");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "success",
+      result: { intent: "public-subpath-discovery" },
+    });
+  });
+
+  it("keeps a Public Subpath-only inspection plan manifest-only", async () => {
+    const result = await execa(
+      process.execPath,
+      [
+        "src/cli.ts",
+        "plan",
+        "@typepeek-fixture/conditional",
+        JSON.stringify([
+          { intent: "public-subpath-discovery" },
+          { intent: "public-subpath-discovery" },
+        ]),
+        "--context",
+        fixture.resolutionContext,
+        "--json",
+      ],
+      { env: { TYPEPEEK_PROFILE: "1" } },
+    );
+    const profile = JSON.parse(result.stderr) as {
+      readonly phases: readonly { readonly name: string }[];
+    };
+
+    expect(profile.phases.map(({ name }) => name)).not.toContain("program-materialization");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "success",
+      result: {
+        intent: "inspection-plan",
+        inspections: [
+          { intent: "public-subpath-discovery" },
+          { intent: "public-subpath-discovery" },
+        ],
+      },
+    });
   });
 
   it("executes an atomic inspection plan from a bounded JSON query list", async () => {
