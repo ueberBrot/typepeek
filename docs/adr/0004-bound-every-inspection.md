@@ -24,6 +24,7 @@ An Inspection Plan is still one normalized request and one subprocess. It contai
 | Export Search candidates / matches              | 4,096 / 320                                                            |
 | Namespaces                                      | 128 members at depth 8                                                 |
 | Signatures                                      | 64; serialized 16 KiB each / 48 KiB total; 256 params / 64 type params |
+| Member path                                     | 16 non-empty segments; 256 bytes each; 3 direct space lookups each     |
 | Supporting Types                                | 96 at depth 12                                                         |
 | Syntax / inferred / declaration-graph traversal | 20,000 / 4,096 / 250,000 nodes; depth 64 / 64 / 256                    |
 | Aggregate result / Package Documentation        | 4,096 nodes / 16 KiB                                                   |

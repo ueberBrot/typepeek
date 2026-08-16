@@ -1,5 +1,7 @@
 import { type } from "arktype";
 
+import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
+
 const MAX_PROTOCOL_GRAPH_OBJECTS = 4_096;
 const MAX_PROTOCOL_GRAPH_VALUES = 16_384;
 
@@ -27,7 +29,7 @@ const inspectionSchemas = type.module({
   }),
   declarationSpace: "'type' | 'value' | 'namespace'",
   declarationKind:
-    "'alias' | 'class' | 'enum' | 'function' | 'interface' | 'namespace' | 'type-alias' | 'variable'",
+    "'accessor' | 'alias' | 'class' | 'constructor' | 'enum' | 'enum-member' | 'function' | 'interface' | 'method' | 'namespace' | 'property' | 'type-alias' | 'variable'",
   declarationProvenance: record({
     packageIdentity: "packageIdentity",
     file: portableRelativePathSchema,
@@ -126,6 +128,11 @@ const inspectionSchemas = type.module({
     name: "string",
     "aliasTargetName?": "string | undefined",
     signatures: "inspectedSignature[]",
+  }),
+  inspectedModuleExportDeclarations: record({
+    name: "string",
+    "alias?": "exportAlias | undefined",
+    spaces: "exportDeclarationSpace[]",
   }),
   supportingType: record({
     name: "string",
@@ -231,8 +238,46 @@ const inspectionSchemas = type.module({
     publicSubpaths: "publicSubpath[]",
   }),
   publicSubpathDiscovery: "packagePublicSubpathDiscovery | platformPublicSubpathDiscovery",
+  packageDeclarationInspection: record({
+    intent: "'declaration-inspection'",
+    specifier: "string",
+    resolutionVariant: "resolutionVariant",
+    packageIdentity: "packageIdentity",
+    "declarationProvider?": "packageIdentity | undefined",
+    moduleExport: "inspectedModuleExportDeclarations",
+  }),
+  platformDeclarationInspection: record({
+    intent: "'declaration-inspection'",
+    specifier: "string",
+    resolutionVariant: "resolutionVariant",
+    "packageIdentity?": "undefined",
+    declarationProvider: "packageIdentity",
+    moduleExport: "inspectedModuleExportDeclarations",
+  }),
+  declarationInspection: "packageDeclarationInspection | platformDeclarationInspection",
+  packageMemberInspection: record({
+    intent: "'member-inspection'",
+    specifier: "string",
+    resolutionVariant: "resolutionVariant",
+    packageIdentity: "packageIdentity",
+    "declarationProvider?": "packageIdentity | undefined",
+    moduleExportName: "string",
+    memberPath: "string[]",
+    declarations: "inspectedDeclaration[]",
+  }),
+  platformMemberInspection: record({
+    intent: "'member-inspection'",
+    specifier: "string",
+    resolutionVariant: "resolutionVariant",
+    "packageIdentity?": "undefined",
+    declarationProvider: "packageIdentity",
+    moduleExportName: "string",
+    memberPath: "string[]",
+    declarations: "inspectedDeclaration[]",
+  }),
+  memberInspection: "packageMemberInspection | platformMemberInspection",
   inspectionResult:
-    "interfaceOverview | exportInspection | signatureInspection | exportSearch | publicSubpathDiscovery",
+    "interfaceOverview | exportInspection | signatureInspection | exportSearch | publicSubpathDiscovery | declarationInspection | memberInspection",
   inspectionFailure: record({
     status: "'not-found' | 'unsupported' | 'static-boundary' | 'limit-exceeded'",
     message: "string",
@@ -299,12 +344,26 @@ export interface NormalizedExportSearchRequest extends NormalizedInspectionTarge
 }
 export type PublicSubpathDiscoveryRequest = InterfaceOverviewRequest;
 export type NormalizedPublicSubpathDiscoveryRequest = NormalizedInspectionTarget;
+export type DeclarationInspectionRequest = ExportInspectionRequest;
+export type NormalizedDeclarationInspectionRequest = NormalizedExportInspectionRequest;
+export interface MemberInspectionRequest extends ExportInspectionRequest {
+  readonly memberPath: readonly string[];
+}
+export interface NormalizedMemberInspectionRequest extends NormalizedExportInspectionRequest {
+  readonly memberPath: readonly string[];
+}
 export type InspectionPlanQuery =
   | { readonly intent: "interface-overview" }
   | { readonly intent: "export-inspection"; readonly exportName: string }
   | { readonly intent: "signature-inspection"; readonly exportName: string }
   | { readonly intent: "export-search"; readonly query: string }
-  | { readonly intent: "public-subpath-discovery" };
+  | { readonly intent: "public-subpath-discovery" }
+  | { readonly intent: "declaration-inspection"; readonly exportName: string }
+  | {
+      readonly intent: "member-inspection";
+      readonly exportName: string;
+      readonly memberPath: readonly string[];
+    };
 export interface InspectionPlanRequest extends InterfaceOverviewRequest {
   readonly queries: readonly InspectionPlanQuery[];
 }
@@ -369,12 +428,21 @@ export type ExportSearch = ProtocolType<typeof inspectionSchemas.exportSearch.in
 export type PublicSubpathDiscovery = ProtocolType<
   typeof inspectionSchemas.publicSubpathDiscovery.infer
 >;
+export type InspectedModuleExportDeclarations = ProtocolType<
+  typeof inspectionSchemas.inspectedModuleExportDeclarations.infer
+>;
+export type DeclarationInspection = ProtocolType<
+  typeof inspectionSchemas.declarationInspection.infer
+>;
+export type MemberInspection = ProtocolType<typeof inspectionSchemas.memberInspection.infer>;
 export type AtomicInspectionResult =
   | InterfaceOverview
   | ExportInspection
   | SignatureInspection
   | ExportSearch
-  | PublicSubpathDiscovery;
+  | PublicSubpathDiscovery
+  | DeclarationInspection
+  | MemberInspection;
 export interface InspectionPlan {
   readonly intent: "inspection-plan";
   readonly inspections: readonly AtomicInspectionResult[];
@@ -412,6 +480,11 @@ export type AnalysisRequest =
       readonly intent: "public-subpath-discovery";
       readonly request: NormalizedPublicSubpathDiscoveryRequest;
     }
+  | {
+      readonly intent: "declaration-inspection";
+      readonly request: NormalizedDeclarationInspectionRequest;
+    }
+  | { readonly intent: "member-inspection"; readonly request: NormalizedMemberInspectionRequest }
   | { readonly intent: "inspection-plan"; readonly request: NormalizedInspectionPlanRequest };
 
 export type AnalysisRequestReading =
@@ -459,6 +532,14 @@ export function enforceInspectionOutcome(
   value: unknown,
 ): InspectionOutcome<PublicSubpathDiscovery>;
 export function enforceInspectionOutcome(
+  intent: "declaration-inspection",
+  value: unknown,
+): InspectionOutcome<DeclarationInspection>;
+export function enforceInspectionOutcome(
+  intent: "member-inspection",
+  value: unknown,
+): InspectionOutcome<MemberInspection>;
+export function enforceInspectionOutcome(
   intent: InspectionResult["intent"],
   value: unknown,
 ): InspectionOutcome;
@@ -480,19 +561,87 @@ export function enforceInspectionOutcome(
 
 /** Requires one complete result matching each ordered plan query exactly once. */
 export function enforceInspectionPlanOutcome(
-  queries: readonly InspectionPlanQuery[],
+  request: NormalizedInspectionPlanRequest,
   value: unknown,
 ): InspectionOutcome<InspectionPlan> {
   const outcome = enforceInspectionOutcome("inspection-plan", value);
   if (outcome.status !== "success") {
     return outcome;
   }
-  return outcome.result.inspections.length === queries.length &&
-    outcome.result.inspections.every((inspection, index) =>
-      inspectionMatchesPlanQuery(inspection, queries[index]),
+  const sharedIdentity = outcome.result.inspections[0];
+  return sharedIdentity !== undefined &&
+    outcome.result.inspections.length === request.queries.length &&
+    outcome.result.inspections.every(
+      (inspection, index) =>
+        inspectionMatchesTarget(inspection, request) &&
+        inspectionMatchesIdentity(inspection, sharedIdentity) &&
+        inspectionMatchesPlanQuery(inspection, request.queries[index]),
     )
     ? outcome
     : INVALID_RESULT_OUTCOME;
+}
+
+/** Requires a declaration-only result for the exact requested Module Export. */
+export function enforceDeclarationInspectionOutcome(
+  request: NormalizedDeclarationInspectionRequest,
+  value: unknown,
+): InspectionOutcome<DeclarationInspection> {
+  const outcome = enforceInspectionOutcome("declaration-inspection", value);
+  return outcome.status !== "success" ||
+    (inspectionMatchesTarget(outcome.result, request) &&
+      outcome.result.moduleExport.name === request.exportName)
+    ? outcome
+    : INVALID_RESULT_OUTCOME;
+}
+
+/** Requires a bounded Member result for the exact requested export and path. */
+export function enforceMemberInspectionOutcome(
+  request: NormalizedMemberInspectionRequest,
+  value: unknown,
+): InspectionOutcome<MemberInspection> {
+  const outcome = enforceInspectionOutcome("member-inspection", value);
+  if (outcome.status !== "success") {
+    return outcome;
+  }
+  return inspectionMatchesTarget(outcome.result, request) &&
+    outcome.result.moduleExportName === request.exportName &&
+    memberPathsEqual(outcome.result.memberPath, request.memberPath) &&
+    isAuthoritativeMemberInspection(outcome.result)
+    ? outcome
+    : INVALID_RESULT_OUTCOME;
+}
+
+function inspectionMatchesTarget(
+  inspection: AtomicInspectionResult,
+  target: NormalizedInspectionTarget,
+): boolean {
+  return (
+    inspection.specifier === target.specifier &&
+    inspection.resolutionVariant.accessStyle === target.accessStyle
+  );
+}
+
+function inspectionMatchesIdentity(
+  inspection: AtomicInspectionResult,
+  expected: AtomicInspectionResult,
+): boolean {
+  return (
+    packageIdentitiesEqual(inspection.packageIdentity, expected.packageIdentity) &&
+    packageIdentitiesEqual(inspection.declarationProvider, expected.declarationProvider)
+  );
+}
+
+function packageIdentitiesEqual(
+  left: PackageIdentity | undefined,
+  right: PackageIdentity | undefined,
+): boolean {
+  return (
+    left === right ||
+    (left !== undefined &&
+      right !== undefined &&
+      left.name === right.name &&
+      left.version === right.version)
+  );
 }
 
 function inspectionMatchesPlanQuery(
@@ -519,6 +668,8 @@ const INSPECTION_PLAN_QUERY_MATCHERS = {
     inspection.query === query.query,
   "export-inspection": matchesFocusedPlanQuery,
   "signature-inspection": matchesFocusedPlanQuery,
+  "declaration-inspection": matchesFocusedPlanQuery,
+  "member-inspection": matchesMemberPlanQuery,
 } as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryMatcher>>;
 
 function matchesFocusedPlanQuery(
@@ -526,10 +677,37 @@ function matchesFocusedPlanQuery(
   query: InspectionPlanQuery,
 ): boolean {
   return (
-    (inspection.intent === "export-inspection" || inspection.intent === "signature-inspection") &&
-    (query.intent === "export-inspection" || query.intent === "signature-inspection") &&
+    (inspection.intent === "export-inspection" ||
+      inspection.intent === "signature-inspection" ||
+      inspection.intent === "declaration-inspection") &&
+    (query.intent === "export-inspection" ||
+      query.intent === "signature-inspection" ||
+      query.intent === "declaration-inspection") &&
     inspection.moduleExport.name === query.exportName
   );
+}
+
+function matchesMemberPlanQuery(
+  inspection: AtomicInspectionResult,
+  query: InspectionPlanQuery,
+): boolean {
+  return (
+    inspection.intent === "member-inspection" &&
+    query.intent === "member-inspection" &&
+    inspection.moduleExportName === query.exportName &&
+    memberPathsEqual(inspection.memberPath, query.memberPath) &&
+    isAuthoritativeMemberInspection(inspection)
+  );
+}
+
+function isAuthoritativeMemberInspection(inspection: MemberInspection): boolean {
+  return (
+    readBoundedMemberPath(inspection.memberPath) !== undefined && inspection.declarations.length > 0
+  );
+}
+
+function memberPathsEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((segment, index) => segment === right[index]);
 }
 
 function isInspectionOutcome(value: unknown): value is InspectionOutcome {
