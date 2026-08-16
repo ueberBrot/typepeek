@@ -1,8 +1,8 @@
 import { execaNode } from "execa";
 
 import {
-  type InspectionProfile,
-  inspectionProfilingRequested,
+  forwardInspectionProfile,
+  inspectionProfilingEnabled,
 } from "#typepeek/inspection/performance-profile";
 import {
   enforceInspectionOutcome,
@@ -59,7 +59,7 @@ export async function runBoundedAnalysis(request: AnalysisRequest): Promise<Insp
     request,
     analysisProcessEntryUrl(),
     PRODUCTION_LIMITS,
-    inspectionProfilingRequested(),
+    inspectionProfilingEnabled,
   );
 }
 
@@ -133,49 +133,6 @@ async function runProcess(
   }
 
   return enforceInspectionOutcome(request.intent, value);
-}
-
-function forwardInspectionProfile(serialized: Uint8Array): void {
-  const profile = parseInspectionProfile(serialized);
-  if (profile !== undefined) {
-    process.stderr.write(`${JSON.stringify(profile)}\n`);
-  }
-}
-
-function parseInspectionProfile(serialized: Uint8Array): InspectionProfile | undefined {
-  try {
-    const value = JSON.parse(
-      new TextDecoder("utf-8", { fatal: true }).decode(serialized),
-    ) as unknown;
-    if (
-      !isRecord(value) ||
-      value["kind"] !== "inspection-profile" ||
-      value["schemaVersion"] !== 1
-    ) {
-      return undefined;
-    }
-    const phases = value["phases"];
-    if (
-      !Array.isArray(phases) ||
-      !phases.every(
-        (phase) =>
-          isRecord(phase) &&
-          typeof phase["name"] === "string" &&
-          typeof phase["milliseconds"] === "number" &&
-          Number.isFinite(phase["milliseconds"]) &&
-          phase["milliseconds"] >= 0,
-      )
-    ) {
-      return undefined;
-    }
-    return value as unknown as InspectionProfile;
-  } catch {
-    return undefined;
-  }
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function analysisProcessEntryUrl(): URL {

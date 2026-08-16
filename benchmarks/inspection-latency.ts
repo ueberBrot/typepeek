@@ -58,15 +58,14 @@ for (const benchmarkCase of benchmarkCases) {
       process.execPath,
       [executable, ...benchmarkCase.arguments_, "--context", resolve(".")],
       {
-        env: { TYPEPEEK_PROFILE: "1" },
+        ...(options.adapter === "source" ? { env: { TYPEPEEK_PROFILE: "1" } } : {}),
         reject: false,
       },
     );
     durations.push(roundedMilliseconds(performance.now() - startedAt));
     const outcome = JSON.parse(result.stdout) as { readonly status?: unknown };
     statuses.push(typeof outcome.status === "string" ? outcome.status : "invalid");
-    const profile = readProfile(result.stderr);
-    for (const phase of profile.phases) {
+    for (const phase of readProfile(result.stderr, options.adapter).phases) {
       const values = phaseDurations.get(phase.name) ?? [];
       values.push(phase.milliseconds);
       phaseDurations.set(phase.name, values);
@@ -141,7 +140,13 @@ function adapterEntrypoint(adapter: "build" | "package" | "source"): string {
   }
 }
 
-function readProfile(serialized: string): { readonly phases: readonly ProfilePhase[] } {
+function readProfile(
+  serialized: string,
+  adapter: "build" | "package" | "source",
+): { readonly phases: readonly ProfilePhase[] } {
+  if (adapter !== "source" && serialized === "") {
+    return { phases: [] };
+  }
   const profile = JSON.parse(serialized) as {
     readonly kind?: unknown;
     readonly phases?: unknown;

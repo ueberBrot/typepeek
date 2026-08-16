@@ -1,6 +1,17 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
 
+const releaseProfileAdapter = fileURLToPath(
+  new URL("./src/inspection/performance-profile-disabled.ts", import.meta.url),
+);
+
 export default defineConfig({
+  // Phase tracing is repository diagnostics, not part of the distributed CLI.
+  resolve: {
+    alias: {
+      "#typepeek/inspection/performance-profile": releaseProfileAdapter,
+    },
+  },
   build: {
     lib: {
       entry: {
@@ -58,6 +69,9 @@ export default defineConfig({
     },
   },
   pack: {
+    alias: {
+      "#typepeek/inspection/performance-profile": releaseProfileAdapter,
+    },
     entry: ["src/cli.ts", "src/inspection-api.ts", "src/inspection/analysis-process-entry.ts"],
     dts: true,
     format: ["esm"],

@@ -1,7 +1,7 @@
-import { performance } from "node:perf_hooks";
-
-const PROFILE_ENVIRONMENT_NAME = "TYPEPEEK_PROFILE";
 const PROFILE_SCHEMA_VERSION = 1;
+
+/** Build and pack replace this expression with `false`; source diagnostics retain it. */
+export const inspectionProfilingEnabled = process.env["TYPEPEEK_PROFILE"] === "1";
 
 export interface InspectionProfilePhase {
   readonly name: string;
@@ -18,7 +18,7 @@ let phases: InspectionProfilePhase[] | undefined;
 
 /** Starts one opt-in, process-local profile that never enters an Inspection Result. */
 export function beginInspectionProfile(): void {
-  phases = process.env[PROFILE_ENVIRONMENT_NAME] === "1" ? [] : undefined;
+  phases = inspectionProfilingEnabled ? [] : undefined;
 }
 
 /** Measures a trusted analysis phase when profiling is explicitly enabled. */
@@ -47,8 +47,48 @@ export function completeInspectionProfile(): InspectionProfile | undefined {
       };
 }
 
-export function inspectionProfilingRequested(): boolean {
-  return process.env[PROFILE_ENVIRONMENT_NAME] === "1";
+/** Validates and forwards one bounded source-diagnostic profile. */
+export function forwardInspectionProfile(serialized: Uint8Array): void {
+  const profile = parseInspectionProfile(serialized);
+  if (profile !== undefined) {
+    process.stderr.write(`${JSON.stringify(profile)}\n`);
+  }
+}
+
+function parseInspectionProfile(serialized: Uint8Array): InspectionProfile | undefined {
+  try {
+    const value = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(serialized),
+    ) as unknown;
+    if (
+      !isRecord(value) ||
+      value["kind"] !== "inspection-profile" ||
+      value["schemaVersion"] !== 1
+    ) {
+      return undefined;
+    }
+    const candidatePhases = value["phases"];
+    if (
+      !Array.isArray(candidatePhases) ||
+      !candidatePhases.every(
+        (phase) =>
+          isRecord(phase) &&
+          typeof phase["name"] === "string" &&
+          typeof phase["milliseconds"] === "number" &&
+          Number.isFinite(phase["milliseconds"]) &&
+          phase["milliseconds"] >= 0,
+      )
+    ) {
+      return undefined;
+    }
+    return value as unknown as InspectionProfile;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function roundedMilliseconds(milliseconds: number): number {

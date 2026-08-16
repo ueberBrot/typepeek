@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import { resolve } from "node:path";
 
+import { assertRepositoryProfilingExcluded } from "./artifact-boundary.ts";
+
 const worker = await lstat(".vite-plus/build/inspection/analysis-process-entry.js");
 assert.equal(worker.isFile(), true, "The built analysis process entry must be a regular file.");
 assert.equal(
@@ -10,6 +12,7 @@ assert.equal(
   false,
   "The built analysis process entry must not be a symlink.",
 );
+await assertRepositoryProfilingExcluded(".vite-plus/build");
 
 const cli = spawnSync(
   process.execPath,
