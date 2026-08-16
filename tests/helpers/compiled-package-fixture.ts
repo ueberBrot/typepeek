@@ -406,6 +406,15 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "}",
       "declare const defaults: DefaultOptions;",
       "export type Defaults = typeof defaults;",
+      ...Array.from(
+        { length: 13 },
+        (_, index) =>
+          `interface TypeQueryLevel${index} { readonly next: TypeQueryLevel${index + 1}; }`,
+      ),
+      "interface TypeQueryLevel13 { readonly done: true; }",
+      "interface TypeQueryContainer { readonly member: TypeQueryLevel0; }",
+      "declare const typeQueryContainer: TypeQueryContainer;",
+      "export type MemberTypeQuery = typeof typeQueryContainer.member;",
       'export declare function inspectInline(input: import("./inline.js").InlineInput): import("./inline.js").InlineOutput;',
       "/** @deprecated Use inspectInline instead. */",
       "export declare function deprecatedOnly(): void;",

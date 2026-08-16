@@ -1353,6 +1353,20 @@ it("follows value declarations and their shapes referenced through typeof", asyn
   ]);
 });
 
+it("does not treat a referenced Member declaration as a Supporting Type", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "MemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.supportingTypes).toEqual([]);
+});
+
 it("preserves nested namespace ownership", async () => {
   const outcome = await inspectExport({
     resolutionContext: fixture.resolutionContext,

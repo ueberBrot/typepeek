@@ -81,20 +81,28 @@ const SYMBOL_FLAGS_BY_SPACE: Readonly<Record<DeclarationSpace, ts.SymbolFlags>> 
   value: ts.SymbolFlags.Value,
   namespace: ts.SymbolFlags.Namespace,
 };
-const DECLARATION_SPACES_BY_KIND: Readonly<Record<DeclarationKind, readonly DeclarationSpace[]>> = {
-  alias: [],
-  class: ["type", "value"],
-  enum: ["type", "value"],
-  function: ["value"],
-  interface: ["type"],
-  namespace: ["value", "namespace"],
-  "type-alias": ["type"],
-  variable: ["value"],
-  accessor: ["value"],
-  constructor: ["value"],
-  method: ["value"],
-  property: ["value"],
-  "enum-member": ["value"],
+const DECLARATION_POLICY_BY_KIND: Readonly<
+  Record<
+    DeclarationKind,
+    {
+      readonly spaces: readonly DeclarationSpace[];
+      readonly supportsTypeQuery: boolean;
+    }
+  >
+> = {
+  alias: { spaces: [], supportsTypeQuery: false },
+  class: { spaces: ["type", "value"], supportsTypeQuery: true },
+  enum: { spaces: ["type", "value"], supportsTypeQuery: true },
+  function: { spaces: ["value"], supportsTypeQuery: true },
+  interface: { spaces: ["type"], supportsTypeQuery: false },
+  namespace: { spaces: ["value", "namespace"], supportsTypeQuery: true },
+  "type-alias": { spaces: ["type"], supportsTypeQuery: false },
+  variable: { spaces: ["value"], supportsTypeQuery: true },
+  accessor: { spaces: ["value"], supportsTypeQuery: false },
+  constructor: { spaces: ["value"], supportsTypeQuery: false },
+  method: { spaces: ["value"], supportsTypeQuery: false },
+  property: { spaces: ["value"], supportsTypeQuery: false },
+  "enum-member": { spaces: ["value"], supportsTypeQuery: false },
 };
 
 interface NamespaceMemberEvidence {
@@ -597,7 +605,7 @@ function symbolOccupiesSpace(symbol: ts.Symbol, space: DeclarationSpace): boolea
 
 function declarationSpaces(declaration: ts.Declaration): readonly DeclarationSpace[] {
   const kind = declarationKind(declaration);
-  return kind === undefined ? [] : DECLARATION_SPACES_BY_KIND[kind];
+  return kind === undefined ? [] : DECLARATION_POLICY_BY_KIND[kind].spaces;
 }
 
 function inspectSupportingTypes(
@@ -776,11 +784,16 @@ function supportingTypeDeclarations(
     (declaration) =>
       !isTypeScriptStandardLibraryDeclaration(declaration.getSourceFile().fileName) &&
       (referenceKind === "type-query"
-        ? declarationSpaces(declaration).some((space) => space === "value" || space === "namespace")
+        ? supportsTypeQuery(declaration)
         : isNamedTypeDeclaration(declaration)),
   );
   assertDeclarationLimit(declarations);
   return declarations;
+}
+
+function supportsTypeQuery(declaration: ts.Declaration): boolean {
+  const kind = declarationKind(declaration);
+  return kind === undefined ? false : DECLARATION_POLICY_BY_KIND[kind].supportsTypeQuery;
 }
 
 function isNamedTypeDeclaration(
