@@ -11,60 +11,6 @@ const record = <const Definition extends object>(definition: Definition) =>
 
 const inspectionSchemas = type.module({
   accessStyle: "'import' | 'require'",
-  inspectionTarget: record({
-    resolutionContext: "string",
-    specifier: "string",
-    "accessStyle?": "accessStyle | undefined",
-  }),
-  exportInspectionRequest: record({
-    "...": "inspectionTarget",
-    exportName: "string",
-  }),
-  signatureInspectionRequest: record({
-    "...": "inspectionTarget",
-    exportName: "string",
-  }),
-  normalizedInspectionTarget: record({
-    resolutionContext: "string",
-    specifier: "string",
-    accessStyle: "accessStyle",
-  }),
-  normalizedExportInspectionRequest: record({
-    "...": "normalizedInspectionTarget",
-    exportName: "string",
-  }),
-  normalizedSignatureInspectionRequest: record({
-    "...": "normalizedInspectionTarget",
-    exportName: "string",
-  }),
-  interfaceOverviewAnalysisEnvelope: record({
-    intent: "'interface-overview'",
-    request: "unknown",
-  }),
-  exportInspectionAnalysisEnvelope: record({
-    intent: "'export-inspection'",
-    request: "unknown",
-  }),
-  signatureInspectionAnalysisEnvelope: record({
-    intent: "'signature-inspection'",
-    request: "unknown",
-  }),
-  analysisRequestEnvelope:
-    "interfaceOverviewAnalysisEnvelope | exportInspectionAnalysisEnvelope | signatureInspectionAnalysisEnvelope",
-  interfaceOverviewAnalysisRequest: record({
-    intent: "'interface-overview'",
-    request: "normalizedInspectionTarget",
-  }),
-  exportInspectionAnalysisRequest: record({
-    intent: "'export-inspection'",
-    request: "normalizedExportInspectionRequest",
-  }),
-  signatureInspectionAnalysisRequest: record({
-    intent: "'signature-inspection'",
-    request: "normalizedSignatureInspectionRequest",
-  }),
-  analysisRequest:
-    "interfaceOverviewAnalysisRequest | exportInspectionAnalysisRequest | signatureInspectionAnalysisRequest",
   moduleExportIndexEntry: record({
     name: "string",
   }),
@@ -259,10 +205,6 @@ const inspectionSchemas = type.module({
 });
 
 const inspectionOutcomeSchema = inspectionSchemas.inspectionOutcome.onDeepUndeclaredKey("reject");
-const interfaceOverviewRequestSchema = inspectionSchemas.inspectionTarget;
-const exportInspectionRequestSchema = inspectionSchemas.exportInspectionRequest;
-const signatureInspectionRequestSchema = inspectionSchemas.signatureInspectionRequest;
-const analysisRequestEnvelopeSchema = inspectionSchemas.analysisRequestEnvelope;
 
 /**
  * Projects ArkType-inferred protocol values into readonly TypeScript shapes.
@@ -284,25 +226,29 @@ export type ProtocolType<Value> = Value extends readonly (infer Item)[]
     : Value;
 
 export type AccessStyle = ProtocolType<typeof inspectionSchemas.accessStyle.infer>;
-export type InterfaceOverviewRequest = ProtocolType<
-  typeof inspectionSchemas.inspectionTarget.infer
->;
-export type NormalizedInspectionTarget = ProtocolType<
-  typeof inspectionSchemas.normalizedInspectionTarget.infer
->;
+export interface InterfaceOverviewRequest {
+  readonly resolutionContext: string;
+  readonly specifier: string;
+  readonly accessStyle?: AccessStyle;
+}
+export interface NormalizedInspectionTarget {
+  readonly resolutionContext: string;
+  readonly specifier: string;
+  readonly accessStyle: AccessStyle;
+}
 export type NormalizedInterfaceOverviewRequest = NormalizedInspectionTarget;
-export type ExportInspectionRequest = ProtocolType<
-  typeof inspectionSchemas.exportInspectionRequest.infer
->;
-export type NormalizedExportInspectionRequest = ProtocolType<
-  typeof inspectionSchemas.normalizedExportInspectionRequest.infer
->;
-export type SignatureInspectionRequest = ProtocolType<
-  typeof inspectionSchemas.signatureInspectionRequest.infer
->;
-export type NormalizedSignatureInspectionRequest = ProtocolType<
-  typeof inspectionSchemas.normalizedSignatureInspectionRequest.infer
->;
+export interface ExportInspectionRequest extends InterfaceOverviewRequest {
+  readonly exportName: string;
+}
+export interface NormalizedExportInspectionRequest extends NormalizedInspectionTarget {
+  readonly exportName: string;
+}
+export interface SignatureInspectionRequest extends InterfaceOverviewRequest {
+  readonly exportName: string;
+}
+export interface NormalizedSignatureInspectionRequest extends NormalizedInspectionTarget {
+  readonly exportName: string;
+}
 export type ModuleExportIndexEntry = ProtocolType<
   typeof inspectionSchemas.moduleExportIndexEntry.infer
 >;
@@ -378,7 +324,13 @@ export type InspectionRequestReading<Request> =
       readonly outcome: InspectionFailure;
     };
 
-export type AnalysisRequest = ProtocolType<typeof inspectionSchemas.analysisRequest.infer>;
+export type AnalysisRequest =
+  | { readonly intent: "interface-overview"; readonly request: NormalizedInspectionTarget }
+  | { readonly intent: "export-inspection"; readonly request: NormalizedExportInspectionRequest }
+  | {
+      readonly intent: "signature-inspection";
+      readonly request: NormalizedSignatureInspectionRequest;
+    };
 
 export type AnalysisRequestReading =
   | {
@@ -390,126 +342,10 @@ export type AnalysisRequestReading =
       readonly outcome: InspectionFailure;
     };
 
-const INVALID_ANALYSIS_REQUEST_OUTCOME: InspectionFailure = {
-  status: "unsupported",
-  message: "Inspection received an invalid request.",
-};
-const INVALID_REQUEST_OUTCOMES = {
-  "interface-overview": {
-    status: "unsupported",
-    message: "Inspection received an invalid Interface Overview request.",
-  },
-  "export-inspection": {
-    status: "unsupported",
-    message: "Inspection received an invalid Export Inspection request.",
-  },
-  "signature-inspection": {
-    status: "unsupported",
-    message: "Inspection received an invalid Signature Inspection request.",
-  },
-} as const satisfies Readonly<Record<InspectionResult["intent"], InspectionFailure>>;
 const INVALID_RESULT_OUTCOME: InspectionFailure = {
   status: "unsupported",
   message: "Inspection returned an invalid result.",
 };
-
-/**
- * Snapshots and validates an untrusted caller request, applying `import` as the
- * default Access Style. Invalid or accessor-backed inputs return a typed failure
- * and never escape this function as exceptions.
- */
-export function readInspectionRequest(
-  intent: "interface-overview",
-  value: unknown,
-): InspectionRequestReading<NormalizedInterfaceOverviewRequest>;
-export function readInspectionRequest(
-  intent: "export-inspection",
-  value: unknown,
-): InspectionRequestReading<NormalizedExportInspectionRequest>;
-export function readInspectionRequest(
-  intent: "signature-inspection",
-  value: unknown,
-): InspectionRequestReading<NormalizedSignatureInspectionRequest>;
-export function readInspectionRequest(
-  intent: InspectionResult["intent"],
-  value: unknown,
-):
-  | InspectionRequestReading<NormalizedInterfaceOverviewRequest>
-  | InspectionRequestReading<NormalizedExportInspectionRequest>
-  | InspectionRequestReading<NormalizedSignatureInspectionRequest> {
-  try {
-    const candidate = snapshotRecord(value);
-    if (candidate === undefined) {
-      return { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
-    }
-    if (intent === "interface-overview") {
-      const request = interfaceOverviewRequestSchema(candidate);
-      return request instanceof type.errors
-        ? { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] }
-        : { accepted: true, request: normalizeInspectionTarget(request) };
-    }
-    const request =
-      intent === "export-inspection"
-        ? exportInspectionRequestSchema(candidate)
-        : signatureInspectionRequestSchema(candidate);
-    return request instanceof type.errors
-      ? { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] }
-      : {
-          accepted: true,
-          request: {
-            ...normalizeInspectionTarget(request),
-            exportName: request.exportName,
-          },
-        };
-  } catch {
-    return { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
-  }
-}
-
-/**
- * Revalidates the request envelope received by the analysis process entry and delegates
- * nested request validation to the same seam used by direct callers.
- */
-export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
-  try {
-    const candidate = snapshotRecord(value);
-    if (candidate === undefined) {
-      return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
-    }
-    const envelope = analysisRequestEnvelopeSchema(candidate);
-    if (envelope instanceof type.errors) {
-      return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
-    }
-
-    if (envelope.intent === "interface-overview") {
-      const reading = readInspectionRequest(envelope.intent, envelope.request);
-      return reading.accepted
-        ? {
-            accepted: true,
-            request: { intent: envelope.intent, request: reading.request },
-          }
-        : { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
-    }
-    if (envelope.intent === "export-inspection") {
-      const reading = readInspectionRequest(envelope.intent, envelope.request);
-      return reading.accepted
-        ? {
-            accepted: true,
-            request: { intent: envelope.intent, request: reading.request },
-          }
-        : { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
-    }
-    const reading = readInspectionRequest("signature-inspection", envelope.request);
-    return reading.accepted
-      ? {
-          accepted: true,
-          request: { intent: "signature-inspection", request: reading.request },
-        }
-      : { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
-  } catch {
-    return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
-  }
-}
 
 /**
  * Accepts only a bounded, dense, data-property-only outcome for the requested
@@ -546,16 +382,6 @@ export function enforceInspectionOutcome(
   } catch {
     return INVALID_RESULT_OUTCOME;
   }
-}
-
-function normalizeInspectionTarget(
-  request: typeof inspectionSchemas.inspectionTarget.infer,
-): NormalizedInspectionTarget {
-  return {
-    resolutionContext: request.resolutionContext,
-    specifier: request.specifier,
-    accessStyle: request.accessStyle ?? "import",
-  };
 }
 
 function isInspectionOutcome(value: unknown): value is InspectionOutcome {
@@ -693,21 +519,4 @@ function isPortableRelativePath(value: unknown): value is string {
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function snapshotRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  // Copy own data properties once so validation never invokes getters and the
-  // accepted values cannot change between schema checks and normalization.
-  const snapshot: Record<string, unknown> = Object.create(null);
-  for (const key of Object.keys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor === undefined || !("value" in descriptor)) {
-      return undefined;
-    }
-    snapshot[key] = descriptor.value;
-  }
-  return snapshot;
 }

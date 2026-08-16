@@ -1,7 +1,6 @@
 import { runBoundedAnalysis } from "#typepeek/inspection/analysis-process";
 import {
   enforceInspectionOutcome,
-  readInspectionRequest,
   type ExportInspection,
   type ExportInspectionRequest,
   type InspectionOutcome,
@@ -10,6 +9,7 @@ import {
   type SignatureInspection,
   type SignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
+import { readInspectionRequest } from "#typepeek/inspection/request-codec";
 
 /**
  * Validates a request and produces a bounded index of the Module Exports visible
