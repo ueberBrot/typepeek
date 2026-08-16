@@ -16,7 +16,9 @@ import type {
   InspectionPlanQuery,
 } from "#typepeek/inspection/protocol";
 import {
+  constructInspectionPlan,
   constructInterfaceOverview,
+  createInspectionResultConstructionContext,
   type InspectionResultConstructionContext,
 } from "#typepeek/inspection/result-construction";
 import { inspectModuleExportSignatures } from "#typepeek/inspection/signature-inspection";
@@ -45,11 +47,11 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
       message: `Specifier "${request.specifier}" is not installed from this Resolution Context.`,
     };
   }
-  const constructionContext: InspectionResultConstructionContext = {
+  const constructionContext = createInspectionResultConstructionContext({
     specifier: request.specifier,
     resolutionVariant: { accessStyle: request.accessStyle },
     identity: evidence.resultIdentity,
-  };
+  });
 
   if (analysisRequest.intent === "inspection-plan") {
     const inspections: AtomicInspectionResult[] = [];
@@ -62,7 +64,7 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
     }
     return {
       status: "success",
-      result: { intent: "inspection-plan", inspections },
+      result: constructInspectionPlan(constructionContext, inspections),
     };
   }
 

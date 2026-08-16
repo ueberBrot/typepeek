@@ -464,16 +464,22 @@ function parseInspectionPlanQueries(input: string): readonly InspectionPlanQuery
   if (Buffer.byteLength(input) > MAX_PLAN_QUERY_JSON_BYTES) {
     throw new Error("Inspection Plan query JSON exceeds its input limit.");
   }
-  let value: unknown;
+  return readInspectionPlanQueryArray(parseInspectionPlanJson(input)).map(parseInspectionPlanQuery);
+}
+
+function parseInspectionPlanJson(input: string): unknown {
   try {
-    value = JSON.parse(input) as unknown;
+    return JSON.parse(input) as unknown;
   } catch {
     throw new Error("Inspection Plan queries must be valid JSON.");
   }
+}
+
+function readInspectionPlanQueryArray(value: unknown): readonly unknown[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 16) {
     throw new Error("Inspection Plan queries must contain from 1 through 16 entries.");
   }
-  return value.map(parseInspectionPlanQuery);
+  return value;
 }
 
 function parseInspectionPlanQuery(value: unknown): InspectionPlanQuery {
@@ -484,7 +490,13 @@ function parseInspectionPlanQuery(value: unknown): InspectionPlanQuery {
   if (intent === "interface-overview") {
     return { intent };
   }
-  const exportName = value["exportName"];
+  return parseFocusedInspectionPlanQuery(intent, value["exportName"]);
+}
+
+function parseFocusedInspectionPlanQuery(
+  intent: unknown,
+  exportName: unknown,
+): InspectionPlanQuery {
   if (
     (intent !== "export-inspection" && intent !== "signature-inspection") ||
     typeof exportName !== "string"

@@ -1,6 +1,7 @@
 import { runBoundedAnalysis } from "#typepeek/inspection/analysis-process";
 import {
   enforceInspectionOutcome,
+  enforceInspectionPlanOutcome,
   type ExportInspection,
   type ExportInspectionRequest,
   type InspectionOutcome,
@@ -25,8 +26,8 @@ export async function inspectPlan(
     return requestReading.outcome;
   }
 
-  return enforceInspectionOutcome(
-    "inspection-plan",
+  return enforceInspectionPlanOutcome(
+    requestReading.request.queries,
     await runBoundedAnalysis({ intent: "inspection-plan", request: requestReading.request }),
   );
 }

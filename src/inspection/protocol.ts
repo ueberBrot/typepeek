@@ -406,6 +406,41 @@ export function enforceInspectionOutcome(
   }
 }
 
+/** Requires one complete result matching each ordered plan query exactly once. */
+export function enforceInspectionPlanOutcome(
+  queries: readonly InspectionPlanQuery[],
+  value: unknown,
+): InspectionOutcome<InspectionPlan> {
+  const outcome = enforceInspectionOutcome("inspection-plan", value);
+  if (outcome.status !== "success") {
+    return outcome;
+  }
+  return outcome.result.inspections.length === queries.length &&
+    outcome.result.inspections.every((inspection, index) =>
+      inspectionMatchesPlanQuery(inspection, queries[index]),
+    )
+    ? outcome
+    : INVALID_RESULT_OUTCOME;
+}
+
+function inspectionMatchesPlanQuery(
+  inspection: AtomicInspectionResult,
+  query: InspectionPlanQuery | undefined,
+): boolean {
+  if (query === undefined || inspection.intent !== query.intent) {
+    return false;
+  }
+  switch (query.intent) {
+    case "interface-overview":
+      return true;
+    case "export-inspection":
+    case "signature-inspection":
+      return (
+        inspection.intent === query.intent && inspection.moduleExport.name === query.exportName
+      );
+  }
+}
+
 function isInspectionOutcome(value: unknown): value is InspectionOutcome {
   // Manual graph guards run before ArkType so cyclic, sparse, accessor-backed,
   // or excessively deep values cannot make recursive schema validation unsafe.
@@ -427,22 +462,36 @@ function isInspectionPlanSuccess(value: unknown): boolean {
 }
 
 function isValidInspectionPlanSuccess(value: unknown): value is InspectionOutcome<InspectionPlan> {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["status", "result"])) {
-    return false;
-  }
-  const result = value["result"];
-  if (!isRecord(result) || !hasOnlyKeys(result, ["intent", "inspections"])) {
+  const result = inspectionPlanResult(value);
+  if (result === undefined) {
     return false;
   }
   const inspections = result["inspections"];
   return (
-    value["status"] === "success" &&
-    result["intent"] === "inspection-plan" &&
     Array.isArray(inspections) &&
-    inspections.length >= 1 &&
-    inspections.length <= 16 &&
+    hasInspectionPlanLength(inspections) &&
     everyArrayItem(inspections, (inspection) => atomicInspectionResultSchema.allows(inspection))
   );
+}
+
+function inspectionPlanResult(value: unknown): Readonly<Record<string, unknown>> | undefined {
+  if (
+    !isRecord(value) ||
+    value["status"] !== "success" ||
+    !hasOnlyKeys(value, ["status", "result"])
+  ) {
+    return undefined;
+  }
+  const result = value["result"];
+  return isRecord(result) &&
+    result["intent"] === "inspection-plan" &&
+    hasOnlyKeys(result, ["intent", "inspections"])
+    ? result
+    : undefined;
+}
+
+function hasInspectionPlanLength(inspections: readonly unknown[]): boolean {
+  return inspections.length >= 1 && inspections.length <= 16;
 }
 
 function hasOnlyKeys(value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean {

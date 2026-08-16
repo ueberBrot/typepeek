@@ -2,6 +2,7 @@ import { expect, expectTypeOf, it } from "vite-plus/test";
 
 import {
   enforceInspectionOutcome,
+  enforceInspectionPlanOutcome,
   type ExportDeclarationSpace,
   type ExportInspection,
   type ExportNamespaceMember,
@@ -166,6 +167,45 @@ it("accepts an atomic Inspection Plan result for its requested intent", () => {
     status: "unsupported",
     message: "Inspection returned an invalid result.",
   });
+});
+
+it("rejects a plan result that omits or reorders requested inspections", () => {
+  const overview = {
+    intent: "interface-overview",
+    specifier: "example",
+    resolutionVariant: { accessStyle: "import" },
+    packageIdentity: { name: "example" },
+    publicSubpaths: [],
+    moduleExports: [{ name: "createExample" }],
+  } as const;
+  const signatures = {
+    intent: "signature-inspection",
+    specifier: "example",
+    resolutionVariant: { accessStyle: "import" },
+    packageIdentity: { name: "example" },
+    moduleExport: { name: "createExample", signatures: [] },
+  } as const;
+  const queries = [
+    { intent: "interface-overview" },
+    { intent: "signature-inspection", exportName: "createExample" },
+  ] as const;
+  const invalid = {
+    status: "unsupported",
+    message: "Inspection returned an invalid result.",
+  } as const;
+
+  expect(
+    enforceInspectionPlanOutcome(queries, {
+      status: "success",
+      result: { intent: "inspection-plan", inspections: [overview] },
+    }),
+  ).toEqual(invalid);
+  expect(
+    enforceInspectionPlanOutcome(queries, {
+      status: "success",
+      result: { intent: "inspection-plan", inspections: [signatures, overview] },
+    }),
+  ).toEqual(invalid);
 });
 
 it("accepts a provider-backed Platform Module without a Package Identity", () => {

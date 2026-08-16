@@ -49,8 +49,12 @@ A bounded focused Inspection Result containing every statically visible public c
 Each signature keeps the compiler rendering plus structured type parameters, an explicit `this` parameter, ordinary parameters, and return or predicate semantics.
 _Avoid_: partial Export Inspection, fallback result
 
+**Inspection Plan**:
+A bounded ordered set of inspection queries for one Specifier, Resolution Context, and Access Style. It shares one Installed Evidence selection and compiler-work budget, and succeeds only when every query produces its complete Inspection Result in the same order. Any failure or aggregate budget exhaustion fails the whole plan without partial authority.
+_Avoid_: session, batch of independent inspections, partial plan
+
 **Inspection Result**:
-A bounded, deterministic presentation of Installed Evidence for an Interface Overview, Export Inspection, or Signature Inspection. It describes one Resolution Variant and contains no generated explanation, usage example, or behavioral claim.
+A bounded, deterministic presentation of Installed Evidence for an Interface Overview, Export Inspection, Signature Inspection, or atomic Inspection Plan. It describes one Resolution Variant and contains no generated explanation, usage example, or behavioral claim.
 _Avoid_: answer, summary
 
 **Resolution Context**:
