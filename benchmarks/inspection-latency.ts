@@ -147,14 +147,27 @@ function readProfile(
   if (adapter !== "source" && serialized === "") {
     return { phases: [] };
   }
-  const profile = JSON.parse(serialized) as {
-    readonly kind?: unknown;
-    readonly phases?: unknown;
-  };
-  if (profile.kind !== "inspection-profile" || !Array.isArray(profile.phases)) {
+  const profile: unknown = JSON.parse(serialized);
+  if (!isPerformanceProfile(profile)) {
     throw new TypeError("Inspection did not emit a valid performance profile.");
   }
-  return profile as { readonly phases: readonly ProfilePhase[] };
+  return profile;
+}
+
+function isPerformanceProfile(
+  value: unknown,
+): value is { readonly phases: readonly ProfilePhase[] } {
+  if (typeof value !== "object") {
+    return false;
+  }
+  if (value === null) {
+    return false;
+  }
+  const candidate = value as { readonly kind?: unknown; readonly phases?: unknown };
+  if (candidate.kind !== "inspection-profile") {
+    return false;
+  }
+  return Array.isArray(candidate.phases);
 }
 
 function summarize(values: readonly number[]): DurationSummary {
