@@ -10,9 +10,11 @@ import { resolve } from "node:path";
 
 import {
   inspectExport,
+  inspectExportSearch,
   inspectExportSignatures,
   inspectInterfaceOverview,
   inspectPlan,
+  inspectPublicSubpaths,
 } from "#typepeek/inspection";
 import type { InspectionPlanQuery, InspectionResult } from "#typepeek/inspection";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
@@ -33,7 +35,14 @@ const COMMON_OPTION_WIDTHS = new Map<string, number>([
   ["--access", 2],
   ["--context", 2],
 ] as const);
-const INSPECTION_COMMANDS = new Set(["overview", "export", "signatures", "plan"]);
+const INSPECTION_COMMANDS = new Set([
+  "overview",
+  "export",
+  "signatures",
+  "plan",
+  "search",
+  "subpaths",
+]);
 const INVALID_INVOCATION_EXIT_CODES = new Set([-5, -4]);
 
 interface CliDiagnostic {
@@ -148,9 +157,15 @@ const exportNameParameter = {
   placeholder: "export-name",
 } as const;
 
+const exportSearchQueryParameter = {
+  parse: (input: string) => input,
+  brief: "Case-insensitive substring to match against Module Export names.",
+  placeholder: "query",
+} as const;
+
 const inspectionPlanQueriesParameter = {
   parse: parseInspectionPlanQueries,
-  brief: "Bounded JSON array of overview, export, or signature inspection queries.",
+  brief: "Bounded JSON array of overview, focused, search, or subpath inspection queries.",
   placeholder: "queries-json",
 } as const;
 
@@ -268,18 +283,61 @@ const planCommand = buildCommand<
   },
 });
 
+const searchCommand = buildCommand<InspectionTargetOptions, [string, string], ApplicationContext>({
+  async func(options, specifier, query) {
+    const outcome = await inspectExportSearch({
+      ...inspectionRequest(options, specifier),
+      query,
+    });
+    return writeCliOutcome(this, options, outcome);
+  },
+  parameters: {
+    flags: inspectionTargetFlags,
+    positional: {
+      kind: "tuple",
+      parameters: [specifierParameter, exportSearchQueryParameter],
+    },
+  },
+  docs: {
+    brief: "Search the bounded Module Export index without returning an overview.",
+    fullDescription:
+      "Example: typepeek search zod error --context . returns matching Module Export names and the complete count.",
+  },
+});
+
+const subpathsCommand = buildCommand<InspectionTargetOptions, [string], ApplicationContext>({
+  async func(options, specifier) {
+    const outcome = await inspectPublicSubpaths(inspectionRequest(options, specifier));
+    return writeCliOutcome(this, options, outcome);
+  },
+  parameters: {
+    flags: inspectionTargetFlags,
+    positional: {
+      kind: "tuple",
+      parameters: [specifierParameter],
+    },
+  },
+  docs: {
+    brief: "Discover manifest Public Subpaths without materializing a TypeScript program.",
+    fullDescription:
+      "Example: typepeek subpaths zod --context . lists only bounded manifest Public Subpaths.",
+  },
+});
+
 const rootRoute = buildRouteMap({
   routes: {
     overview: overviewCommand,
     export: exportCommand,
     signatures: signaturesCommand,
     plan: planCommand,
+    search: searchCommand,
+    subpaths: subpathsCommand,
   },
   defaultCommand: "overview",
   docs: {
     brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
     fullDescription:
-      "Use overview to discover exports, signatures to inspect parameters, export for declarations and Supporting Types, or plan to share one evidence snapshot. Common flags may precede or follow an explicit command.",
+      "Use overview to discover exports; use search or subpaths for lighter discovery, signatures for parameters, export for declarations and Supporting Types, or plan to share one evidence snapshot. Common flags may precede or follow an explicit command.",
   },
 });
 
@@ -487,20 +545,51 @@ function parseInspectionPlanQuery(value: unknown): InspectionPlanQuery {
     throw new Error("Each Inspection Plan query must be an object.");
   }
   const intent = value["intent"];
-  if (intent === "interface-overview") {
-    return { intent };
+  if (!isInspectionPlanQueryIntent(intent)) {
+    throw new Error("Each Inspection Plan query has an unsupported intent.");
   }
-  return parseFocusedInspectionPlanQuery(intent, value["exportName"]);
+  return INSPECTION_PLAN_QUERY_PARSERS[intent](value);
+}
+
+type InspectionPlanQueryParser = (value: Readonly<Record<string, unknown>>) => InspectionPlanQuery;
+
+const INSPECTION_PLAN_QUERY_INTENTS = new Set<InspectionPlanQuery["intent"]>([
+  "interface-overview",
+  "export-inspection",
+  "signature-inspection",
+  "export-search",
+  "public-subpath-discovery",
+]);
+
+const INSPECTION_PLAN_QUERY_PARSERS = {
+  "interface-overview": () => ({ intent: "interface-overview" }),
+  "public-subpath-discovery": () => ({ intent: "public-subpath-discovery" }),
+  "export-search": (value) => parseExportSearchInspectionPlanQuery(value["query"]),
+  "export-inspection": (value) =>
+    parseFocusedInspectionPlanQuery("export-inspection", value["exportName"]),
+  "signature-inspection": (value) =>
+    parseFocusedInspectionPlanQuery("signature-inspection", value["exportName"]),
+} as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryParser>>;
+
+function isInspectionPlanQueryIntent(value: unknown): value is InspectionPlanQuery["intent"] {
+  return (
+    typeof value === "string" &&
+    INSPECTION_PLAN_QUERY_INTENTS.has(value as InspectionPlanQuery["intent"])
+  );
+}
+
+function parseExportSearchInspectionPlanQuery(query: unknown): InspectionPlanQuery {
+  if (typeof query !== "string" || query.length === 0 || Buffer.byteLength(query) > 256) {
+    throw new Error("Each Export Search query requires a bounded non-empty query string.");
+  }
+  return { intent: "export-search", query };
 }
 
 function parseFocusedInspectionPlanQuery(
-  intent: unknown,
+  intent: "export-inspection" | "signature-inspection",
   exportName: unknown,
 ): InspectionPlanQuery {
-  if (
-    (intent !== "export-inspection" && intent !== "signature-inspection") ||
-    typeof exportName !== "string"
-  ) {
+  if (typeof exportName !== "string") {
     throw new Error("Each focused Inspection Plan query requires a string exportName.");
   }
   return { intent, exportName };

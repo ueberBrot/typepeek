@@ -1,15 +1,19 @@
 /** Transport-neutral package API for CLI, MCP, and other inspection adapters. */
 export {
   inspectExport,
+  inspectExportSearch,
   inspectExportSignatures,
   inspectInterfaceOverview,
   inspectPlan,
+  inspectPublicSubpaths,
 } from "#typepeek/inspection/core";
 export type {
   AtomicInspectionResult,
   ExportDeclarationSpace,
   ExportInspection,
   ExportInspectionRequest,
+  ExportSearch,
+  ExportSearchRequest,
   ExportNamespaceMember,
   InspectedDeclaration,
   InspectedSignature,
@@ -21,6 +25,8 @@ export type {
   InterfaceOverview,
   InterfaceOverviewRequest,
   PackageIdentity,
+  PublicSubpathDiscovery,
+  PublicSubpathDiscoveryRequest,
   ResolutionVariant,
   SignatureInspection,
   SignatureInspectionRequest,

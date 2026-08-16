@@ -42,6 +42,8 @@ const benchmarkCases: readonly BenchmarkCase[] = [
     name: "signature-inspection",
     arguments_: ["signatures", "arktype", "type", "--json"],
   },
+  { name: "export-search", arguments_: ["search", "arktype", "type", "--json"] },
+  { name: "public-subpath-discovery", arguments_: ["subpaths", "arktype", "--json"] },
 ];
 
 const options = readOptions(process.argv.slice(2));

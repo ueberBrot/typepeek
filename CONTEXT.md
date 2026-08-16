@@ -40,6 +40,14 @@ _Avoid_: internal path, deep import
 A package-manifest wildcard that describes a family of potential Public Subpaths. It is not itself an exact Specifier; a matching exact Specifier identifies a Public Subpath only when the selected Resolution Variant exposes it.
 _Avoid_: wildcard Specifier, Public Subpath
 
+**Public Subpath Discovery**:
+A lightweight Inspection Result containing the bounded exact Public Subpaths visible from a package root under one Resolution Variant. It reads manifest and resolution evidence without materializing a TypeScript program and does not recursively inspect the subpaths.
+_Avoid_: Interface Overview, directory listing, deep-import scan
+
+**Module Export Search**:
+A bounded case-insensitive name search over the Module Exports of one Inspectable Module. It returns matching names and the complete candidate count without constructing an Interface Overview or traversing declarations and Supporting Types.
+_Avoid_: Interface Overview filter, fuzzy search, documentation search
+
 **Export Inspection**:
 A focused description of one Module Export, including its relevant declarations, bounded Supporting Types, and Package Documentation.
 _Avoid_: show, lookup
@@ -54,7 +62,7 @@ A bounded ordered set of inspection queries for one Specifier, Resolution Contex
 _Avoid_: session, batch of independent inspections, partial plan
 
 **Inspection Result**:
-A bounded, deterministic presentation of Installed Evidence for an Interface Overview, Export Inspection, Signature Inspection, or atomic Inspection Plan. It describes one Resolution Variant and contains no generated explanation, usage example, or behavioral claim.
+A bounded, deterministic presentation of Installed Evidence for an Interface Overview, Module Export Search, Public Subpath Discovery, Export Inspection, Signature Inspection, or atomic Inspection Plan. It describes one Resolution Variant and contains no generated explanation, usage example, or behavioral claim.
 _Avoid_: answer, summary
 
 **Resolution Context**:

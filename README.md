@@ -48,6 +48,19 @@ complete count so filtered output is never mistaken for a complete overview:
 typepeek overview zod --match error
 ```
 
+For discovery without a complete Interface Overview, search Module Export names
+or read only manifest Public Subpaths:
+
+```bash
+typepeek search zod error --context .
+typepeek subpaths zod --context .
+```
+
+Export Search scans at most 4,096 names and returns at most 320 deterministic
+case-insensitive substring matches, so it can query an index broader than the
+320-entry overview limit. Public Subpath Discovery resolves bounded manifest
+evidence without materializing a TypeScript program.
+
 Use Signature Inspection when you need the call or construct parameters for
 one Module Export. It skips declarations and Supporting Types:
 
@@ -85,9 +98,10 @@ and one TypeScript program materialization:
 typepeek plan zod '[{"intent":"interface-overview"},{"intent":"signature-inspection","exportName":"ZodError"}]' --context . --json
 ```
 
-Plans accept 1 through 16 `interface-overview`, `export-inspection`, or
-`signature-inspection` queries. If any query fails, the whole plan returns that
-typed failure without partial results.
+Plans accept 1 through 16 `interface-overview`, `export-inspection`,
+`signature-inspection`, `export-search`, or `public-subpath-discovery` queries.
+If any query fails, the whole plan returns that typed failure without partial
+results.
 
 `--json` emits one complete, newline-terminated Inspection Outcome on stdout,
 including the selected Access Style. Successful inspections exit with status 0;
@@ -164,18 +178,20 @@ output:
 ```ts
 import {
   inspectExport,
+  inspectExportSearch,
   inspectExportSignatures,
   inspectInterfaceOverview,
   inspectPlan,
+  inspectPublicSubpaths,
 } from "typepeek/inspection";
 ```
 
-All four functions accept a `resolutionContext` and `specifier`;
+All six functions accept a `resolutionContext` and `specifier`;
 `inspectExport` and `inspectExportSignatures` additionally accept an
-`exportName`; `inspectPlan` accepts the bounded ordered query list. The CLI is
-one adapter over this interface. An MCP adapter is not implemented yet; it can
-live in this package later and call the same functions without invoking the
-CLI.
+`exportName`; `inspectExportSearch` accepts a bounded query;
+`inspectPlan` accepts the bounded ordered query list. The CLI is one adapter
+over this interface. An MCP adapter is not implemented yet; it can live in this
+package later and call the same functions without invoking the CLI.
 
 pnpm rejects package versions published less than seven days ago.
 

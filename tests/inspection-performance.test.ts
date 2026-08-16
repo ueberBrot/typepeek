@@ -20,6 +20,8 @@ it("benchmarks successful source-checkout inspections through the CLI seam", asy
     cases: [
       { name: "interface-overview", statuses: ["success"] },
       { name: "signature-inspection", statuses: ["success"] },
+      { name: "export-search", statuses: ["success"] },
+      { name: "public-subpath-discovery", statuses: ["success"] },
     ],
   });
 });
