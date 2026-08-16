@@ -287,6 +287,37 @@ describe("typepeek CLI", () => {
     });
   });
 
+  it.each([
+    [[], "Inspection Plan queries must contain from 1 through 16 entries."],
+    [[null], "Each Inspection Plan query must be an object."],
+    [[{ intent: "runtime-inspection" }], "Each Inspection Plan query has an unsupported intent."],
+    [
+      [{ intent: "export-search", query: "" }],
+      "Each Export Search query requires a bounded non-empty query string.",
+    ],
+    [
+      [{ intent: "export-inspection" }],
+      "Each focused Inspection Plan query requires a string exportName.",
+    ],
+    [
+      [{ intent: "member-inspection", exportName: "Example" }],
+      "Each Member Inspection query requires an exportName and memberPath.",
+    ],
+  ] as const)("preserves the Inspection Plan query diagnostic for %#", async (queries, message) => {
+    const result = await execa(
+      process.execPath,
+      ["src/cli.ts", "plan", "example", JSON.stringify(queries), "--json"],
+      { reject: false },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "invalid-invocation",
+      message: expect.stringContaining(message),
+    });
+  });
+
   it("presents root help when invoked without arguments", async () => {
     const result = await execa(process.execPath, ["src/cli.ts"]);
 

@@ -1,5 +1,6 @@
 import { type } from "arktype";
 
+import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection-plan-query";
 import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import {
   INSPECTION_BUDGET_DIMENSIONS,
@@ -661,32 +662,14 @@ function simpleResultMatchesRequest(
     { readonly intent: "inspection-plan" | "declaration-inspection" | "member-inspection" }
   >,
 ): boolean {
+  const query = inspectionPlanQueriesForRequest(request)[0];
   return (
+    query !== undefined &&
     result.intent !== "inspection-plan" &&
     result.intent !== "public-interface-comparison" &&
     inspectionMatchesTarget(result, request.request) &&
-    inspectionMatchesPlanQuery(result, simpleRequestPlanQuery(request))
+    inspectionMatchesPlanQuery(result, query)
   );
-}
-
-function simpleRequestPlanQuery(
-  request: Exclude<
-    AnalysisRequest,
-    { readonly intent: "inspection-plan" | "declaration-inspection" | "member-inspection" }
-  >,
-): InspectionPlanQuery {
-  switch (request.intent) {
-    case "interface-overview":
-      return { intent: request.intent };
-    case "export-inspection":
-      return { intent: request.intent, exportName: request.request.exportName };
-    case "signature-inspection":
-      return { intent: request.intent, exportName: request.request.exportName };
-    case "export-search":
-      return { intent: request.intent, query: request.request.query };
-    case "public-subpath-discovery":
-      return { intent: request.intent };
-  }
 }
 
 /** Requires one complete result matching each ordered plan query exactly once. */

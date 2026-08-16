@@ -1,10 +1,13 @@
+import {
+  isBoundedExportSearchQuery,
+  readInspectionPlanQueries,
+} from "#typepeek/inspection/inspection-plan-query";
 import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import type {
   AccessStyle,
   AnalysisRequest,
   AnalysisRequestReading,
   InspectionFailure,
-  InspectionPlanQuery,
   InspectionRequestReading,
   NormalizedExportInspectionRequest,
   NormalizedExportSearchRequest,
@@ -16,6 +19,7 @@ import type {
   NormalizedSignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
 import { ANALYSIS_INTENTS } from "#typepeek/inspection/protocol-vocabulary";
+import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
 const INVALID_ANALYSIS_REQUEST_OUTCOME: InspectionFailure = {
   status: "unsupported",
@@ -65,8 +69,6 @@ const INVALID_REQUEST_OUTCOMES = {
   },
 } as const satisfies Readonly<Record<AnalysisRequest["intent"], InspectionFailure>>;
 
-const MAX_INSPECTION_PLAN_QUERIES = 16;
-const MAX_EXPORT_SEARCH_QUERY_BYTES = 256;
 const INSPECTION_REQUEST_FIELDS = [
   "resolutionContext",
   "specifier",
@@ -77,23 +79,10 @@ const INSPECTION_REQUEST_FIELDS = [
   "memberPath",
 ] as const;
 const ANALYSIS_REQUEST_FIELDS = ["intent", "request"] as const;
-const INSPECTION_PLAN_QUERY_FIELDS = ["intent", "query", "exportName", "memberPath"] as const;
 
 type AnalysisRequestReader = (value: unknown) => AnalysisRequest | undefined;
-type InspectionPlanQueryReader = (
-  value: Readonly<Record<string, unknown>>,
-) => InspectionPlanQuery | undefined;
 
 const ANALYSIS_INTENT_SET = new Set<AnalysisRequest["intent"]>(ANALYSIS_INTENTS);
-const INSPECTION_PLAN_QUERY_INTENTS = new Set<InspectionPlanQuery["intent"]>([
-  "interface-overview",
-  "export-inspection",
-  "signature-inspection",
-  "export-search",
-  "public-subpath-discovery",
-  "declaration-inspection",
-  "member-inspection",
-]);
 
 /** Snapshots and validates one untrusted caller request without loading the outcome codec. */
 export function readInspectionRequest(
@@ -137,7 +126,7 @@ export function readInspectionRequest(
   value: unknown,
 ): InspectionRequestReading<AnalysisRequest["request"]> {
   try {
-    const candidate = snapshotRecord(value, INSPECTION_REQUEST_FIELDS);
+    const candidate = snapshotDataProperties(value, INSPECTION_REQUEST_FIELDS);
     const target = candidate === undefined ? undefined : readInspectionTarget(candidate);
     if (target === undefined) {
       return { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
@@ -146,14 +135,14 @@ export function readInspectionRequest(
       return { accepted: true, request: target };
     }
     if (intent === "inspection-plan") {
-      const queries = readInspectionPlanQueries(candidate?.["queries"]);
-      return queries === undefined
+      const reading = readInspectionPlanQueries(candidate?.["queries"]);
+      return !reading.accepted
         ? { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] }
-        : { accepted: true, request: { ...target, queries } };
+        : { accepted: true, request: { ...target, queries: reading.queries } };
     }
     if (intent === "export-search") {
       const query = candidate?.["query"];
-      return isExportSearchQuery(query)
+      return isBoundedExportSearchQuery(query)
         ? { accepted: true, request: { ...target, query } }
         : { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] };
     }
@@ -176,7 +165,7 @@ export function readInspectionRequest(
 /** Revalidates the structured-cloned request at the isolated analysis-process seam. */
 export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
   try {
-    const envelope = snapshotRecord(value, ANALYSIS_REQUEST_FIELDS);
+    const envelope = snapshotDataProperties(value, ANALYSIS_REQUEST_FIELDS);
     const intent = envelope?.["intent"];
     if (!isInspectionIntent(intent)) {
       return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
@@ -237,102 +226,4 @@ function isAccessStyle(value: unknown): value is AccessStyle | undefined {
 
 function isInspectionIntent(value: unknown): value is AnalysisRequest["intent"] {
   return typeof value === "string" && ANALYSIS_INTENT_SET.has(value as AnalysisRequest["intent"]);
-}
-
-function readInspectionPlanQueries(value: unknown): readonly InspectionPlanQuery[] | undefined {
-  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_INSPECTION_PLAN_QUERIES) {
-    return undefined;
-  }
-  const queries: InspectionPlanQuery[] = [];
-  for (let index = 0; index < value.length; index += 1) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-    if (descriptor === undefined || !("value" in descriptor)) {
-      return undefined;
-    }
-    const query = readInspectionPlanQuery(descriptor.value);
-    if (query === undefined) {
-      return undefined;
-    }
-    queries.push(query);
-  }
-  return queries;
-}
-
-function readInspectionPlanQuery(value: unknown): InspectionPlanQuery | undefined {
-  const query = snapshotRecord(value, INSPECTION_PLAN_QUERY_FIELDS);
-  const intent = query?.["intent"];
-  return query !== undefined && isInspectionPlanQueryIntent(intent)
-    ? INSPECTION_PLAN_QUERY_READERS[intent](query)
-    : undefined;
-}
-
-const INSPECTION_PLAN_QUERY_READERS = {
-  "interface-overview": () => ({ intent: "interface-overview" }),
-  "public-subpath-discovery": () => ({ intent: "public-subpath-discovery" }),
-  "export-search": (value) => {
-    const query = value["query"];
-    return isExportSearchQuery(query) ? { intent: "export-search", query } : undefined;
-  },
-  "export-inspection": (value) => readFocusedPlanQuery("export-inspection", value),
-  "signature-inspection": (value) => readFocusedPlanQuery("signature-inspection", value),
-  "declaration-inspection": (value) => readFocusedPlanQuery("declaration-inspection", value),
-  "member-inspection": (value) => readMemberPlanQuery(value),
-} as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryReader>>;
-
-function readFocusedPlanQuery(
-  intent: "export-inspection" | "signature-inspection" | "declaration-inspection",
-  value: Readonly<Record<string, unknown>>,
-): InspectionPlanQuery | undefined {
-  const exportName = value["exportName"];
-  return typeof exportName === "string" ? { intent, exportName } : undefined;
-}
-
-function readMemberPlanQuery(
-  value: Readonly<Record<string, unknown>>,
-): InspectionPlanQuery | undefined {
-  const exportName = value["exportName"];
-  const memberPath = readBoundedMemberPath(value["memberPath"]);
-  return typeof exportName === "string" && memberPath !== undefined
-    ? { intent: "member-inspection", exportName, memberPath }
-    : undefined;
-}
-
-function isInspectionPlanQueryIntent(value: unknown): value is InspectionPlanQuery["intent"] {
-  return (
-    typeof value === "string" &&
-    INSPECTION_PLAN_QUERY_INTENTS.has(value as InspectionPlanQuery["intent"])
-  );
-}
-
-function isExportSearchQuery(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length > 0 &&
-    Buffer.byteLength(value) <= MAX_EXPORT_SEARCH_QUERY_BYTES
-  );
-}
-
-function snapshotRecord(
-  value: unknown,
-  fields: readonly string[],
-): Readonly<Record<string, unknown>> | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const snapshot: Record<string, unknown> = Object.create(null);
-  for (const key of fields) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor === undefined) {
-      continue;
-    }
-    if (!("value" in descriptor)) {
-      return undefined;
-    }
-    snapshot[key] = descriptor.value;
-  }
-  return snapshot;
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

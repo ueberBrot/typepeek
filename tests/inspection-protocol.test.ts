@@ -257,6 +257,36 @@ it("rejects empty and oversized inspection plans", () => {
   ).toMatchObject({ accepted: false });
 });
 
+it("rejects Inspection Plan query accessors without evaluating them", () => {
+  const target = { resolutionContext: "/repository", specifier: "example" };
+  let arrayAccessorRead = false;
+  const queries = [{ intent: "interface-overview" }];
+  Object.defineProperty(queries, "0", {
+    enumerable: true,
+    get() {
+      arrayAccessorRead = true;
+      return { intent: "interface-overview" };
+    },
+  });
+
+  expect(readInspectionRequest("inspection-plan", { ...target, queries })).toMatchObject({
+    accepted: false,
+  });
+  expect(arrayAccessorRead).toBe(false);
+
+  let intentAccessorRead = false;
+  const query = {
+    get intent(): string {
+      intentAccessorRead = true;
+      return "interface-overview";
+    },
+  };
+  expect(readInspectionRequest("inspection-plan", { ...target, queries: [query] })).toMatchObject({
+    accepted: false,
+  });
+  expect(intentAccessorRead).toBe(false);
+});
+
 it("normalizes lightweight discovery requests", () => {
   const target = { resolutionContext: "/repository", specifier: "example" };
   expect(readInspectionRequest("export-search", { ...target, query: "error" })).toEqual({

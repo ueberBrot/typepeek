@@ -35,10 +35,65 @@ interface FragmentSize {
   readonly nodes: number;
 }
 
-export interface InspectionResultConstructionContext {
+interface InspectionResultConstructionTarget {
   readonly identity: InspectionResultIdentity;
   readonly resolutionVariant: ResolutionVariant;
   readonly specifier: string;
+}
+
+export interface FocusedInspectionConstruction {
+  readonly declaration: <Value extends InspectedDeclaration>(value: Value) => Value;
+  readonly signature: (value: ExportSignature) => ExportSignature;
+  readonly documentation: (value: PackageDocumentation) => PackageDocumentation;
+  readonly alias: (targetName: string, declaration: ExportAlias["declaration"]) => ExportAlias;
+  readonly declarationSpace: (
+    space: Exclude<DeclarationSpace, "namespace">,
+    declarations: readonly InspectedDeclaration[],
+  ) => ExportDeclarationSpace;
+  readonly namespaceMember: (
+    name: string,
+    declarations: readonly InspectedDeclaration[],
+    members: readonly ExportNamespaceMember[],
+  ) => ExportNamespaceMember;
+  readonly namespaceSpace: (members: readonly ExportNamespaceMember[]) => ExportDeclarationSpace;
+  readonly moduleExport: (options: {
+    readonly alias?: ExportAlias;
+    readonly name: string;
+    readonly signatures: readonly ExportSignature[];
+    readonly spaces: readonly ExportDeclarationSpace[];
+  }) => InspectedModuleExport;
+  readonly moduleExportDeclarations: (options: {
+    readonly alias?: ExportAlias;
+    readonly name: string;
+    readonly spaces: readonly ExportDeclarationSpace[];
+  }) => InspectedModuleExportDeclarations;
+  readonly supportingType: (
+    name: string,
+    declarations: readonly InspectedDeclaration[],
+  ) => SupportingType;
+  readonly exportResult: (
+    moduleExport: InspectedModuleExport,
+    supportingTypes: readonly SupportingType[],
+    packageDocumentation: PackageDocumentation | undefined,
+  ) => ExportInspection;
+  readonly declarationResult: (
+    moduleExport: InspectedModuleExportDeclarations,
+  ) => DeclarationInspection;
+  readonly memberResult: (
+    moduleExportName: string,
+    memberPath: readonly string[],
+    declarations: readonly InspectedDeclaration[],
+  ) => MemberInspection;
+}
+
+export interface SignatureInspectionConstruction {
+  readonly signature: (value: InspectedSignature) => InspectedSignature;
+  readonly moduleExport: (
+    name: string,
+    aliasTargetName: string | undefined,
+    signatures: readonly InspectedSignature[],
+  ) => InspectedModuleExportSignatures;
+  readonly result: (moduleExport: InspectedModuleExportSignatures) => SignatureInspection;
 }
 
 class ResultConstructionBudget {
@@ -87,37 +142,101 @@ export function assertInspectionResultConstructionBound(value: object): void {
   new ResultConstructionBudget().leaf(value);
 }
 
-const constructionBudgets = new WeakMap<
-  InspectionResultConstructionContext,
-  ResultConstructionBudget
->();
+/** Owns one aggregate Inspection Result construction budget and all assembly paths. */
+export class InspectionResultConstruction {
+  readonly #budget = new ResultConstructionBudget();
+  readonly #target: InspectionResultConstructionTarget;
 
-export function createInspectionResultConstructionContext(
-  context: Omit<InspectionResultConstructionContext, "budget">,
-): InspectionResultConstructionContext {
-  const constructionContext = { ...context };
-  constructionBudgets.set(constructionContext, new ResultConstructionBudget());
-  return constructionContext;
-}
-
-function constructionBudget(
-  context: InspectionResultConstructionContext,
-): ResultConstructionBudget {
-  const budget = constructionBudgets.get(context);
-  if (budget === undefined) {
-    throw new Error("Inspection Result construction received an unowned context.");
+  private constructor(target: InspectionResultConstructionTarget) {
+    this.#target = target;
   }
-  return budget;
+
+  static create(target: {
+    readonly identity: InspectionResultIdentity;
+    readonly resolutionVariant: ResolutionVariant;
+    readonly specifier: string;
+  }): InspectionResultConstruction {
+    return new InspectionResultConstruction({ ...target });
+  }
+
+  get specifier(): string {
+    return this.#target.specifier;
+  }
+
+  focused(): FocusedInspectionConstruction {
+    return new FocusedInspectionResultConstruction(this.#target, this.#budget);
+  }
+
+  signatures(): SignatureInspectionConstruction {
+    return new OwnedSignatureInspectionConstruction(this.#target, this.#budget);
+  }
+
+  interfaceOverview(
+    publicSubpaths: readonly PublicSubpath[],
+    moduleExports: readonly { readonly name: string }[],
+  ): InterfaceOverview {
+    const retainedSubpaths = publicSubpaths.map((subpath) => this.#budget.leaf(subpath));
+    const retainedExports = moduleExports.map((moduleExport) => this.#budget.leaf(moduleExport));
+    return this.#budget.container(
+      {
+        intent: "interface-overview",
+        specifier: this.#target.specifier,
+        resolutionVariant: this.#target.resolutionVariant,
+        ...this.#target.identity,
+        publicSubpaths: retainedSubpaths,
+        moduleExports: retainedExports,
+      },
+      [...retainedSubpaths, ...retainedExports],
+    );
+  }
+
+  exportSearch(
+    query: string,
+    totalModuleExports: number,
+    matches: readonly { readonly name: string }[],
+  ): ExportSearch {
+    const retainedMatches = matches.map((match) => this.#budget.leaf(match));
+    return this.#budget.container(
+      {
+        intent: "export-search",
+        specifier: this.#target.specifier,
+        resolutionVariant: this.#target.resolutionVariant,
+        ...this.#target.identity,
+        query,
+        totalModuleExports,
+        matches: retainedMatches,
+      },
+      retainedMatches,
+    );
+  }
+
+  publicSubpathDiscovery(publicSubpaths: readonly PublicSubpath[]): PublicSubpathDiscovery {
+    const retainedSubpaths = publicSubpaths.map((subpath) => this.#budget.leaf(subpath));
+    return this.#budget.container(
+      {
+        intent: "public-subpath-discovery",
+        specifier: this.#target.specifier,
+        resolutionVariant: this.#target.resolutionVariant,
+        ...this.#target.identity,
+        publicSubpaths: retainedSubpaths,
+      },
+      retainedSubpaths,
+    );
+  }
+
+  plan(inspections: readonly AtomicInspectionResult[]): InspectionPlan {
+    return this.#budget.container({ intent: "inspection-plan", inspections }, inspections);
+  }
 }
 
 /** Owns exact aggregate accounting and assembly for one Export Inspection. */
-export class FocusedInspectionConstruction {
+class FocusedInspectionResultConstruction implements FocusedInspectionConstruction {
   readonly #budget: ResultConstructionBudget;
-  readonly #context: InspectionResultConstructionContext;
+  readonly #target: InspectionResultConstructionTarget;
 
-  constructor(context: InspectionResultConstructionContext) {
-    this.#context = context;
-    this.#budget = constructionBudget(context);
+  constructor(target: InspectionResultConstructionTarget, budget: ResultConstructionBudget) {
+    this.#target = target;
+    this.#budget = budget;
   }
 
   declaration<Value extends InspectedDeclaration>(value: Value): Value {
@@ -201,9 +320,9 @@ export class FocusedInspectionConstruction {
   ): ExportInspection {
     const result: ExportInspection = {
       intent: "export-inspection",
-      specifier: this.#context.specifier,
-      resolutionVariant: this.#context.resolutionVariant,
-      ...this.#context.identity,
+      specifier: this.#target.specifier,
+      resolutionVariant: this.#target.resolutionVariant,
+      ...this.#target.identity,
       moduleExport,
       supportingTypes,
       ...(packageDocumentation === undefined ? {} : { packageDocumentation }),
@@ -219,9 +338,9 @@ export class FocusedInspectionConstruction {
     return this.#budget.container(
       {
         intent: "declaration-inspection",
-        specifier: this.#context.specifier,
-        resolutionVariant: this.#context.resolutionVariant,
-        ...this.#context.identity,
+        specifier: this.#target.specifier,
+        resolutionVariant: this.#target.resolutionVariant,
+        ...this.#target.identity,
         moduleExport,
       },
       [moduleExport],
@@ -236,9 +355,9 @@ export class FocusedInspectionConstruction {
     return this.#budget.container(
       {
         intent: "member-inspection",
-        specifier: this.#context.specifier,
-        resolutionVariant: this.#context.resolutionVariant,
-        ...this.#context.identity,
+        specifier: this.#target.specifier,
+        resolutionVariant: this.#target.resolutionVariant,
+        ...this.#target.identity,
         moduleExportName,
         memberPath,
         declarations,
@@ -249,13 +368,13 @@ export class FocusedInspectionConstruction {
 }
 
 /** Owns aggregate accounting and assembly for one Signature Inspection. */
-export class SignatureInspectionConstruction {
+class OwnedSignatureInspectionConstruction implements SignatureInspectionConstruction {
   readonly #budget: ResultConstructionBudget;
-  readonly #context: InspectionResultConstructionContext;
+  readonly #target: InspectionResultConstructionTarget;
 
-  constructor(context: InspectionResultConstructionContext) {
-    this.#context = context;
-    this.#budget = constructionBudget(context);
+  constructor(target: InspectionResultConstructionTarget, budget: ResultConstructionBudget) {
+    this.#target = target;
+    this.#budget = budget;
   }
 
   signature(value: InspectedSignature): InspectedSignature {
@@ -281,89 +400,14 @@ export class SignatureInspectionConstruction {
     return this.#budget.container(
       {
         intent: "signature-inspection",
-        specifier: this.#context.specifier,
-        resolutionVariant: this.#context.resolutionVariant,
-        ...this.#context.identity,
+        specifier: this.#target.specifier,
+        resolutionVariant: this.#target.resolutionVariant,
+        ...this.#target.identity,
         moduleExport,
       },
       [moduleExport],
     );
   }
-}
-
-/** Assembles and exactly charges one bounded Interface Overview. */
-export function constructInterfaceOverview(
-  context: InspectionResultConstructionContext,
-  publicSubpaths: readonly PublicSubpath[],
-  moduleExports: readonly { readonly name: string }[],
-): InterfaceOverview {
-  const budget = constructionBudget(context);
-  const retainedSubpaths = publicSubpaths.map((subpath) => budget.leaf(subpath));
-  const retainedExports = moduleExports.map((moduleExport) => budget.leaf(moduleExport));
-  return budget.container(
-    {
-      intent: "interface-overview",
-      specifier: context.specifier,
-      resolutionVariant: context.resolutionVariant,
-      ...context.identity,
-      publicSubpaths: retainedSubpaths,
-      moduleExports: retainedExports,
-    },
-    [...retainedSubpaths, ...retainedExports],
-  );
-}
-
-/** Assembles one bounded case-insensitive Module Export search result. */
-export function constructExportSearch(
-  context: InspectionResultConstructionContext,
-  query: string,
-  totalModuleExports: number,
-  matches: readonly { readonly name: string }[],
-): ExportSearch {
-  const budget = constructionBudget(context);
-  const retainedMatches = matches.map((match) => budget.leaf(match));
-  return budget.container(
-    {
-      intent: "export-search",
-      specifier: context.specifier,
-      resolutionVariant: context.resolutionVariant,
-      ...context.identity,
-      query,
-      totalModuleExports,
-      matches: retainedMatches,
-    },
-    retainedMatches,
-  );
-}
-
-/** Assembles bounded manifest-only Public Subpath discovery evidence. */
-export function constructPublicSubpathDiscovery(
-  context: InspectionResultConstructionContext,
-  publicSubpaths: readonly PublicSubpath[],
-): PublicSubpathDiscovery {
-  const budget = constructionBudget(context);
-  const retainedSubpaths = publicSubpaths.map((subpath) => budget.leaf(subpath));
-  return budget.container(
-    {
-      intent: "public-subpath-discovery",
-      specifier: context.specifier,
-      resolutionVariant: context.resolutionVariant,
-      ...context.identity,
-      publicSubpaths: retainedSubpaths,
-    },
-    retainedSubpaths,
-  );
-}
-
-/** Completes one ordered plan while charging its children to the same aggregate budget. */
-export function constructInspectionPlan(
-  context: InspectionResultConstructionContext,
-  inspections: readonly AtomicInspectionResult[],
-): InspectionPlan {
-  return constructionBudget(context).container(
-    { intent: "inspection-plan", inspections },
-    inspections,
-  );
 }
 
 function measuredFragmentSize(value: object): FragmentSize {

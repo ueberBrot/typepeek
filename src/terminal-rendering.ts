@@ -1,4 +1,5 @@
 import type {
+  AtomicInspectionResult,
   DeclarationInspection,
   ExportDeclarationSpace,
   ExportInspection,
@@ -112,28 +113,15 @@ function renderComparisonTarget(
 }
 
 function renderDeclarationInspection(result: DeclarationInspection): string {
-  const alias =
-    result.moduleExport.alias === undefined
-      ? ""
-      : ` (alias of ${terminalSafeLine(result.moduleExport.alias.targetName)})`;
   return [
-    "Declaration Inspection",
-    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
-    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
-    `Module Export: ${terminalSafeLine(result.moduleExport.name)}${alias}`,
-    ...(result.moduleExport.alias === undefined
-      ? []
-      : ["Alias Declaration:", ...renderDeclaration(result.moduleExport.alias.declaration)]),
-    "Declaration Spaces:",
-    ...result.moduleExport.spaces.flatMap(renderDeclarationSpace),
+    ...renderSingleTargetHeading("Declaration Inspection", result),
+    ...renderDeclaredModuleExport(result.moduleExport),
   ].join("\n");
 }
 
 function renderMemberInspection(result: MemberInspection): string {
   return [
-    "Member Inspection",
-    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
-    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
+    ...renderSingleTargetHeading("Member Inspection", result),
     `Member: ${terminalSafeLine([result.moduleExportName, ...result.memberPath].join("."))}`,
     ...result.declarations.flatMap(renderDeclaration),
   ].join("\n");
@@ -141,9 +129,7 @@ function renderMemberInspection(result: MemberInspection): string {
 
 function renderExportSearch(result: ExportSearch): string {
   return [
-    "Export Search",
-    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
-    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
+    ...renderSingleTargetHeading("Export Search", result),
     `Module Exports (${result.matches.length} matching "${terminalSafeLine(result.query)}"; ${result.totalModuleExports} total):`,
     ...result.matches.map(({ name }) => `- ${terminalSafeLine(name)}`),
   ].join("\n");
@@ -151,9 +137,7 @@ function renderExportSearch(result: ExportSearch): string {
 
 function renderPublicSubpathDiscovery(result: PublicSubpathDiscovery): string {
   return [
-    "Public Subpath Discovery",
-    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
-    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
+    ...renderSingleTargetHeading("Public Subpath Discovery", result),
     `Public Subpaths (${result.publicSubpaths.length}):`,
     ...result.publicSubpaths.map(({ specifier }) => `- ${terminalSafeLine(specifier)}`),
   ].join("\n");
@@ -176,9 +160,7 @@ function renderInterfaceOverview(
 ): string {
   const moduleExports = matchingModuleExports(result, moduleExportMatch);
   return [
-    "Interface Overview",
-    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
-    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
+    ...renderSingleTargetHeading("Interface Overview", result),
     renderModuleExportsHeading(result, moduleExports.length, moduleExportMatch),
     ...moduleExports.map(({ name }) => `- ${terminalSafeLine(name)}`),
     includePublicSubpaths
@@ -212,20 +194,9 @@ function renderModuleExportsHeading(
 }
 
 function renderExportInspection(result: ExportInspection): string {
-  const alias =
-    result.moduleExport.alias === undefined
-      ? ""
-      : ` (alias of ${terminalSafeLine(result.moduleExport.alias.targetName)})`;
   return [
-    "Export Inspection",
-    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
-    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
-    `Module Export: ${terminalSafeLine(result.moduleExport.name)}${alias}`,
-    ...(result.moduleExport.alias === undefined
-      ? []
-      : ["Alias Declaration:", ...renderDeclaration(result.moduleExport.alias.declaration)]),
-    "Declaration Spaces:",
-    ...result.moduleExport.spaces.flatMap(renderDeclarationSpace),
+    ...renderSingleTargetHeading("Export Inspection", result),
+    ...renderDeclaredModuleExport(result.moduleExport),
     `Signatures (${result.moduleExport.signatures.length}):`,
     ...result.moduleExport.signatures.map(
       ({ kind, text }) => `- ${terminalSafeLine(kind)}: ${terminalSafeLine(text)}`,
@@ -252,15 +223,30 @@ function renderSignatureInspection(result: SignatureInspection): string {
       ? ""
       : ` (alias of ${terminalSafeLine(result.moduleExport.aliasTargetName)})`;
   return [
-    "Signature Inspection",
-    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
-    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
+    ...renderSingleTargetHeading("Signature Inspection", result),
     `Module Export: ${terminalSafeLine(result.moduleExport.name)}${alias}`,
     `Signatures (${result.moduleExport.signatures.length}):`,
     ...result.moduleExport.signatures.map(
       ({ kind, text }) => `- ${terminalSafeLine(kind)}: ${terminalSafeLine(text)}`,
     ),
   ].join("\n");
+}
+
+function renderDeclaredModuleExport(
+  moduleExport: DeclarationInspection["moduleExport"] | ExportInspection["moduleExport"],
+): readonly string[] {
+  const alias =
+    moduleExport.alias === undefined
+      ? ""
+      : ` (alias of ${terminalSafeLine(moduleExport.alias.targetName)})`;
+  return [
+    `Module Export: ${terminalSafeLine(moduleExport.name)}${alias}`,
+    ...(moduleExport.alias === undefined
+      ? []
+      : ["Alias Declaration:", ...renderDeclaration(moduleExport.alias.declaration)]),
+    "Declaration Spaces:",
+    ...moduleExport.spaces.flatMap(renderDeclarationSpace),
+  ];
 }
 
 function renderDeclarationSpace(space: ExportDeclarationSpace): readonly string[] {
@@ -309,6 +295,17 @@ function renderEvidenceIdentities(
     ...(declarationProvider === undefined
       ? []
       : [`Declaration Provider: ${renderPackageIdentity(declarationProvider)}`]),
+  ];
+}
+
+function renderSingleTargetHeading(
+  title: string,
+  result: AtomicInspectionResult,
+): readonly string[] {
+  return [
+    title,
+    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
+    ...renderEvidenceIdentities(result.packageIdentity, result.declarationProvider),
   ];
 }
 

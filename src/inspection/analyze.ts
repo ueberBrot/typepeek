@@ -16,6 +16,7 @@ import {
   type InspectionCacheWriteReceipt,
   readInspectionCacheOutcome,
 } from "#typepeek/inspection/inspection-cache";
+import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection-plan-query";
 import {
   type InspectableModuleEvidence,
   type InspectableModuleDiscoveryEvidence,
@@ -33,14 +34,7 @@ import type {
   InspectionOutcome,
   InspectionPlanQuery,
 } from "#typepeek/inspection/protocol";
-import {
-  constructExportSearch,
-  constructInspectionPlan,
-  constructInterfaceOverview,
-  constructPublicSubpathDiscovery,
-  createInspectionResultConstructionContext,
-  type InspectionResultConstructionContext,
-} from "#typepeek/inspection/result-construction";
+import { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
 import { inspectModuleExportSignatures } from "#typepeek/inspection/signature-inspection";
 
 const MAX_MODULE_EXPORTS = 320;
@@ -112,21 +106,20 @@ function inspectSelectedPackage(
   analysisRequest: AnalysisRequest,
   selection: InspectableModuleSelection,
 ): InspectionOutcome {
-  return analysisRequiresProgram(analysisRequest)
-    ? inspectInstalledPackageProgram(analysisRequest, selection)
-    : inspectInstalledPackageDiscovery(analysisRequest, selection);
+  const queries = inspectionPlanQueriesForRequest(analysisRequest);
+  return analysisRequiresProgram(queries)
+    ? inspectInstalledPackageProgram(analysisRequest, selection, queries)
+    : inspectInstalledPackageDiscovery(analysisRequest, selection, queries);
 }
 
 function inspectInstalledPackageProgram(
   analysisRequest: AnalysisRequest,
   selection: InspectableModuleSelection,
+  queries: readonly InspectionPlanQuery[],
 ): InspectionOutcome {
   const { request } = analysisRequest;
-  const evidence = materializeInspectableModuleEvidence(
-    selection,
-    evidenceInspection(analysisRequest),
-  );
-  const constructionContext = createInspectionResultConstructionContext({
+  const evidence = materializeInspectableModuleEvidence(selection, queries);
+  const construction = InspectionResultConstruction.create({
     specifier: request.specifier,
     resolutionVariant: { accessStyle: request.accessStyle },
     identity: evidence.resultIdentity,
@@ -134,8 +127,8 @@ function inspectInstalledPackageProgram(
 
   if (analysisRequest.intent === "inspection-plan") {
     const inspections: AtomicInspectionResult[] = [];
-    for (const query of analysisRequest.request.queries) {
-      const inspection = inspectEvidenceQuery(evidence, query, constructionContext);
+    for (const query of queries) {
+      const inspection = inspectEvidenceQuery(evidence, query, construction);
       if ("status" in inspection) {
         return inspection;
       }
@@ -143,83 +136,52 @@ function inspectInstalledPackageProgram(
     }
     return {
       status: "success",
-      result: constructInspectionPlan(constructionContext, inspections),
+      result: construction.plan(inspections),
     };
   }
 
-  const inspection = inspectEvidenceQuery(
-    evidence,
-    inspectionQuery(analysisRequest),
-    constructionContext,
-  );
-  return "status" in inspection ? inspection : { status: "success", result: inspection };
-}
-
-function inspectionQuery(analysisRequest: AnalysisRequest): InspectionPlanQuery {
-  switch (analysisRequest.intent) {
-    case "interface-overview":
-      return { intent: analysisRequest.intent };
-    case "export-inspection":
-    case "signature-inspection":
-    case "declaration-inspection":
-      return { intent: analysisRequest.intent, exportName: analysisRequest.request.exportName };
-    case "member-inspection":
-      return {
-        intent: analysisRequest.intent,
-        exportName: analysisRequest.request.exportName,
-        memberPath: analysisRequest.request.memberPath,
-      };
-    case "export-search":
-      return { intent: analysisRequest.intent, query: analysisRequest.request.query };
-    case "public-subpath-discovery":
-    case "inspection-plan":
-      throw new UnsupportedInspectionError(
-        "Inspection request requires a different evidence path.",
-      );
+  const query = queries[0];
+  if (query === undefined) {
+    throw new UnsupportedInspectionError("Inspection has no query to execute.");
   }
+  const inspection = inspectEvidenceQuery(evidence, query, construction);
+  return "status" in inspection ? inspection : { status: "success", result: inspection };
 }
 
 function inspectInstalledPackageDiscovery(
   analysisRequest: AnalysisRequest,
   selection: InspectableModuleSelection,
+  queries: readonly InspectionPlanQuery[],
 ): InspectionOutcome {
   const { request } = analysisRequest;
   const evidence = inspectableModuleDiscoveryEvidence(selection);
-  const context = inspectionConstructionContext(request, evidence.resultIdentity);
+  const construction = inspectionResultConstruction(request, evidence.resultIdentity);
   const publicSubpaths = evidence.publicSubpaths;
   if (analysisRequest.intent === "public-subpath-discovery") {
     return {
       status: "success",
-      result: constructPublicSubpathDiscovery(context, publicSubpaths),
+      result: construction.publicSubpathDiscovery(publicSubpaths),
     };
   }
   if (analysisRequest.intent !== "inspection-plan") {
     throw new UnsupportedInspectionError("Inspection requires TypeScript program evidence.");
   }
-  const inspections = analysisRequest.request.queries.map(() =>
-    constructPublicSubpathDiscovery(context, publicSubpaths),
-  );
+  const inspections = queries.map(() => construction.publicSubpathDiscovery(publicSubpaths));
   return {
     status: "success",
-    result: constructInspectionPlan(context, inspections),
+    result: construction.plan(inspections),
   };
 }
 
-function analysisRequiresProgram(analysisRequest: AnalysisRequest): boolean {
-  if (analysisRequest.intent === "public-subpath-discovery") {
-    return false;
-  }
-  return (
-    analysisRequest.intent !== "inspection-plan" ||
-    analysisRequest.request.queries.some((query) => query.intent !== "public-subpath-discovery")
-  );
+function analysisRequiresProgram(queries: readonly InspectionPlanQuery[]): boolean {
+  return queries.some((query) => query.intent !== "public-subpath-discovery");
 }
 
-function inspectionConstructionContext(
+function inspectionResultConstruction(
   request: AnalysisRequest["request"],
   identity: InspectableModuleDiscoveryEvidence["resultIdentity"],
-): InspectionResultConstructionContext {
-  return createInspectionResultConstructionContext({
+): InspectionResultConstruction {
+  return InspectionResultConstruction.create({
     specifier: request.specifier,
     resolutionVariant: { accessStyle: request.accessStyle },
     identity,
@@ -229,17 +191,17 @@ function inspectionConstructionContext(
 function inspectEvidenceQuery(
   evidence: InspectableModuleEvidence,
   query: InspectionPlanQuery,
-  constructionContext: InspectionResultConstructionContext,
+  construction: InspectionResultConstruction,
 ): AtomicInspectionResult | InspectionFailure {
   const handler = INSPECTION_QUERY_HANDLERS[query.intent] as EvidenceQueryHandler;
-  return handler(evidence, query, constructionContext);
+  return handler(evidence, query, construction);
 }
 
 type EvidenceQueryResult = AtomicInspectionResult | InspectionFailure;
 type EvidenceQueryHandler<Query extends InspectionPlanQuery = InspectionPlanQuery> = (
   evidence: InspectableModuleEvidence,
   query: Query,
-  context: InspectionResultConstructionContext,
+  construction: InspectionResultConstruction,
 ) => EvidenceQueryResult;
 
 const INSPECTION_QUERY_HANDLERS = {
@@ -259,48 +221,44 @@ const INSPECTION_QUERY_HANDLERS = {
 function inspectInterfaceOverviewQuery(
   evidence: InspectableModuleEvidence,
   _query: Extract<InspectionPlanQuery, { readonly intent: "interface-overview" }>,
-  context: InspectionResultConstructionContext,
+  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
-  return constructInterfaceOverview(
-    context,
-    evidence.publicSubpaths,
-    inspectModuleExports(evidence),
-  );
+  return construction.interfaceOverview(evidence.publicSubpaths, inspectModuleExports(evidence));
 }
 
 function inspectExportQuery(
   evidence: InspectableModuleEvidence,
   query: Extract<InspectionPlanQuery, { readonly intent: "export-inspection" }>,
-  context: InspectionResultConstructionContext,
+  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   return focusedQueryResult(
-    inspectFocusedModuleExport(evidence, query.exportName, context),
+    inspectFocusedModuleExport(evidence, query.exportName, construction),
     query.exportName,
-    context.specifier,
+    construction.specifier,
   );
 }
 
 function inspectSignatureQuery(
   evidence: InspectableModuleEvidence,
   query: Extract<InspectionPlanQuery, { readonly intent: "signature-inspection" }>,
-  context: InspectionResultConstructionContext,
+  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   return focusedQueryResult(
-    inspectModuleExportSignatures(evidence, query.exportName, context),
+    inspectModuleExportSignatures(evidence, query.exportName, construction),
     query.exportName,
-    context.specifier,
+    construction.specifier,
   );
 }
 
 function inspectDeclarationQuery(
   evidence: InspectableModuleEvidence,
   query: Extract<InspectionPlanQuery, { readonly intent: "declaration-inspection" }>,
-  context: InspectionResultConstructionContext,
+  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   return focusedQueryResult(
-    inspectFocusedModuleExportDeclarations(evidence, query.exportName, context),
+    inspectFocusedModuleExportDeclarations(evidence, query.exportName, construction),
     query.exportName,
-    context.specifier,
+    construction.specifier,
   );
 }
 
@@ -315,19 +273,19 @@ function focusedQueryResult(
 function inspectMemberQuery(
   evidence: InspectableModuleEvidence,
   query: Extract<InspectionPlanQuery, { readonly intent: "member-inspection" }>,
-  context: InspectionResultConstructionContext,
+  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   const outcome = inspectFocusedModuleExportMember(
     evidence,
     query.exportName,
     query.memberPath,
-    context,
+    construction,
   );
   if (outcome.status === "success") {
     return outcome.result;
   }
   if (outcome.status === "export-not-found") {
-    return missingExportOutcome(query.exportName, context.specifier);
+    return missingExportOutcome(query.exportName, construction.specifier);
   }
   if (outcome.status === "ambiguous-member") {
     return ambiguousMemberOutcome(query.exportName, query.memberPath);
@@ -335,54 +293,24 @@ function inspectMemberQuery(
   if (outcome.status === "unsupported-member") {
     return unsupportedMemberOutcome(query.exportName, query.memberPath);
   }
-  return missingMemberOutcome(query.exportName, query.memberPath, context.specifier);
+  return missingMemberOutcome(query.exportName, query.memberPath, construction.specifier);
 }
 
 function inspectExportSearchQuery(
   evidence: InspectableModuleEvidence,
   query: Extract<InspectionPlanQuery, { readonly intent: "export-search" }>,
-  context: InspectionResultConstructionContext,
+  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   const search = searchModuleExports(evidence, query.query);
-  return constructExportSearch(context, query.query, search.totalModuleExports, search.matches);
+  return construction.exportSearch(query.query, search.totalModuleExports, search.matches);
 }
 
 function inspectPublicSubpathQuery(
   evidence: InspectableModuleEvidence,
   _query: Extract<InspectionPlanQuery, { readonly intent: "public-subpath-discovery" }>,
-  context: InspectionResultConstructionContext,
+  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
-  return constructPublicSubpathDiscovery(context, evidence.publicSubpaths);
-}
-
-function evidenceInspection(
-  analysisRequest: AnalysisRequest,
-): Parameters<typeof materializeInspectableModuleEvidence>[1] {
-  switch (analysisRequest.intent) {
-    case "export-inspection":
-    case "signature-inspection":
-    case "declaration-inspection":
-      return {
-        intent: analysisRequest.intent,
-        exportName: analysisRequest.request.exportName,
-      };
-    case "member-inspection":
-      return {
-        intent: analysisRequest.intent,
-        exportName: analysisRequest.request.exportName,
-        memberPath: analysisRequest.request.memberPath,
-      };
-    case "interface-overview":
-      return { intent: analysisRequest.intent };
-    case "export-search":
-      return { intent: analysisRequest.intent };
-    case "public-subpath-discovery":
-      throw new UnsupportedInspectionError(
-        "Public Subpath Discovery does not materialize a TypeScript program.",
-      );
-    case "inspection-plan":
-      return { intent: analysisRequest.intent, queries: analysisRequest.request.queries };
-  }
+  return construction.publicSubpathDiscovery(evidence.publicSubpaths);
 }
 
 function missingSpecifierOutcome(specifier: string): InspectionFailure {

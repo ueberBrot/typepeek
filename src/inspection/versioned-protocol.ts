@@ -1,14 +1,4 @@
-import {
-  comparePublicInterfaces,
-  inspectExport,
-  inspectExportDeclarations,
-  inspectExportMember,
-  inspectExportSearch,
-  inspectExportSignatures,
-  inspectInterfaceOverview,
-  inspectPlan,
-  inspectPublicSubpaths,
-} from "#typepeek/inspection/core";
+import { invokeInspectionCore } from "#typepeek/inspection/core";
 import type {
   InspectionPlanRequest,
   InspectionFailure,
@@ -27,8 +17,9 @@ import {
   INSPECTION_PROTOCOL_VERSION,
   type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
-import { readPublicInterfaceComparisonRequest } from "#typepeek/inspection/public-interface-comparison";
-import { readInspectionRequest } from "#typepeek/inspection/request-codec";
+import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
+
+const PROTOCOL_ENVELOPE_FIELDS = ["protocolVersion", "intent", "request"] as const;
 
 export interface InspectionRequestByIntent {
   readonly "interface-overview": InterfaceOverviewRequest;
@@ -78,73 +69,7 @@ export async function invokeInspectionProtocol(
   if (!isInspectionIntent(envelope.intent)) {
     return protocolResponse(invalidProtocolRequest());
   }
-  return protocolResponse(await dispatchInspection(envelope.intent, envelope.request));
-}
-
-async function dispatchInspection(
-  intent: InspectionIntent,
-  request: unknown,
-): Promise<InspectionOutcome> {
-  return INSPECTION_DISPATCHERS[intent](request);
-}
-
-type InspectionDispatcher = (request: unknown) => Promise<InspectionOutcome>;
-
-const INSPECTION_DISPATCHERS = {
-  "interface-overview": dispatchInterfaceOverview,
-  "export-inspection": dispatchExportInspection,
-  "signature-inspection": dispatchSignatureInspection,
-  "export-search": dispatchExportSearch,
-  "public-subpath-discovery": dispatchPublicSubpathDiscovery,
-  "declaration-inspection": dispatchDeclarationInspection,
-  "member-inspection": dispatchMemberInspection,
-  "inspection-plan": dispatchInspectionPlan,
-  "public-interface-comparison": dispatchPublicInterfaceComparison,
-} as const satisfies Readonly<Record<InspectionIntent, InspectionDispatcher>>;
-
-async function dispatchInterfaceOverview(request: unknown): Promise<InspectionOutcome> {
-  const reading = readInspectionRequest("interface-overview", request);
-  return reading.accepted ? inspectInterfaceOverview(reading.request) : reading.outcome;
-}
-
-async function dispatchExportInspection(request: unknown): Promise<InspectionOutcome> {
-  const reading = readInspectionRequest("export-inspection", request);
-  return reading.accepted ? inspectExport(reading.request) : reading.outcome;
-}
-
-async function dispatchSignatureInspection(request: unknown): Promise<InspectionOutcome> {
-  const reading = readInspectionRequest("signature-inspection", request);
-  return reading.accepted ? inspectExportSignatures(reading.request) : reading.outcome;
-}
-
-async function dispatchExportSearch(request: unknown): Promise<InspectionOutcome> {
-  const reading = readInspectionRequest("export-search", request);
-  return reading.accepted ? inspectExportSearch(reading.request) : reading.outcome;
-}
-
-async function dispatchPublicSubpathDiscovery(request: unknown): Promise<InspectionOutcome> {
-  const reading = readInspectionRequest("public-subpath-discovery", request);
-  return reading.accepted ? inspectPublicSubpaths(reading.request) : reading.outcome;
-}
-
-async function dispatchDeclarationInspection(request: unknown): Promise<InspectionOutcome> {
-  const reading = readInspectionRequest("declaration-inspection", request);
-  return reading.accepted ? inspectExportDeclarations(reading.request) : reading.outcome;
-}
-
-async function dispatchMemberInspection(request: unknown): Promise<InspectionOutcome> {
-  const reading = readInspectionRequest("member-inspection", request);
-  return reading.accepted ? inspectExportMember(reading.request) : reading.outcome;
-}
-
-async function dispatchInspectionPlan(request: unknown): Promise<InspectionOutcome> {
-  const reading = readInspectionRequest("inspection-plan", request);
-  return reading.accepted ? inspectPlan(reading.request) : reading.outcome;
-}
-
-async function dispatchPublicInterfaceComparison(request: unknown): Promise<InspectionOutcome> {
-  const reading = readPublicInterfaceComparisonRequest(request);
-  return reading.accepted ? comparePublicInterfaces(reading.request) : reading.outcome;
+  return protocolResponse(await invokeInspectionCore(envelope.intent, envelope.request));
 }
 
 function protocolResponse(outcome: InspectionOutcome): InspectionProtocolResponse {
@@ -166,32 +91,23 @@ interface ProtocolEnvelope {
 }
 
 function readProtocolEnvelope(value: unknown): ProtocolEnvelope | undefined {
-  const record = plainRecord(value);
+  const record = snapshotDataProperties(value, PROTOCOL_ENVELOPE_FIELDS);
   if (record === undefined) {
     return undefined;
   }
-  const version = dataProperty(record, "protocolVersion");
-  const intent = dataProperty(record, "intent");
-  const request = dataProperty(record, "request");
+  const version = record["protocolVersion"];
   if (!isBoundedProtocolVersion(version)) {
     return undefined;
   }
-  return { protocolVersion: version, intent, request };
-}
-
-function plainRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Readonly<Record<string, unknown>>)
-    : undefined;
+  return {
+    protocolVersion: version,
+    intent: record["intent"],
+    request: record["request"],
+  };
 }
 
 function isBoundedProtocolVersion(value: unknown): value is string {
   return typeof value === "string" && Buffer.byteLength(value) <= 64;
-}
-
-function dataProperty(record: object, key: string): unknown {
-  const descriptor = Object.getOwnPropertyDescriptor(record, key);
-  return descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
 }
 
 function isInspectionIntent(value: unknown): value is InspectionIntent {

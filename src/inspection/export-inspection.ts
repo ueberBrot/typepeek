@@ -40,8 +40,8 @@ import {
 } from "#typepeek/inspection/public-declaration-projection";
 import { renderPublicDeclaration } from "#typepeek/inspection/public-declaration-rendering";
 import {
-  FocusedInspectionConstruction,
-  type InspectionResultConstructionContext,
+  type FocusedInspectionConstruction,
+  type InspectionResultConstruction,
 } from "#typepeek/inspection/result-construction";
 import { inspectResolvedExportSignatures } from "#typepeek/inspection/signature-inspection";
 import { shouldExpandSupportingDeclaration } from "#typepeek/inspection/supporting-type-policy";
@@ -124,8 +124,8 @@ interface SupportingTraversalState {
   readonly validatedTypes: Set<ts.Type>;
 }
 
-const supportingTraversalByContext = new WeakMap<
-  InspectionResultConstructionContext,
+const supportingTraversalByOwner = new WeakMap<
+  InspectionResultConstruction,
   SupportingTraversalState
 >();
 const supportingTraversalByConstruction = new WeakMap<
@@ -264,9 +264,9 @@ function inspectedDeclarationKind(
 export function inspectFocusedModuleExport(
   evidence: InspectableModuleEvidence,
   exportName: string,
-  constructionContext: InspectionResultConstructionContext,
+  constructionOwner: InspectionResultConstruction,
 ): ExportInspection | undefined {
-  const focused = readFocusedDeclarationEvidence(evidence, exportName, constructionContext);
+  const focused = readFocusedDeclarationEvidence(evidence, exportName, constructionOwner);
   if (focused === undefined) {
     return undefined;
   }
@@ -303,9 +303,9 @@ export function inspectFocusedModuleExport(
 export function inspectFocusedModuleExportDeclarations(
   evidence: InspectableModuleEvidence,
   exportName: string,
-  constructionContext: InspectionResultConstructionContext,
+  constructionOwner: InspectionResultConstruction,
 ): DeclarationInspection | undefined {
-  const focused = readFocusedDeclarationEvidence(evidence, exportName, constructionContext);
+  const focused = readFocusedDeclarationEvidence(evidence, exportName, constructionOwner);
   if (focused === undefined) {
     return undefined;
   }
@@ -333,7 +333,7 @@ export function inspectFocusedModuleExportDeclarations(
 function readFocusedDeclarationEvidence(
   evidence: InspectableModuleEvidence,
   exportName: string,
-  constructionContext: InspectionResultConstructionContext,
+  constructionOwner: InspectionResultConstruction,
 ): FocusedDeclarationEvidence | undefined {
   const resolution = resolveFocusedExport(evidence.checker, evidence.moduleSymbol, exportName);
   if (resolution === undefined) {
@@ -345,7 +345,7 @@ function readFocusedDeclarationEvidence(
   const spaces = occupiedDeclarationSpaces(exportedSymbol, targetSymbol, aliasDeclaration);
   return {
     aliasDeclaration,
-    construction: createFocusedInspectionConstruction(constructionContext),
+    construction: createFocusedInspectionConstruction(constructionOwner),
     exportedSymbol,
     namespaceMembers: spaces.includes("namespace")
       ? inspectNamespaceMemberEvidence(evidence.checker, targetSymbol)
@@ -371,7 +371,7 @@ export function inspectFocusedModuleExportMember(
   evidence: InspectableModuleEvidence,
   exportName: string,
   memberPath: readonly string[],
-  constructionContext: InspectionResultConstructionContext,
+  constructionOwner: InspectionResultConstruction,
 ): FocusedMemberInspection {
   const resolution = resolveFocusedExport(evidence.checker, evidence.moduleSymbol, exportName);
   if (resolution === undefined) {
@@ -392,7 +392,7 @@ export function inspectFocusedModuleExportMember(
   if (memberDeclarations.length === 0) {
     return { status: "unsupported-member" };
   }
-  const construction = createFocusedInspectionConstruction(constructionContext);
+  const construction = createFocusedInspectionConstruction(constructionOwner);
   const declarations = memberDeclarations.map((declaration) =>
     inspectDeclaration(evidence, declaration, construction),
   );
@@ -866,13 +866,13 @@ function supportsTypeQuery(
 }
 
 function createFocusedInspectionConstruction(
-  context: InspectionResultConstructionContext,
+  owner: InspectionResultConstruction,
 ): FocusedInspectionConstruction {
-  const construction = new FocusedInspectionConstruction(context);
-  let traversal = supportingTraversalByContext.get(context);
+  const construction = owner.focused();
+  let traversal = supportingTraversalByOwner.get(owner);
   if (traversal === undefined) {
     traversal = { astNodeCount: 0, inferredTypeCount: 0, validatedTypes: new Set() };
-    supportingTraversalByContext.set(context, traversal);
+    supportingTraversalByOwner.set(owner, traversal);
   }
   supportingTraversalByConstruction.set(construction, traversal);
   return construction;

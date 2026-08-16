@@ -23,10 +23,7 @@ import {
   readInstalledManifest,
   type VisiblePackageLocation,
 } from "#typepeek/inspection/installed-package-boundary";
-import {
-  type InstalledProgramInspection,
-  materializeInstalledProgram,
-} from "#typepeek/inspection/installed-program";
+import { materializeInstalledProgram } from "#typepeek/inspection/installed-program";
 import {
   isKnownNodePlatformSpecifier,
   isNodePlatformSpecifier,
@@ -34,6 +31,7 @@ import {
 import { profileInspectionPhase } from "#typepeek/inspection/performance-profile";
 import type {
   InspectionResultIdentity,
+  InspectionPlanQuery,
   NormalizedInspectionTarget,
   PackageIdentity,
   PublicSubpath,
@@ -82,6 +80,11 @@ interface NodeDeclarationProvider {
   readonly declarationRoot: string;
 }
 
+interface SelectedNodeDeclarationProvider extends NodeDeclarationProvider {
+  readonly location: VisiblePackageLocation;
+  readonly manifest: InstalledManifest;
+}
+
 interface PackageSpecifier {
   readonly packageSegments: readonly string[];
   readonly packageRootSpecifier: string;
@@ -105,10 +108,10 @@ export function selectInspectableModule(
 /** Materializes declaration evidence for one previously selected module. */
 export function materializeInspectableModuleEvidence(
   selection: InspectableModuleSelection,
-  inspection: InstalledProgramInspection,
+  queries: readonly InspectionPlanQuery[],
 ): InspectableModuleEvidence {
   return profileInspectionPhase("program-materialization", () =>
-    materializeInspectableModule(selection, inspection),
+    materializeInspectableModule(selection, queries),
   );
 }
 
@@ -229,32 +232,14 @@ function visibleNodeDeclarationProvider(
   compilerWorkSession: CompilerWorkSession,
   packageBoundaryObserver: ReturnType<CompilerWorkSession["observePackageBoundary"]>,
 ): NodeDeclarationProvider | undefined {
-  const providerLocation = findVisiblePackage(
-    request.resolutionContext,
-    ["@types", "node"],
-    packageBoundaryObserver,
-  );
-  if (providerLocation === undefined) {
-    return undefined;
-  }
-  const providerManifest = readInstalledManifest(
-    providerLocation.packageRoot,
-    packageBoundaryObserver,
-  );
-  const declarationRoot = canonicalPackageBoundary(
-    providerLocation.packageRoot,
-    packageBoundaryObserver,
-  );
-  const resolutionVariant = selectResolutionVariant({
+  const provider = selectVisibleNodeDeclarationProvider(
+    request,
     compilerWorkSession,
-    request: { ...request, specifier: "@types/node" },
-    packageRoot: declarationRoot,
-    packageRootSpecifier: "@types/node",
-    exports: providerManifest.exports,
-    missingDeclarationMessage: "The visible @types/node package has no readable entrypoint.",
-  });
-  assertNoNestedDeclarationOwner(declarationRoot, resolutionVariant.declarationPath);
-  return { declarationPath: resolutionVariant.declarationPath, declarationRoot };
+    packageBoundaryObserver,
+  );
+  return provider === undefined
+    ? undefined
+    : { declarationPath: provider.declarationPath, declarationRoot: provider.declarationRoot };
 }
 
 function selectNodeDeclarationProvider(
@@ -267,65 +252,71 @@ function selectNodeDeclarationProvider(
     );
   }
   const packageBoundaryObserver = compilerWorkSession.observePackageBoundary(new Map());
-  const providerLocation = findVisiblePackage(
-    request.resolutionContext,
-    ["@types", "node"],
+  const provider = selectVisibleNodeDeclarationProvider(
+    request,
+    compilerWorkSession,
     packageBoundaryObserver,
   );
-  if (providerLocation === undefined) {
+  if (provider === undefined) {
     throw new UnsupportedInspectionError(
       `Node Platform Module "${request.specifier}" has no visible @types/node Declaration Provider.`,
     );
   }
-  const providerManifest = readInstalledManifest(
-    providerLocation.packageRoot,
-    packageBoundaryObserver,
-  );
-  const providerRoot = canonicalPackageBoundary(
-    providerLocation.packageRoot,
-    packageBoundaryObserver,
-  );
-  const providerRequest: NormalizedInspectionTarget = {
-    ...request,
-    specifier: "@types/node",
-  };
-  const resolutionVariant = selectResolutionVariant({
-    compilerWorkSession,
-    request: providerRequest,
-    packageRoot: providerRoot,
-    packageRootSpecifier: "@types/node",
-    exports: providerManifest.exports,
-    missingDeclarationMessage: "The visible @types/node package has no readable entrypoint.",
-  });
-  assertNoNestedDeclarationOwner(providerRoot, resolutionVariant.declarationPath);
   return {
     kind: "platform",
     compilerWorkSession,
     resolutionContextDirectory: canonicalPackageBoundary(
-      providerLocation.contextDirectory,
+      provider.location.contextDirectory,
       packageBoundaryObserver,
     ),
     specifier: request.specifier,
-    declarationPath: resolutionVariant.declarationPath,
-    declarationRoot: providerRoot,
+    declarationPath: provider.declarationPath,
+    declarationRoot: provider.declarationRoot,
     repositoryRoot: canonicalPackageBoundary(
-      providerLocation.repositoryRoot,
+      provider.location.repositoryRoot,
       packageBoundaryObserver,
     ),
-    resultIdentity: { declarationProvider: providerManifest.packageIdentity },
+    resultIdentity: { declarationProvider: provider.manifest.packageIdentity },
     readPublicSubpaths: () => [],
     supportingTypeScope: { kind: "platform", specifier: request.specifier },
-    providerIdentity: providerManifest.packageIdentity,
+    providerIdentity: provider.manifest.packageIdentity,
     packageBoundaryObserver,
     readNodeDeclarationProvider: () => undefined,
   };
 }
 
+function selectVisibleNodeDeclarationProvider(
+  request: NormalizedInspectionTarget,
+  compilerWorkSession: CompilerWorkSession,
+  packageBoundaryObserver: ReturnType<CompilerWorkSession["observePackageBoundary"]>,
+): SelectedNodeDeclarationProvider | undefined {
+  const location = findVisiblePackage(
+    request.resolutionContext,
+    ["@types", "node"],
+    packageBoundaryObserver,
+  );
+  if (location === undefined) {
+    return undefined;
+  }
+  const manifest = readInstalledManifest(location.packageRoot, packageBoundaryObserver);
+  const declarationRoot = canonicalPackageBoundary(location.packageRoot, packageBoundaryObserver);
+  const { declarationPath } = selectResolutionVariant({
+    compilerWorkSession,
+    request: { ...request, specifier: "@types/node" },
+    packageRoot: declarationRoot,
+    packageRootSpecifier: "@types/node",
+    exports: manifest.exports,
+    missingDeclarationMessage: "The visible @types/node package has no readable entrypoint.",
+  });
+  assertNoNestedDeclarationOwner(declarationRoot, declarationPath);
+  return { declarationPath, declarationRoot, location, manifest };
+}
+
 function materializeInspectableModule(
   selection: InspectableModuleSelection,
-  inspection: InstalledProgramInspection,
+  queries: readonly InspectionPlanQuery[],
 ): InspectableModuleEvidence {
-  const { checker, moduleSymbol } = materializeInstalledProgram(selection, inspection);
+  const { checker, moduleSymbol } = materializeInstalledProgram(selection, queries);
   return {
     checker,
     moduleSymbol,

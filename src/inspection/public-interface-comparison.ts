@@ -6,11 +6,13 @@ import type {
   InterfaceOverview,
   NormalizedPublicInterfaceComparisonRequest,
   PublicInterfaceComparison,
-  PublicInterfaceComparisonRequest,
   PublicInterfaceComparisonTarget,
 } from "#typepeek/inspection/protocol";
 import { readInspectionRequest } from "#typepeek/inspection/request-codec";
 import { assertInspectionResultConstructionBound } from "#typepeek/inspection/result-construction";
+import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
+
+const COMPARISON_REQUEST_FIELDS = ["before", "after"] as const;
 
 const INVALID_COMPARISON_REQUEST: InspectionFailure = {
   status: "unsupported",
@@ -23,12 +25,12 @@ export function readPublicInterfaceComparisonRequest(
   value: unknown,
 ): InspectionRequestReading<NormalizedPublicInterfaceComparisonRequest> {
   try {
-    const request = plainRecord(value);
+    const request = snapshotDataProperties(value, COMPARISON_REQUEST_FIELDS);
     if (request === undefined) {
       return { accepted: false, outcome: INVALID_COMPARISON_REQUEST };
     }
-    const before = readInspectionRequest("interface-overview", dataProperty(request, "before"));
-    const after = readInspectionRequest("interface-overview", dataProperty(request, "after"));
+    const before = readInspectionRequest("interface-overview", request["before"]);
+    const after = readInspectionRequest("interface-overview", request["after"]);
     return before.accepted && after.accepted
       ? { accepted: true, request: { before: before.request, after: after.request } }
       : { accepted: false, outcome: INVALID_COMPARISON_REQUEST };
@@ -111,15 +113,4 @@ function comparisonConstructionFailure(error: unknown): InspectionFailure {
         reason: "invalid-result",
         message: "Public Interface comparison could not construct a valid result.",
       };
-}
-
-function plainRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Readonly<Record<string, unknown>>)
-    : undefined;
-}
-
-function dataProperty(record: object, key: keyof PublicInterfaceComparisonRequest): unknown {
-  const descriptor = Object.getOwnPropertyDescriptor(record, key);
-  return descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
 }

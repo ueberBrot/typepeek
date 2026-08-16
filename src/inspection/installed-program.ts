@@ -100,28 +100,30 @@ export interface InstalledProgramEvidence {
   readonly moduleSymbol: ts.Symbol;
 }
 
-export type InstalledProgramInspection =
-  | { readonly intent: "interface-overview" }
-  | { readonly intent: "export-search" }
-  | {
-      readonly intent: "export-inspection" | "signature-inspection" | "declaration-inspection";
-      readonly exportName: string;
-    }
-  | {
-      readonly intent: "member-inspection";
-      readonly exportName: string;
-      readonly memberPath: readonly string[];
-    }
-  | {
-      readonly intent: "inspection-plan";
-      readonly queries: readonly InspectionPlanQuery[];
-    };
+interface InstalledProgramRequirements {
+  readonly focusedExportNames: readonly string[];
+  readonly needsNodeAugmentation: boolean;
+  readonly nodeAugmentationExportName: string | undefined;
+}
+
+type NodeAugmentationScope = "none" | "complete-module" | "focused-export";
+
+const NODE_AUGMENTATION_SCOPE_BY_QUERY = {
+  "interface-overview": "complete-module",
+  "export-inspection": "focused-export",
+  "signature-inspection": "none",
+  "export-search": "complete-module",
+  "public-subpath-discovery": "none",
+  "declaration-inspection": "focused-export",
+  "member-inspection": "focused-export",
+} as const satisfies Readonly<Record<InspectionPlanQuery["intent"], NodeAugmentationScope>>;
 
 /** Materializes and validates one bounded TypeScript declaration program. */
 export function materializeInstalledProgram(
   selection: InstalledProgramSelection,
-  inspection: InstalledProgramInspection,
+  queries: readonly InspectionPlanQuery[],
 ): InstalledProgramEvidence {
+  const requirements = installedProgramRequirements(queries);
   const traversal: DeclarationGraphTraversalState = { nodeCount: 0 };
   const compilerOptions = inspectionCompilerOptions();
   const host = createBoundedCompilerHost(
@@ -136,10 +138,9 @@ export function materializeInstalledProgram(
     host,
   });
   const initialEvidence = initialPackageEvidence(initialProgram, selection);
-  const focusedExportNames = inspectionFocusedExportNames(inspection);
   const publicInterfaceProgram =
     initialEvidence !== undefined &&
-    focusedExportNames.some((exportName) =>
+    requirements.focusedExportNames.some((exportName) =>
       selectedExportNeedsStandardLibrary(
         initialProgram.getTypeChecker(),
         initialEvidence.moduleSymbol,
@@ -161,10 +162,9 @@ export function materializeInstalledProgram(
           selection.ambientSpecifier,
         )
       : undefined;
-  const selectedExportName = selectedNodeAugmentationExportName(inspection);
   const nodeProgram =
     selection.kind === "platform" ||
-    !inspectionNeedsNodeAugmentation(inspection) ||
+    !requirements.needsNodeAugmentation ||
     initialSourceFile === undefined ||
     initialModuleSymbol === undefined
       ? undefined
@@ -188,61 +188,44 @@ export function materializeInstalledProgram(
             };
           },
           () => reserveDeclarationGraphNodes(traversal, 1),
-          selectedExportName,
+          requirements.nodeAugmentationExportName,
         );
   const program = nodeProgram ?? publicInterfaceProgram;
   return inspectSelectedModule(program, selection, host, traversal);
 }
 
-function inspectionFocusedExportNames(inspection: InstalledProgramInspection): readonly string[] {
-  if (inspection.intent === "interface-overview") {
-    return [];
-  }
-  if (inspection.intent === "export-search") {
-    return [];
-  }
-  if (inspection.intent !== "inspection-plan") {
-    return [inspection.exportName];
-  }
-  return inspection.queries.flatMap((query) => ("exportName" in query ? [query.exportName] : []));
-}
+function installedProgramRequirements(
+  queries: readonly InspectionPlanQuery[],
+): InstalledProgramRequirements {
+  const focusedExportNames: string[] = [];
+  const nodeAugmentationExportNames = new Set<string>();
+  let needsNodeAugmentation = false;
+  let nodeAugmentationRequiresCompleteModule = false;
 
-function inspectionNeedsNodeAugmentation(inspection: InstalledProgramInspection): boolean {
-  return inspection.intent === "inspection-plan"
-    ? inspection.queries.some(
-        (query) =>
-          query.intent === "interface-overview" ||
-          (query.intent !== "signature-inspection" && query.intent !== "public-subpath-discovery"),
-      )
-    : inspection.intent !== "signature-inspection";
-}
+  for (const query of queries) {
+    if ("exportName" in query) {
+      focusedExportNames.push(query.exportName);
+    }
+    const augmentationScope = NODE_AUGMENTATION_SCOPE_BY_QUERY[query.intent];
+    if (augmentationScope === "none") {
+      continue;
+    }
+    needsNodeAugmentation = true;
+    if (augmentationScope === "complete-module") {
+      nodeAugmentationRequiresCompleteModule = true;
+    } else if ("exportName" in query) {
+      nodeAugmentationExportNames.add(query.exportName);
+    }
+  }
 
-function selectedNodeAugmentationExportName(
-  inspection: InstalledProgramInspection,
-): string | undefined {
-  if (inspection.intent === "interface-overview" || inspection.intent === "export-search") {
-    return undefined;
-  }
-  if (inspection.intent !== "inspection-plan") {
-    return inspection.exportName;
-  }
-  if (
-    inspection.queries.some(
-      (query) => query.intent === "interface-overview" || query.intent === "export-search",
-    )
-  ) {
-    return undefined;
-  }
-  const exportNames = new Set(
-    inspection.queries.flatMap((query) =>
-      query.intent === "export-inspection" ||
-      query.intent === "declaration-inspection" ||
-      query.intent === "member-inspection"
-        ? [query.exportName]
-        : [],
-    ),
-  );
-  return exportNames.size === 1 ? [...exportNames][0] : undefined;
+  return {
+    focusedExportNames,
+    needsNodeAugmentation,
+    nodeAugmentationExportName:
+      !nodeAugmentationRequiresCompleteModule && nodeAugmentationExportNames.size === 1
+        ? nodeAugmentationExportNames.values().next().value
+        : undefined,
+  };
 }
 
 function initialPackageEvidence(

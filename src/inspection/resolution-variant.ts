@@ -13,6 +13,7 @@ import {
   isEvidenceFile,
   isPathWithin,
 } from "#typepeek/inspection/evidence-boundary";
+import { isSafePackagePathSegment } from "#typepeek/inspection/installed-package-boundary";
 import type { NormalizedInspectionTarget, PublicSubpath } from "#typepeek/inspection/protocol";
 
 const MAX_EXPORT_TARGET_DEPTH = 32;
@@ -690,10 +691,6 @@ function canonicalDeclaration(
     throw new UnsupportedInspectionError("The package has no readable declaration entrypoint.");
   }
   return canonicalDeclarationPath;
-}
-
-function isSafePackagePathSegment(segment: string): boolean {
-  return !["", ".", ".."].includes(segment) && !segment.includes("\\") && !segment.includes("\0");
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

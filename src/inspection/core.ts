@@ -24,11 +24,38 @@ import {
   type SignatureInspection,
   type SignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
+import type { InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
 import {
   compareInterfaceOverviews,
   readPublicInterfaceComparisonRequest,
 } from "#typepeek/inspection/public-interface-comparison";
 import { readInspectionRequest } from "#typepeek/inspection/request-codec";
+
+type InspectionCoreHandler = (request: unknown) => Promise<InspectionOutcome>;
+
+const INSPECTION_CORE_HANDLERS = {
+  "interface-overview": invokeInterfaceOverview,
+  "export-inspection": invokeExportInspection,
+  "signature-inspection": invokeSignatureInspection,
+  "export-search": invokeExportSearch,
+  "public-subpath-discovery": invokePublicSubpathDiscovery,
+  "declaration-inspection": invokeDeclarationInspection,
+  "member-inspection": invokeMemberInspection,
+  "inspection-plan": invokeInspectionPlan,
+  "public-interface-comparison": invokePublicInterfaceComparison,
+} as const satisfies Readonly<Record<InspectionIntent, InspectionCoreHandler>>;
+
+/**
+ * Owns request validation and dispatch for every transport-neutral Inspection
+ * Core intent. Adapters validate only their own envelopes before crossing this
+ * seam.
+ */
+export function invokeInspectionCore(
+  intent: InspectionIntent,
+  request: unknown,
+): Promise<InspectionOutcome> {
+  return INSPECTION_CORE_HANDLERS[intent](request);
+}
 
 /**
  * Compares two complete Interface Overview indexes while keeping their
@@ -36,6 +63,12 @@ import { readInspectionRequest } from "#typepeek/inspection/request-codec";
  */
 export async function comparePublicInterfaces(
   request: PublicInterfaceComparisonRequest,
+): Promise<InspectionOutcome<PublicInterfaceComparison>> {
+  return invokePublicInterfaceComparison(request);
+}
+
+async function invokePublicInterfaceComparison(
+  request: unknown,
 ): Promise<InspectionOutcome<PublicInterfaceComparison>> {
   const requestReading = readPublicInterfaceComparisonRequest(request);
   if (!requestReading.accepted) {
@@ -60,6 +93,10 @@ export async function comparePublicInterfaces(
 export async function inspectExportSearch(
   request: ExportSearchRequest,
 ): Promise<InspectionOutcome<ExportSearch>> {
+  return invokeExportSearch(request);
+}
+
+async function invokeExportSearch(request: unknown): Promise<InspectionOutcome<ExportSearch>> {
   const requestReading = readInspectionRequest("export-search", request);
   if (!requestReading.accepted) {
     return requestReading.outcome;
@@ -73,6 +110,12 @@ export async function inspectExportSearch(
 /** Discovers manifest Public Subpaths without materializing a TypeScript program. */
 export async function inspectPublicSubpaths(
   request: PublicSubpathDiscoveryRequest,
+): Promise<InspectionOutcome<PublicSubpathDiscovery>> {
+  return invokePublicSubpathDiscovery(request);
+}
+
+async function invokePublicSubpathDiscovery(
+  request: unknown,
 ): Promise<InspectionOutcome<PublicSubpathDiscovery>> {
   const requestReading = readInspectionRequest("public-subpath-discovery", request);
   if (!requestReading.accepted) {
@@ -94,6 +137,10 @@ export async function inspectPublicSubpaths(
 export async function inspectPlan(
   request: InspectionPlanRequest,
 ): Promise<InspectionOutcome<InspectionPlan>> {
+  return invokeInspectionPlan(request);
+}
+
+async function invokeInspectionPlan(request: unknown): Promise<InspectionOutcome<InspectionPlan>> {
   const requestReading = readInspectionRequest("inspection-plan", request);
   if (!requestReading.accepted) {
     return requestReading.outcome;
@@ -112,6 +159,12 @@ export async function inspectPlan(
  */
 export async function inspectInterfaceOverview(
   request: InterfaceOverviewRequest,
+): Promise<InspectionOutcome<InterfaceOverview>> {
+  return invokeInterfaceOverview(request);
+}
+
+async function invokeInterfaceOverview(
+  request: unknown,
 ): Promise<InspectionOutcome<InterfaceOverview>> {
   const requestReading = readInspectionRequest("interface-overview", request);
   if (!requestReading.accepted) {
@@ -135,6 +188,12 @@ export async function inspectInterfaceOverview(
 export async function inspectExport(
   request: ExportInspectionRequest,
 ): Promise<InspectionOutcome<ExportInspection>> {
+  return invokeExportInspection(request);
+}
+
+async function invokeExportInspection(
+  request: unknown,
+): Promise<InspectionOutcome<ExportInspection>> {
   const requestReading = readInspectionRequest("export-inspection", request);
   if (!requestReading.accepted) {
     return requestReading.outcome;
@@ -156,6 +215,12 @@ export async function inspectExport(
 export async function inspectExportSignatures(
   request: SignatureInspectionRequest,
 ): Promise<InspectionOutcome<SignatureInspection>> {
+  return invokeSignatureInspection(request);
+}
+
+async function invokeSignatureInspection(
+  request: unknown,
+): Promise<InspectionOutcome<SignatureInspection>> {
   const requestReading = readInspectionRequest("signature-inspection", request);
   if (!requestReading.accepted) {
     return requestReading.outcome;
@@ -174,6 +239,12 @@ export async function inspectExportSignatures(
 export async function inspectExportDeclarations(
   request: DeclarationInspectionRequest,
 ): Promise<InspectionOutcome<DeclarationInspection>> {
+  return invokeDeclarationInspection(request);
+}
+
+async function invokeDeclarationInspection(
+  request: unknown,
+): Promise<InspectionOutcome<DeclarationInspection>> {
   const requestReading = readInspectionRequest("declaration-inspection", request);
   if (!requestReading.accepted) {
     return requestReading.outcome;
@@ -191,6 +262,12 @@ export async function inspectExportDeclarations(
 /** Returns exactly one public member path without unrelated declaration traversal. */
 export async function inspectExportMember(
   request: MemberInspectionRequest,
+): Promise<InspectionOutcome<MemberInspection>> {
+  return invokeMemberInspection(request);
+}
+
+async function invokeMemberInspection(
+  request: unknown,
 ): Promise<InspectionOutcome<MemberInspection>> {
   const requestReading = readInspectionRequest("member-inspection", request);
   if (!requestReading.accepted) {

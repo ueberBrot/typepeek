@@ -9,19 +9,21 @@ import {
 import { resolve } from "node:path";
 
 import {
-  comparePublicInterfaces,
-  inspectExport,
-  inspectExportDeclarations,
-  inspectExportMember,
-  inspectExportSearch,
-  inspectExportSignatures,
+  INSPECTION_PROTOCOL_VERSION,
   inspectCapabilities,
-  inspectInterfaceOverview,
-  inspectPlan,
-  inspectPublicSubpaths,
+  invokeInspectionProtocol,
 } from "#typepeek/inspection";
-import type { InspectionPlanQuery, InspectionResult } from "#typepeek/inspection";
+import type {
+  InspectionIntent,
+  InspectionPlanQuery,
+  InspectionRequestByIntent,
+  InspectionResult,
+} from "#typepeek/inspection";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
+import {
+  type InspectionPlanQueryIssue,
+  readInspectionPlanQueries,
+} from "#typepeek/inspection/inspection-plan-query";
 import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { renderJsonOutcome } from "#typepeek/json-rendering";
@@ -198,7 +200,10 @@ const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationConte
     if (optionError !== undefined) {
       return optionError;
     }
-    const outcome = await inspectInterfaceOverview(inspectionRequest(options, specifier));
+    const outcome = await invokeCliInspection(
+      "interface-overview",
+      inspectionRequest(options, specifier),
+    );
     return writeCliOutcome(this, options, outcome, {
       includePublicSubpaths: options.subpaths,
       ...(options.match === undefined ? {} : { moduleExportMatch: options.match }),
@@ -234,7 +239,7 @@ const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationConte
 
 const exportCommand = buildCommand<InspectionTargetOptions, [string, string], ApplicationContext>({
   async func(options, specifier, exportName) {
-    const outcome = await inspectExport({
+    const outcome = await invokeCliInspection("export-inspection", {
       ...inspectionRequest(options, specifier),
       exportName,
     });
@@ -260,7 +265,7 @@ const signaturesCommand = buildCommand<
   ApplicationContext
 >({
   async func(options, specifier, exportName) {
-    const outcome = await inspectExportSignatures({
+    const outcome = await invokeCliInspection("signature-inspection", {
       ...inspectionRequest(options, specifier),
       exportName,
     });
@@ -286,7 +291,7 @@ const declarationsCommand = buildCommand<
   ApplicationContext
 >({
   async func(options, specifier, exportName) {
-    const outcome = await inspectExportDeclarations({
+    const outcome = await invokeCliInspection("declaration-inspection", {
       ...inspectionRequest(options, specifier),
       exportName,
     });
@@ -312,7 +317,7 @@ const memberCommand = buildCommand<
   ApplicationContext
 >({
   async func(options, specifier, exportName, memberPath) {
-    const outcome = await inspectExportMember({
+    const outcome = await invokeCliInspection("member-inspection", {
       ...inspectionRequest(options, specifier),
       exportName,
       memberPath,
@@ -339,7 +344,7 @@ const planCommand = buildCommand<
   ApplicationContext
 >({
   async func(options, specifier, queries) {
-    const outcome = await inspectPlan({
+    const outcome = await invokeCliInspection("inspection-plan", {
       ...inspectionRequest(options, specifier),
       queries,
     });
@@ -361,7 +366,7 @@ const planCommand = buildCommand<
 
 const searchCommand = buildCommand<InspectionTargetOptions, [string, string], ApplicationContext>({
   async func(options, specifier, query) {
-    const outcome = await inspectExportSearch({
+    const outcome = await invokeCliInspection("export-search", {
       ...inspectionRequest(options, specifier),
       query,
     });
@@ -383,7 +388,10 @@ const searchCommand = buildCommand<InspectionTargetOptions, [string, string], Ap
 
 const subpathsCommand = buildCommand<InspectionTargetOptions, [string], ApplicationContext>({
   async func(options, specifier) {
-    const outcome = await inspectPublicSubpaths(inspectionRequest(options, specifier));
+    const outcome = await invokeCliInspection(
+      "public-subpath-discovery",
+      inspectionRequest(options, specifier),
+    );
     return writeCliOutcome(this, options, outcome);
   },
   parameters: {
@@ -418,7 +426,7 @@ const capabilitiesCommand = buildCommand<Readonly<Record<never, never>>, [], App
 
 const compareCommand = buildCommand<ComparisonOptions, [string, string], ApplicationContext>({
   async func(options, beforeSpecifier, afterSpecifier) {
-    const outcome = await comparePublicInterfaces({
+    const outcome = await invokeCliInspection("public-interface-comparison", {
       before: {
         resolutionContext: options.beforeContext,
         specifier: beforeSpecifier,
@@ -636,6 +644,18 @@ function inspectionRequest(options: InspectionTargetOptions, specifier: string) 
   } as const;
 }
 
+async function invokeCliInspection<Intent extends InspectionIntent>(
+  intent: Intent,
+  request: InspectionRequestByIntent[Intent],
+): Promise<InspectionOutcome> {
+  const response = await invokeInspectionProtocol({
+    protocolVersion: INSPECTION_PROTOCOL_VERSION,
+    intent,
+    request,
+  });
+  return response.outcome;
+}
+
 function writeCliOutcome(
   context: ApplicationContext,
   options: CliOutputOptions,
@@ -694,7 +714,11 @@ function parseInspectionPlanQueries(input: string): readonly InspectionPlanQuery
   if (Buffer.byteLength(input) > MAX_PLAN_QUERY_JSON_BYTES) {
     throw new Error("Inspection Plan query JSON exceeds its input limit.");
   }
-  return readInspectionPlanQueryArray(parseInspectionPlanJson(input)).map(parseInspectionPlanQuery);
+  const reading = readInspectionPlanQueries(parseInspectionPlanJson(input));
+  if (!reading.accepted) {
+    throw new Error(inspectionPlanQueryIssueMessage(reading.issue));
+  }
+  return reading.queries;
 }
 
 function parseInspectionPlanJson(input: string): unknown {
@@ -705,86 +729,16 @@ function parseInspectionPlanJson(input: string): unknown {
   }
 }
 
-function readInspectionPlanQueryArray(value: unknown): readonly unknown[] {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 16) {
-    throw new Error("Inspection Plan queries must contain from 1 through 16 entries.");
-  }
-  return value;
-}
-
-function parseInspectionPlanQuery(value: unknown): InspectionPlanQuery {
-  if (!isPlainRecord(value)) {
-    throw new Error("Each Inspection Plan query must be an object.");
-  }
-  const intent = value["intent"];
-  if (!isInspectionPlanQueryIntent(intent)) {
-    throw new Error("Each Inspection Plan query has an unsupported intent.");
-  }
-  return INSPECTION_PLAN_QUERY_PARSERS[intent](value);
-}
-
-type InspectionPlanQueryParser = (value: Readonly<Record<string, unknown>>) => InspectionPlanQuery;
-
-const INSPECTION_PLAN_QUERY_INTENTS = new Set<InspectionPlanQuery["intent"]>([
-  "interface-overview",
-  "export-inspection",
-  "signature-inspection",
-  "export-search",
-  "public-subpath-discovery",
-  "declaration-inspection",
-  "member-inspection",
-]);
-
-const INSPECTION_PLAN_QUERY_PARSERS = {
-  "interface-overview": () => ({ intent: "interface-overview" }),
-  "public-subpath-discovery": () => ({ intent: "public-subpath-discovery" }),
-  "export-search": (value) => parseExportSearchInspectionPlanQuery(value["query"]),
-  "export-inspection": (value) =>
-    parseFocusedInspectionPlanQuery("export-inspection", value["exportName"]),
-  "signature-inspection": (value) =>
-    parseFocusedInspectionPlanQuery("signature-inspection", value["exportName"]),
-  "declaration-inspection": (value) =>
-    parseFocusedInspectionPlanQuery("declaration-inspection", value["exportName"]),
-  "member-inspection": (value) => parseMemberInspectionPlanQuery(value),
-} as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryParser>>;
-
-function isInspectionPlanQueryIntent(value: unknown): value is InspectionPlanQuery["intent"] {
-  return (
-    typeof value === "string" &&
-    INSPECTION_PLAN_QUERY_INTENTS.has(value as InspectionPlanQuery["intent"])
-  );
-}
-
-function parseExportSearchInspectionPlanQuery(query: unknown): InspectionPlanQuery {
-  if (typeof query !== "string" || query.length === 0 || Buffer.byteLength(query) > 256) {
-    throw new Error("Each Export Search query requires a bounded non-empty query string.");
-  }
-  return { intent: "export-search", query };
-}
-
-function parseFocusedInspectionPlanQuery(
-  intent: "export-inspection" | "signature-inspection" | "declaration-inspection",
-  exportName: unknown,
-): InspectionPlanQuery {
-  if (typeof exportName !== "string") {
-    throw new Error("Each focused Inspection Plan query requires a string exportName.");
-  }
-  return { intent, exportName };
-}
-
-function parseMemberInspectionPlanQuery(
-  value: Readonly<Record<string, unknown>>,
-): InspectionPlanQuery {
-  const exportName = value["exportName"];
-  const memberPath = readBoundedMemberPath(value["memberPath"]);
-  if (typeof exportName !== "string" || memberPath === undefined) {
-    throw new Error("Each Member Inspection query requires an exportName and memberPath.");
-  }
-  return { intent: "member-inspection", exportName, memberPath };
-}
-
-function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function inspectionPlanQueryIssueMessage(issue: InspectionPlanQueryIssue): string {
+  const messages = {
+    "invalid-list": "Inspection Plan queries must contain from 1 through 16 entries.",
+    "invalid-entry": "Each Inspection Plan query must be an object.",
+    "unsupported-intent": "Each Inspection Plan query has an unsupported intent.",
+    "invalid-search": "Each Export Search query requires a bounded non-empty query string.",
+    "invalid-focused": "Each focused Inspection Plan query requires a string exportName.",
+    "invalid-member": "Each Member Inspection query requires an exportName and memberPath.",
+  } as const satisfies Readonly<Record<InspectionPlanQueryIssue, string>>;
+  return messages[issue];
 }
 
 function renderForCommand(
