@@ -1,6 +1,9 @@
 import ts from "@typescript/typescript6";
 
-import { projectPublicDeclaration } from "#typepeek/inspection/public-declaration-projection";
+import {
+  projectPublicDeclaration,
+  type PublicDeclarationProjectionContext,
+} from "#typepeek/inspection/public-declaration-projection";
 
 const declarationPrinter = ts.createPrinter({
   newLine: ts.NewLineKind.LineFeed,
@@ -11,12 +14,13 @@ const declarationPrinter = ts.createPrinter({
 export function renderPublicDeclaration(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
+  context?: PublicDeclarationProjectionContext,
 ): string {
   const sourceFile = declaration.getSourceFile();
   return declarationPrinter
     .printNode(
       ts.EmitHint.Unspecified,
-      projectPublicDeclaration(checker, declaration).syntax,
+      projectPublicDeclaration(checker, declaration, context).syntax,
       sourceFile,
     )
     .trim()

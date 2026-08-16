@@ -8,6 +8,7 @@ import {
   isPublicProjectionChild,
   publicDeclarations,
 } from "#typepeek/inspection/public-declaration-projection";
+import { isWellKnownSymbolMemberName } from "#typepeek/inspection/well-known-symbol";
 
 const MAX_DECLARATION_GRAPH_DEPTH = 256;
 const MAX_STANDARD_LIBRARY_BYTES = 4 * 1024 * 1024;
@@ -26,11 +27,6 @@ interface StandardGlobalSpaces {
 
 let standardGlobalNames: ReadonlyMap<string, StandardGlobalSpaces> | undefined;
 const computedNamesByChecker = new WeakMap<ts.TypeChecker, ts.Expression[]>();
-const STANDARD_SYMBOL_MEMBERS = new Set(
-  Object.getOwnPropertyNames(Symbol).filter(
-    (name) => typeof Object.getOwnPropertyDescriptor(Symbol, name)?.value === "symbol",
-  ),
-);
 
 export interface NodeProviderProgram {
   readonly program: ts.Program;
@@ -220,7 +216,7 @@ function inspectReferencedSymbol(
   if (reference === undefined) {
     return;
   }
-  const symbol = options.checker.getSymbolAtLocation(reference.target);
+  const symbol = resolvedReferenceSymbol(options.checker, reference);
   if (resolvedSymbolDeclarations(options.checker, symbol).length > 0) {
     if (symbol !== undefined) {
       options.pendingSymbols.push(symbol);
@@ -230,6 +226,18 @@ function inspectReferencedSymbol(
   if (!isStandardReference(reference, options.reserveTraversalNode)) {
     options.candidates.push({ target: reference.target });
   }
+}
+
+function resolvedReferenceSymbol(
+  checker: ts.TypeChecker,
+  reference: NonNullable<ReturnType<typeof possibleGlobalReference>>,
+): ts.Symbol | undefined {
+  const targetSymbol = checker.getSymbolAtLocation(reference.target);
+  if (resolvedSymbolDeclarations(checker, targetSymbol).length > 0) {
+    return targetSymbol;
+  }
+  const rootSymbol = checker.getSymbolAtLocation(reference.root);
+  return resolvedSymbolDeclarations(checker, rootSymbol).length > 0 ? rootSymbol : targetSymbol;
 }
 
 function enqueueModuleExports(
@@ -486,7 +494,7 @@ function isWellKnownSymbolReference(path: readonly string[], space: "type" | "va
     space === "value" &&
     path.length === 2 &&
     path[0] === "Symbol" &&
-    STANDARD_SYMBOL_MEMBERS.has(path[1] ?? "")
+    isWellKnownSymbolMemberName(path[1] ?? "")
   );
 }
 
@@ -832,7 +840,7 @@ function isStandardSymbolMember(expression: ts.Expression): boolean {
     ts.isPropertyAccessExpression(expression) &&
     ts.isIdentifier(expression.expression) &&
     expression.expression.text === "Symbol" &&
-    STANDARD_SYMBOL_MEMBERS.has(expression.name.text)
+    isWellKnownSymbolMemberName(expression.name.text)
   );
 }
 
@@ -914,7 +922,7 @@ function scanInferenceTypeNode(
     }
     const reference = possibleGlobalReference(node);
     if (reference !== undefined) {
-      const symbol = options.checker.getSymbolAtLocation(reference.target);
+      const symbol = resolvedReferenceSymbol(options.checker, reference);
       const declarations = resolvedSymbolDeclarations(options.checker, symbol);
       if (declarations.length > 0) {
         for (const declaration of declarations) {

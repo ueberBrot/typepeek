@@ -30,9 +30,12 @@ import type {
   SupportingType,
 } from "#typepeek/inspection/protocol";
 import {
+  declarationOwnerIsMember,
   inferredPublicTypeChildren,
   isPrivateDeclaration,
+  isNamedTypeDeclarationSyntax,
   projectPublicDeclaration,
+  type PublicDeclarationProjectionContext,
   publicDeclarations,
 } from "#typepeek/inspection/public-declaration-projection";
 import { renderPublicDeclaration } from "#typepeek/inspection/public-declaration-rendering";
@@ -52,15 +55,6 @@ const MAX_SUPPORTING_TYPES = 96;
 const MAX_SUPPORTING_TRAVERSAL_DEPTH = 64;
 const MAX_SUPPORTING_TRAVERSAL_NODES = 20_000;
 const MAX_INFERRED_TYPE_NODES = 4_096;
-const MEMBER_CONTAINER_KINDS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.ClassDeclaration,
-  ts.SyntaxKind.ClassExpression,
-  ts.SyntaxKind.EnumDeclaration,
-  ts.SyntaxKind.InterfaceDeclaration,
-  ts.SyntaxKind.ObjectLiteralExpression,
-  ts.SyntaxKind.TypeLiteral,
-]);
-
 const DECLARATION_KIND_BY_SYNTAX_KIND = new Map<ts.SyntaxKind, DeclarationKind>([
   [ts.SyntaxKind.ClassDeclaration, "class"],
   [ts.SyntaxKind.EnumDeclaration, "enum"],
@@ -127,7 +121,17 @@ interface NamespaceTraversalState {
 interface SupportingTraversalState {
   astNodeCount: number;
   inferredTypeCount: number;
+  readonly validatedTypes: Set<ts.Type>;
 }
+
+const supportingTraversalByContext = new WeakMap<
+  InspectionResultConstructionContext,
+  SupportingTraversalState
+>();
+const supportingTraversalByConstruction = new WeakMap<
+  FocusedInspectionConstruction,
+  SupportingTraversalState
+>();
 
 interface FocusedDeclarationEvidence {
   readonly aliasDeclaration: AliasDeclaration | undefined;
@@ -166,7 +170,11 @@ function inspectDeclaration(
 ): InspectedDeclaration {
   const sourceFile = declaration.getSourceFile();
   const start = sourceFile.getLineAndCharacterOfPosition(declaration.getStart(sourceFile, false));
-  const text = renderPublicDeclaration(evidence.checker, declaration);
+  const text = renderPublicDeclaration(
+    evidence.checker,
+    declaration,
+    projectionContext(evidence, supportingTraversal(construction)),
+  );
   if (Buffer.byteLength(text) > MAX_DECLARATION_BYTES) {
     throw new InspectionLimitError("Inspection exceeded its declaration output limit.");
   }
@@ -334,7 +342,7 @@ function readFocusedDeclarationEvidence(
   const spaces = occupiedDeclarationSpaces(exportedSymbol, targetSymbol, aliasDeclaration);
   return {
     aliasDeclaration,
-    construction: new FocusedInspectionConstruction(constructionContext),
+    construction: createFocusedInspectionConstruction(constructionContext),
     exportedSymbol,
     namespaceMembers: spaces.includes("namespace")
       ? inspectNamespaceMemberEvidence(evidence.checker, targetSymbol)
@@ -381,7 +389,7 @@ export function inspectFocusedModuleExportMember(
   if (memberDeclarations.length === 0) {
     return { status: "unsupported-member" };
   }
-  const construction = new FocusedInspectionConstruction(constructionContext);
+  const construction = createFocusedInspectionConstruction(constructionContext);
   const declarations = memberDeclarations.map((declaration) =>
     inspectDeclaration(evidence, declaration, construction),
   );
@@ -627,7 +635,7 @@ function inspectSupportingTypes(
   const supportingTypes: SupportingType[] = [];
   const visited = new Set<ts.Symbol>([selectedSymbol]);
   const visitedInferredTypes = new Set<ts.Type>();
-  const traversal: SupportingTraversalState = { astNodeCount: 0, inferredTypeCount: 0 };
+  const traversal = supportingTraversal(construction);
 
   const inspectSymbol = (
     symbol: ts.Symbol,
@@ -656,7 +664,11 @@ function inspectSupportingTypes(
     declarations
       .filter((declaration) => shouldExpandSupporting(evidence, declaration))
       .forEach((declaration) => {
-        const projection = projectPublicDeclaration(evidence.checker, declaration);
+        const projection = projectPublicDeclaration(
+          evidence.checker,
+          declaration,
+          projectionContext(evidence, traversal),
+        );
         visitTypeReferences(
           projection.syntax,
           (reference) => inspectReference(reference, depth + 1),
@@ -697,7 +709,11 @@ function inspectSupportingTypes(
     selectedSymbol,
     namespaceMembers,
   )) {
-    const projection = projectPublicDeclaration(evidence.checker, declaration);
+    const projection = projectPublicDeclaration(
+      evidence.checker,
+      declaration,
+      projectionContext(evidence, traversal),
+    );
     visitTypeReferences(
       projection.syntax,
       (reference) => inspectReference(reference, 1),
@@ -805,7 +821,7 @@ function supportingTypeDeclarations(
       !isTypeScriptStandardLibraryDeclaration(declaration.getSourceFile().fileName) &&
       (referenceKind === "type-query"
         ? supportsTypeQuery(evidence, declaration, traversal)
-        : isNamedTypeDeclaration(declaration)),
+        : isNamedTypeDeclarationSyntax(declaration)),
   );
   assertDeclarationLimit(declarations);
   return declarations;
@@ -822,44 +838,45 @@ function supportsTypeQuery(
   }
   return (
     DECLARATION_POLICY_BY_KIND[kind].supportsTypeQuery &&
-    !declarationOwnerIsMember(evidence, declaration, traversal)
+    !declarationOwnerIsMember(evidence.checker, evidence.moduleSymbol, declaration, (depth) =>
+      reserveAstTraversal(traversal, depth),
+    )
   );
 }
 
-function declarationOwnerIsMember(
-  evidence: InspectableModuleEvidence,
-  declaration: ts.Declaration,
-  traversal: SupportingTraversalState,
-): boolean {
-  let ancestor = declaration.parent;
-  for (let depth = 0; ancestor !== undefined; depth += 1, ancestor = ancestor.parent) {
-    reserveAstTraversal(traversal, depth);
-    if (ts.isSourceFile(ancestor)) {
-      return false;
-    }
-    if (ts.isModuleBlock(ancestor)) {
-      return evidence.checker.getSymbolAtLocation(ancestor.parent.name) !== evidence.moduleSymbol;
-    }
-    if (MEMBER_CONTAINER_KINDS.has(ancestor.kind)) {
-      return true;
-    }
+function createFocusedInspectionConstruction(
+  context: InspectionResultConstructionContext,
+): FocusedInspectionConstruction {
+  const construction = new FocusedInspectionConstruction(context);
+  let traversal = supportingTraversalByContext.get(context);
+  if (traversal === undefined) {
+    traversal = { astNodeCount: 0, inferredTypeCount: 0, validatedTypes: new Set() };
+    supportingTraversalByContext.set(context, traversal);
   }
-  return false;
+  supportingTraversalByConstruction.set(construction, traversal);
+  return construction;
 }
 
-function isNamedTypeDeclaration(
-  declaration: ts.Declaration,
-): declaration is
-  | ts.ClassDeclaration
-  | ts.EnumDeclaration
-  | ts.InterfaceDeclaration
-  | ts.TypeAliasDeclaration {
-  return (
-    ts.isClassDeclaration(declaration) ||
-    ts.isEnumDeclaration(declaration) ||
-    ts.isInterfaceDeclaration(declaration) ||
-    ts.isTypeAliasDeclaration(declaration)
-  );
+function supportingTraversal(
+  construction: FocusedInspectionConstruction,
+): SupportingTraversalState {
+  const traversal = supportingTraversalByConstruction.get(construction);
+  if (traversal === undefined) {
+    throw new Error("Focused inspection construction has no traversal budget.");
+  }
+  return traversal;
+}
+
+function projectionContext(
+  evidence: InspectableModuleEvidence,
+  traversal: SupportingTraversalState,
+): PublicDeclarationProjectionContext {
+  return {
+    moduleSymbol: evidence.moduleSymbol,
+    reserveTraversal: (depth) => reserveAstTraversal(traversal, depth),
+    reserveTypeTraversal: (depth) => reserveInferredTypeTraversal(traversal, depth),
+    validatedTypes: traversal.validatedTypes,
+  };
 }
 
 function isTypeOnlyAlias(declaration: AliasDeclaration): boolean {
