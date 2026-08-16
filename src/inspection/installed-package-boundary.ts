@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import { isPathWithin, readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
+import type { ObserveInstalledEvidenceFile } from "#typepeek/inspection/installed-evidence-fingerprint";
 import type { PackageIdentity } from "#typepeek/inspection/protocol";
 
 const MAX_PACKAGE_SEARCH_DEPTH = 64;
@@ -25,6 +26,7 @@ interface AncestorManifest {
 
 export interface PackageBoundaryObserver {
   readonly manifestCache: Map<string, Readonly<Record<string, unknown>>> | undefined;
+  readonly observeEvidenceFile?: ObserveInstalledEvidenceFile;
   readonly remainingBytes: () => number | undefined;
   readonly reserveBytes: (count: number) => void;
   readonly reserveOperation: () => void;
@@ -68,6 +70,7 @@ export function readDeclarationProvenance(
   packageRoot: string,
   packageIdentity: PackageIdentity,
   declarationPath: string,
+  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
 ): {
   readonly packageIdentity: PackageIdentity;
   readonly file: string;
@@ -76,6 +79,7 @@ export function readDeclarationProvenance(
     packageRoot,
     packageIdentity,
     declarationPath,
+    observer,
   );
   if (!isPathWithin(repositoryRoot, declarationPath)) {
     throw new UnsupportedInspectionError(
@@ -92,24 +96,28 @@ function declarationPackageIdentityFor(
   inspectedPackageRoot: string,
   inspectedPackageIdentity: PackageIdentity,
   declarationPath: string,
+  observer: PackageBoundaryObserver,
 ): PackageIdentity {
   // Nested node_modules declarations use their own Package Identity.
   const materializedPackageRoot = findMaterializedPackageRoot(declarationPath);
   if (materializedPackageRoot !== undefined) {
     return materializedPackageRoot === inspectedPackageRoot
       ? inspectedPackageIdentity
-      : readInstalledManifest(materializedPackageRoot).packageIdentity;
+      : readInstalledManifest(materializedPackageRoot, observer).packageIdentity;
   }
   // Inner manifests may define module format only; retain the installed package.
   return isPathWithin(inspectedPackageRoot, declarationPath)
     ? inspectedPackageIdentity
-    : resolveDeclarationPackageIdentity(declarationPath);
+    : resolveDeclarationPackageIdentity(declarationPath, observer);
 }
 
-function resolveDeclarationPackageIdentity(declarationPath: string): PackageIdentity {
-  const owningManifest = findAncestorManifest(dirname(declarationPath), () => true);
+function resolveDeclarationPackageIdentity(
+  declarationPath: string,
+  observer: PackageBoundaryObserver,
+): PackageIdentity {
+  const owningManifest = findAncestorManifest(dirname(declarationPath), () => true, observer);
   if (owningManifest !== undefined) {
-    return readInstalledManifest(owningManifest.directory).packageIdentity;
+    return readInstalledManifest(owningManifest.directory, observer).packageIdentity;
   }
   throw new UnsupportedInspectionError(
     "A declaration has no owning Package Identity for provenance.",
@@ -350,6 +358,7 @@ function readManifestRecord(
       : "Inspection exceeded its package manifest size limit.",
   );
   observer.reserveBytes(Buffer.byteLength(manifestText));
+  observer.observeEvidenceFile?.(manifestPath, manifestText, "manifest");
   const manifest = parseManifest(manifestText);
   if (!isRecord(manifest)) {
     return invalidPackageIdentity();

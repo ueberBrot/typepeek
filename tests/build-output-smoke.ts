@@ -3,7 +3,10 @@ import { spawnSync } from "node:child_process";
 import { lstat, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { assertRepositoryProfilingExcluded } from "./artifact-boundary.ts";
+import {
+  assertArtifactCacheReuse,
+  assertRepositoryProfilingExcluded,
+} from "./artifact-boundary.ts";
 
 const worker = await lstat(".vite-plus/build/inspection/analysis-process-entry.js");
 assert.equal(worker.isFile(), true, "The built analysis process entry must be a regular file.");
@@ -22,6 +25,15 @@ assert.doesNotMatch(
   "The built analysis worker must not load the outcome codec dependency.",
 );
 await assertRepositoryProfilingExcluded(".vite-plus/build");
+
+const packageVersion = (
+  JSON.parse(await readFile("package.json", "utf8")) as { readonly version: string }
+).version;
+const versionCli = spawnSync(process.execPath, [".vite-plus/build/cli.js", "--version"], {
+  encoding: "utf8",
+});
+assert.equal(versionCli.status, 0, versionCli.stderr);
+assert.equal(versionCli.stdout, `${packageVersion}\n`);
 
 const cli = spawnSync(
   process.execPath,
@@ -45,6 +57,7 @@ assert.equal(cliOutcome.result.intent, "signature-inspection");
 assert.equal(cliOutcome.result.moduleExport.name, "type");
 assert.equal(cliOutcome.result.moduleExport.signatures.length, 3);
 assert.match(cliOutcome.result.moduleExport.signatures[0]?.text ?? "", /^<const def/u);
+await assertArtifactCacheReuse(".vite-plus/build/cli.js");
 
 const inspectionApiPath = "../.vite-plus/build/inspection-api.js";
 const inspectionApi = (await import(inspectionApiPath)) as {

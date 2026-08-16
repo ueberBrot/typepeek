@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 
-import { assertRepositoryProfilingExcluded } from "./artifact-boundary.ts";
+import {
+  assertArtifactCacheReuse,
+  assertRepositoryProfilingExcluded,
+} from "./artifact-boundary.ts";
 
 const workerSource = await readFile("dist/inspection/analysis-process-entry.js", "utf8");
 assert.doesNotMatch(
@@ -11,6 +14,15 @@ assert.doesNotMatch(
   "The packaged analysis worker must not load the outcome codec dependency.",
 );
 await assertRepositoryProfilingExcluded("dist");
+
+const packageVersion = (
+  JSON.parse(await readFile("package.json", "utf8")) as { readonly version: string }
+).version;
+const versionCli = spawnSync(process.execPath, ["dist/cli.js", "--version"], {
+  encoding: "utf8",
+});
+assert.equal(versionCli.status, 0, versionCli.stderr);
+assert.equal(versionCli.stdout, `${packageVersion}\n`);
 
 const cli = spawnSync(process.execPath, ["dist/cli.js", "--help"], {
   encoding: "utf8",
@@ -24,6 +36,7 @@ assert.match(cli.stdout, /plan\s+Execute a bounded query list/u);
 assert.match(cli.stdout, /search\s+Search the bounded Module Export index/u);
 assert.match(cli.stdout, /subpaths\s+Discover manifest Public Subpaths/u);
 assert.match(cli.stdout, /capabilities\s+Print the versioned Inspection Core capabilities/u);
+await assertArtifactCacheReuse("dist/cli.js");
 const inspectionApiPath = "../dist/inspection-api.js";
 const inspectionApi: unknown = await import(inspectionApiPath);
 if (typeof inspectionApi !== "object" || inspectionApi === null) {

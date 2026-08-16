@@ -9,6 +9,7 @@ import {
   UnsupportedInspectionError,
 } from "#typepeek/inspection/errors";
 import { isPathWithin } from "#typepeek/inspection/evidence-boundary";
+import type { InstalledEvidenceObserver } from "#typepeek/inspection/installed-evidence-fingerprint";
 import {
   assertAbsoluteResolutionContext,
   assertNoNestedDeclarationOwner,
@@ -57,7 +58,7 @@ export interface InspectableModuleDiscoveryEvidence {
   readonly publicSubpaths: readonly PublicSubpath[];
 }
 
-interface DeclarationProviderSelectionBase {
+export type InspectableModuleSelection = {
   readonly compilerWorkSession: CompilerWorkSession;
   readonly resolutionContextDirectory: string;
   readonly declarationPath: string;
@@ -67,19 +68,19 @@ interface DeclarationProviderSelectionBase {
   readonly readPublicSubpaths: () => readonly PublicSubpath[];
   readonly supportingTypeScope: SupportingTypeScope;
   readonly providerIdentity: PackageIdentity;
-  readonly readNodeDeclarationProvider: () => NodeDeclarationProvider | undefined;
-}
+  readonly packageBoundaryObserver: ReturnType<CompilerWorkSession["observePackageBoundary"]>;
+  readonly readNodeDeclarationProvider: () =>
+    | { readonly declarationPath: string; readonly declarationRoot: string }
+    | undefined;
+} & (
+  | { readonly kind: "package"; readonly ambientSpecifier: string | undefined }
+  | { readonly kind: "platform"; readonly specifier: string }
+);
 
 interface NodeDeclarationProvider {
   readonly declarationPath: string;
   readonly declarationRoot: string;
 }
-
-type DeclarationProviderSelection = DeclarationProviderSelectionBase &
-  (
-    | { readonly kind: "package"; readonly ambientSpecifier: string | undefined }
-    | { readonly kind: "platform"; readonly specifier: string }
-  );
 
 interface PackageSpecifier {
   readonly packageSegments: readonly string[];
@@ -87,47 +88,46 @@ interface PackageSpecifier {
   readonly subpathKey?: string;
 }
 
-/**
- * Reads one installed package root or Public Subpath without executing code.
- * Returns `undefined` only when not visible; invalid evidence throws typed failures.
- */
-export function readInspectableModuleEvidence(
+/** Selects canonical Installed Evidence without materializing a TypeScript program. */
+export function selectInspectableModule(
   request: NormalizedInspectionTarget,
-  inspection: InstalledProgramInspection,
-): InspectableModuleEvidence | undefined {
+  evidenceObserver?: InstalledEvidenceObserver,
+): InspectableModuleSelection | undefined {
   assertAbsoluteResolutionContext(request.resolutionContext);
-  const selection = profileInspectionPhase("declaration-provider-selection", () =>
-    selectDeclarationProvider(request, createCompilerWorkSession()),
+  return profileInspectionPhase("declaration-provider-selection", () =>
+    selectDeclarationProvider(
+      request,
+      createCompilerWorkSession(evidenceObserver === undefined ? {} : { evidenceObserver }),
+    ),
   );
-  return selection === undefined
-    ? undefined
-    : profileInspectionPhase("program-materialization", () =>
-        materializeInspectableModule(selection, inspection),
-      );
 }
 
-/** Resolves package identity and manifest Public Subpaths without creating a TypeScript program. */
-export function readInspectableModuleDiscoveryEvidence(
-  request: NormalizedInspectionTarget,
-): InspectableModuleDiscoveryEvidence | undefined {
-  assertAbsoluteResolutionContext(request.resolutionContext);
-  const selection = profileInspectionPhase("declaration-provider-selection", () =>
-    selectDeclarationProvider(request, createCompilerWorkSession()),
+/** Materializes declaration evidence for one previously selected module. */
+export function materializeInspectableModuleEvidence(
+  selection: InspectableModuleSelection,
+  inspection: InstalledProgramInspection,
+): InspectableModuleEvidence {
+  return profileInspectionPhase("program-materialization", () =>
+    materializeInspectableModule(selection, inspection),
   );
-  return selection === undefined
-    ? undefined
-    : {
-        resultIdentity: selection.resultIdentity,
-        get publicSubpaths() {
-          return selection.readPublicSubpaths();
-        },
-      };
+}
+
+/** Reads manifest-only evidence from one previously selected module. */
+export function inspectableModuleDiscoveryEvidence(
+  selection: InspectableModuleSelection,
+): InspectableModuleDiscoveryEvidence {
+  return {
+    resultIdentity: selection.resultIdentity,
+    get publicSubpaths() {
+      return selection.readPublicSubpaths();
+    },
+  };
 }
 
 function selectDeclarationProvider(
   request: NormalizedInspectionTarget,
   compilerWorkSession: CompilerWorkSession,
-): DeclarationProviderSelection | undefined {
+): InspectableModuleSelection | undefined {
   return isNodePlatformSpecifier(request.specifier)
     ? selectNodeDeclarationProvider(request, compilerWorkSession)
     : selectPackageDeclarationProvider(request, compilerWorkSession);
@@ -136,7 +136,7 @@ function selectDeclarationProvider(
 function selectPackageDeclarationProvider(
   request: NormalizedInspectionTarget,
   compilerWorkSession: CompilerWorkSession,
-): DeclarationProviderSelection | undefined {
+): InspectableModuleSelection | undefined {
   const packageSpecifier = parsePackageSpecifier(request.specifier);
   if (packageSpecifier === undefined) {
     throw new StaticBoundaryInspectionError(
@@ -144,25 +144,35 @@ function selectPackageDeclarationProvider(
     );
   }
 
+  const packageBoundaryObserver = compilerWorkSession.observePackageBoundary(new Map());
   const packageLocation = findVisiblePackage(
     request.resolutionContext,
     packageSpecifier.packageSegments,
+    packageBoundaryObserver,
   );
   if (packageLocation === undefined) {
     return undefined;
   }
-  const manifest = readInstalledManifest(packageLocation.packageRoot);
-  const canonicalPackageRoot = canonicalPackageBoundary(packageLocation.packageRoot);
+  const manifest = readInstalledManifest(packageLocation.packageRoot, packageBoundaryObserver);
+  const canonicalPackageRoot = canonicalPackageBoundary(
+    packageLocation.packageRoot,
+    packageBoundaryObserver,
+  );
   const providerLocation = findVisiblePackage(
     request.resolutionContext,
     declarationProviderSegments(packageSpecifier.packageRootSpecifier),
+    packageBoundaryObserver,
   );
   const resolutionVariant = selectResolutionVariant({
     compilerWorkSession,
     request,
     packageRoot: canonicalPackageRoot,
     packageRootSpecifier: packageSpecifier.packageRootSpecifier,
-    declarationRoots: availableDeclarationRoots(canonicalPackageRoot, providerLocation),
+    declarationRoots: availableDeclarationRoots(
+      canonicalPackageRoot,
+      providerLocation,
+      packageBoundaryObserver,
+    ),
     missingDeclarationMessage: `Package Module "${request.specifier}" has no readable Declaration Provider.`,
     ...selectedPublicSubpath(packageSpecifier),
     exports: manifest.exports,
@@ -173,11 +183,15 @@ function selectPackageDeclarationProvider(
     manifest,
     packageLocation.repositoryRoot,
     providerLocation,
+    packageBoundaryObserver,
   );
   return {
     kind: "package",
     compilerWorkSession,
-    resolutionContextDirectory: canonicalPackageBoundary(packageLocation.contextDirectory),
+    resolutionContextDirectory: canonicalPackageBoundary(
+      packageLocation.contextDirectory,
+      packageBoundaryObserver,
+    ),
     ambientSpecifier: separateProviderAmbientSpecifier(
       declarationPackage.root,
       canonicalPackageRoot,
@@ -194,7 +208,9 @@ function selectPackageDeclarationProvider(
     readPublicSubpaths: memoizePublicSubpaths(resolutionVariant.readPublicSubpaths),
     supportingTypeScope: { kind: "package" },
     providerIdentity: declarationPackage.identity,
-    readNodeDeclarationProvider: () => visibleNodeDeclarationProvider(request, compilerWorkSession),
+    packageBoundaryObserver,
+    readNodeDeclarationProvider: () =>
+      visibleNodeDeclarationProvider(request, compilerWorkSession, packageBoundaryObserver),
   };
 }
 
@@ -211,13 +227,24 @@ function memoizePublicSubpaths(
 function visibleNodeDeclarationProvider(
   request: NormalizedInspectionTarget,
   compilerWorkSession: CompilerWorkSession,
+  packageBoundaryObserver: ReturnType<CompilerWorkSession["observePackageBoundary"]>,
 ): NodeDeclarationProvider | undefined {
-  const providerLocation = findVisiblePackage(request.resolutionContext, ["@types", "node"]);
+  const providerLocation = findVisiblePackage(
+    request.resolutionContext,
+    ["@types", "node"],
+    packageBoundaryObserver,
+  );
   if (providerLocation === undefined) {
     return undefined;
   }
-  const providerManifest = readInstalledManifest(providerLocation.packageRoot);
-  const declarationRoot = canonicalPackageBoundary(providerLocation.packageRoot);
+  const providerManifest = readInstalledManifest(
+    providerLocation.packageRoot,
+    packageBoundaryObserver,
+  );
+  const declarationRoot = canonicalPackageBoundary(
+    providerLocation.packageRoot,
+    packageBoundaryObserver,
+  );
   const resolutionVariant = selectResolutionVariant({
     compilerWorkSession,
     request: { ...request, specifier: "@types/node" },
@@ -233,20 +260,31 @@ function visibleNodeDeclarationProvider(
 function selectNodeDeclarationProvider(
   request: NormalizedInspectionTarget,
   compilerWorkSession: CompilerWorkSession,
-): DeclarationProviderSelection {
+): InspectableModuleSelection {
   if (!isKnownNodePlatformSpecifier(request.specifier)) {
     throw new UnsupportedInspectionError(
       `Node Platform Module "${request.specifier}" is not a known Node runtime module.`,
     );
   }
-  const providerLocation = findVisiblePackage(request.resolutionContext, ["@types", "node"]);
+  const packageBoundaryObserver = compilerWorkSession.observePackageBoundary(new Map());
+  const providerLocation = findVisiblePackage(
+    request.resolutionContext,
+    ["@types", "node"],
+    packageBoundaryObserver,
+  );
   if (providerLocation === undefined) {
     throw new UnsupportedInspectionError(
       `Node Platform Module "${request.specifier}" has no visible @types/node Declaration Provider.`,
     );
   }
-  const providerManifest = readInstalledManifest(providerLocation.packageRoot);
-  const providerRoot = canonicalPackageBoundary(providerLocation.packageRoot);
+  const providerManifest = readInstalledManifest(
+    providerLocation.packageRoot,
+    packageBoundaryObserver,
+  );
+  const providerRoot = canonicalPackageBoundary(
+    providerLocation.packageRoot,
+    packageBoundaryObserver,
+  );
   const providerRequest: NormalizedInspectionTarget = {
     ...request,
     specifier: "@types/node",
@@ -263,21 +301,28 @@ function selectNodeDeclarationProvider(
   return {
     kind: "platform",
     compilerWorkSession,
-    resolutionContextDirectory: canonicalPackageBoundary(providerLocation.contextDirectory),
+    resolutionContextDirectory: canonicalPackageBoundary(
+      providerLocation.contextDirectory,
+      packageBoundaryObserver,
+    ),
     specifier: request.specifier,
     declarationPath: resolutionVariant.declarationPath,
     declarationRoot: providerRoot,
-    repositoryRoot: canonicalPackageBoundary(providerLocation.repositoryRoot),
+    repositoryRoot: canonicalPackageBoundary(
+      providerLocation.repositoryRoot,
+      packageBoundaryObserver,
+    ),
     resultIdentity: { declarationProvider: providerManifest.packageIdentity },
     readPublicSubpaths: () => [],
     supportingTypeScope: { kind: "platform", specifier: request.specifier },
     providerIdentity: providerManifest.packageIdentity,
+    packageBoundaryObserver,
     readNodeDeclarationProvider: () => undefined,
   };
 }
 
 function materializeInspectableModule(
-  selection: DeclarationProviderSelection,
+  selection: InspectableModuleSelection,
   inspection: InstalledProgramInspection,
 ): InspectableModuleEvidence {
   const { checker, moduleSymbol } = materializeInstalledProgram(selection, inspection);
@@ -295,6 +340,7 @@ function materializeInspectableModule(
         selection.declarationRoot,
         selection.providerIdentity,
         declarationPath,
+        selection.packageBoundaryObserver,
       ),
   };
 }
@@ -302,10 +348,14 @@ function materializeInspectableModule(
 function availableDeclarationRoots(
   packageRoot: string,
   providerLocation: VisiblePackageLocation | undefined,
+  packageBoundaryObserver: ReturnType<CompilerWorkSession["observePackageBoundary"]>,
 ): readonly string[] {
   return providerLocation === undefined
     ? [packageRoot]
-    : [packageRoot, canonicalPackageBoundary(providerLocation.packageRoot)];
+    : [
+        packageRoot,
+        canonicalPackageBoundary(providerLocation.packageRoot, packageBoundaryObserver),
+      ];
 }
 
 function selectedPublicSubpath(packageSpecifier: PackageSpecifier): {
@@ -340,6 +390,7 @@ function selectedDeclarationPackage(
   manifest: InstalledManifest,
   repositoryRoot: string,
   providerLocation: VisiblePackageLocation | undefined,
+  packageBoundaryObserver: ReturnType<CompilerWorkSession["observePackageBoundary"]>,
 ): {
   readonly root: string;
   readonly identity: PackageIdentity;
@@ -350,17 +401,21 @@ function selectedDeclarationPackage(
     return {
       root: packageRoot,
       identity: manifest.packageIdentity,
-      repositoryRoot: canonicalPackageBoundary(repositoryRoot),
+      repositoryRoot: canonicalPackageBoundary(repositoryRoot, packageBoundaryObserver),
     };
   }
   if (providerLocation !== undefined) {
-    const root = canonicalPackageBoundary(providerLocation.packageRoot);
+    const root = canonicalPackageBoundary(providerLocation.packageRoot, packageBoundaryObserver);
     if (isPathWithin(root, declarationPath)) {
       assertNoNestedDeclarationOwner(root, declarationPath);
       return {
         root,
-        identity: readInstalledManifest(providerLocation.packageRoot).packageIdentity,
-        repositoryRoot: canonicalPackageBoundary(providerLocation.repositoryRoot),
+        identity: readInstalledManifest(providerLocation.packageRoot, packageBoundaryObserver)
+          .packageIdentity,
+        repositoryRoot: canonicalPackageBoundary(
+          providerLocation.repositoryRoot,
+          packageBoundaryObserver,
+        ),
       };
     }
   }

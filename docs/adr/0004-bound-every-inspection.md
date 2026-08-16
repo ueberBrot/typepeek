@@ -29,9 +29,23 @@ An Inspection Plan is still one normalized request and one subprocess. It contai
 | Syntax / inferred / declaration-graph traversal | 20,000 / 4,096 / 250,000 nodes; depth 64 / 64 / 256                    |
 | Aggregate result / Package Documentation        | 4,096 nodes / 16 KiB                                                   |
 | Untrusted protocol graph validation             | 4,096 objects / 16,384 queued values                                   |
+| Installed Evidence Proof                        | 512 files; 512 directories / 4,096 entries; 1,024 probes; 64 KiB       |
+| Inspection cache                                | 12 MiB reads; 96 KiB IPC receipt; 160 KiB entry; 256 entries           |
 
 Failed lookups, directory entries, containers, and rendered fragments consume these aggregate budgets. This makes hostile breadth fail deterministically before elapsed time, memory, or final transport becomes the only guard.
+
+## Cache authority
+
+The optional persistent cache stores only a successful Inspection Outcome after the parent process has validated it at the same protocol seam as an uncached result. Its identity includes the normalized request, the package-manifest Typepeek version, compiler and protocol versions, the named budget-policy version, cache semantics, and the canonical Installed Evidence selection. Changing any identity dimension creates a miss.
+
+Automatic persistent reuse is enabled only for packaged builds with an embedded package version. Direct source execution requires an explicit cache directory, and Windows persistence remains disabled until private ownership can be verified rather than assumed.
+
+Each entry also carries an Installed Evidence Proof for every consumed manifest and declaration, every selected module or type-reference resolution, and every traversed Public Subpath directory. Lookup repeats those bounded resolutions, directory fingerprints, and content fingerprints before returning the candidate. Missing wildcard roots are represented by the nearest readable package directory so newly materialized topology also invalidates. A proof that changes, exceeds validation limits, cannot be read, or fails integrity validation is a miss rather than authority.
+
+Cache receipts and entries are byte-limited. The parent writes only after complete outcome validation, publishes by atomic rename inside a private non-symlink directory, and authenticates entries with a per-directory integrity key protected by those directory permissions. Failed, bounded, malformed, partial, timed-out, and terminated analysis is never stored. Cache deletion, corruption, saturation, or write failure can therefore reduce reuse but cannot change an Inspection Outcome.
 
 ## Stability
 
 These defensive thresholds come from adversarial fixtures and supported package matrices; they are not a latency, capacity, or compatibility SLA. Unchanged Installed Evidence must produce the same complete result or the same explicit limit outcome independent of timing. Thresholds may change when supported installations justify it.
+
+`INSPECTION_BUDGET_POLICY_VERSION` is the single cache identity for this complete policy and must be bumped whenever any threshold or accounting rule changes. Storage schema and cache-semantics versions are separate migration identities and change only with their respective implementation contracts.

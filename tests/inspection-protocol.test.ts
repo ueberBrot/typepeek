@@ -1,6 +1,7 @@
 import { expect, expectTypeOf, it } from "vite-plus/test";
 
 import {
+  enforceAnalysisRequestOutcome,
   enforceDeclarationInspectionOutcome,
   enforceInspectionOutcome,
   enforceInspectionPlanOutcome,
@@ -349,6 +350,65 @@ it("rejects a structurally valid success for a different inspection intent", () 
     reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
+});
+
+it("correlates every simple successful result with its complete normalized request", () => {
+  const invalid = {
+    status: "unsupported",
+    reason: "invalid-result",
+    message: "Inspection returned an invalid result.",
+  } as const;
+  const overview = {
+    status: "success",
+    result: {
+      intent: "interface-overview",
+      specifier: "other",
+      resolutionVariant: { accessStyle: "import" },
+      packageIdentity: { name: "other" },
+      publicSubpaths: [],
+      moduleExports: [],
+    },
+  } as const;
+  const search = {
+    status: "success",
+    result: {
+      intent: "export-search",
+      specifier: "example",
+      resolutionVariant: { accessStyle: "import" },
+      packageIdentity: { name: "example" },
+      query: "other",
+      totalModuleExports: 0,
+      matches: [],
+    },
+  } as const;
+
+  expect(
+    enforceAnalysisRequestOutcome(
+      {
+        intent: "interface-overview",
+        request: {
+          resolutionContext: "/repository",
+          specifier: "example",
+          accessStyle: "import",
+        },
+      },
+      overview,
+    ),
+  ).toEqual(invalid);
+  expect(
+    enforceAnalysisRequestOutcome(
+      {
+        intent: "export-search",
+        request: {
+          resolutionContext: "/repository",
+          specifier: "example",
+          accessStyle: "import",
+          query: "requested",
+        },
+      },
+      search,
+    ),
+  ).toEqual(invalid);
 });
 
 it("accepts an atomic Inspection Plan result for its requested intent", () => {

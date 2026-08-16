@@ -1,5 +1,13 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
+
+const packageManifest = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+) as { readonly version: string };
+const packageVersionDefine = {
+  __TYPEPEEK_VERSION__: JSON.stringify(packageManifest.version),
+};
 
 const releaseProfileAdapter = fileURLToPath(
   new URL("./src/inspection/performance-profile-disabled.ts", import.meta.url),
@@ -12,6 +20,7 @@ function inspectionCoreChunk(moduleId: string): string | undefined {
 }
 
 export default defineConfig({
+  define: packageVersionDefine,
   // Phase tracing is repository diagnostics, not part of the distributed CLI.
   resolve: {
     alias: {
@@ -81,6 +90,7 @@ export default defineConfig({
     },
     entry: ["src/cli.ts", "src/inspection-api.ts", "src/inspection/analysis-process-entry.ts"],
     dts: true,
+    define: packageVersionDefine,
     format: ["esm"],
     outExtensions: () => ({
       js: ".js",

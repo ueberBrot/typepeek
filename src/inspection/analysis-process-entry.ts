@@ -1,6 +1,6 @@
-import { getOneMessage } from "execa";
+import { getOneMessage, sendMessage } from "execa";
 
-import { analyzeInspection } from "#typepeek/inspection/analyze";
+import { analyzeInspectionWithCache } from "#typepeek/inspection/analyze";
 import {
   beginInspectionProfile,
   completeInspectionProfile,
@@ -15,9 +15,19 @@ const message = await getOneMessage();
 const requestReading = profileInspectionPhase("request-validation", () =>
   readAnalysisRequest(message),
 );
-const outcome = requestReading.accepted
-  ? profileInspectionPhase("analysis", () => analyzeInspection(requestReading.request))
-  : requestReading.outcome;
+const execution = requestReading.accepted
+  ? profileInspectionPhase("analysis", () =>
+      analyzeInspectionWithCache(
+        requestReading.request,
+        process.env["TYPEPEEK_CACHE_BYPASS"] !== "1",
+      ),
+    )
+  : { outcome: requestReading.outcome };
+const cacheMessage = execution.cacheWrite ?? execution.cacheHit;
+if (cacheMessage !== undefined) {
+  await sendMessage(cacheMessage);
+}
+const { outcome } = execution;
 process.stdout.write(JSON.stringify(outcome));
 const profile = completeInspectionProfile();
 if (profile !== undefined) {

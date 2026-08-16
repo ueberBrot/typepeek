@@ -1,14 +1,17 @@
 import { execaNode } from "execa";
 
+import { MAX_ANALYSIS_RESULT_BYTES } from "#typepeek/inspection/budget-policy";
+import {
+  readInspectionCacheHitNotice,
+  removeInspectionCacheEntry,
+  writeValidatedInspectionCacheOutcome,
+} from "#typepeek/inspection/inspection-cache";
 import {
   forwardInspectionProfile,
   inspectionProfilingEnabled,
 } from "#typepeek/inspection/performance-profile";
 import {
-  enforceDeclarationInspectionOutcome,
-  enforceInspectionOutcome,
-  enforceInspectionPlanOutcome,
-  enforceMemberInspectionOutcome,
+  enforceAnalysisRequestOutcome,
   type AnalysisRequest,
   type InspectionOutcome,
 } from "#typepeek/inspection/protocol";
@@ -20,10 +23,20 @@ export interface AnalysisProcessLimits {
   readonly maxDiagnosticBytes: number;
 }
 
+interface AnalysisProcessResult {
+  readonly exitCode?: number;
+  readonly failed: boolean;
+  readonly ipcOutput: readonly unknown[];
+  readonly isMaxBuffer: boolean;
+  readonly stderr: Uint8Array;
+  readonly stdout: Uint8Array;
+  readonly timedOut: boolean;
+}
+
 const PRODUCTION_LIMITS: AnalysisProcessLimits = {
   deadlineMilliseconds: 10_000,
   maxHeapMegabytes: 128,
-  maxResultBytes: 64 * 1_024,
+  maxResultBytes: MAX_ANALYSIS_RESULT_BYTES,
   maxDiagnosticBytes: 64 * 1_024,
 };
 const MAX_REQUEST_BYTES = 16 * 1_024;
@@ -73,6 +86,7 @@ export async function runBoundedAnalysis(request: AnalysisRequest): Promise<Insp
     analysisProcessEntryUrl(),
     PRODUCTION_LIMITS,
     inspectionProfilingEnabled,
+    true,
   );
 }
 
@@ -103,9 +117,12 @@ async function runProcess(
   entryUrl: URL,
   limits: AnalysisProcessLimits,
   forwardProfile: boolean,
+  allowCacheWrite = false,
+  bypassCache = false,
 ): Promise<InspectionOutcome> {
   const result = await execaNode(entryUrl, [], {
     ipcInput: request,
+    ...(bypassCache ? { env: { TYPEPEEK_CACHE_BYPASS: "1" } } : {}),
     serialization: "advanced",
     timeout: limits.deadlineMilliseconds,
     forceKillAfterDelay: 100,
@@ -114,51 +131,94 @@ async function runProcess(
       `--stack-size=${STACK_SIZE_KIBIBYTES}`,
     ],
     maxBuffer: {
+      ipc: 1,
       stdout: limits.maxResultBytes,
       stderr: limits.maxDiagnosticBytes,
     },
     encoding: "buffer",
     reject: false,
   });
-
-  if (result.timedOut) {
-    return DEADLINE_OUTCOME;
-  }
-  if (result.isMaxBuffer) {
-    return OUTPUT_OUTCOME;
-  }
-  if (isMemoryFailure(result.stderr)) {
-    return MEMORY_OUTCOME;
-  }
-  if (result.failed || result.exitCode !== 0) {
-    return TERMINATED_OUTCOME;
-  }
-  if (forwardProfile) {
-    forwardInspectionProfile(result.stderr);
-  }
-  const resultBytes = result.stdout.byteLength;
-  if (resultBytes > limits.maxResultBytes) {
-    return OUTPUT_OUTCOME;
+  const processFailure = analysisProcessFailure(result, limits);
+  if (processFailure !== undefined) {
+    return processFailure;
   }
   const value = parseResult(result.stdout);
   if (value === undefined) {
     return INVALID_PROCESS_RESULT_OUTCOME;
   }
-
-  return enforceAnalysisOutcome(request, value);
+  const outcome = enforceAnalysisRequestOutcome(request, value);
+  return finalizeAnalysisProcessOutcome({
+    allowCacheWrite,
+    bypassCache,
+    entryUrl,
+    forwardProfile,
+    limits,
+    outcome,
+    request,
+    result,
+  });
 }
 
-function enforceAnalysisOutcome(request: AnalysisRequest, value: unknown): InspectionOutcome {
-  if (request.intent === "inspection-plan") {
-    return enforceInspectionPlanOutcome(request.request, value);
+function analysisProcessFailure(
+  result: AnalysisProcessResult,
+  limits: AnalysisProcessLimits,
+): InspectionOutcome | undefined {
+  if (result.timedOut) return DEADLINE_OUTCOME;
+  if (result.isMaxBuffer || result.stdout.byteLength > limits.maxResultBytes) {
+    return OUTPUT_OUTCOME;
   }
-  if (request.intent === "declaration-inspection") {
-    return enforceDeclarationInspectionOutcome(request.request, value);
+  if (isMemoryFailure(result.stderr)) return MEMORY_OUTCOME;
+  return result.failed || result.exitCode !== 0 ? TERMINATED_OUTCOME : undefined;
+}
+
+interface AnalysisProcessCompletion {
+  readonly allowCacheWrite: boolean;
+  readonly bypassCache: boolean;
+  readonly entryUrl: URL;
+  readonly forwardProfile: boolean;
+  readonly limits: AnalysisProcessLimits;
+  readonly outcome: InspectionOutcome;
+  readonly request: AnalysisRequest;
+  readonly result: AnalysisProcessResult;
+}
+
+async function finalizeAnalysisProcessOutcome({
+  allowCacheWrite,
+  bypassCache,
+  entryUrl,
+  forwardProfile,
+  limits,
+  outcome,
+  request,
+  result,
+}: AnalysisProcessCompletion): Promise<InspectionOutcome> {
+  const cacheHit = readInspectionCacheHitNotice(result.ipcOutput[0]);
+  if (shouldRetryInvalidCacheOutcome(allowCacheWrite, bypassCache, cacheHit, outcome)) {
+    removeInspectionCacheEntry(cacheHit.key);
+    return runProcess(request, entryUrl, limits, forwardProfile, allowCacheWrite, true);
   }
-  if (request.intent === "member-inspection") {
-    return enforceMemberInspectionOutcome(request.request, value);
+  if (forwardProfile) {
+    forwardInspectionProfile(result.stderr);
   }
-  return enforceInspectionOutcome(request.intent, value);
+  if (allowCacheWrite) {
+    writeValidatedInspectionCacheOutcome(request, outcome, result.ipcOutput[0]);
+  }
+  return outcome;
+}
+
+function shouldRetryInvalidCacheOutcome(
+  allowCacheWrite: boolean,
+  bypassCache: boolean,
+  cacheHit: ReturnType<typeof readInspectionCacheHitNotice>,
+  outcome: InspectionOutcome,
+): cacheHit is NonNullable<typeof cacheHit> {
+  return (
+    allowCacheWrite &&
+    !bypassCache &&
+    cacheHit !== undefined &&
+    outcome.status === "unsupported" &&
+    outcome.reason === "invalid-result"
+  );
 }
 
 function analysisProcessEntryUrl(): URL {

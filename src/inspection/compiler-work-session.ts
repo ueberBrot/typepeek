@@ -8,6 +8,12 @@ import {
   isEvidenceFile,
   readBoundedUtf8File,
 } from "#typepeek/inspection/evidence-boundary";
+import type {
+  InstalledEvidenceObserver,
+  InstalledEvidenceResolutionProbe,
+  ObserveInstalledEvidenceDirectory,
+  ObserveInstalledEvidenceFile,
+} from "#typepeek/inspection/installed-evidence-fingerprint";
 import type { PackageBoundaryObserver } from "#typepeek/inspection/installed-package-boundary";
 import type { AccessStyle } from "#typepeek/inspection/protocol";
 
@@ -39,19 +45,28 @@ export interface CompilerWorkSession {
     manifestCache: Map<string, Readonly<Record<string, unknown>>>,
   ) => PackageBoundaryObserver;
   readonly readResolutionFile: (fileName: string) => string;
+  readonly observeEvidenceFile: ObserveInstalledEvidenceFile;
+  readonly observeEvidenceDirectory?: ObserveInstalledEvidenceDirectory;
+  readonly observeResolution: (probe: InstalledEvidenceResolutionProbe) => void;
+  readonly resolveEvidenceProbe: (probe: InstalledEvidenceResolutionProbe) => string | undefined;
   readonly reserveOperations: (count?: number) => void;
 }
 
 export interface CompilerWorkLimits {
+  readonly evidenceObserver?: InstalledEvidenceObserver;
   readonly operations?: number;
   readonly resolutionBytes?: number;
 }
 
 /** Owns one inspection's aggregate compiler work, bounded reads, and package resolution caches. */
 export function createCompilerWorkSession({
+  evidenceObserver,
   operations = DEFAULT_COMPILER_HOST_OPERATIONS,
   resolutionBytes = DEFAULT_COMPILER_RESOLUTION_BYTES,
 }: CompilerWorkLimits = {}): CompilerWorkSession {
+  const observeEvidenceDirectory = evidenceObserver?.observeDirectory;
+  const observeEvidenceFile = evidenceObserver?.observeFile ?? (() => undefined);
+  const observeResolution = evidenceObserver?.observeResolution ?? (() => undefined);
   let operationCount = 0;
   let resolutionByteCount = 0;
 
@@ -82,6 +97,9 @@ export function createCompilerWorkSession({
       "Inspection exceeded its compiler host byte limit.",
     );
     reserveBytes(Buffer.byteLength(contents));
+    if (fileName.endsWith("package.json")) {
+      observeEvidenceFile(fileName, contents, "manifest");
+    }
     return contents;
   };
 
@@ -93,16 +111,65 @@ export function createCompilerWorkSession({
         reserveOperations,
         remainingBytes,
         reserveBytes,
+        observeEvidenceFile,
+        observeResolution,
       ),
     observePackageBoundary: (manifestCache) => ({
       manifestCache,
+      observeEvidenceFile,
       remainingBytes,
       reserveBytes,
       reserveOperation: reserveOperations,
     }),
     readResolutionFile,
+    ...(observeEvidenceDirectory === undefined ? {} : { observeEvidenceDirectory }),
+    observeEvidenceFile,
+    observeResolution,
+    resolveEvidenceProbe: (probe) =>
+      resolveEvidenceProbe(
+        probe,
+        reserveOperations,
+        remainingBytes,
+        reserveBytes,
+        observeEvidenceFile,
+      ),
     reserveOperations,
   };
+}
+
+function resolveEvidenceProbe(
+  probe: InstalledEvidenceResolutionProbe,
+  reserveOperations: (count?: number) => void,
+  remainingBytes: () => number,
+  reserveBytes: (count: number) => void,
+  observeEvidenceFile: ObserveInstalledEvidenceFile,
+): string | undefined {
+  const host = createBoundedModuleResolutionHost(
+    dirname(probe.containingFile),
+    reserveOperations,
+    remainingBytes,
+    reserveBytes,
+    observeEvidenceFile,
+  );
+  const compilerOptions = resolutionCompilerOptions();
+  const resolvedPath =
+    probe.kind === "module"
+      ? ts.resolveModuleName(
+          probe.specifier,
+          probe.containingFile,
+          compilerOptions,
+          host,
+          undefined,
+          undefined,
+          resolutionMode(probe.accessStyle ?? "import"),
+        ).resolvedModule?.resolvedFileName
+      : ts.resolveTypeReferenceDirective(
+          probe.specifier,
+          probe.containingFile,
+          compilerOptions,
+          host,
+        ).resolvedTypeReferenceDirective?.resolvedFileName;
+  return resolvedPath === undefined ? undefined : host.canonicalPath(resolvedPath);
 }
 
 function createPackageDeclarationResolver(
@@ -111,6 +178,8 @@ function createPackageDeclarationResolver(
   reserveOperations: (count?: number) => void,
   remainingBytes: () => number,
   reserveBytes: (count: number) => void,
+  observeEvidenceFile: ObserveInstalledEvidenceFile,
+  observeResolution: (probe: InstalledEvidenceResolutionProbe) => void,
 ): PackageDeclarationResolver {
   reserveOperations();
   const contextDirectory = startingDirectory(resolutionContext);
@@ -124,6 +193,7 @@ function createPackageDeclarationResolver(
     reserveOperations,
     remainingBytes,
     reserveBytes,
+    observeEvidenceFile,
   );
   const moduleResolutionCache = ts.createModuleResolutionCache(
     contextDirectory,
@@ -144,9 +214,17 @@ function createPackageDeclarationResolver(
         undefined,
         resolutionMode(accessStyle),
       );
-      return isInspectableTypeScriptResolution(resolution.resolvedModule)
+      const resolvedPath = isInspectableTypeScriptResolution(resolution.resolvedModule)
         ? resolution.resolvedModule.resolvedFileName
         : undefined;
+      observeResolution({
+        accessStyle,
+        containingFile,
+        kind: "module",
+        ...(resolvedPath === undefined ? {} : { resolvedPath }),
+        specifier,
+      });
+      return resolvedPath;
     },
   };
 }
@@ -156,6 +234,7 @@ function createBoundedModuleResolutionHost(
   reserveOperations: (count?: number) => void,
   remainingBytes: () => number,
   reserveBytes: (count: number) => void,
+  observeEvidenceFile: ObserveInstalledEvidenceFile,
 ): ts.ModuleResolutionHost & Pick<PackageDeclarationResolver, "canonicalPath"> {
   const directoryExistsCache = new Map<string, boolean>();
   const fileExistsCache = new Map<string, boolean>();
@@ -178,7 +257,7 @@ function createBoundedModuleResolutionHost(
     getCurrentDirectory: () => contextDirectory,
     readFile: (fileName) =>
       cachedResolutionResult(reserveOperations, readFileCache, fileName, () =>
-        readPackageResolutionFile(fileName, remainingBytes, reserveBytes),
+        readPackageResolutionFile(fileName, remainingBytes, reserveBytes, observeEvidenceFile),
       ),
     realpath: (fileName) => observedCanonicalPath(fileName) ?? fileName,
     useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
@@ -204,6 +283,7 @@ function readPackageResolutionFile(
   fileName: string,
   remainingBytes: () => number,
   reserveBytes: (count: number) => void,
+  observeEvidenceFile: ObserveInstalledEvidenceFile,
 ): string | undefined {
   try {
     const availableBytes = remainingBytes();
@@ -216,6 +296,9 @@ function readPackageResolutionFile(
         : "Inspection exceeded its package manifest size limit.",
     );
     reserveBytes(Buffer.byteLength(contents));
+    if (fileName.endsWith("package.json")) {
+      observeEvidenceFile(fileName, contents, "manifest");
+    }
     return contents;
   } catch (error) {
     if (error instanceof InspectionLimitError) {
