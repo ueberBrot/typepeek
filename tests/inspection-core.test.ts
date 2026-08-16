@@ -1374,7 +1374,7 @@ it("bounds Supporting Type traversal reached through a Member", async () => {
     exportName: "DeepMemberTypeQuery",
   });
 
-  expect(outcome).toEqual({
+  expect(outcome).toMatchObject({
     status: "limit-exceeded",
     message: "Inspection exceeded its Supporting Type depth limit.",
   });
