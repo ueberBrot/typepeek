@@ -40,6 +40,10 @@ _Avoid_: safe execution, runtime inspection
 A bounded index of the Module Exports at a selected entrypoint, used when the desired export is not yet known. At a package root it may also advertise Public Subpaths without recursively inspecting them.
 _Avoid_: list, search results
 
+**Public Interface Comparison**:
+A bounded directional delta between two complete Interface Overview indexes. It preserves each side's Specifier, Package or Declaration Provider identity, and Resolution Variant, and reports added or removed Module Export names and Public Subpaths without implying that retained names have unchanged declarations or signatures.
+_Avoid_: merged interface, semantic version check, declaration diff
+
 **Public Subpath**:
 A non-root package entrypoint explicitly exposed by the package manifest. A file path that merely exists inside the package is not a Public Subpath.
 _Avoid_: internal path, deep import
@@ -78,7 +82,7 @@ A bounded ordered set of inspection queries for one Specifier, Resolution Contex
 _Avoid_: session, batch of independent inspections, partial plan
 
 **Inspection Result**:
-A bounded, deterministic presentation of Installed Evidence for an Interface Overview, Module Export Search, Public Subpath Discovery, Export Inspection, Signature Inspection, Declaration Inspection, Member Inspection, or atomic Inspection Plan. It describes one Resolution Variant and contains no generated explanation, usage example, or behavioral claim.
+A bounded, deterministic presentation of Installed Evidence for an Interface Overview, Public Interface Comparison, Module Export Search, Public Subpath Discovery, Export Inspection, Signature Inspection, Declaration Inspection, Member Inspection, or atomic Inspection Plan. An atomic result describes one Resolution Variant; a comparison preserves two variants as distinct sides. It contains no generated explanation, usage example, or behavioral claim.
 _Avoid_: answer, summary
 
 **Inspection Protocol**:

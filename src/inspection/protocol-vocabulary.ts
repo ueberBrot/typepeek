@@ -1,6 +1,6 @@
-export const INSPECTION_PROTOCOL_VERSION = "1" as const;
+export const INSPECTION_PROTOCOL_VERSION = "2" as const;
 
-export const INSPECTION_INTENTS = Object.freeze([
+export const ANALYSIS_INTENTS = Object.freeze([
   "interface-overview",
   "export-inspection",
   "signature-inspection",
@@ -9,6 +9,11 @@ export const INSPECTION_INTENTS = Object.freeze([
   "declaration-inspection",
   "member-inspection",
   "inspection-plan",
+] as const);
+
+export const INSPECTION_INTENTS = Object.freeze([
+  ...ANALYSIS_INTENTS,
+  "public-interface-comparison",
 ] as const);
 
 export const NOT_FOUND_FAILURE_REASONS = Object.freeze([

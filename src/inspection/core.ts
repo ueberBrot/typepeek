@@ -19,10 +19,42 @@ import {
   type MemberInspectionRequest,
   type PublicSubpathDiscovery,
   type PublicSubpathDiscoveryRequest,
+  type PublicInterfaceComparison,
+  type PublicInterfaceComparisonRequest,
   type SignatureInspection,
   type SignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
+import {
+  compareInterfaceOverviews,
+  readPublicInterfaceComparisonRequest,
+} from "#typepeek/inspection/public-interface-comparison";
 import { readInspectionRequest } from "#typepeek/inspection/request-codec";
+
+/**
+ * Compares two complete Interface Overview indexes while keeping their
+ * Resolution Contexts and Resolution Variants independent.
+ */
+export async function comparePublicInterfaces(
+  request: PublicInterfaceComparisonRequest,
+): Promise<InspectionOutcome<PublicInterfaceComparison>> {
+  const requestReading = readPublicInterfaceComparisonRequest(request);
+  if (!requestReading.accepted) {
+    return requestReading.outcome;
+  }
+  const [before, after] = await Promise.all([
+    inspectInterfaceOverview(requestReading.request.before),
+    inspectInterfaceOverview(requestReading.request.after),
+  ]);
+  if (before.status !== "success") {
+    return before;
+  }
+  return after.status === "success"
+    ? enforceInspectionOutcome(
+        "public-interface-comparison",
+        compareInterfaceOverviews(before.result, after.result),
+      )
+    : after;
+}
 
 /** Searches the bounded Module Export index without returning Public Subpaths. */
 export async function inspectExportSearch(

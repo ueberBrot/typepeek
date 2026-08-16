@@ -1,5 +1,6 @@
 /** Transport-neutral package API for the CLI and future inspection adapters. */
 export {
+  comparePublicInterfaces,
   inspectExport,
   inspectExportDeclarations,
   inspectExportMember,
@@ -42,6 +43,9 @@ export type {
   PackageIdentity,
   PublicSubpathDiscovery,
   PublicSubpathDiscoveryRequest,
+  PublicInterfaceComparison,
+  PublicInterfaceComparisonRequest,
+  PublicInterfaceComparisonTarget,
   ResolutionVariant,
   SignatureInspection,
   SignatureInspectionRequest,

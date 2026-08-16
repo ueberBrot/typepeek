@@ -284,8 +284,38 @@ const inspectionSchemas = type.module({
     declarations: "inspectedDeclaration[]",
   }),
   memberInspection: "packageMemberInspection | platformMemberInspection",
-  inspectionResult:
+  packageComparisonTarget: record({
+    specifier: "string",
+    resolutionVariant: "resolutionVariant",
+    packageIdentity: "packageIdentity",
+    "declarationProvider?": "packageIdentity | undefined",
+  }),
+  platformComparisonTarget: record({
+    specifier: "string",
+    resolutionVariant: "resolutionVariant",
+    "packageIdentity?": "undefined",
+    declarationProvider: "packageIdentity",
+  }),
+  comparisonTarget: "packageComparisonTarget | platformComparisonTarget",
+  moduleExportIndexDelta: record({
+    added: "moduleExportIndexEntry[]",
+    removed: "moduleExportIndexEntry[]",
+  }),
+  publicSubpathIndexDelta: record({
+    added: "publicSubpath[]",
+    removed: "publicSubpath[]",
+  }),
+  publicInterfaceComparison: record({
+    intent: "'public-interface-comparison'",
+    scope: "'interface-overview'",
+    before: "comparisonTarget",
+    after: "comparisonTarget",
+    moduleExports: "moduleExportIndexDelta",
+    publicSubpaths: "publicSubpathIndexDelta",
+  }),
+  atomicInspectionResult:
     "interfaceOverview | exportInspection | signatureInspection | exportSearch | publicSubpathDiscovery | declarationInspection | memberInspection",
+  inspectionResult: "atomicInspectionResult | publicInterfaceComparison",
   notFoundFailure: record({
     status: "'not-found'",
     reason: notFoundFailureReasonSchema,
@@ -317,7 +347,7 @@ const inspectionSchemas = type.module({
 
 const inspectionOutcomeSchema = inspectionSchemas.inspectionOutcome.onDeepUndeclaredKey("reject");
 const atomicInspectionResultSchema =
-  inspectionSchemas.inspectionResult.onDeepUndeclaredKey("reject");
+  inspectionSchemas.atomicInspectionResult.onDeepUndeclaredKey("reject");
 
 /**
  * Projects ArkType-inferred protocol values into readonly TypeScript shapes.
@@ -396,6 +426,14 @@ export interface InspectionPlanRequest extends InterfaceOverviewRequest {
 export interface NormalizedInspectionPlanRequest extends NormalizedInspectionTarget {
   readonly queries: readonly InspectionPlanQuery[];
 }
+export interface PublicInterfaceComparisonRequest {
+  readonly before: InterfaceOverviewRequest;
+  readonly after: InterfaceOverviewRequest;
+}
+export interface NormalizedPublicInterfaceComparisonRequest {
+  readonly before: NormalizedInterfaceOverviewRequest;
+  readonly after: NormalizedInterfaceOverviewRequest;
+}
 export type ModuleExportIndexEntry = ProtocolType<
   typeof inspectionSchemas.moduleExportIndexEntry.infer
 >;
@@ -461,6 +499,12 @@ export type DeclarationInspection = ProtocolType<
   typeof inspectionSchemas.declarationInspection.infer
 >;
 export type MemberInspection = ProtocolType<typeof inspectionSchemas.memberInspection.infer>;
+export type PublicInterfaceComparisonTarget = ProtocolType<
+  typeof inspectionSchemas.comparisonTarget.infer
+>;
+export type PublicInterfaceComparison = ProtocolType<
+  typeof inspectionSchemas.publicInterfaceComparison.infer
+>;
 export type AtomicInspectionResult =
   | InterfaceOverview
   | ExportInspection
@@ -473,7 +517,7 @@ export interface InspectionPlan {
   readonly intent: "inspection-plan";
   readonly inspections: readonly AtomicInspectionResult[];
 }
-export type InspectionResult = AtomicInspectionResult | InspectionPlan;
+export type InspectionResult = AtomicInspectionResult | InspectionPlan | PublicInterfaceComparison;
 export type InspectionFailure = ProtocolType<typeof inspectionSchemas.inspectionFailure.infer>;
 
 /** A complete Inspection Result or an explicit non-authoritative failure. */
@@ -567,6 +611,10 @@ export function enforceInspectionOutcome(
   value: unknown,
 ): InspectionOutcome<MemberInspection>;
 export function enforceInspectionOutcome(
+  intent: "public-interface-comparison",
+  value: unknown,
+): InspectionOutcome<PublicInterfaceComparison>;
+export function enforceInspectionOutcome(
   intent: InspectionResult["intent"],
   value: unknown,
 ): InspectionOutcome;
@@ -615,6 +663,7 @@ function simpleResultMatchesRequest(
 ): boolean {
   return (
     result.intent !== "inspection-plan" &&
+    result.intent !== "public-interface-comparison" &&
     inspectionMatchesTarget(result, request.request) &&
     inspectionMatchesPlanQuery(result, simpleRequestPlanQuery(request))
   );

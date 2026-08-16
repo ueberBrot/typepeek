@@ -6,7 +6,6 @@ import type {
   InspectionFailure,
   InspectionPlanQuery,
   InspectionRequestReading,
-  InspectionResult,
   NormalizedExportInspectionRequest,
   NormalizedExportSearchRequest,
   NormalizedInterfaceOverviewRequest,
@@ -16,7 +15,7 @@ import type {
   NormalizedPublicSubpathDiscoveryRequest,
   NormalizedSignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
-import { INSPECTION_INTENTS } from "#typepeek/inspection/protocol-vocabulary";
+import { ANALYSIS_INTENTS } from "#typepeek/inspection/protocol-vocabulary";
 
 const INVALID_ANALYSIS_REQUEST_OUTCOME: InspectionFailure = {
   status: "unsupported",
@@ -64,7 +63,7 @@ const INVALID_REQUEST_OUTCOMES = {
     reason: "invalid-request",
     message: "Inspection received an invalid Member Inspection request.",
   },
-} as const satisfies Readonly<Record<InspectionResult["intent"], InspectionFailure>>;
+} as const satisfies Readonly<Record<AnalysisRequest["intent"], InspectionFailure>>;
 
 const MAX_INSPECTION_PLAN_QUERIES = 16;
 const MAX_EXPORT_SEARCH_QUERY_BYTES = 256;
@@ -85,7 +84,7 @@ type InspectionPlanQueryReader = (
   value: Readonly<Record<string, unknown>>,
 ) => InspectionPlanQuery | undefined;
 
-const INSPECTION_INTENT_SET = new Set<InspectionResult["intent"]>(INSPECTION_INTENTS);
+const ANALYSIS_INTENT_SET = new Set<AnalysisRequest["intent"]>(ANALYSIS_INTENTS);
 const INSPECTION_PLAN_QUERY_INTENTS = new Set<InspectionPlanQuery["intent"]>([
   "interface-overview",
   "export-inspection",
@@ -130,11 +129,11 @@ export function readInspectionRequest(
   value: unknown,
 ): InspectionRequestReading<NormalizedMemberInspectionRequest>;
 export function readInspectionRequest(
-  intent: InspectionResult["intent"],
+  intent: AnalysisRequest["intent"],
   value: unknown,
 ): InspectionRequestReading<AnalysisRequest["request"]>;
 export function readInspectionRequest(
-  intent: InspectionResult["intent"],
+  intent: AnalysisRequest["intent"],
   value: unknown,
 ): InspectionRequestReading<AnalysisRequest["request"]> {
   try {
@@ -192,7 +191,7 @@ export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
 }
 
 function readRequestForIntent(
-  intent: InspectionResult["intent"],
+  intent: AnalysisRequest["intent"],
   value: unknown,
 ): AnalysisRequest | undefined {
   return ANALYSIS_REQUEST_READERS[intent](value);
@@ -207,9 +206,9 @@ const ANALYSIS_REQUEST_READERS = {
   "public-subpath-discovery": analysisRequestReader("public-subpath-discovery"),
   "declaration-inspection": analysisRequestReader("declaration-inspection"),
   "member-inspection": analysisRequestReader("member-inspection"),
-} as const satisfies Readonly<Record<InspectionResult["intent"], AnalysisRequestReader>>;
+} as const satisfies Readonly<Record<AnalysisRequest["intent"], AnalysisRequestReader>>;
 
-function analysisRequestReader(intent: InspectionResult["intent"]): AnalysisRequestReader {
+function analysisRequestReader(intent: AnalysisRequest["intent"]): AnalysisRequestReader {
   return (value) => {
     const reading = readInspectionRequest(intent, value);
     return reading.accepted ? ({ intent, request: reading.request } as AnalysisRequest) : undefined;
@@ -236,10 +235,8 @@ function isAccessStyle(value: unknown): value is AccessStyle | undefined {
   return value === undefined || value === "import" || value === "require";
 }
 
-function isInspectionIntent(value: unknown): value is InspectionResult["intent"] {
-  return (
-    typeof value === "string" && INSPECTION_INTENT_SET.has(value as InspectionResult["intent"])
-  );
+function isInspectionIntent(value: unknown): value is AnalysisRequest["intent"] {
+  return typeof value === "string" && ANALYSIS_INTENT_SET.has(value as AnalysisRequest["intent"]);
 }
 
 function readInspectionPlanQueries(value: unknown): readonly InspectionPlanQuery[] | undefined {

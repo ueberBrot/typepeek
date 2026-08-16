@@ -1,3 +1,7 @@
+import {
+  MAX_RESULT_CONSTRUCTION_BYTES,
+  MAX_RESULT_CONSTRUCTION_NODES,
+} from "#typepeek/inspection/budget-policy";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
 import type {
   DeclarationSpace,
@@ -25,9 +29,6 @@ import type {
   AtomicInspectionResult,
   MemberInspection,
 } from "#typepeek/inspection/protocol";
-
-const MAX_RESULT_CONSTRUCTION_BYTES = 60 * 1_024;
-const MAX_RESULT_NODES = 4_096;
 
 interface FragmentSize {
   readonly bytes: number;
@@ -67,7 +68,10 @@ class ResultConstructionBudget {
     );
     this.#bytes += size.bytes - childSize.bytes;
     this.#nodes += size.nodes - childSize.nodes;
-    if (this.#bytes > MAX_RESULT_CONSTRUCTION_BYTES || this.#nodes > MAX_RESULT_NODES) {
+    if (
+      this.#bytes > MAX_RESULT_CONSTRUCTION_BYTES ||
+      this.#nodes > MAX_RESULT_CONSTRUCTION_NODES
+    ) {
       throw new InspectionLimitError(
         "result-construction",
         "Inspection exceeded its output limit.",
@@ -76,6 +80,11 @@ class ResultConstructionBudget {
     this.#fragmentSizes.set(value, size);
     return value;
   }
+}
+
+/** Applies the canonical aggregate result budget to a fully assembled core result. */
+export function assertInspectionResultConstructionBound(value: object): void {
+  new ResultConstructionBudget().leaf(value);
 }
 
 const constructionBudgets = new WeakMap<

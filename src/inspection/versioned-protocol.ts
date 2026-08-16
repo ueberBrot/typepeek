@@ -1,4 +1,5 @@
 import {
+  comparePublicInterfaces,
   inspectExport,
   inspectExportDeclarations,
   inspectExportMember,
@@ -18,6 +19,7 @@ import type {
   InterfaceOverviewRequest,
   MemberInspectionRequest,
   PublicSubpathDiscoveryRequest,
+  PublicInterfaceComparisonRequest,
   SignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
 import {
@@ -25,6 +27,7 @@ import {
   INSPECTION_PROTOCOL_VERSION,
   type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
+import { readPublicInterfaceComparisonRequest } from "#typepeek/inspection/public-interface-comparison";
 import { readInspectionRequest } from "#typepeek/inspection/request-codec";
 
 export interface InspectionRequestByIntent {
@@ -36,6 +39,7 @@ export interface InspectionRequestByIntent {
   readonly "declaration-inspection": DeclarationInspectionRequest;
   readonly "member-inspection": MemberInspectionRequest;
   readonly "inspection-plan": InspectionPlanRequest;
+  readonly "public-interface-comparison": PublicInterfaceComparisonRequest;
 }
 
 export type InspectionProtocolRequest = {
@@ -95,6 +99,7 @@ const INSPECTION_DISPATCHERS = {
   "declaration-inspection": dispatchDeclarationInspection,
   "member-inspection": dispatchMemberInspection,
   "inspection-plan": dispatchInspectionPlan,
+  "public-interface-comparison": dispatchPublicInterfaceComparison,
 } as const satisfies Readonly<Record<InspectionIntent, InspectionDispatcher>>;
 
 async function dispatchInterfaceOverview(request: unknown): Promise<InspectionOutcome> {
@@ -135,6 +140,11 @@ async function dispatchMemberInspection(request: unknown): Promise<InspectionOut
 async function dispatchInspectionPlan(request: unknown): Promise<InspectionOutcome> {
   const reading = readInspectionRequest("inspection-plan", request);
   return reading.accepted ? inspectPlan(reading.request) : reading.outcome;
+}
+
+async function dispatchPublicInterfaceComparison(request: unknown): Promise<InspectionOutcome> {
+  const reading = readPublicInterfaceComparisonRequest(request);
+  return reading.accepted ? comparePublicInterfaces(reading.request) : reading.outcome;
 }
 
 function protocolResponse(outcome: InspectionOutcome): InspectionProtocolResponse {

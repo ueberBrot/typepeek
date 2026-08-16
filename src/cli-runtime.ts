@@ -9,6 +9,7 @@ import {
 import { resolve } from "node:path";
 
 import {
+  comparePublicInterfaces,
   inspectExport,
   inspectExportDeclarations,
   inspectExportMember,
@@ -47,6 +48,7 @@ const INSPECTION_COMMANDS = new Set([
   "subpaths",
   "declarations",
   "member",
+  "compare",
 ]);
 const INVALID_INVOCATION_EXIT_CODES = new Set([-5, -4]);
 
@@ -61,10 +63,20 @@ interface CliDiagnosticSnapshot {
   readonly exceeded: boolean;
 }
 
-interface InspectionTargetOptions {
+interface CliOutputOptions {
+  readonly json: boolean;
+}
+
+interface InspectionTargetOptions extends CliOutputOptions {
   readonly access: "import" | "require";
   readonly context: string;
-  readonly json: boolean;
+}
+
+interface ComparisonOptions extends CliOutputOptions {
+  readonly beforeAccess: "import" | "require";
+  readonly afterAccess: "import" | "require";
+  readonly beforeContext: string;
+  readonly afterContext: string;
 }
 
 interface OverviewOptions extends InspectionTargetOptions {
@@ -404,6 +416,64 @@ const capabilitiesCommand = buildCommand<Readonly<Record<never, never>>, [], App
   },
 });
 
+const compareCommand = buildCommand<ComparisonOptions, [string, string], ApplicationContext>({
+  async func(options, beforeSpecifier, afterSpecifier) {
+    const outcome = await comparePublicInterfaces({
+      before: {
+        resolutionContext: options.beforeContext,
+        specifier: beforeSpecifier,
+        accessStyle: options.beforeAccess,
+      },
+      after: {
+        resolutionContext: options.afterContext,
+        specifier: afterSpecifier,
+        accessStyle: options.afterAccess,
+      },
+    });
+    return writeCliOutcome(this, options, outcome);
+  },
+  parameters: {
+    flags: {
+      beforeAccess: {
+        kind: "parsed",
+        parse: parseAccessStyle,
+        default: "import",
+        placeholder: "import|require",
+        brief: "Access Style for the before Resolution Variant.",
+      },
+      afterAccess: {
+        kind: "parsed",
+        parse: parseAccessStyle,
+        default: "import",
+        placeholder: "import|require",
+        brief: "Access Style for the after Resolution Variant.",
+      },
+      beforeContext: {
+        kind: "parsed",
+        parse: resolve,
+        default: ".",
+        brief: "Resolution Context for the before Interface Overview.",
+      },
+      afterContext: {
+        kind: "parsed",
+        parse: resolve,
+        default: ".",
+        brief: "Resolution Context for the after Interface Overview.",
+      },
+      json: inspectionTargetFlags.json,
+    },
+    positional: {
+      kind: "tuple",
+      parameters: [specifierParameter, specifierParameter],
+    },
+  },
+  docs: {
+    brief: "Compare two complete Interface Overview indexes without merging variants.",
+    fullDescription:
+      "Example: typepeek compare zod zod --before-context old --after-context new compares installed versions directionally.",
+  },
+});
+
 const rootRoute = buildRouteMap({
   routes: {
     overview: overviewCommand,
@@ -414,13 +484,14 @@ const rootRoute = buildRouteMap({
     subpaths: subpathsCommand,
     declarations: declarationsCommand,
     member: memberCommand,
+    compare: compareCommand,
     capabilities: capabilitiesCommand,
   },
   defaultCommand: "overview",
   docs: {
     brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
     fullDescription:
-      "Use overview to discover exports; use search or subpaths for lighter discovery, declarations or member for narrow declaration questions, signatures for parameters, export for declarations and Supporting Types, plan to share one evidence snapshot, or capabilities to discover the adapter protocol. Common flags may precede or follow an explicit inspection command.",
+      "Use overview to discover exports; use search or subpaths for lighter discovery, declarations or member for narrow declaration questions, signatures for parameters, export for declarations and Supporting Types, plan to share one evidence snapshot, compare to diff two overview indexes, or capabilities to discover the adapter protocol. Common flags may precede or follow an explicit inspection command.",
   },
 });
 
@@ -567,7 +638,7 @@ function inspectionRequest(options: InspectionTargetOptions, specifier: string) 
 
 function writeCliOutcome(
   context: ApplicationContext,
-  options: InspectionTargetOptions,
+  options: CliOutputOptions,
   outcome: InspectionOutcome,
   renderingOptions: TerminalRenderingOptions = {},
 ): Error | undefined {

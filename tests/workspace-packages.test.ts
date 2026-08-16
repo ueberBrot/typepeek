@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
-import { inspectExport, inspectInterfaceOverview } from "#typepeek/inspection";
+import {
+  comparePublicInterfaces,
+  inspectExport,
+  inspectInterfaceOverview,
+} from "#typepeek/inspection";
 
 import {
   type WorkspacePackageMatrix,
@@ -64,6 +68,31 @@ describe("workspace Resolution Contexts", () => {
       expect(JSON.stringify(consumerOne)).not.toContain("context-two");
       expect(JSON.stringify(consumerTwo)).toContain("context-two");
       expect(JSON.stringify(consumerTwo)).not.toContain("context-one");
+    }
+  }, 30_000);
+
+  it("keeps installed versions distinct when their overview indexes have the same names", async () => {
+    for (const { consumerOneContext, consumerTwoContext, manager } of matrix.installations) {
+      const outcome = await comparePublicInterfaces({
+        before: {
+          resolutionContext: consumerOneContext,
+          specifier: "@typepeek-fixture/contextual",
+        },
+        after: {
+          resolutionContext: consumerTwoContext,
+          specifier: "@typepeek-fixture/contextual",
+        },
+      });
+
+      expect(outcome, manager).toMatchObject({
+        status: "success",
+        result: {
+          scope: "interface-overview",
+          before: { packageIdentity: { version: "1.0.0" } },
+          after: { packageIdentity: { version: "2.0.0" } },
+          moduleExports: { added: [], removed: [] },
+        },
+      });
     }
   }, 30_000);
 
