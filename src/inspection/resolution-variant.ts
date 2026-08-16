@@ -222,7 +222,10 @@ function isResolvablePublicSubpath(
 
 function assertPublicSubpathCount(count: number): void {
   if (count > MAX_PUBLIC_SUBPATHS) {
-    throw new InspectionLimitError("Inspection exceeded its Public Subpath limit.");
+    throw new InspectionLimitError(
+      "public-subpaths",
+      "Inspection exceeded its Public Subpath limit.",
+    );
   }
 }
 
@@ -264,6 +267,7 @@ function reserveExportTargetNode(depth: number, traversal: ExportTargetTraversal
   traversal.nodes += 1;
   if (traversal.nodes > MAX_EXPORT_TARGET_NODES || depth > MAX_EXPORT_TARGET_DEPTH) {
     throw new InspectionLimitError(
+      "package-export-targets",
       "Inspection exceeded its package export target traversal limit.",
     );
   }
@@ -347,6 +351,7 @@ function reserveExportTargetControlNode(depth: number, traversal: ExportTargetTr
   traversal.controlNodes += 1;
   if (traversal.controlNodes > MAX_EXPORT_TARGET_NODES || depth > MAX_EXPORT_TARGET_DEPTH) {
     throw new InspectionLimitError(
+      "package-export-targets",
       "Inspection exceeded its package export target traversal limit.",
     );
   }
@@ -456,6 +461,7 @@ function readBoundedPackageFiles(
     const candidate = pending.pop() as PackageDirectory;
     if (candidate.depth > MAX_PUBLIC_SUBPATH_FILE_DEPTH) {
       throw new InspectionLimitError(
+        "public-subpath-files",
         "Inspection exceeded its Public Subpath file traversal depth limit.",
       );
     }
@@ -550,6 +556,7 @@ function readBoundedDirectoryEntries(
       traversal.entries += 1;
       if (traversal.entries > MAX_PUBLIC_SUBPATH_FILE_ENTRIES) {
         throw new InspectionLimitError(
+          "public-subpath-files",
           "Inspection exceeded its Public Subpath file traversal limit.",
         );
       }

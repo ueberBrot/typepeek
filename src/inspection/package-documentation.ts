@@ -36,7 +36,10 @@ export function inspectPackageDocumentation(
     return undefined;
   }
   if (Buffer.byteLength(documentation) > MAX_DOCUMENTATION_BYTES) {
-    throw new InspectionLimitError("Inspection exceeded its Package Documentation limit.");
+    throw new InspectionLimitError(
+      "package-documentation",
+      "Inspection exceeded its Package Documentation limit.",
+    );
   }
   return {
     provenance: "installed-evidence",

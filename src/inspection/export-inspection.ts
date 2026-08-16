@@ -176,7 +176,10 @@ function inspectDeclaration(
     projectionContext(evidence, supportingTraversal(construction)),
   );
   if (Buffer.byteLength(text) > MAX_DECLARATION_BYTES) {
-    throw new InspectionLimitError("Inspection exceeded its declaration output limit.");
+    throw new InspectionLimitError(
+      "declaration-output",
+      "Inspection exceeded its declaration output limit.",
+    );
   }
   const kind = inspectedDeclarationKind(declaration, kindOverride);
   const provenance = evidence.declarationProvenance(sourceFile.fileName);
@@ -555,7 +558,10 @@ function assertNamespaceTraversalAllowed(
   depth: number,
 ): void {
   if (depth > MAX_NAMESPACE_DEPTH) {
-    throw new InspectionLimitError("Inspection exceeded its namespace traversal depth limit.");
+    throw new InspectionLimitError(
+      "namespace-depth",
+      "Inspection exceeded its namespace traversal depth limit.",
+    );
   }
   if (state.visited.has(symbol)) {
     throw new UnsupportedInspectionError(
@@ -567,7 +573,10 @@ function assertNamespaceTraversalAllowed(
 function reserveNamespaceMembers(state: NamespaceTraversalState, count: number): void {
   state.memberCount += count;
   if (state.memberCount > MAX_NAMESPACE_MEMBERS) {
-    throw new InspectionLimitError("Inspection exceeded its namespace member limit.");
+    throw new InspectionLimitError(
+      "namespace-members",
+      "Inspection exceeded its namespace member limit.",
+    );
   }
 }
 
@@ -762,10 +771,16 @@ function supportingRootDeclarations(
 
 function assertSupportingTypeBudget(depth: number, supportingTypeCount: number): void {
   if (depth > MAX_SUPPORTING_TYPE_DEPTH) {
-    throw new InspectionLimitError("Inspection exceeded its Supporting Type depth limit.");
+    throw new InspectionLimitError(
+      "supporting-type-depth",
+      "Inspection exceeded its Supporting Type depth limit.",
+    );
   }
   if (supportingTypeCount >= MAX_SUPPORTING_TYPES) {
-    throw new InspectionLimitError("Inspection exceeded its Supporting Type limit.");
+    throw new InspectionLimitError(
+      "supporting-types",
+      "Inspection exceeded its Supporting Type limit.",
+    );
   }
 }
 
@@ -794,7 +809,10 @@ function reserveAstTraversal(traversal: SupportingTraversalState, depth: number)
     depth > MAX_SUPPORTING_TRAVERSAL_DEPTH ||
     traversal.astNodeCount > MAX_SUPPORTING_TRAVERSAL_NODES
   ) {
-    throw new InspectionLimitError("Inspection exceeded its Supporting Type traversal limit.");
+    throw new InspectionLimitError(
+      "supporting-type-traversal",
+      "Inspection exceeded its Supporting Type traversal limit.",
+    );
   }
 }
 
@@ -804,7 +822,10 @@ function reserveInferredTypeTraversal(traversal: SupportingTraversalState, depth
     depth > MAX_SUPPORTING_TRAVERSAL_DEPTH ||
     traversal.inferredTypeCount > MAX_INFERRED_TYPE_NODES
   ) {
-    throw new InspectionLimitError("Inspection exceeded its Supporting Type traversal limit.");
+    throw new InspectionLimitError(
+      "supporting-type-traversal",
+      "Inspection exceeded its Supporting Type traversal limit.",
+    );
   }
 }
 

@@ -142,6 +142,7 @@ describe("Supported Installation package-manager layouts", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message: "The Resolution Context uses an unsupported installation without node_modules.",
     });
     await expect(access(matrix.unsupportedInstallation.runtimeSentinel)).rejects.toMatchObject({

@@ -1,6 +1,11 @@
 import { type } from "arktype";
 
 import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
+import {
+  INSPECTION_BUDGET_DIMENSIONS,
+  NOT_FOUND_FAILURE_REASONS,
+  UNSUPPORTED_FAILURE_REASONS,
+} from "#typepeek/inspection/protocol-vocabulary";
 
 const MAX_PROTOCOL_GRAPH_OBJECTS = 4_096;
 const MAX_PROTOCOL_GRAPH_VALUES = 16_384;
@@ -9,6 +14,9 @@ const portableRelativePathSchema = type("string").narrow(isPortableRelativePath)
 const positiveIntegerSchema = type("number.integer").narrow((value) => value > 0);
 const nonnegativeIntegerSchema = type("number.integer").narrow((value) => value >= 0);
 const nonArrayRecordSchema = type("object").narrow((value): boolean => isRecord(value));
+const budgetDimensionSchema = type.enumerated(...INSPECTION_BUDGET_DIMENSIONS);
+const notFoundFailureReasonSchema = type.enumerated(...NOT_FOUND_FAILURE_REASONS);
+const unsupportedFailureReasonSchema = type.enumerated(...UNSUPPORTED_FAILURE_REASONS);
 const record = <const Definition extends object>(definition: Definition) =>
   [nonArrayRecordSchema, "&", definition] as const;
 
@@ -278,10 +286,28 @@ const inspectionSchemas = type.module({
   memberInspection: "packageMemberInspection | platformMemberInspection",
   inspectionResult:
     "interfaceOverview | exportInspection | signatureInspection | exportSearch | publicSubpathDiscovery | declarationInspection | memberInspection",
-  inspectionFailure: record({
-    status: "'not-found' | 'unsupported' | 'static-boundary' | 'limit-exceeded'",
+  notFoundFailure: record({
+    status: "'not-found'",
+    reason: notFoundFailureReasonSchema,
     message: "string",
   }),
+  unsupportedFailure: record({
+    status: "'unsupported'",
+    reason: unsupportedFailureReasonSchema,
+    message: "string",
+  }),
+  staticBoundaryFailure: record({
+    status: "'static-boundary'",
+    reason: "'static-boundary'",
+    message: "string",
+  }),
+  limitFailure: record({
+    status: "'limit-exceeded'",
+    reason: "'budget-exceeded'",
+    exceededBudget: budgetDimensionSchema,
+    message: "string",
+  }),
+  inspectionFailure: "notFoundFailure | unsupportedFailure | staticBoundaryFailure | limitFailure",
   inspectionSuccess: record({
     status: "'success'",
     result: "inspectionResult",
@@ -499,6 +525,7 @@ export type AnalysisRequestReading =
 
 const INVALID_RESULT_OUTCOME: InspectionFailure = {
   status: "unsupported",
+  reason: "invalid-result",
   message: "Inspection returned an invalid result.",
 };
 

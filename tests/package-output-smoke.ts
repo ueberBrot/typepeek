@@ -23,6 +23,7 @@ assert.match(cli.stdout, /signatures\s+Inspect only the public call and construc
 assert.match(cli.stdout, /plan\s+Execute a bounded query list/u);
 assert.match(cli.stdout, /search\s+Search the bounded Module Export index/u);
 assert.match(cli.stdout, /subpaths\s+Discover manifest Public Subpaths/u);
+assert.match(cli.stdout, /capabilities\s+Print the versioned Inspection Core capabilities/u);
 const inspectionApiPath = "../dist/inspection-api.js";
 const inspectionApi: unknown = await import(inspectionApiPath);
 if (typeof inspectionApi !== "object" || inspectionApi === null) {
@@ -34,3 +35,5 @@ assert.equal(typeof Reflect.get(inspectionApi, "inspectExportSignatures"), "func
 assert.equal(typeof Reflect.get(inspectionApi, "inspectPlan"), "function");
 assert.equal(typeof Reflect.get(inspectionApi, "inspectExportSearch"), "function");
 assert.equal(typeof Reflect.get(inspectionApi, "inspectPublicSubpaths"), "function");
+assert.equal(typeof Reflect.get(inspectionApi, "inspectCapabilities"), "function");
+assert.equal(typeof Reflect.get(inspectionApi, "invokeInspectionProtocol"), "function");

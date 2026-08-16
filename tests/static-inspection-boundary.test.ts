@@ -101,6 +101,7 @@ describe("Static Inspection trust boundary", () => {
 
     expect(overview).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message: 'Package Module "@typepeek-fixture/js-only" has no readable Declaration Provider.',
     });
     expect(focused).toEqual(overview);
@@ -113,6 +114,7 @@ describe("Static Inspection trust boundary", () => {
       "./project-source.ts",
       {
         status: "static-boundary",
+        reason: "static-boundary",
         message: "The requested Specifier is outside the static Inspectable Module boundary.",
       },
     ],
@@ -121,6 +123,7 @@ describe("Static Inspection trust boundary", () => {
       "#internal",
       {
         status: "not-found",
+        reason: "specifier-not-found",
         message: 'Specifier "#internal" is not installed from this Resolution Context.',
       },
     ],
@@ -129,6 +132,7 @@ describe("Static Inspection trust boundary", () => {
       "@fixture/project-source",
       {
         status: "not-found",
+        reason: "specifier-not-found",
         message:
           'Specifier "@fixture/project-source" is not installed from this Resolution Context.',
       },
@@ -138,6 +142,7 @@ describe("Static Inspection trust boundary", () => {
       `${PACKAGE_NAME}/dist/private`,
       {
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "The requested Specifier is not a manifest-declared Public Subpath.",
       },
     ],
@@ -146,6 +151,7 @@ describe("Static Inspection trust boundary", () => {
       "Buffer",
       {
         status: "not-found",
+        reason: "specifier-not-found",
         message: 'Specifier "Buffer" is not installed from this Resolution Context.',
       },
     ],
@@ -154,6 +160,7 @@ describe("Static Inspection trust boundary", () => {
       "NodeJS",
       {
         status: "not-found",
+        reason: "specifier-not-found",
         message: 'Specifier "NodeJS" is not installed from this Resolution Context.',
       },
     ],
@@ -182,14 +189,17 @@ describe("Static Inspection trust boundary", () => {
     expect(outcomes).toEqual([
       {
         status: "static-boundary",
+        reason: "static-boundary",
         message: "The requested Specifier is outside the static Inspectable Module boundary.",
       },
       {
         status: "static-boundary",
+        reason: "static-boundary",
         message: "The requested Specifier is outside the static Inspectable Module boundary.",
       },
       {
         status: "static-boundary",
+        reason: "static-boundary",
         message: "The requested Specifier is outside the static Inspectable Module boundary.",
       },
     ]);

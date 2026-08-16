@@ -66,6 +66,7 @@ it("fails an inspection plan atomically when one selected export is missing", as
 
   expect(outcome).toEqual({
     status: "not-found",
+    reason: "export-not-found",
     message: 'Module Export "missing" was not found in "@typepeek-fixture/focused".',
   });
 });
@@ -82,6 +83,8 @@ it("applies one aggregate result-construction budget to an inspection plan", asy
   } as const;
   const expected = {
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "result-construction",
     message: "Inspection exceeded its output limit.",
   } as const;
 
@@ -246,6 +249,7 @@ it("does not expose a private member through focused Member Inspection", async (
 
   expect(outcome).toEqual({
     status: "not-found",
+    reason: "member-not-found",
     message: 'Public Member "PublicShape.secret" was not found in "@typepeek-fixture/focused".',
   });
 });
@@ -260,6 +264,7 @@ it("does not expose a protected member through focused Member Inspection", async
 
   expect(outcome).toEqual({
     status: "not-found",
+    reason: "member-not-found",
     message: 'Public Member "PublicShape.inherited" was not found in "@typepeek-fixture/focused".',
   });
 });
@@ -293,6 +298,7 @@ it("rejects a Member path that is ambiguous across declaration spaces", async ()
 
   expect(outcome).toEqual({
     status: "unsupported",
+    reason: "ambiguous-member",
     message: 'Public Member "AmbiguousShape.shared" is ambiguous across declaration spaces.',
   });
 });
@@ -307,6 +313,7 @@ it("returns unsupported rather than not-found for source-backed inferred object 
 
   expect(outcome).toEqual({
     status: "unsupported",
+    reason: "no-static-representation",
     message:
       'Public Member "inferredObject.visible" has no declaration-safe static representation.',
   });
@@ -377,6 +384,8 @@ it("enforces the merged-declaration bound before resolving an intermediate Membe
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "merged-declarations",
     message: "Inspection exceeded its declaration merge limit.",
   });
 });
@@ -415,6 +424,8 @@ it("fails explicitly before an oversized request crosses the analysis process se
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "request-bytes",
     message: "Inspection exceeded its request input limit.",
   });
 });
@@ -478,6 +489,8 @@ it("reports a limit instead of truncating a broad Module Export index", async ()
 
   expect(outcome).toMatchObject({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "module-exports",
     message: "Inspection exceeded its Module Export limit.",
   });
 });
@@ -490,6 +503,8 @@ it("reports a limit instead of truncating broad Public Subpath evidence", async 
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "public-subpaths",
     message: "Inspection exceeded its Public Subpath limit.",
   });
 });
@@ -538,6 +553,8 @@ it("reports a limit for deeply nested package export targets", async () => {
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "package-export-targets",
     message: "Inspection exceeded its package export target traversal limit.",
   });
 });
@@ -571,6 +588,8 @@ it("bounds one broad Public Subpath directory before materializing every entry",
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "public-subpath-files",
     message: "Inspection exceeded its Public Subpath file traversal limit.",
   });
 });
@@ -618,6 +637,7 @@ it("rejects an unresolved declaration re-export instead of returning a partial i
 
   expect(outcome).toMatchObject({
     status: "unsupported",
+    reason: "unsupported-evidence",
     message: "A declaration re-export could not be resolved from Installed Evidence.",
   });
 });
@@ -630,6 +650,7 @@ it("rejects a physically hoisted re-export not declared by its Package Module", 
 
   expect(outcome).toEqual({
     status: "unsupported",
+    reason: "unsupported-evidence",
     message: "A declaration re-export could not be resolved from Installed Evidence.",
   });
 });
@@ -823,6 +844,7 @@ it("rejects an installed declaration file that is not a Public Subpath", async (
 
   expect(outcome).toEqual({
     status: "unsupported",
+    reason: "unsupported-evidence",
     message: "The requested Specifier is not a manifest-declared Public Subpath.",
   });
 });
@@ -1744,6 +1766,7 @@ it("rejects circular aliases instead of returning an unknown target", async () =
 
   expect(outcome).toEqual({
     status: "unsupported",
+    reason: "unsupported-evidence",
     message: "A declaration re-export could not be resolved from Installed Evidence.",
   });
 });
@@ -1760,6 +1783,7 @@ it.each([
 
   expect(outcome).toEqual({
     status: "unsupported",
+    reason: "unsupported-evidence",
     message: "A declaration re-export could not be resolved from Installed Evidence.",
   });
 });
@@ -1843,6 +1867,7 @@ it("reports a missing focused Module Export", async () => {
 
   expect(outcome).toEqual({
     status: "not-found",
+    reason: "export-not-found",
     message: 'Module Export "missing" was not found in "@typepeek-fixture/focused".',
   });
 });
@@ -1856,6 +1881,8 @@ it("fails explicitly when Package Documentation exceeds its bound", async () => 
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "package-documentation",
     message: "Inspection exceeded its Package Documentation limit.",
   });
 });
@@ -1869,6 +1896,8 @@ it("fails explicitly when Supporting Type traversal exceeds its breadth bound", 
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "supporting-types",
     message: "Inspection exceeded its Supporting Type limit.",
   });
 });
@@ -1882,6 +1911,8 @@ it("fails explicitly when Supporting Type traversal exceeds its depth bound", as
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "supporting-type-depth",
     message: "Inspection exceeded its Supporting Type depth limit.",
   });
 });
@@ -1895,6 +1926,8 @@ it("fails explicitly when an anonymous Public Interface type exceeds traversal d
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "supporting-type-traversal",
     message: "Inspection exceeded its Supporting Type traversal limit.",
   });
 });
@@ -1917,6 +1950,8 @@ it("fails explicitly before bounded result parts multiply into oversized aggrega
 
   const expected = {
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "result-construction",
     message: "Inspection exceeded its output limit.",
   } as const;
   expect(analysisOutcome).toEqual(expected);
@@ -1932,6 +1967,8 @@ it("accounts for namespace containers before aggregate output crosses its constr
   } as const;
   const expected = {
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "result-construction",
     message: "Inspection exceeded its output limit.",
   } as const;
 
@@ -1948,6 +1985,8 @@ it("fails explicitly when overload rendering exceeds its bound", async () => {
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "signatures",
     message: "Inspection exceeded its Module Export signature limit.",
   });
 });
@@ -1961,6 +2000,8 @@ it("fails explicitly when one rendered signature exceeds its byte bound", async 
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "signature-bytes",
     message: "Inspection exceeded its Module Export signature byte limit.",
   });
 });
@@ -1979,6 +2020,8 @@ it("bounds detailed parameters without shrinking the compact Export Inspection",
   expect(focused.status).toBe("success");
   expect(signatures).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "signature-parameters",
     message: "Inspection exceeded its signature parameter limit.",
   });
 });
@@ -1997,6 +2040,8 @@ it("bounds detailed type parameters without shrinking the compact Export Inspect
   expect(focused.status).toBe("success");
   expect(signatures).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "signature-type-parameters",
     message: "Inspection exceeded its signature type parameter limit.",
   });
 });
@@ -2015,6 +2060,8 @@ it("bounds one detailed signature by its serialized size", async () => {
   expect(focused.status).toBe("success");
   expect(signatures).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "signature-bytes",
     message: "Inspection exceeded its Module Export signature byte limit.",
   });
 });
@@ -2033,6 +2080,8 @@ it("bounds the aggregate serialized size of detailed signatures", async () => {
   expect(focused.status).toBe("success");
   expect(signatures).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "signature-bytes",
     message: "Inspection exceeded its Module Export signature byte limit.",
   });
 });
@@ -2045,6 +2094,8 @@ it("fails explicitly when compiler resolution exhausts its filesystem work budge
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "compiler-host-work",
     message: "Inspection exceeded its compiler host work limit.",
   });
 });
@@ -2057,6 +2108,8 @@ it("fails explicitly when duplicate path references exhaust compiler work", asyn
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "compiler-host-work",
     message: "Inspection exceeded its compiler host work limit.",
   });
 });
@@ -2065,32 +2118,41 @@ it.each([
   [
     "declaration files",
     "@typepeek-fixture/broad-declaration-files",
+    "declaration-files",
     "Inspection exceeded its declaration file limit.",
   ],
   [
     "declaration source bytes",
     "@typepeek-fixture/oversized-declaration-source",
+    "declaration-bytes",
     "Inspection exceeded its declaration byte limit.",
   ],
   [
     "package manifest bytes",
     "@typepeek-fixture/oversized-manifest",
+    "package-manifest-bytes",
     "Inspection exceeded its package manifest size limit.",
   ],
   [
     "compiler resolution bytes",
     "@typepeek-fixture/oversized-resolution",
+    "compiler-host-bytes",
     "Inspection exceeded its compiler host byte limit.",
   ],
 ])(
   "fails explicitly when $name exceed their installed-evidence budget",
-  async (_name, specifier, message) => {
+  async (_name, specifier, exceededBudget, message) => {
     const outcome = await inspectInterfaceOverview({
       resolutionContext: fixture.resolutionContext,
       specifier,
     });
 
-    expect(outcome).toEqual({ status: "limit-exceeded", message });
+    expect(outcome).toEqual({
+      status: "limit-exceeded",
+      reason: "budget-exceeded",
+      exceededBudget,
+      message,
+    });
   },
 );
 
@@ -2099,30 +2161,38 @@ it.each([
     "merged declarations",
     "@typepeek-fixture/merged-declarations",
     "Merged",
+    "merged-declarations",
     "Inspection exceeded its declaration merge limit.",
   ],
   [
     "namespace members",
     "@typepeek-fixture/broad-namespace",
     "Broad",
+    "namespace-members",
     "Inspection exceeded its namespace member limit.",
   ],
   [
     "namespace depth",
     "@typepeek-fixture/deep-namespace",
     "Deep",
+    "namespace-depth",
     "Inspection exceeded its namespace traversal depth limit.",
   ],
 ])(
   "fails explicitly when $name exceed their result budget",
-  async (_name, specifier, exportName, message) => {
+  async (_name, specifier, exportName, exceededBudget, message) => {
     const outcome = await inspectExport({
       resolutionContext: fixture.resolutionContext,
       specifier,
       exportName,
     });
 
-    expect(outcome).toEqual({ status: "limit-exceeded", message });
+    expect(outcome).toEqual({
+      status: "limit-exceeded",
+      reason: "budget-exceeded",
+      exceededBudget,
+      message,
+    });
   },
 );
 
@@ -2164,6 +2234,7 @@ it("rejects malformed Package Identity evidence explicitly", async () => {
 
   expect(outcome).toMatchObject({
     status: "unsupported",
+    reason: "unsupported-evidence",
     message: "The installed package has no valid Package Identity.",
   });
 });
@@ -2176,6 +2247,7 @@ it("rejects a non-string declared Package Identity version", async () => {
 
   expect(outcome).toMatchObject({
     status: "unsupported",
+    reason: "unsupported-evidence",
     message: "The installed package has no valid Package Identity.",
   });
 });
@@ -2209,6 +2281,7 @@ it("rejects path-like Specifiers before package resolution", async () => {
 
   expect(outcome).toMatchObject({
     status: "static-boundary",
+    reason: "static-boundary",
     message: "The requested Specifier is outside the static Inspectable Module boundary.",
   });
 });
@@ -2221,6 +2294,7 @@ it("does not follow declarations into caller project source", async () => {
 
   expect(outcome).toMatchObject({
     status: "static-boundary",
+    reason: "static-boundary",
     message: "A declaration references source outside its installed package boundary.",
   });
 });

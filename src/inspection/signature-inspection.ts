@@ -114,7 +114,10 @@ function inspectBoundedSignatures<Value>(
     const signatureBytes = Buffer.byteLength(projection.serializeForBudget(inspectedSignature));
     totalBytes += signatureBytes;
     if (signatureBytes > MAX_SIGNATURE_BYTES || totalBytes > MAX_SIGNATURE_TOTAL_BYTES) {
-      throw new InspectionLimitError("Inspection exceeded its Module Export signature byte limit.");
+      throw new InspectionLimitError(
+        "signature-bytes",
+        "Inspection exceeded its Module Export signature byte limit.",
+      );
     }
     return projection.retain(inspectedSignature);
   });
@@ -137,7 +140,10 @@ function orderedSignatureCandidates(
   const sourceOrder = declarationSourceOrder(symbol, type);
   candidates.sort((left, right) => compareSignatureCandidates(left, right, sourceOrder));
   if (candidates.length > MAX_SIGNATURES) {
-    throw new InspectionLimitError("Inspection exceeded its Module Export signature limit.");
+    throw new InspectionLimitError(
+      "signatures",
+      "Inspection exceeded its Module Export signature limit.",
+    );
   }
   return candidates;
 }
@@ -152,10 +158,16 @@ function inspectSignatureDetails(
   const parameters = signature.getParameters();
   const typeParameters = signature.getTypeParameters() ?? [];
   if (parameters.length > MAX_SIGNATURE_PARAMETERS) {
-    throw new InspectionLimitError("Inspection exceeded its signature parameter limit.");
+    throw new InspectionLimitError(
+      "signature-parameters",
+      "Inspection exceeded its signature parameter limit.",
+    );
   }
   if (typeParameters.length > MAX_SIGNATURE_TYPE_PARAMETERS) {
-    throw new InspectionLimitError("Inspection exceeded its signature type parameter limit.");
+    throw new InspectionLimitError(
+      "signature-type-parameters",
+      "Inspection exceeded its signature type parameter limit.",
+    );
   }
   return {
     kind,

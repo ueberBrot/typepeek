@@ -123,6 +123,7 @@ describe("Declaration Providers", () => {
 
     expect(outcome).toEqual({
       status: "not-found",
+      reason: "specifier-not-found",
       message: `Specifier "${fixture.packageName}" is not installed from this Resolution Context.`,
     });
   });
@@ -135,6 +136,7 @@ describe("Declaration Providers", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message: `Package Module "${fixture.packageName}" has no readable Declaration Provider.`,
     });
   });
@@ -165,6 +167,7 @@ describe("Declaration Providers", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message:
         "The declaration entrypoint belongs to a nested installed package instead of the selected Declaration Provider.",
     });
@@ -237,6 +240,7 @@ describe("Node Platform Modules", () => {
     });
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message: 'Node Platform Module "node:fs" has no visible @types/node Declaration Provider.',
     });
   });
@@ -249,6 +253,7 @@ describe("Node Platform Modules", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message: 'Node Platform Module "node:typepeek-not-real" is not a known Node runtime module.',
     });
   });
@@ -261,6 +266,7 @@ describe("Node Platform Modules", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message: 'Node Platform Module "node:typepeek-not-real" is not a known Node runtime module.',
     });
   });
@@ -273,6 +279,7 @@ describe("Node Platform Modules", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message: "A declaration re-export could not be resolved from Installed Evidence.",
     });
   });
@@ -292,6 +299,7 @@ describe("Node Platform Modules", () => {
 
     const failure = {
       status: "unsupported",
+      reason: "unsupported-evidence",
       message: "A declaration re-export could not be resolved from Installed Evidence.",
     } as const;
     expect(overview).toEqual(failure);
@@ -306,6 +314,7 @@ describe("Node Platform Modules", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message: "A declaration re-export could not be resolved from Installed Evidence.",
     });
   });
@@ -330,6 +339,7 @@ describe("Node Platform Modules", () => {
       });
       expect(outcome).toEqual({
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "A declaration re-export could not be resolved from Installed Evidence.",
       });
     } finally {
@@ -412,6 +422,7 @@ describe("Node Platform Modules", () => {
       });
       expect(outcome).toEqual({
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "A declaration re-export could not be resolved from Installed Evidence.",
       });
     } finally {
@@ -447,6 +458,7 @@ describe("Node Platform Modules", () => {
       });
       expect(outcome).toEqual({
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "A declaration re-export could not be resolved from Installed Evidence.",
       });
     } finally {
@@ -495,6 +507,7 @@ describe("Node Platform Modules", () => {
       ]);
       const failure = {
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "A declaration re-export could not be resolved from Installed Evidence.",
       } as const;
       expect(overview).toEqual(failure);
@@ -531,6 +544,7 @@ describe("Node Platform Modules", () => {
       ]);
       const failure = {
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "A declaration re-export could not be resolved from Installed Evidence.",
       } as const;
       expect(overview).toEqual(failure);
@@ -565,6 +579,7 @@ describe("Node Platform Modules", () => {
       });
       expect(outcome).toEqual({
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "A declaration re-export could not be resolved from Installed Evidence.",
       });
     } finally {
@@ -593,6 +608,7 @@ describe("Node Platform Modules", () => {
       ]);
       const failure = {
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "A declaration re-export could not be resolved from Installed Evidence.",
       } as const;
       expect(overview).toEqual(failure);

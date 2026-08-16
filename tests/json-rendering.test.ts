@@ -5,6 +5,7 @@ import { renderJsonOutcome } from "#typepeek/json-rendering";
 it("escapes terminal controls without changing parsed outcome values", () => {
   const outcome = {
     status: "unsupported",
+    reason: "unsupported-evidence",
     message: "line\n\u001B[31m\u061C\u202E",
   } as const;
 
@@ -20,6 +21,7 @@ it("escapes terminal controls without changing parsed outcome values", () => {
 it("returns one complete failure when escaping exceeds the JSON adapter bound", () => {
   const rendering = renderJsonOutcome({
     status: "unsupported",
+    reason: "unsupported-evidence",
     message: "\0".repeat(30_000),
   });
 
@@ -27,6 +29,8 @@ it("returns one complete failure when escaping exceeds the JSON adapter bound", 
     failed: true,
     text: JSON.stringify({
       status: "limit-exceeded",
+      reason: "budget-exceeded",
+      exceededBudget: "json-output",
       message: "Inspection exceeded its JSON output limit.",
     }),
   });

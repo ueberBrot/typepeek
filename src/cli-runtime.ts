@@ -14,6 +14,7 @@ import {
   inspectExportMember,
   inspectExportSearch,
   inspectExportSignatures,
+  inspectCapabilities,
   inspectInterfaceOverview,
   inspectPlan,
   inspectPublicSubpaths,
@@ -388,6 +389,22 @@ const subpathsCommand = buildCommand<InspectionTargetOptions, [string], Applicat
   },
 });
 
+const capabilitiesCommand = buildCommand<Readonly<Record<never, never>>, [], ApplicationContext>({
+  func() {
+    this.process.stdout.write(`${serializeTerminalSafeJson(inspectCapabilities())}\n`);
+  },
+  parameters: {
+    flags: {},
+    positional: {
+      kind: "tuple",
+      parameters: [],
+    },
+  },
+  docs: {
+    brief: "Print the versioned Inspection Core capabilities as JSON.",
+  },
+});
+
 const rootRoute = buildRouteMap({
   routes: {
     overview: overviewCommand,
@@ -398,12 +415,13 @@ const rootRoute = buildRouteMap({
     subpaths: subpathsCommand,
     declarations: declarationsCommand,
     member: memberCommand,
+    capabilities: capabilitiesCommand,
   },
   defaultCommand: "overview",
   docs: {
     brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
     fullDescription:
-      "Use overview to discover exports; use search or subpaths for lighter discovery, declarations or member for narrow declaration questions, signatures for parameters, export for declarations and Supporting Types, or plan to share one evidence snapshot. Common flags may precede or follow an explicit command.",
+      "Use overview to discover exports; use search or subpaths for lighter discovery, declarations or member for narrow declaration questions, signatures for parameters, export for declarations and Supporting Types, plan to share one evidence snapshot, or capabilities to discover the adapter protocol. Common flags may precede or follow an explicit inspection command.",
   },
 });
 

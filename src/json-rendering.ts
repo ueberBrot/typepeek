@@ -4,6 +4,8 @@ import { serializeTerminalSafeJson } from "#typepeek/output-safety";
 const MAX_JSON_OUTPUT_BYTES = 128 * 1_024;
 const JSON_OUTPUT_LIMIT_FAILURE = {
   status: "limit-exceeded",
+  reason: "budget-exceeded",
+  exceededBudget: "json-output",
   message: "Inspection exceeded its JSON output limit.",
 } as const satisfies InspectionOutcome;
 
