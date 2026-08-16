@@ -1,6 +1,6 @@
 # Bound every inspection
 
-Every inspection is bounded in work, memory, traversal, and output. Exceeding a budget returns `limit-exceeded`; partial, malformed, truncated, timed-out, or terminated analysis is never authoritative Installed Evidence.
+Every inspection is bounded in work, memory, traversal, and output. Exceeding a budget returns `limit-exceeded` with the exhausted Budget Dimension; partial, malformed, truncated, timed-out, or terminated analysis is never authoritative Installed Evidence. Versioned adapter responses also carry a stable Failure Reason so callers never parse the explanatory message.
 
 ## Isolation
 

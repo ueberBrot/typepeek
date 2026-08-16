@@ -182,7 +182,10 @@ function searchVisiblePackage(
     directory = parent;
   }
 
-  throw new InspectionLimitError("Inspection exceeded its package resolution traversal limit.");
+  throw new InspectionLimitError(
+    "package-resolution",
+    "Inspection exceeded its package resolution traversal limit.",
+  );
 }
 
 function visibleRepositoryRoot(
@@ -249,7 +252,10 @@ function findAncestorManifest(
     }
     directory = parent;
   }
-  throw new InspectionLimitError("Inspection exceeded its package resolution traversal limit.");
+  throw new InspectionLimitError(
+    "package-resolution",
+    "Inspection exceeded its package resolution traversal limit.",
+  );
 }
 
 function matchingAncestorManifest(
@@ -336,6 +342,9 @@ function readManifestRecord(
     remainingBytes === undefined
       ? MAX_MANIFEST_BYTES
       : Math.min(MAX_MANIFEST_BYTES, remainingBytes),
+    remainingBytes !== undefined && remainingBytes < MAX_MANIFEST_BYTES
+      ? "compiler-host-bytes"
+      : "package-manifest-bytes",
     remainingBytes !== undefined && remainingBytes < MAX_MANIFEST_BYTES
       ? "Inspection exceeded its compiler host byte limit."
       : "Inspection exceeded its package manifest size limit.",
@@ -434,7 +443,10 @@ function findMaterializedPackageRootFrom(
     }
     directory = parent;
   }
-  throw new InspectionLimitError("Inspection exceeded its package resolution traversal limit.");
+  throw new InspectionLimitError(
+    "package-resolution",
+    "Inspection exceeded its package resolution traversal limit.",
+  );
 }
 
 function packageRootAt(directory: string, observer: PackageBoundaryObserver): string | undefined {

@@ -484,7 +484,10 @@ function descendantImportTypeSpecifiers(
   const visit = (node: ts.Node, depth: number): void => {
     traversal.nodeCount += 1;
     if (depth > MAX_DECLARATION_GRAPH_DEPTH || traversal.nodeCount > MAX_DECLARATION_GRAPH_NODES) {
-      throw new InspectionLimitError("Inspection exceeded its declaration graph traversal limit.");
+      throw new InspectionLimitError(
+        "declaration-graph",
+        "Inspection exceeded its declaration graph traversal limit.",
+      );
     }
     const specifier = importTypeSpecifier(node);
     if (specifier !== undefined) {
@@ -666,7 +669,10 @@ function reserveDeclarationGraphNodes(
 ): void {
   traversal.nodeCount += count;
   if (traversal.nodeCount > MAX_DECLARATION_GRAPH_NODES) {
-    throw new InspectionLimitError("Inspection exceeded its declaration graph traversal limit.");
+    throw new InspectionLimitError(
+      "declaration-graph",
+      "Inspection exceeded its declaration graph traversal limit.",
+    );
   }
 }
 
@@ -1301,7 +1307,10 @@ function assertAllowedSource(allowedRoots: ReadonlySet<string>, sourcePath: stri
 function incrementSourceFileCount(state: CompilerHostState): void {
   state.sourceFileCount += 1;
   if (state.sourceFileCount > MAX_SOURCE_FILES) {
-    throw new InspectionLimitError("Inspection exceeded its declaration file limit.");
+    throw new InspectionLimitError(
+      "declaration-files",
+      "Inspection exceeded its declaration file limit.",
+    );
   }
 }
 
@@ -1314,6 +1323,7 @@ function readSourceText(
     const sourceText = readBoundedUtf8File(
       sourcePath,
       MAX_SOURCE_BYTES - state.sourceByteCount,
+      "declaration-bytes",
       "Inspection exceeded its declaration byte limit.",
     );
     state.sourceByteCount += Buffer.byteLength(sourceText);

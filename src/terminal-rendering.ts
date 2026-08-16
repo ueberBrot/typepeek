@@ -34,7 +34,10 @@ export function renderInspection(
 ): string {
   const rendered = renderInspectionResult(result, options);
   if (Buffer.byteLength(rendered) > MAX_TERMINAL_OUTPUT_BYTES) {
-    throw new InspectionLimitError("Inspection exceeded its terminal output limit.");
+    throw new InspectionLimitError(
+      "terminal-output",
+      "Inspection exceeded its terminal output limit.",
+    );
   }
   return rendered;
 }

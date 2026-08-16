@@ -692,7 +692,10 @@ function reserveInferredTypeSyntaxTraversal(traversal: { nodeCount: number }, de
     depth > MAX_INFERRED_TYPE_TRAVERSAL_DEPTH ||
     traversal.nodeCount > MAX_INFERRED_TYPE_TRAVERSAL_NODES
   ) {
-    throw new InspectionLimitError("Inspection exceeded its inferred type traversal limit.");
+    throw new InspectionLimitError(
+      "inferred-type-traversal",
+      "Inspection exceeded its inferred type traversal limit.",
+    );
   }
 }
 
@@ -712,7 +715,10 @@ function assertNoImplementationLocalType(
     visited.add(type);
     if (context === undefined) {
       if (visited.size > MAX_INFERRED_TYPE_TRAVERSAL_NODES) {
-        throw new InspectionLimitError("Inspection exceeded its inferred type traversal limit.");
+        throw new InspectionLimitError(
+          "inferred-type-traversal",
+          "Inspection exceeded its inferred type traversal limit.",
+        );
       }
     } else {
       context.reserveTypeTraversal(depth);

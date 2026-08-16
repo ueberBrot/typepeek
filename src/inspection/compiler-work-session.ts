@@ -59,19 +59,26 @@ export function createCompilerWorkSession({
   const reserveBytes = (count: number): void => {
     resolutionByteCount += count;
     if (resolutionByteCount > resolutionBytes) {
-      throw new InspectionLimitError("Inspection exceeded its compiler host byte limit.");
+      throw new InspectionLimitError(
+        "compiler-host-bytes",
+        "Inspection exceeded its compiler host byte limit.",
+      );
     }
   };
   const reserveOperations = (count = 1): void => {
     operationCount += count;
     if (operationCount > operations) {
-      throw new InspectionLimitError("Inspection exceeded its compiler host work limit.");
+      throw new InspectionLimitError(
+        "compiler-host-work",
+        "Inspection exceeded its compiler host work limit.",
+      );
     }
   };
   const readResolutionFile = (fileName: string): string => {
     const contents = readBoundedUtf8File(
       fileName,
       remainingBytes(),
+      "compiler-host-bytes",
       "Inspection exceeded its compiler host byte limit.",
     );
     reserveBytes(Buffer.byteLength(contents));
@@ -203,6 +210,7 @@ function readPackageResolutionFile(
     const contents = readBoundedUtf8File(
       fileName,
       Math.min(MAX_MANIFEST_BYTES, availableBytes),
+      availableBytes < MAX_MANIFEST_BYTES ? "compiler-host-bytes" : "package-manifest-bytes",
       availableBytes < MAX_MANIFEST_BYTES
         ? "Inspection exceeded its compiler host byte limit."
         : "Inspection exceeded its package manifest size limit.",

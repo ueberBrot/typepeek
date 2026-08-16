@@ -1,4 +1,4 @@
-/** Transport-neutral package API for CLI, MCP, and other inspection adapters. */
+/** Transport-neutral package API for the CLI and future inspection adapters. */
 export {
   inspectExport,
   inspectExportDeclarations,
@@ -9,6 +9,14 @@ export {
   inspectPlan,
   inspectPublicSubpaths,
 } from "#typepeek/inspection/core";
+export {
+  INSPECTION_BUDGET_DIMENSIONS,
+  INSPECTION_FAILURE_REASONS,
+  INSPECTION_INTENTS,
+  INSPECTION_PROTOCOL_VERSION,
+  inspectCapabilities,
+} from "#typepeek/inspection/protocol-metadata";
+export { invokeInspectionProtocol } from "#typepeek/inspection/versioned-protocol";
 export type {
   AtomicInspectionResult,
   DeclarationInspection,
@@ -21,6 +29,7 @@ export type {
   ExportNamespaceMember,
   InspectedDeclaration,
   InspectedSignature,
+  InspectionFailure,
   InspectionOutcome,
   InspectionPlan,
   InspectionPlanQuery,
@@ -43,3 +52,14 @@ export type {
   SignatureTypeParameter,
   SignatureTypeParameterModifier,
 } from "#typepeek/inspection/protocol";
+export type {
+  InspectionBudgetDimension,
+  InspectionCapabilities,
+  InspectionFailureReason,
+  InspectionIntent,
+} from "#typepeek/inspection/protocol-metadata";
+export type {
+  InspectionRequestByIntent,
+  InspectionProtocolRequest,
+  InspectionProtocolResponse,
+} from "#typepeek/inspection/versioned-protocol";

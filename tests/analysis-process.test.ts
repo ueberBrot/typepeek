@@ -38,13 +38,14 @@ it("accepts exactly one bounded result from a cleanly exited analysis process", 
   const entry = await materializeProcessEntry(
     "success",
     `process.once("message", () => {
-      process.stdout.write(JSON.stringify({status:"not-found", message:"bounded absence"}));
+      process.stdout.write(JSON.stringify({status:"not-found", reason:"specifier-not-found", message:"bounded absence"}));
       process.disconnect();
     });`,
   );
 
   await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "not-found",
+    reason: "specifier-not-found",
     message: "bounded absence",
   });
 });
@@ -66,6 +67,8 @@ it.each([
 
   await expect(runAnalysisFixtureProcess(request, entry, timeoutLimits)).resolves.toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "analysis-deadline",
     message: "Inspection exceeded its analysis deadline.",
   });
 });
@@ -77,7 +80,8 @@ it("rejects a terminated analysis process without an authoritative result", asyn
   );
 
   await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
-    status: "limit-exceeded",
+    status: "unsupported",
+    reason: "analysis-terminated",
     message: "Inspection analysis terminated before completion.",
   });
 });
@@ -93,6 +97,7 @@ it.each([
 
   await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection could not validate the analysis process result.",
   });
 });
@@ -109,6 +114,7 @@ it("rejects multiple analysis results instead of choosing a partial result", asy
 
   await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection could not validate the analysis process result.",
   });
 });
@@ -124,7 +130,9 @@ it("rejects analysis transport output beyond its measured budget", async () => {
 
   await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "limit-exceeded",
-    message: "Inspection exceeded its output limit.",
+    reason: "budget-exceeded",
+    exceededBudget: "analysis-output-bytes",
+    message: "Inspection exceeded its analysis process output limit.",
   });
 });
 
@@ -132,7 +140,7 @@ it("accepts a valid result exactly at the transport byte boundary", async () => 
   const entry = await materializeProcessEntry(
     "exact-output-boundary",
     `process.once("message", () => {
-      const prefix = '{"status":"not-found","message":"';
+      const prefix = '{"status":"not-found","reason":"specifier-not-found","message":"';
       const suffix = '"}';
       process.stdout.write(prefix + "x".repeat(1024 - Buffer.byteLength(prefix + suffix)) + suffix);
       process.disconnect();
@@ -153,7 +161,9 @@ it("bounds analysis diagnostics even when no result is produced", async () => {
 
   await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "limit-exceeded",
-    message: "Inspection exceeded its output limit.",
+    reason: "budget-exceeded",
+    exceededBudget: "analysis-output-bytes",
+    message: "Inspection exceeded its analysis process output limit.",
   });
 });
 
@@ -165,7 +175,9 @@ it("measures multibyte analysis diagnostics in bytes rather than characters", as
 
   await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "limit-exceeded",
-    message: "Inspection exceeded its output limit.",
+    reason: "budget-exceeded",
+    exceededBudget: "analysis-output-bytes",
+    message: "Inspection exceeded its analysis process output limit.",
   });
 });
 
@@ -187,6 +199,8 @@ it("enforces the Node heap ceiling as an explicit memory limit", async () => {
     }),
   ).resolves.toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "analysis-memory",
     message: "Inspection exceeded its analysis memory limit.",
   });
 }, 10_000);

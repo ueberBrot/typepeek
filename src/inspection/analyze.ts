@@ -60,6 +60,7 @@ function inspectInstalledPackageProgram(analysisRequest: AnalysisRequest): Inspe
   if (evidence === undefined) {
     return {
       status: "not-found",
+      reason: "specifier-not-found",
       message: `Specifier "${request.specifier}" is not installed from this Resolution Context.`,
     };
   }
@@ -325,6 +326,7 @@ function evidenceInspection(
 function missingSpecifierOutcome(specifier: string): InspectionFailure {
   return {
     status: "not-found",
+    reason: "specifier-not-found",
     message: `Specifier "${specifier}" is not installed from this Resolution Context.`,
   };
 }
@@ -332,6 +334,7 @@ function missingSpecifierOutcome(specifier: string): InspectionFailure {
 function missingExportOutcome(exportName: string, specifier: string): InspectionFailure {
   return {
     status: "not-found",
+    reason: "export-not-found",
     message: `Module Export "${exportName}" was not found in "${specifier}".`,
   };
 }
@@ -343,6 +346,7 @@ function missingMemberOutcome(
 ): InspectionFailure {
   return {
     status: "not-found",
+    reason: "member-not-found",
     message: `Public Member "${[exportName, ...memberPath].join(".")}" was not found in "${specifier}".`,
   };
 }
@@ -353,6 +357,7 @@ function ambiguousMemberOutcome(
 ): InspectionFailure {
   return {
     status: "unsupported",
+    reason: "ambiguous-member",
     message: `Public Member "${[exportName, ...memberPath].join(".")}" is ambiguous across declaration spaces.`,
   };
 }
@@ -363,6 +368,7 @@ function unsupportedMemberOutcome(
 ): InspectionFailure {
   return {
     status: "unsupported",
+    reason: "no-static-representation",
     message: `Public Member "${[exportName, ...memberPath].join(".")}" has no declaration-safe static representation.`,
   };
 }
@@ -373,7 +379,10 @@ function inspectModuleExports({
 }: InspectableModuleEvidence): readonly { readonly name: string }[] {
   const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
   if (exportedSymbols.length > MAX_MODULE_EXPORTS) {
-    throw new InspectionLimitError("Inspection exceeded its Module Export limit.");
+    throw new InspectionLimitError(
+      "module-exports",
+      "Inspection exceeded its Module Export limit.",
+    );
   }
   return exportedSymbols.map((symbol) => ({ name: symbol.getName() })).sort(compareModuleExports);
 }
@@ -387,7 +396,10 @@ function searchModuleExports(
 } {
   const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
   if (exportedSymbols.length > MAX_EXPORT_SEARCH_CANDIDATES) {
-    throw new InspectionLimitError("Inspection exceeded its Module Export search limit.");
+    throw new InspectionLimitError(
+      "export-search-candidates",
+      "Inspection exceeded its Module Export search limit.",
+    );
   }
   const normalizedQuery = query.toLowerCase();
   const matches = exportedSymbols
@@ -395,7 +407,10 @@ function searchModuleExports(
     .filter(({ name }) => name.toLowerCase().includes(normalizedQuery))
     .sort(compareModuleExports);
   if (matches.length > MAX_EXPORT_SEARCH_MATCHES) {
-    throw new InspectionLimitError("Inspection exceeded its Module Export search match limit.");
+    throw new InspectionLimitError(
+      "export-search-matches",
+      "Inspection exceeded its Module Export search match limit.",
+    );
   }
   return { totalModuleExports: exportedSymbols.length, matches };
 }
@@ -409,17 +424,23 @@ function compareModuleExports(
 
 function errorOutcome(error: unknown): InspectionOutcome {
   if (error instanceof InspectionLimitError) {
-    return { status: "limit-exceeded", message: error.message };
+    return {
+      status: "limit-exceeded",
+      reason: "budget-exceeded",
+      exceededBudget: error.exceededBudget,
+      message: error.message,
+    };
   }
   if (error instanceof StaticBoundaryInspectionError) {
-    return { status: "static-boundary", message: error.message };
+    return { status: "static-boundary", reason: "static-boundary", message: error.message };
   }
   // Unexpected errors may contain host paths or analyzer details, neither of
   // which belongs in the transport-neutral Inspection Result.
   return error instanceof UnsupportedInspectionError
-    ? { status: "unsupported", message: error.message }
+    ? { status: "unsupported", reason: "unsupported-evidence", message: error.message }
     : {
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "Installed Evidence could not be inspected statically.",
       };
 }

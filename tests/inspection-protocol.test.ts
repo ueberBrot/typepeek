@@ -281,6 +281,7 @@ it("rejects an invalid Access Style at the process-entry protocol seam", () => {
     accepted: false,
     outcome: {
       status: "unsupported",
+      reason: "invalid-request",
       message: "Inspection received an invalid Interface Overview request.",
     },
   });
@@ -295,6 +296,7 @@ it("rejects array-shaped records at the process-entry protocol seam", () => {
     accepted: false,
     outcome: {
       status: "unsupported",
+      reason: "invalid-request",
       message: "Inspection received an invalid Interface Overview request.",
     },
   });
@@ -310,6 +312,7 @@ it("rejects array-shaped records at the process-entry protocol seam", () => {
     accepted: false,
     outcome: {
       status: "unsupported",
+      reason: "invalid-request",
       message: "Inspection received an invalid request.",
     },
   });
@@ -323,6 +326,7 @@ it("rejects a structurally incomplete successful Inspection Outcome", () => {
     }),
   ).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -342,6 +346,7 @@ it("rejects a structurally valid success for a different inspection intent", () 
 
   expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -367,6 +372,7 @@ it("accepts an atomic Inspection Plan result for its requested intent", () => {
   expect(enforceInspectionOutcome("inspection-plan", outcome)).toEqual(outcome);
   expect(enforceInspectionOutcome("interface-overview", outcome)).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -393,6 +399,7 @@ it("rejects a plan result that omits or reorders requested inspections", () => {
   ] as const;
   const invalid = {
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   } as const;
 
@@ -550,23 +557,30 @@ it("rejects a successful result without an evidence identity", () => {
     }),
   ).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
 
-it.each(["not-found", "unsupported", "static-boundary", "limit-exceeded"] as const)(
-  "preserves an intent-neutral %s Inspection Failure",
-  (status) => {
-    const outcome = {
-      status,
-      message: `${status} outcome`,
-    } as const;
-
-    expect(enforceInspectionOutcome("interface-overview", outcome)).toEqual(outcome);
-    expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual(outcome);
-    expect(enforceInspectionOutcome("signature-inspection", outcome)).toEqual(outcome);
+it.each([
+  { status: "not-found", reason: "specifier-not-found" },
+  { status: "unsupported", reason: "unsupported-evidence" },
+  { status: "static-boundary", reason: "static-boundary" },
+  {
+    status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "analysis-output-bytes",
   },
-);
+] as const)("preserves an intent-neutral %s Inspection Failure", (failure) => {
+  const outcome = {
+    ...failure,
+    message: `${failure.status} outcome`,
+  } as const;
+
+  expect(enforceInspectionOutcome("interface-overview", outcome)).toEqual(outcome);
+  expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual(outcome);
+  expect(enforceInspectionOutcome("signature-inspection", outcome)).toEqual(outcome);
+});
 
 it("normalizes an Export Inspection request at the process-entry protocol seam", () => {
   expect(
@@ -678,6 +692,7 @@ it("accepts only the bounded Signature Inspection result shape", () => {
     }),
   ).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
   expect(
@@ -695,6 +710,7 @@ it("accepts only the bounded Signature Inspection result shape", () => {
     }),
   ).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -713,6 +729,7 @@ it("bounds protocol graph validation before structural schema checking", () => {
     }),
   ).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -755,6 +772,7 @@ it("rejects compiler-shaped data in a focused Inspection Outcome", () => {
     }),
   ).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -767,6 +785,7 @@ it("rejects arrays with shadowed traversal methods without calling them", () => 
   });
   expect(enforceInspectionOutcome("export-inspection", namespaceOutcome(members))).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 
@@ -777,6 +796,7 @@ it("rejects arrays with shadowed traversal methods without calling them", () => 
   });
   expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -795,6 +815,7 @@ it("rejects accessor properties without evaluating them", () => {
 
   expect(enforceInspectionOutcome("interface-overview", outcome)).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -810,6 +831,7 @@ it("contains throwing accessors on non-record parser inputs", () => {
     accepted: false,
     outcome: {
       status: "unsupported",
+      reason: "invalid-request",
       message: "Inspection received an invalid Interface Overview request.",
     },
   });
@@ -824,6 +846,7 @@ it("contains throwing accessors on non-record parser inputs", () => {
     accepted: false,
     outcome: {
       status: "unsupported",
+      reason: "invalid-request",
       message: "Inspection received an invalid request.",
     },
   });
@@ -839,6 +862,7 @@ it("contains throwing accessors on non-record parser inputs", () => {
   });
   expect(enforceInspectionOutcome("interface-overview", outcome)).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -857,6 +881,7 @@ it("rejects request fields that change after schema validation", () => {
     accepted: false,
     outcome: {
       status: "unsupported",
+      reason: "invalid-request",
       message: "Inspection received an invalid Interface Overview request.",
     },
   });
@@ -870,6 +895,7 @@ it("rejects arrays and functions masquerading as Inspection Outcome records", ()
   });
   expect(enforceInspectionOutcome("interface-overview", arrayOutcome)).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 
@@ -879,6 +905,7 @@ it("rejects arrays and functions masquerading as Inspection Outcome records", ()
   });
   expect(enforceInspectionOutcome("interface-overview", functionOutcome)).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -890,6 +917,7 @@ it("does not let a function-shaped result bypass recursive namespace bounds", ()
 
   expect(enforceInspectionOutcome("export-inspection", { status: "success", result })).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -950,6 +978,7 @@ it("bounds recursive namespace validation before structural decoding", () => {
     enforceInspectionOutcome("export-inspection", namespaceOutcome([namespaceMemberChain(10)])),
   ).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 
@@ -957,6 +986,7 @@ it("bounds recursive namespace validation before structural decoding", () => {
   cyclic.members.push(cyclic);
   expect(enforceInspectionOutcome("export-inspection", namespaceOutcome([cyclic]))).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -994,6 +1024,7 @@ it("rejects flattened declarations in a namespace space", () => {
     }),
   ).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -1019,6 +1050,7 @@ it("rejects sparse arrays in a focused Inspection Outcome", () => {
     }),
   ).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });
@@ -1057,6 +1089,7 @@ it("rejects non-portable declaration provenance", () => {
     }),
   ).toEqual({
     status: "unsupported",
+    reason: "invalid-result",
     message: "Inspection returned an invalid result.",
   });
 });

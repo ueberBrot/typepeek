@@ -37,6 +37,17 @@ describe("typepeek CLI", () => {
     expect(result.stdout).toContain("subpaths");
     expect(result.stdout).toContain("declarations");
     expect(result.stdout).toContain("member");
+    expect(result.stdout).toContain("capabilities");
+  });
+
+  it("prints the versioned adapter capabilities", async () => {
+    const result = await execa(process.execPath, ["src/cli.ts", "capabilities"]);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      intent: "capabilities",
+      protocolVersion: "1",
+      supportedIntents: expect.arrayContaining(["inspection-plan", "member-inspection"]),
+    });
   });
 
   it("renders declaration-only inspection", async () => {
@@ -506,6 +517,7 @@ describe("typepeek CLI", () => {
       expect(result.exitCode).toBe(1);
       expect(JSON.parse(result.stdout)).toEqual({
         status: "not-found",
+        reason: "specifier-not-found",
         message: `Specifier "${specifier}" is not installed from this Resolution Context.`,
       });
     },

@@ -73,6 +73,22 @@ _Avoid_: session, batch of independent inspections, partial plan
 A bounded, deterministic presentation of Installed Evidence for an Interface Overview, Module Export Search, Public Subpath Discovery, Export Inspection, Signature Inspection, Declaration Inspection, Member Inspection, or atomic Inspection Plan. It describes one Resolution Variant and contains no generated explanation, usage example, or behavioral claim.
 _Avoid_: answer, summary
 
+**Inspection Protocol**:
+The versioned, transport-neutral request and response envelope through which adapters invoke Inspection Core. A response identifies the protocol version and contains one complete Inspection Outcome; adapters may render or transport it but do not reinterpret inspection authority.
+_Avoid_: CLI JSON, MCP protocol, wire format
+
+**Inspection Capability**:
+A deterministic declaration of the Inspection Protocol versions, intents, Failure Reasons, and Budget Dimensions supported by this Typepeek build. It describes available behavior without reading Installed Evidence.
+_Avoid_: feature flag, runtime detection
+
+**Failure Reason**:
+The stable machine-readable cause attached to a failed inspection, more specific than its broad failure status. Human-readable failure messages are explanatory and are not identifiers.
+_Avoid_: error message, exit code
+
+**Budget Dimension**:
+The named resource or work boundary that a `limit-exceeded` Inspection Outcome exhausted, such as Module Export count, result bytes, or analysis deadline.
+_Avoid_: timeout message, performance metric
+
 **Resolution Context**:
 A location in the repository from which dependency visibility and module resolution are determined. How that location is selected is an interaction decision, not part of the term.
 _Avoid_: repository, workspace root

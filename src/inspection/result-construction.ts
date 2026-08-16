@@ -68,7 +68,10 @@ class ResultConstructionBudget {
     this.#bytes += size.bytes - childSize.bytes;
     this.#nodes += size.nodes - childSize.nodes;
     if (this.#bytes > MAX_RESULT_CONSTRUCTION_BYTES || this.#nodes > MAX_RESULT_NODES) {
-      throw new InspectionLimitError("Inspection exceeded its output limit.");
+      throw new InspectionLimitError(
+        "result-construction",
+        "Inspection exceeded its output limit.",
+      );
     }
     this.#fragmentSizes.set(value, size);
     return value;

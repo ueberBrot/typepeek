@@ -106,6 +106,7 @@ describe("Installed Evidence program authority", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message:
         "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
     });
@@ -127,6 +128,7 @@ describe("Installed Evidence program authority", () => {
 
     expect(missingProvider).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message:
         "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
     });
@@ -143,6 +145,7 @@ describe("Installed Evidence program authority", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message:
         "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
     });
@@ -157,6 +160,7 @@ describe("Installed Evidence program authority", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message:
         "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
     });
@@ -445,6 +449,7 @@ describe("Installed Evidence program authority", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message:
         "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
     });
@@ -475,6 +480,7 @@ describe("Installed Evidence program authority", () => {
 
     expect(outcome).toEqual({
       status: "static-boundary",
+      reason: "static-boundary",
       message: "A declaration references source outside its installed package boundary.",
     });
   });
@@ -512,6 +518,7 @@ describe("Installed Evidence program authority", () => {
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message: "A declaration re-export could not be resolved from Installed Evidence.",
     });
   });

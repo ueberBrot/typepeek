@@ -82,6 +82,7 @@ describe("workspace Resolution Contexts", () => {
 
       expect(outcome, manager).toEqual({
         status: "not-found",
+        reason: "specifier-not-found",
         message: `Specifier "${hiddenWorkspacePackage}" is not installed from this Resolution Context.`,
       });
     }
@@ -96,6 +97,7 @@ describe("workspace Resolution Contexts", () => {
 
       expect(outcome, manager).toEqual({
         status: "not-found",
+        reason: "specifier-not-found",
         message: 'Specifier "project-source-alias" is not installed from this Resolution Context.',
       });
     }
@@ -249,6 +251,7 @@ describe("workspace Resolution Contexts", () => {
       expect(mixedOverloadEvidence).not.toContain("static run(value: string | number)");
       expect(asyncExport).toEqual({
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "An inferred async Public Interface cannot be represented statically.",
       });
 
@@ -281,6 +284,7 @@ describe("workspace Resolution Contexts", () => {
       });
       expect(asyncArrow).toEqual({
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "An inferred async Public Interface cannot be represented statically.",
       });
 
@@ -324,23 +328,28 @@ describe("workspace Resolution Contexts", () => {
       expect(JSON.stringify(carrier)).not.toContain("HiddenMemberShape");
       expect(values).toEqual({
         status: "unsupported",
+        reason: "unsupported-evidence",
         message:
           "An inferred Public Interface type cannot be represented statically without standard libraries.",
       });
       expect(nestedAsync).toEqual({
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "An inferred async Public Interface cannot be represented statically.",
       });
       expect(destructured).toEqual({
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "The selected Module Export contains an unsupported declaration kind.",
       });
       expect(aliasedDestructured).toEqual({
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "The selected Module Export contains an unsupported declaration kind.",
       });
       expect(localReturn).toEqual({
         status: "unsupported",
+        reason: "unsupported-evidence",
         message: "An inferred Public Interface references an implementation-local type.",
       });
     }

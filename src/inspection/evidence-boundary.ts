@@ -2,22 +2,29 @@ import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, sep } from "node:path";
 
 import { InspectionLimitError } from "#typepeek/inspection/errors";
+import type { InspectionBudgetDimension } from "#typepeek/inspection/protocol-vocabulary";
 
 /** Reads bounded installed evidence and rejects files larger than the caller's budget. */
 export function readBoundedUtf8File(
   fileName: string,
   maxBytes: number,
+  exceededBudget: InspectionBudgetDimension,
   limitMessage: string,
 ): string {
   const fileDescriptor = openSync(fileName, "r");
   try {
-    return readBoundedUtf8(fileDescriptor, maxBytes, limitMessage);
+    return readBoundedUtf8(fileDescriptor, maxBytes, exceededBudget, limitMessage);
   } finally {
     closeSync(fileDescriptor);
   }
 }
 
-function readBoundedUtf8(fileDescriptor: number, maxBytes: number, limitMessage: string): string {
+function readBoundedUtf8(
+  fileDescriptor: number,
+  maxBytes: number,
+  exceededBudget: InspectionBudgetDimension,
+  limitMessage: string,
+): string {
   // The sentinel byte proves overflow without reading the complete untrusted file.
   const buffer = Buffer.allocUnsafe(maxBytes + 1);
   let totalBytesRead = 0;
@@ -37,7 +44,7 @@ function readBoundedUtf8(fileDescriptor: number, maxBytes: number, limitMessage:
   }
 
   if (totalBytesRead > maxBytes) {
-    throw new InspectionLimitError(limitMessage);
+    throw new InspectionLimitError(exceededBudget, limitMessage);
   }
   return buffer.toString("utf8", 0, totalBytesRead);
 }

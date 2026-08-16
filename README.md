@@ -99,16 +99,28 @@ typepeek plan zod '[{"intent":"interface-overview"},{"intent":"signature-inspect
 ```
 
 Plans accept 1 through 16 `interface-overview`, `export-inspection`,
-`signature-inspection`, `export-search`, or `public-subpath-discovery` queries.
+`signature-inspection`, `export-search`, `public-subpath-discovery`,
+`declaration-inspection`, or `member-inspection` queries.
 If any query fails, the whole plan returns that typed failure without partial
 results.
 
-`--json` emits one complete, newline-terminated Inspection Outcome on stdout,
+Discover the adapter contract without inspecting a package:
+
+```bash
+typepeek capabilities
+```
+
+The result declares protocol version 1, supported intents, stable Failure
+Reasons, and the Budget Dimensions reported by bounded failures.
+
+CLI `--json` is an adapter rendering, not the versioned Inspection Protocol. It
+emits one complete, newline-terminated Inspection Outcome on stdout,
 including the selected Access Style. Successful inspections exit with status 0;
 typed inspection failures exit with status 1 and are also emitted as JSON on
 stdout. Invalid invocations exit with status 2 and emit an
-`invalid-invocation` CLI diagnostic as JSON. Unexpected CLI failures use status 70. Machine-mode invocations leave stderr empty. The structured schemas are
-pre-stable and may change before Typepeek 1.0.
+`invalid-invocation` CLI diagnostic as JSON. Unexpected CLI failures use status 70. Machine-mode invocations leave stderr empty. CLI JSON follows the CLI's
+release compatibility policy; Inspection Protocol changes are represented by a
+new protocol version.
 
 The common `--access`, `--context`, and `--json` options may precede or follow an
 explicit command. `--subpaths` and `--match` affect only human Interface
@@ -177,21 +189,25 @@ output:
 
 ```ts
 import {
+  inspectCapabilities,
   inspectExport,
+  inspectExportDeclarations,
+  inspectExportMember,
   inspectExportSearch,
   inspectExportSignatures,
   inspectInterfaceOverview,
   inspectPlan,
   inspectPublicSubpaths,
+  invokeInspectionProtocol,
 } from "typepeek/inspection";
 ```
 
-All six functions accept a `resolutionContext` and `specifier`;
-`inspectExport` and `inspectExportSignatures` additionally accept an
-`exportName`; `inspectExportSearch` accepts a bounded query;
-`inspectPlan` accepts the bounded ordered query list. The CLI is one adapter
-over this interface. An MCP adapter is not implemented yet; it can live in this
-package later and call the same functions without invoking the CLI.
+The focused functions accept a `resolutionContext` and `specifier`, plus their
+focused selector. `inspectPlan` accepts the bounded ordered query list.
+`invokeInspectionProtocol` is the canonical versioned adapter seam, and
+`inspectCapabilities` describes it without reading Installed Evidence.
+No MCP adapter is implemented or shipped; a future adapter can use this seam
+without invoking the CLI or parsing CLI JSON.
 
 pnpm rejects package versions published less than seven days ago.
 

@@ -31,22 +31,30 @@ const STACK_SIZE_KIBIBYTES = 4_096;
 
 const DEADLINE_OUTCOME: InspectionOutcome = {
   status: "limit-exceeded",
+  reason: "budget-exceeded",
+  exceededBudget: "analysis-deadline",
   message: "Inspection exceeded its analysis deadline.",
 };
 const MEMORY_OUTCOME: InspectionOutcome = {
   status: "limit-exceeded",
+  reason: "budget-exceeded",
+  exceededBudget: "analysis-memory",
   message: "Inspection exceeded its analysis memory limit.",
 };
 const OUTPUT_OUTCOME: InspectionOutcome = {
   status: "limit-exceeded",
-  message: "Inspection exceeded its output limit.",
+  reason: "budget-exceeded",
+  exceededBudget: "analysis-output-bytes",
+  message: "Inspection exceeded its analysis process output limit.",
 };
 const TERMINATED_OUTCOME: InspectionOutcome = {
-  status: "limit-exceeded",
+  status: "unsupported",
+  reason: "analysis-terminated",
   message: "Inspection analysis terminated before completion.",
 };
 const INVALID_PROCESS_RESULT_OUTCOME: InspectionOutcome = {
   status: "unsupported",
+  reason: "invalid-result",
   message: "Inspection could not validate the analysis process result.",
 };
 
@@ -55,6 +63,8 @@ export async function runBoundedAnalysis(request: AnalysisRequest): Promise<Insp
   if (Buffer.byteLength(JSON.stringify(request)) > MAX_REQUEST_BYTES) {
     return {
       status: "limit-exceeded",
+      reason: "budget-exceeded",
+      exceededBudget: "request-bytes",
       message: "Inspection exceeded its request input limit.",
     };
   }

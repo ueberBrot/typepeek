@@ -514,7 +514,10 @@ function referencePath(node: ts.Node): string[] | undefined {
 }
 
 function standardLibraryLimit(): InspectionLimitError {
-  return new InspectionLimitError("Inspection exceeded its standard library catalog limit.");
+  return new InspectionLimitError(
+    "standard-library-catalog",
+    "Inspection exceeded its standard library catalog limit.",
+  );
 }
 
 function possibleGlobalReference(node: ts.Node):
@@ -581,7 +584,10 @@ function scanPublicDeclaration(options: {
   const visit = (node: ts.Node, depth: number): void => {
     options.reserveTraversalNode();
     if (depth > MAX_DECLARATION_GRAPH_DEPTH) {
-      throw new InspectionLimitError("Inspection exceeded its declaration graph traversal limit.");
+      throw new InspectionLimitError(
+        "declaration-graph",
+        "Inspection exceeded its declaration graph traversal limit.",
+      );
     }
     if (directNodeReference(node)) {
       found = true;
@@ -958,7 +964,10 @@ function isValueReferenceIdentifier(identifier: ts.Identifier): boolean {
 
 function assertDeclarationGraphDepth(depth: number): void {
   if (depth > MAX_DECLARATION_GRAPH_DEPTH) {
-    throw new InspectionLimitError("Inspection exceeded its declaration graph traversal limit.");
+    throw new InspectionLimitError(
+      "declaration-graph",
+      "Inspection exceeded its declaration graph traversal limit.",
+    );
   }
 }
 
