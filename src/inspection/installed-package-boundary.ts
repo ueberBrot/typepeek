@@ -1,4 +1,3 @@
-import { type } from "arktype";
 import { realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
@@ -8,11 +7,6 @@ import type { PackageIdentity } from "#typepeek/inspection/protocol";
 
 const MAX_PACKAGE_SEARCH_DEPTH = 64;
 const MAX_MANIFEST_BYTES = 256 * 1_024;
-const packageIdentitySchema = type({
-  name: "string",
-  "version?": "string | undefined",
-});
-
 export interface VisiblePackageLocation {
   readonly contextDirectory: string;
   readonly packageRoot: string;
@@ -356,13 +350,14 @@ function readManifestRecord(
 }
 
 function readPackageIdentity(value: unknown): PackageIdentity | undefined {
-  const identity = packageIdentitySchema(value);
-  if (identity instanceof type.errors) {
+  if (!isRecord(value) || typeof value["name"] !== "string") {
     return undefined;
   }
-  return identity.version === undefined
-    ? { name: identity.name }
-    : { name: identity.name, version: identity.version };
+  const version = value["version"];
+  if (version !== undefined && typeof version !== "string") {
+    return undefined;
+  }
+  return version === undefined ? { name: value["name"] } : { name: value["name"], version };
 }
 
 function parseManifest(manifestText: string): unknown {

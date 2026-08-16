@@ -6,7 +6,7 @@ import {
   completeInspectionProfile,
   profileInspectionPhase,
 } from "#typepeek/inspection/performance-profile";
-import { readAnalysisRequest } from "#typepeek/inspection/protocol";
+import { readAnalysisRequest } from "#typepeek/inspection/request-codec";
 
 // Revalidate the structured-cloned payload at the subprocess seam. The entry
 // must not rely on the caller having used the Inspection Core interface.

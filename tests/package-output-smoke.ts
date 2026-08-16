@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 
 import { assertRepositoryProfilingExcluded } from "./artifact-boundary.ts";
 
+const workerSource = await readFile("dist/inspection/analysis-process-entry.js", "utf8");
+assert.doesNotMatch(
+  workerSource,
+  /from ["']arktype["']/u,
+  "The packaged analysis worker must not load the outcome codec dependency.",
+);
 await assertRepositoryProfilingExcluded("dist");
 
 const cli = spawnSync(process.execPath, ["dist/cli.js", "--help"], {

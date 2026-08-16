@@ -31,11 +31,11 @@ import {
   isNodePlatformSpecifier,
 } from "#typepeek/inspection/node-declaration-authority";
 import { profileInspectionPhase } from "#typepeek/inspection/performance-profile";
-import {
-  type NormalizedInspectionTarget,
-  type InspectionResultIdentity,
-  type PackageIdentity,
-  type PublicSubpath,
+import type {
+  InspectionResultIdentity,
+  NormalizedInspectionTarget,
+  PackageIdentity,
+  PublicSubpath,
 } from "#typepeek/inspection/protocol";
 import { selectResolutionVariant } from "#typepeek/inspection/resolution-variant";
 import type { SupportingTypeScope } from "#typepeek/inspection/supporting-type-policy";

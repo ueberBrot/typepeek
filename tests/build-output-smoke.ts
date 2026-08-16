@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { lstat } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { assertRepositoryProfilingExcluded } from "./artifact-boundary.ts";
@@ -11,6 +11,15 @@ assert.equal(
   worker.isSymbolicLink(),
   false,
   "The built analysis process entry must not be a symlink.",
+);
+const workerSource = await readFile(
+  ".vite-plus/build/inspection/analysis-process-entry.js",
+  "utf8",
+);
+assert.doesNotMatch(
+  workerSource,
+  /from ["']arktype["']/u,
+  "The built analysis worker must not load the outcome codec dependency.",
 );
 await assertRepositoryProfilingExcluded(".vite-plus/build");
 

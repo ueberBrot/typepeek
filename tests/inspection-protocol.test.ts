@@ -2,8 +2,6 @@ import { expect, expectTypeOf, it } from "vite-plus/test";
 
 import {
   enforceInspectionOutcome,
-  readAnalysisRequest,
-  readInspectionRequest,
   type ExportDeclarationSpace,
   type ExportInspection,
   type ExportNamespaceMember,
@@ -12,6 +10,7 @@ import {
   type PackageIdentity,
   type PublicSubpath,
 } from "#typepeek/inspection/protocol";
+import { readAnalysisRequest, readInspectionRequest } from "#typepeek/inspection/request-codec";
 
 it("normalizes the default Access Style at the process-entry protocol seam", () => {
   expect(

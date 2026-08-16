@@ -5,6 +5,12 @@ const releaseProfileAdapter = fileURLToPath(
   new URL("./src/inspection/performance-profile-disabled.ts", import.meta.url),
 );
 
+function inspectionCoreChunk(moduleId: string): string | undefined {
+  return moduleId.replaceAll("\\", "/").endsWith("/src/inspection/protocol.ts")
+    ? "inspection-outcome-codec"
+    : undefined;
+}
+
 export default defineConfig({
   // Phase tracing is repository diagnostics, not part of the distributed CLI.
   resolve: {
@@ -29,6 +35,7 @@ export default defineConfig({
         // analysis-process.ts resolves the emitted worker relative to a shared
         // implementation chunk, so shared chunks deliberately remain at root.
         chunkFileNames: "[name]-[hash].js",
+        manualChunks: inspectionCoreChunk,
       },
     },
     sourcemap: true,
@@ -79,6 +86,7 @@ export default defineConfig({
       js: ".js",
       dts: ".d.ts",
     }),
+    outputOptions: { manualChunks: inspectionCoreChunk },
     platform: "node",
     publint: {
       level: "error",
