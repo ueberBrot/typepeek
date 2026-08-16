@@ -3,6 +3,10 @@ import ts from "@typescript/typescript6";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 
 const INFERRED_TYPE_FLAGS = ts.NodeBuilderFlags.NoTruncation;
+const MEMBER_TYPE_QUERY_FLAGS =
+  INFERRED_TYPE_FLAGS |
+  ts.NodeBuilderFlags.UseStructuralFallback |
+  ts.NodeBuilderFlags.WriteClassExpressionAsTypeLiteral;
 const MAX_INFERRED_TYPE_TRAVERSAL_DEPTH = 64;
 const MAX_INFERRED_TYPE_TRAVERSAL_NODES = 4_096;
 const NAMESPACE_DECLARATION_KINDS = new Set<ts.SyntaxKind>([
@@ -51,6 +55,16 @@ function publicDeclarationSyntax(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
 ): ts.Declaration {
+  return projectQualifiedMemberTypeQueries(
+    checker,
+    publicDeclarationSyntaxBeforeMemberTypeQueries(checker, declaration),
+  );
+}
+
+function publicDeclarationSyntaxBeforeMemberTypeQueries(
+  checker: ts.TypeChecker,
+  declaration: ts.Declaration,
+): ts.Declaration {
   const printableDeclaration = ts.isNamespaceExport(declaration) ? declaration.parent : declaration;
   return publicDeclaration(checker, printableDeclaration);
 }
@@ -93,7 +107,120 @@ function inferredPublicTypes(
 ): readonly ts.Type[] {
   const types: ts.Type[] = [];
   collectInferredPublicTypes(checker, declaration, types);
+  collectQualifiedMemberTypeQueryTypes(
+    checker,
+    publicDeclarationSyntaxBeforeMemberTypeQueries(checker, declaration),
+    types,
+    { nodeCount: 0 },
+    0,
+  );
   return types;
+}
+
+function projectQualifiedMemberTypeQueries(
+  checker: ts.TypeChecker,
+  declaration: ts.Declaration,
+): ts.Declaration {
+  const transformation = ts.transform<ts.Declaration>(declaration, [
+    (context) => {
+      const visit: ts.Visitor = (node) =>
+        isQualifiedMemberTypeQuery(node)
+          ? resolvedMemberTypeNode(checker, node)
+          : ts.visitEachChild(node, visit, context);
+      return (root) => ts.visitNode(root, visit) as ts.Declaration;
+    },
+  ]);
+  try {
+    return transformation.transformed[0] ?? declaration;
+  } finally {
+    transformation.dispose();
+  }
+}
+
+function isQualifiedMemberTypeQuery(node: ts.Node): node is ts.TypeQueryNode {
+  return ts.isTypeQueryNode(node) && ts.isQualifiedName(node.exprName);
+}
+
+function resolvedMemberTypeNode(checker: ts.TypeChecker, query: ts.TypeQueryNode): ts.TypeNode {
+  const type = checker.getTypeAtLocation(query.exprName);
+  assertNoImplementationLocalType(checker, type);
+  assertMemberTypeSymbolIsRepresentable(type);
+  const typeNode = checker.typeToTypeNode(type, query, MEMBER_TYPE_QUERY_FLAGS);
+  if (typeNode === undefined) {
+    throw new UnsupportedInspectionError(
+      "A qualified Member type query could not be represented independently.",
+    );
+  }
+  assertReliableInferredType(typeNode);
+  if (containsTypeQuery(typeNode, { nodeCount: 0 }, 0)) {
+    throw new UnsupportedInspectionError(
+      "A qualified Member type query could not be represented independently.",
+    );
+  }
+  return typeNode;
+}
+
+function assertMemberTypeSymbolIsRepresentable(type: ts.Type): void {
+  const symbol = type.aliasSymbol ?? type.getSymbol();
+  if (
+    symbol !== undefined &&
+    (symbol.flags & (ts.SymbolFlags.Class | ts.SymbolFlags.Enum | ts.SymbolFlags.Namespace)) !==
+      0 &&
+    symbol.declarations?.some(declarationIsNestedNamespaceMember) === true
+  ) {
+    throw new UnsupportedInspectionError(
+      "A qualified Member type query could not be represented independently.",
+    );
+  }
+}
+
+function declarationIsNestedNamespaceMember(declaration: ts.Declaration): boolean {
+  let ancestor = declaration.parent;
+  for (let depth = 0; ancestor !== undefined; depth += 1, ancestor = ancestor.parent) {
+    if (depth > MAX_INFERRED_TYPE_TRAVERSAL_DEPTH) {
+      throw new InspectionLimitError("Inspection exceeded its inferred type traversal limit.");
+    }
+    if (ts.isSourceFile(ancestor)) {
+      return false;
+    }
+    if (ts.isModuleBlock(ancestor)) {
+      return !ts.isStringLiteralLike(ancestor.parent.name);
+    }
+  }
+  return false;
+}
+
+function containsTypeQuery(
+  node: ts.Node,
+  traversal: { nodeCount: number },
+  depth: number,
+): boolean {
+  reserveInferredTypeSyntaxTraversal(traversal, depth);
+  if (ts.isTypeQueryNode(node)) {
+    return true;
+  }
+  let found = false;
+  ts.forEachChild(node, (child) => {
+    found ||= containsTypeQuery(child, traversal, depth + 1);
+  });
+  return found;
+}
+
+function collectQualifiedMemberTypeQueryTypes(
+  checker: ts.TypeChecker,
+  node: ts.Node,
+  types: ts.Type[],
+  traversal: { nodeCount: number },
+  depth: number,
+): void {
+  reserveInferredTypeSyntaxTraversal(traversal, depth);
+  if (isQualifiedMemberTypeQuery(node)) {
+    types.push(checker.getTypeAtLocation(node.exprName));
+    return;
+  }
+  ts.forEachChild(node, (child) =>
+    collectQualifiedMemberTypeQueryTypes(checker, child, types, traversal, depth + 1),
+  );
 }
 
 /** Returns only type edges that can contribute to a nameable Public Interface. */
@@ -346,13 +473,7 @@ function containsDegradedInferredType(
   traversal: { nodeCount: number },
   depth: number,
 ): boolean {
-  traversal.nodeCount += 1;
-  if (
-    depth > MAX_INFERRED_TYPE_TRAVERSAL_DEPTH ||
-    traversal.nodeCount > MAX_INFERRED_TYPE_TRAVERSAL_NODES
-  ) {
-    throw new InspectionLimitError("Inspection exceeded its inferred type traversal limit.");
-  }
+  reserveInferredTypeSyntaxTraversal(traversal, depth);
   if (
     node.kind === ts.SyntaxKind.AnyKeyword ||
     node.kind === ts.SyntaxKind.UnknownKeyword ||
@@ -365,6 +486,16 @@ function containsDegradedInferredType(
     degraded ||= containsDegradedInferredType(child, traversal, depth + 1);
   });
   return degraded;
+}
+
+function reserveInferredTypeSyntaxTraversal(traversal: { nodeCount: number }, depth: number): void {
+  traversal.nodeCount += 1;
+  if (
+    depth > MAX_INFERRED_TYPE_TRAVERSAL_DEPTH ||
+    traversal.nodeCount > MAX_INFERRED_TYPE_TRAVERSAL_NODES
+  ) {
+    throw new InspectionLimitError("Inspection exceeded its inferred type traversal limit.");
+  }
 }
 
 function assertNoImplementationLocalType(checker: ts.TypeChecker, rootType: ts.Type): void {

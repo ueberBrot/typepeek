@@ -640,6 +640,7 @@ function inspectSupportingTypes(
       resolvedSymbol,
       referenceKind,
       visited,
+      traversal,
     );
     if (declarations.length === 0) {
       return false;
@@ -671,10 +672,6 @@ function inspectSupportingTypes(
   const inspectReference = (reference: SupportingReference, depth: number): void => {
     const referenced = evidence.checker.getSymbolAtLocation(reference.location);
     if (referenced === undefined) {
-      return;
-    }
-    if (referenceTargetsMember(evidence, reference, referenced)) {
-      inspectInferredType(evidence.checker.getTypeAtLocation(reference.location), depth);
       return;
     }
     inspectSymbol(referenced, reference.kind, depth);
@@ -725,8 +722,11 @@ function unvisitedSupportingDeclarations(
   symbol: ts.Symbol,
   referenceKind: SupportingReferenceKind,
   visited: ReadonlySet<ts.Symbol>,
+  traversal: SupportingTraversalState,
 ): readonly ts.Declaration[] {
-  return visited.has(symbol) ? [] : supportingTypeDeclarations(evidence, symbol, referenceKind);
+  return visited.has(symbol)
+    ? []
+    : supportingTypeDeclarations(evidence, symbol, referenceKind, traversal);
 }
 
 function inferredTypeSymbol(type: ts.Type): ts.Symbol | undefined {
@@ -796,6 +796,7 @@ function supportingTypeDeclarations(
   evidence: InspectableModuleEvidence,
   symbol: ts.Symbol,
   referenceKind: SupportingReferenceKind,
+  traversal: SupportingTraversalState,
 ): readonly ts.Declaration[] {
   // `typeof X` needs X's value declaration; ordinary type references admit only
   // named type declarations and must not drift into implementation symbols.
@@ -803,7 +804,7 @@ function supportingTypeDeclarations(
     (declaration) =>
       !isTypeScriptStandardLibraryDeclaration(declaration.getSourceFile().fileName) &&
       (referenceKind === "type-query"
-        ? supportsTypeQuery(evidence, declaration)
+        ? supportsTypeQuery(evidence, declaration, traversal)
         : isNamedTypeDeclaration(declaration)),
   );
   assertDeclarationLimit(declarations);
@@ -813,6 +814,7 @@ function supportingTypeDeclarations(
 function supportsTypeQuery(
   evidence: InspectableModuleEvidence,
   declaration: ts.Declaration,
+  traversal: SupportingTraversalState,
 ): boolean {
   const kind = declarationKind(declaration);
   if (kind === undefined) {
@@ -820,38 +822,29 @@ function supportsTypeQuery(
   }
   return (
     DECLARATION_POLICY_BY_KIND[kind].supportsTypeQuery &&
-    !declarationOwnerIsMember(evidence, declaration)
+    !declarationOwnerIsMember(evidence, declaration, traversal)
   );
 }
 
-function referenceTargetsMember(
+function declarationOwnerIsMember(
   evidence: InspectableModuleEvidence,
-  reference: SupportingReference,
-  symbol: ts.Symbol,
+  declaration: ts.Declaration,
+  traversal: SupportingTraversalState,
 ): boolean {
-  if (reference.kind !== "type-query") {
-    return false;
+  let ancestor = declaration.parent;
+  for (let depth = 0; ancestor !== undefined; depth += 1, ancestor = ancestor.parent) {
+    reserveAstTraversal(traversal, depth);
+    if (ts.isSourceFile(ancestor)) {
+      return false;
+    }
+    if (ts.isModuleBlock(ancestor)) {
+      return evidence.checker.getSymbolAtLocation(ancestor.parent.name) !== evidence.moduleSymbol;
+    }
+    if (MEMBER_CONTAINER_KINDS.has(ancestor.kind)) {
+      return true;
+    }
   }
-  if (ts.isQualifiedName(reference.location)) {
-    return true;
-  }
-  return (symbol.declarations ?? []).some((declaration) =>
-    declarationOwnerIsMember(evidence, declaration),
-  );
-}
-
-function declarationOwnerIsMember(evidence: InspectableModuleEvidence, node: ts.Node): boolean {
-  const parent = node.parent;
-  if (parent === undefined || ts.isSourceFile(parent)) {
-    return false;
-  }
-  if (ts.isModuleBlock(parent)) {
-    return evidence.checker.getSymbolAtLocation(parent.parent.name) !== evidence.moduleSymbol;
-  }
-  if (MEMBER_CONTAINER_KINDS.has(parent.kind)) {
-    return true;
-  }
-  return declarationOwnerIsMember(evidence, parent);
+  return false;
 }
 
 function isNamedTypeDeclaration(

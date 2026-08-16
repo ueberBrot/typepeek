@@ -1394,6 +1394,71 @@ it("does not represent a namespace Member value declaration as a Supporting Type
   expect(outcome.result.supportingTypes.map(({ name }) => name)).toEqual(["MemberTypeValue"]);
 });
 
+it("serializes a literal Member type into the authoritative declaration", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "LiteralMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const declaration = outcome.result.moduleExport.spaces.flatMap((space) =>
+    "declarations" in space ? space.declarations : [],
+  )[0]?.text;
+  expect(declaration).toBe("type LiteralMemberTypeQuery = 200;");
+});
+
+it("serializes an anonymous Member type into the authoritative declaration", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "AnonymousMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  const declaration = outcome.result.moduleExport.spaces.flatMap((space) =>
+    "declarations" in space ? space.declarations : [],
+  )[0]?.text;
+  expect(declaration).toContain("readonly enabled: true;");
+  expect(declaration).not.toContain("typeQueryContainer");
+});
+
+it("rejects a merged namespace class Member type that cannot be represented independently", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "NamespaceClassMemberTypeQuery",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "unsupported",
+    message: "A qualified Member type query could not be represented independently.",
+  });
+});
+
+it("retains a standalone class reached through a Member type query", async () => {
+  const outcome = await inspectExport({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "StandaloneClassMemberTypeQuery",
+  });
+
+  expect(outcome.status).toBe("success");
+  if (outcome.status !== "success") {
+    return;
+  }
+  expect(outcome.result.supportingTypes.map(({ name }) => name)).toEqual([
+    "StandaloneMemberClass",
+    "MemberTypeValue",
+  ]);
+});
+
 it("preserves nested namespace ownership", async () => {
   const outcome = await inspectExport({
     resolutionContext: fixture.resolutionContext,
