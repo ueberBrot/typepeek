@@ -355,7 +355,7 @@ it("inspects an exact Specifier matched by a Public Subpath pattern", async () =
   });
 });
 
-it("binds one target provenance across all Inspection Core intents", async () => {
+it("preserves one Specifier, Resolution Variant, and Package Identity across all Inspection Core intents", async () => {
   const [overview, focused, signatures] = await Promise.all([
     inspectInterfaceOverview({
       resolutionContext: fixture.resolutionContext,

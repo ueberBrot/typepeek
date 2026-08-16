@@ -18,15 +18,6 @@ export function terminalSafeLine(value: string): string {
   return Array.from(value, terminalSafeCharacter).join("");
 }
 
-/** Escapes dynamic terminal text while retaining ordinary line separators. */
-export function terminalSafeText(value: string): string {
-  return Array.from(value, (character) =>
-    character === "\n" || character === "\r" || character === "\t"
-      ? character
-      : terminalSafeCharacter(character),
-  ).join("");
-}
-
 /** Serializes JSON without allowing any value to acquire terminal control semantics. */
 export function serializeTerminalSafeJson(value: unknown): string {
   const serialized = JSON.stringify(value);

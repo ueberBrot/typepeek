@@ -17,13 +17,15 @@ import type { InspectionResult } from "#typepeek/inspection";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { renderJsonOutcome } from "#typepeek/json-rendering";
-import { serializeTerminalSafeJson, terminalSafeText } from "#typepeek/output-safety";
-import { terminalSafeLine } from "#typepeek/output-safety";
-import { renderInspection } from "#typepeek/terminal-rendering";
+import { serializeTerminalSafeJson, terminalSafeLine } from "#typepeek/output-safety";
+import { renderInspection, type TerminalRenderingOptions } from "#typepeek/terminal-rendering";
 
 import packageJson from "../package.json" with { type: "json" };
 
 const MAX_CLI_DIAGNOSTIC_BYTES = 128 * 1_024;
+const INSPECTION_FAILURE_EXIT_CODE = 1;
+const INVALID_INVOCATION_EXIT_CODE = 2;
+const INTERNAL_ERROR_EXIT_CODE = 70;
 const COMMON_OPTION_WIDTHS = new Map<string, number>([
   ["--json", 1],
   ["--access", 2],
@@ -35,6 +37,12 @@ const INVALID_INVOCATION_EXIT_CODES = new Set([-5, -4]);
 interface CliDiagnostic {
   readonly status: "internal-error" | "invalid-invocation";
   readonly message: string;
+}
+
+interface CliDiagnosticSnapshot {
+  readonly exitCode: number | string | undefined;
+  readonly stderr: string;
+  readonly exceeded: boolean;
 }
 
 interface InspectionTargetOptions {
@@ -79,12 +87,11 @@ class CliProcessSession {
   complete(rawInputs: readonly string[]): void {
     const normalizedExitCode = normalizeExitCode(this.#exitState.value);
     if (this.#capturedStderr !== "" || this.#captureExceeded) {
-      writeCapturedDiagnostic(
-        rawInputs,
-        normalizedExitCode,
-        this.#capturedStderr,
-        this.#captureExceeded,
-      );
+      writeCapturedDiagnostic(rawInputs, {
+        exitCode: normalizedExitCode,
+        stderr: this.#capturedStderr,
+        exceeded: this.#captureExceeded,
+      });
     }
     process.exitCode = normalizedExitCode;
   }
@@ -245,9 +252,11 @@ const app = buildApplication(rootRoute, {
   name: "typepeek",
   determineExitCode(error) {
     if (error instanceof InvalidInvocationError) {
-      return 2;
+      return INVALID_INVOCATION_EXIT_CODE;
     }
-    return error instanceof InspectionFailureError ? 1 : 70;
+    return error instanceof InspectionFailureError
+      ? INSPECTION_FAILURE_EXIT_CODE
+      : INTERNAL_ERROR_EXIT_CODE;
   },
   scanner: {
     allowArgumentEscapeSequence: true,
@@ -304,20 +313,20 @@ function normalizeNonNumberExitCode(exitCode: string | null): string | undefined
 }
 
 function normalizedNegativeExitCode(exitCode: number): number {
-  return INVALID_INVOCATION_EXIT_CODES.has(exitCode) ? 2 : 70;
+  return INVALID_INVOCATION_EXIT_CODES.has(exitCode)
+    ? INVALID_INVOCATION_EXIT_CODE
+    : INTERNAL_ERROR_EXIT_CODE;
 }
 
 function writeCapturedDiagnostic(
   rawInputs: readonly string[],
-  exitCode: number | string | undefined,
-  capturedStderr: string,
-  captureExceeded: boolean,
+  diagnostic: CliDiagnosticSnapshot,
 ): void {
   if (requestsJson(rawInputs)) {
-    process.stdout.write(`${renderCliDiagnostic(exitCode, capturedStderr, captureExceeded)}\n`);
+    process.stdout.write(`${renderCliDiagnostic(diagnostic)}\n`);
     return;
   }
-  process.stderr.write(renderHumanCliDiagnostic(exitCode, capturedStderr, captureExceeded));
+  process.stderr.write(renderHumanCliDiagnostic(diagnostic));
 }
 
 function readableEnvironment(): Readonly<Record<string, string>> {
@@ -328,14 +337,10 @@ function readableEnvironment(): Readonly<Record<string, string>> {
   );
 }
 
-function renderCliDiagnostic(
-  exitCode: number | string | undefined,
-  capturedStderr: string,
-  captureExceeded: boolean,
-): string {
+function renderCliDiagnostic(snapshot: CliDiagnosticSnapshot): string {
   const diagnostic: CliDiagnostic = {
-    status: cliDiagnosticStatus(exitCode),
-    message: captureExceeded ? cliDiagnosticLimitMessage() : capturedStderr.trimEnd(),
+    status: cliDiagnosticStatus(snapshot.exitCode),
+    message: snapshot.exceeded ? cliDiagnosticLimitMessage() : snapshot.stderr.trimEnd(),
   };
   const rendered = serializeTerminalSafeJson(diagnostic);
   return Buffer.byteLength(rendered) <= MAX_CLI_DIAGNOSTIC_BYTES
@@ -346,22 +351,18 @@ function renderCliDiagnostic(
       } satisfies CliDiagnostic);
 }
 
-function renderHumanCliDiagnostic(
-  exitCode: number | string | undefined,
-  capturedStderr: string,
-  captureExceeded: boolean,
-): string {
-  if (!captureExceeded) {
-    const rendered = terminalSafeText(capturedStderr);
+function renderHumanCliDiagnostic(snapshot: CliDiagnosticSnapshot): string {
+  if (!snapshot.exceeded) {
+    const rendered = `${terminalSafeLine(snapshot.stderr.trimEnd())}\n`;
     if (Buffer.byteLength(rendered) <= MAX_CLI_DIAGNOSTIC_BYTES) {
       return rendered;
     }
   }
-  return `${cliDiagnosticStatus(exitCode)}: ${cliDiagnosticLimitMessage()}\n`;
+  return `${cliDiagnosticStatus(snapshot.exitCode)}: ${cliDiagnosticLimitMessage()}\n`;
 }
 
 function cliDiagnosticStatus(exitCode: number | string | undefined): CliDiagnostic["status"] {
-  return exitCode === 2 ? "invalid-invocation" : "internal-error";
+  return exitCode === INVALID_INVOCATION_EXIT_CODE ? "invalid-invocation" : "internal-error";
 }
 
 function cliDiagnosticLimitMessage(): string {
@@ -392,10 +393,7 @@ function writeCliOutcome(
   context: ApplicationContext,
   options: InspectionTargetOptions,
   outcome: InspectionOutcome,
-  renderingOptions: {
-    readonly includePublicSubpaths?: boolean;
-    readonly moduleExportMatch?: string;
-  } = {},
+  renderingOptions: TerminalRenderingOptions = {},
 ): Error | undefined {
   if (options.json) {
     writeJsonOutcome(context, outcome);
@@ -416,7 +414,7 @@ function writeJsonOutcome(context: ApplicationContext, outcome: InspectionOutcom
   const rendering = renderJsonOutcome(outcome);
   context.process.stdout.write(`${rendering.text}\n`);
   if (rendering.failed) {
-    context.process.exitCode = 1;
+    context.process.exitCode = INSPECTION_FAILURE_EXIT_CODE;
   }
 }
 
@@ -429,10 +427,7 @@ function parseAccessStyle(input: string): "import" | "require" {
 
 function renderForCommand(
   result: InspectionResult,
-  options: {
-    readonly includePublicSubpaths?: boolean;
-    readonly moduleExportMatch?: string;
-  },
+  options: TerminalRenderingOptions,
 ): string | Error {
   try {
     return renderInspection(result, options);

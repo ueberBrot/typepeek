@@ -4,9 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { type CompiledPackageFixture, materializeCompiledPackageFixture } from "./helpers/index.ts";
 
 const UNSAFE_TERMINAL_CODE_POINTS = new Set([
-  ...Array.from({ length: 32 }, (_, codePoint) => codePoint).filter(
-    (codePoint) => ![0x09, 0x0a, 0x0d].includes(codePoint),
-  ),
+  ...Array.from({ length: 32 }, (_, codePoint) => codePoint),
   ...Array.from({ length: 33 }, (_, offset) => 0x7f + offset),
   0x061c,
   0x200e,
@@ -344,12 +342,14 @@ describe("typepeek CLI", () => {
   it("escapes terminal controls in invalid invocation diagnostics", async () => {
     const result = await execa(
       process.execPath,
-      ["src/cli.ts", "overview", "example", "--access", "invalid\u001B[31m"],
+      ["src/cli.ts", "overview", "example", "--access", "invalid\u001B[31m\rFORGED\nNEXT\tTAB"],
       { reject: false },
     );
 
-    expect(result.stderr).toContain('Failed to parse "invalid\\u{1B}[31m" for access');
-    expectTerminalSafe(result.stderr);
+    expect(result.stderr).toContain(
+      'Failed to parse "invalid\\u{1B}[31m\\u{D}FORGED\\u{A}NEXT\\u{9}TAB" for access',
+    );
+    expectTerminalSafeLine(result.stderr);
   });
 
   it("bounds invalid invocation diagnostics after terminal escaping", async () => {
@@ -432,9 +432,21 @@ async function assertDeterministicFailure(
 }
 
 function expectTerminalSafe(output: string): void {
+  expect(
+    Array.from(output).some(
+      (character) => !isLayoutWhitespace(character) && isUnsafeTerminalCharacter(character),
+    ),
+  ).toBe(false);
+}
+
+function expectTerminalSafeLine(output: string): void {
   expect(Array.from(output).some(isUnsafeTerminalCharacter)).toBe(false);
 }
 
 function isUnsafeTerminalCharacter(character: string): boolean {
   return UNSAFE_TERMINAL_CODE_POINTS.has(character.codePointAt(0) ?? 0);
+}
+
+function isLayoutWhitespace(character: string): boolean {
+  return character === "\n" || character === "\r" || character === "\t";
 }
