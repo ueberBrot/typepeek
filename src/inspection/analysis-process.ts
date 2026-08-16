@@ -1,6 +1,10 @@
 import { execaNode } from "execa";
 
 import {
+  type InspectionProfile,
+  inspectionProfilingRequested,
+} from "#typepeek/inspection/performance-profile";
+import {
   enforceInspectionOutcome,
   type AnalysisRequest,
   type InspectionOutcome,
@@ -51,7 +55,12 @@ export async function runBoundedAnalysis(request: AnalysisRequest): Promise<Insp
       message: "Inspection exceeded its request input limit.",
     };
   }
-  return runProcess(request, analysisProcessEntryUrl(), PRODUCTION_LIMITS);
+  return runProcess(
+    request,
+    analysisProcessEntryUrl(),
+    PRODUCTION_LIMITS,
+    inspectionProfilingRequested(),
+  );
 }
 
 /** Exact trusted Node arguments shared with static-inspection adapters. */
@@ -69,7 +78,7 @@ export async function runAnalysisFixtureProcess(
   entryUrl: URL,
   limits: AnalysisProcessLimits,
 ): Promise<InspectionOutcome> {
-  return runProcess(request, entryUrl, limits);
+  return runProcess(request, entryUrl, limits, false);
 }
 
 /**
@@ -80,6 +89,7 @@ async function runProcess(
   request: AnalysisRequest,
   entryUrl: URL,
   limits: AnalysisProcessLimits,
+  forwardProfile: boolean,
 ): Promise<InspectionOutcome> {
   const result = await execaNode(entryUrl, [], {
     ipcInput: request,
@@ -110,6 +120,9 @@ async function runProcess(
   if (result.failed || result.exitCode !== 0) {
     return TERMINATED_OUTCOME;
   }
+  if (forwardProfile) {
+    forwardInspectionProfile(result.stderr);
+  }
   const resultBytes = result.stdout.byteLength;
   if (resultBytes > limits.maxResultBytes) {
     return OUTPUT_OUTCOME;
@@ -120,6 +133,49 @@ async function runProcess(
   }
 
   return enforceInspectionOutcome(request.intent, value);
+}
+
+function forwardInspectionProfile(serialized: Uint8Array): void {
+  const profile = parseInspectionProfile(serialized);
+  if (profile !== undefined) {
+    process.stderr.write(`${JSON.stringify(profile)}\n`);
+  }
+}
+
+function parseInspectionProfile(serialized: Uint8Array): InspectionProfile | undefined {
+  try {
+    const value = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(serialized),
+    ) as unknown;
+    if (
+      !isRecord(value) ||
+      value["kind"] !== "inspection-profile" ||
+      value["schemaVersion"] !== 1
+    ) {
+      return undefined;
+    }
+    const phases = value["phases"];
+    if (
+      !Array.isArray(phases) ||
+      !phases.every(
+        (phase) =>
+          isRecord(phase) &&
+          typeof phase["name"] === "string" &&
+          typeof phase["milliseconds"] === "number" &&
+          Number.isFinite(phase["milliseconds"]) &&
+          phase["milliseconds"] >= 0,
+      )
+    ) {
+      return undefined;
+    }
+    return value as unknown as InspectionProfile;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function analysisProcessEntryUrl(): URL {

@@ -108,7 +108,14 @@ vp install --frozen-lockfile
 vp run validate              # check → Fallow → test → build smoke → package smoke
 vp run dependencies          # find eligible dependency updates
 vp run dependencies:update   # select and apply updates
+vp run benchmark:source      # measure source-checkout inspection latency
+vp run benchmark:build       # measure the application bundle
+vp run benchmark:package     # measure the publishable artifact
 ```
+
+Set `TYPEPEEK_PROFILE=1` on an individual invocation to emit bounded,
+non-authoritative phase timings as JSON on stderr. Profiling never changes the
+Inspection Outcome on stdout and is disabled by default.
 
 Run the source entry directly while developing:
 

@@ -18,5 +18,11 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "taze.config.ts", "vite.config.ts"]
+  "include": [
+    "benchmarks/**/*.ts",
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "taze.config.ts",
+    "vite.config.ts"
+  ]
 }

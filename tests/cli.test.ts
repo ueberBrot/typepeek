@@ -102,6 +102,40 @@ describe("typepeek CLI", () => {
     expectTerminalSafe(first.stdout);
   });
 
+  it("emits opt-in non-authoritative inspection phase timings without changing stdout", async () => {
+    const arguments_ = [
+      "src/cli.ts",
+      "signatures",
+      "@typepeek-fixture/focused",
+      "detailed",
+      "--context",
+      fixture.resolutionContext,
+      "--json",
+    ];
+    const ordinary = await execa(process.execPath, arguments_);
+    const profiled = await execa(process.execPath, arguments_, {
+      env: { TYPEPEEK_PROFILE: "1" },
+    });
+
+    expect(profiled.stdout).toBe(ordinary.stdout);
+    expect(ordinary.stderr).toBe("");
+    const profile = JSON.parse(profiled.stderr) as {
+      readonly kind: string;
+      readonly schemaVersion: number;
+      readonly phases: readonly { readonly name: string; readonly milliseconds: number }[];
+    };
+    expect(profile).toMatchObject({ kind: "inspection-profile", schemaVersion: 1 });
+    expect(profile.phases.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        "request-validation",
+        "declaration-provider-selection",
+        "program-materialization",
+        "analysis",
+      ]),
+    );
+    expect(profile.phases.every(({ milliseconds }) => milliseconds >= 0)).toBe(true);
+  });
+
   it("lists Public Subpaths after Module Exports only when requested", async () => {
     const result = await execa(process.execPath, [
       "src/cli.ts",

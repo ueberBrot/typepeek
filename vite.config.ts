@@ -116,6 +116,20 @@ export default defineConfig({
         dependsOn: ["pack"],
         output: [],
       },
+      "benchmark:source": {
+        command: "node benchmarks/inspection-latency.ts --adapter source",
+        output: [],
+      },
+      "benchmark:build": {
+        command: "node benchmarks/inspection-latency.ts --adapter build",
+        dependsOn: ["build"],
+        output: [],
+      },
+      "benchmark:package": {
+        command: "node benchmarks/inspection-latency.ts --adapter package",
+        dependsOn: ["pack"],
+        output: [],
+      },
       test: {
         command: "vp test",
         output: [],
