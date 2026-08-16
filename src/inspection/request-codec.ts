@@ -48,6 +48,27 @@ const INVALID_REQUEST_OUTCOMES = {
 const MAX_INSPECTION_PLAN_QUERIES = 16;
 const MAX_EXPORT_SEARCH_QUERY_BYTES = 256;
 
+type AnalysisRequestReader = (value: unknown) => AnalysisRequest | undefined;
+type InspectionPlanQueryReader = (
+  value: Readonly<Record<string, unknown>>,
+) => InspectionPlanQuery | undefined;
+
+const INSPECTION_INTENTS = new Set<InspectionResult["intent"]>([
+  "interface-overview",
+  "export-inspection",
+  "signature-inspection",
+  "inspection-plan",
+  "export-search",
+  "public-subpath-discovery",
+]);
+const INSPECTION_PLAN_QUERY_INTENTS = new Set<InspectionPlanQuery["intent"]>([
+  "interface-overview",
+  "export-inspection",
+  "signature-inspection",
+  "export-search",
+  "public-subpath-discovery",
+]);
+
 /** Snapshots and validates one untrusted caller request without loading the outcome codec. */
 export function readInspectionRequest(
   intent: "interface-overview",
@@ -73,6 +94,10 @@ export function readInspectionRequest(
   intent: "public-subpath-discovery",
   value: unknown,
 ): InspectionRequestReading<NormalizedPublicSubpathDiscoveryRequest>;
+export function readInspectionRequest(
+  intent: InspectionResult["intent"],
+  value: unknown,
+): InspectionRequestReading<AnalysisRequest["request"]>;
 export function readInspectionRequest(
   intent: InspectionResult["intent"],
   value: unknown,
@@ -133,28 +158,23 @@ function readRequestForIntent(
   intent: InspectionResult["intent"],
   value: unknown,
 ): AnalysisRequest | undefined {
-  if (intent === "interface-overview") {
+  return ANALYSIS_REQUEST_READERS[intent](value);
+}
+
+const ANALYSIS_REQUEST_READERS = {
+  "interface-overview": analysisRequestReader("interface-overview"),
+  "export-inspection": analysisRequestReader("export-inspection"),
+  "signature-inspection": analysisRequestReader("signature-inspection"),
+  "inspection-plan": analysisRequestReader("inspection-plan"),
+  "export-search": analysisRequestReader("export-search"),
+  "public-subpath-discovery": analysisRequestReader("public-subpath-discovery"),
+} as const satisfies Readonly<Record<InspectionResult["intent"], AnalysisRequestReader>>;
+
+function analysisRequestReader(intent: InspectionResult["intent"]): AnalysisRequestReader {
+  return (value) => {
     const reading = readInspectionRequest(intent, value);
-    return reading.accepted ? { intent, request: reading.request } : undefined;
-  }
-  if (intent === "export-inspection") {
-    const reading = readInspectionRequest(intent, value);
-    return reading.accepted ? { intent, request: reading.request } : undefined;
-  }
-  if (intent === "inspection-plan") {
-    const reading = readInspectionRequest(intent, value);
-    return reading.accepted ? { intent, request: reading.request } : undefined;
-  }
-  if (intent === "export-search") {
-    const reading = readInspectionRequest(intent, value);
-    return reading.accepted ? { intent, request: reading.request } : undefined;
-  }
-  if (intent === "public-subpath-discovery") {
-    const reading = readInspectionRequest(intent, value);
-    return reading.accepted ? { intent, request: reading.request } : undefined;
-  }
-  const reading = readInspectionRequest(intent, value);
-  return reading.accepted ? { intent, request: reading.request } : undefined;
+    return reading.accepted ? ({ intent, request: reading.request } as AnalysisRequest) : undefined;
+  };
 }
 
 function readInspectionTarget(
@@ -178,14 +198,7 @@ function isAccessStyle(value: unknown): value is AccessStyle | undefined {
 }
 
 function isInspectionIntent(value: unknown): value is InspectionResult["intent"] {
-  return (
-    value === "interface-overview" ||
-    value === "export-inspection" ||
-    value === "signature-inspection" ||
-    value === "inspection-plan" ||
-    value === "export-search" ||
-    value === "public-subpath-discovery"
-  );
+  return typeof value === "string" && INSPECTION_INTENTS.has(value as InspectionResult["intent"]);
 }
 
 function readInspectionPlanQueries(value: unknown): readonly InspectionPlanQuery[] | undefined {
@@ -210,21 +223,35 @@ function readInspectionPlanQueries(value: unknown): readonly InspectionPlanQuery
 function readInspectionPlanQuery(value: unknown): InspectionPlanQuery | undefined {
   const query = snapshotRecord(value);
   const intent = query?.["intent"];
-  if (intent === "interface-overview") {
-    return { intent };
-  }
-  if (intent === "public-subpath-discovery") {
-    return { intent };
-  }
-  if (intent === "export-search") {
-    const queryText = query?.["query"];
-    return isExportSearchQuery(queryText) ? { intent, query: queryText } : undefined;
-  }
-  if (intent !== "export-inspection" && intent !== "signature-inspection") {
-    return undefined;
-  }
-  const exportName = query?.["exportName"];
+  return query !== undefined && isInspectionPlanQueryIntent(intent)
+    ? INSPECTION_PLAN_QUERY_READERS[intent](query)
+    : undefined;
+}
+
+const INSPECTION_PLAN_QUERY_READERS = {
+  "interface-overview": () => ({ intent: "interface-overview" }),
+  "public-subpath-discovery": () => ({ intent: "public-subpath-discovery" }),
+  "export-search": (value) => {
+    const query = value["query"];
+    return isExportSearchQuery(query) ? { intent: "export-search", query } : undefined;
+  },
+  "export-inspection": (value) => readFocusedPlanQuery("export-inspection", value),
+  "signature-inspection": (value) => readFocusedPlanQuery("signature-inspection", value),
+} as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryReader>>;
+
+function readFocusedPlanQuery(
+  intent: "export-inspection" | "signature-inspection",
+  value: Readonly<Record<string, unknown>>,
+): InspectionPlanQuery | undefined {
+  const exportName = value["exportName"];
   return typeof exportName === "string" ? { intent, exportName } : undefined;
+}
+
+function isInspectionPlanQueryIntent(value: unknown): value is InspectionPlanQuery["intent"] {
+  return (
+    typeof value === "string" &&
+    INSPECTION_PLAN_QUERY_INTENTS.has(value as InspectionPlanQuery["intent"])
+  );
 }
 
 function isExportSearchQuery(value: unknown): value is string {

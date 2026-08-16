@@ -502,18 +502,34 @@ function inspectionMatchesPlanQuery(
   if (query === undefined || inspection.intent !== query.intent) {
     return false;
   }
-  switch (query.intent) {
-    case "interface-overview":
-    case "public-subpath-discovery":
-      return true;
-    case "export-search":
-      return inspection.intent === query.intent && inspection.query === query.query;
-    case "export-inspection":
-    case "signature-inspection":
-      return (
-        inspection.intent === query.intent && inspection.moduleExport.name === query.exportName
-      );
-  }
+  return INSPECTION_PLAN_QUERY_MATCHERS[query.intent](inspection, query);
+}
+
+type InspectionPlanQueryMatcher = (
+  inspection: AtomicInspectionResult,
+  query: InspectionPlanQuery,
+) => boolean;
+
+const INSPECTION_PLAN_QUERY_MATCHERS = {
+  "interface-overview": () => true,
+  "public-subpath-discovery": () => true,
+  "export-search": (inspection, query) =>
+    inspection.intent === "export-search" &&
+    query.intent === "export-search" &&
+    inspection.query === query.query,
+  "export-inspection": matchesFocusedPlanQuery,
+  "signature-inspection": matchesFocusedPlanQuery,
+} as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryMatcher>>;
+
+function matchesFocusedPlanQuery(
+  inspection: AtomicInspectionResult,
+  query: InspectionPlanQuery,
+): boolean {
+  return (
+    (inspection.intent === "export-inspection" || inspection.intent === "signature-inspection") &&
+    (query.intent === "export-inspection" || query.intent === "signature-inspection") &&
+    inspection.moduleExport.name === query.exportName
+  );
 }
 
 function isInspectionOutcome(value: unknown): value is InspectionOutcome {

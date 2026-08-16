@@ -545,16 +545,37 @@ function parseInspectionPlanQuery(value: unknown): InspectionPlanQuery {
     throw new Error("Each Inspection Plan query must be an object.");
   }
   const intent = value["intent"];
-  if (intent === "interface-overview") {
-    return { intent };
+  if (!isInspectionPlanQueryIntent(intent)) {
+    throw new Error("Each Inspection Plan query has an unsupported intent.");
   }
-  if (intent === "public-subpath-discovery") {
-    return { intent };
-  }
-  if (intent === "export-search") {
-    return parseExportSearchInspectionPlanQuery(value["query"]);
-  }
-  return parseFocusedInspectionPlanQuery(intent, value["exportName"]);
+  return INSPECTION_PLAN_QUERY_PARSERS[intent](value);
+}
+
+type InspectionPlanQueryParser = (value: Readonly<Record<string, unknown>>) => InspectionPlanQuery;
+
+const INSPECTION_PLAN_QUERY_INTENTS = new Set<InspectionPlanQuery["intent"]>([
+  "interface-overview",
+  "export-inspection",
+  "signature-inspection",
+  "export-search",
+  "public-subpath-discovery",
+]);
+
+const INSPECTION_PLAN_QUERY_PARSERS = {
+  "interface-overview": () => ({ intent: "interface-overview" }),
+  "public-subpath-discovery": () => ({ intent: "public-subpath-discovery" }),
+  "export-search": (value) => parseExportSearchInspectionPlanQuery(value["query"]),
+  "export-inspection": (value) =>
+    parseFocusedInspectionPlanQuery("export-inspection", value["exportName"]),
+  "signature-inspection": (value) =>
+    parseFocusedInspectionPlanQuery("signature-inspection", value["exportName"]),
+} as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryParser>>;
+
+function isInspectionPlanQueryIntent(value: unknown): value is InspectionPlanQuery["intent"] {
+  return (
+    typeof value === "string" &&
+    INSPECTION_PLAN_QUERY_INTENTS.has(value as InspectionPlanQuery["intent"])
+  );
 }
 
 function parseExportSearchInspectionPlanQuery(query: unknown): InspectionPlanQuery {
@@ -565,13 +586,10 @@ function parseExportSearchInspectionPlanQuery(query: unknown): InspectionPlanQue
 }
 
 function parseFocusedInspectionPlanQuery(
-  intent: unknown,
+  intent: "export-inspection" | "signature-inspection",
   exportName: unknown,
 ): InspectionPlanQuery {
-  if (
-    (intent !== "export-inspection" && intent !== "signature-inspection") ||
-    typeof exportName !== "string"
-  ) {
+  if (typeof exportName !== "string") {
     throw new Error("Each focused Inspection Plan query requires a string exportName.");
   }
   return { intent, exportName };
