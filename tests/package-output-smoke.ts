@@ -20,6 +20,7 @@ assert.equal(cli.status, 0, cli.stderr);
 assert.match(cli.stdout, /typepeek/u);
 assert.match(cli.stdout, /Use overview to discover exports/u);
 assert.match(cli.stdout, /signatures\s+Inspect only the public call and construct signatures/u);
+assert.match(cli.stdout, /plan\s+Execute a bounded query list/u);
 const inspectionApiPath = "../dist/inspection-api.js";
 const inspectionApi: unknown = await import(inspectionApiPath);
 if (typeof inspectionApi !== "object" || inspectionApi === null) {
@@ -28,3 +29,4 @@ if (typeof inspectionApi !== "object" || inspectionApi === null) {
 assert.equal(typeof Reflect.get(inspectionApi, "inspectInterfaceOverview"), "function");
 assert.equal(typeof Reflect.get(inspectionApi, "inspectExport"), "function");
 assert.equal(typeof Reflect.get(inspectionApi, "inspectExportSignatures"), "function");
+assert.equal(typeof Reflect.get(inspectionApi, "inspectPlan"), "function");

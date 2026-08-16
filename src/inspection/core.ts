@@ -4,12 +4,32 @@ import {
   type ExportInspection,
   type ExportInspectionRequest,
   type InspectionOutcome,
+  type InspectionPlan,
+  type InspectionPlanRequest,
   type InterfaceOverview,
   type InterfaceOverviewRequest,
   type SignatureInspection,
   type SignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
 import { readInspectionRequest } from "#typepeek/inspection/request-codec";
+
+/**
+ * Executes a bounded, all-or-nothing query list in one analysis process while
+ * sharing declaration-provider selection and TypeScript program evidence.
+ */
+export async function inspectPlan(
+  request: InspectionPlanRequest,
+): Promise<InspectionOutcome<InspectionPlan>> {
+  const requestReading = readInspectionRequest("inspection-plan", request);
+  if (!requestReading.accepted) {
+    return requestReading.outcome;
+  }
+
+  return enforceInspectionOutcome(
+    "inspection-plan",
+    await runBoundedAnalysis({ intent: "inspection-plan", request: requestReading.request }),
+  );
+}
 
 /**
  * Validates a request and produces a bounded index of the Module Exports visible

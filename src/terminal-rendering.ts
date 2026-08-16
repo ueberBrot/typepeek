@@ -5,6 +5,7 @@ import type {
   InspectedDeclaration,
   InspectionResult,
   InterfaceOverview,
+  InspectionPlan,
   PackageIdentity,
   ResolutionVariant,
   SignatureInspection,
@@ -49,7 +50,19 @@ function renderInspectionResult(
       return renderExportInspection(result);
     case "signature-inspection":
       return renderSignatureInspection(result);
+    case "inspection-plan":
+      return renderInspectionPlan(result, options);
   }
+}
+
+function renderInspectionPlan(result: InspectionPlan, options: TerminalRenderingOptions): string {
+  return [
+    `Inspection Plan (${result.inspections.length}):`,
+    ...result.inspections.flatMap((inspection, index) => [
+      `Inspection ${index + 1}:`,
+      renderInspectionResult(inspection, options),
+    ]),
+  ].join("\n");
 }
 
 function renderInterfaceOverview(

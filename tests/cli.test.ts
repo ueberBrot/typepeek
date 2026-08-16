@@ -32,6 +32,43 @@ describe("typepeek CLI", () => {
     expect(result.stdout).toContain("overview");
     expect(result.stdout).toContain("export");
     expect(result.stdout).toContain("signatures");
+    expect(result.stdout).toContain("plan");
+  });
+
+  it("executes an atomic inspection plan from a bounded JSON query list", async () => {
+    const arguments_ = [
+      "src/cli.ts",
+      "plan",
+      "@typepeek-fixture/focused",
+      JSON.stringify([
+        { intent: "interface-overview" },
+        { intent: "signature-inspection", exportName: "detailed" },
+      ]),
+      "--context",
+      fixture.resolutionContext,
+      "--json",
+    ];
+    const result = await execa(process.execPath, arguments_);
+    const profiled = await execa(process.execPath, arguments_, {
+      env: { TYPEPEEK_PROFILE: "1" },
+    });
+
+    expect(result.stderr).toBe("");
+    expect(profiled.stdout).toBe(result.stdout);
+    const profile = JSON.parse(profiled.stderr) as {
+      readonly phases: readonly { readonly name: string }[];
+    };
+    expect(profile.phases.filter(({ name }) => name === "program-materialization")).toHaveLength(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "success",
+      result: {
+        intent: "inspection-plan",
+        inspections: [
+          { intent: "interface-overview" },
+          { intent: "signature-inspection", moduleExport: { name: "detailed" } },
+        ],
+      },
+    });
   });
 
   it("presents root help when invoked without arguments", async () => {

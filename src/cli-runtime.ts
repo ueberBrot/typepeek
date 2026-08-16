@@ -12,8 +12,9 @@ import {
   inspectExport,
   inspectExportSignatures,
   inspectInterfaceOverview,
+  inspectPlan,
 } from "#typepeek/inspection";
-import type { InspectionResult } from "#typepeek/inspection";
+import type { InspectionPlanQuery, InspectionResult } from "#typepeek/inspection";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { renderJsonOutcome } from "#typepeek/json-rendering";
@@ -26,12 +27,13 @@ const MAX_CLI_DIAGNOSTIC_BYTES = 128 * 1_024;
 const INSPECTION_FAILURE_EXIT_CODE = 1;
 const INVALID_INVOCATION_EXIT_CODE = 2;
 const INTERNAL_ERROR_EXIT_CODE = 70;
+const MAX_PLAN_QUERY_JSON_BYTES = 16 * 1_024;
 const COMMON_OPTION_WIDTHS = new Map<string, number>([
   ["--json", 1],
   ["--access", 2],
   ["--context", 2],
 ] as const);
-const INSPECTION_COMMANDS = new Set(["overview", "export", "signatures"]);
+const INSPECTION_COMMANDS = new Set(["overview", "export", "signatures", "plan"]);
 const INVALID_INVOCATION_EXIT_CODES = new Set([-5, -4]);
 
 interface CliDiagnostic {
@@ -146,6 +148,12 @@ const exportNameParameter = {
   placeholder: "export-name",
 } as const;
 
+const inspectionPlanQueriesParameter = {
+  parse: parseInspectionPlanQueries,
+  brief: "Bounded JSON array of overview, export, or signature inspection queries.",
+  placeholder: "queries-json",
+} as const;
+
 const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationContext>({
   async func(options, specifier) {
     const optionError = overviewJsonOptionError(options);
@@ -234,17 +242,44 @@ const signaturesCommand = buildCommand<
   },
 });
 
+const planCommand = buildCommand<
+  InspectionTargetOptions,
+  [string, readonly InspectionPlanQuery[]],
+  ApplicationContext
+>({
+  async func(options, specifier, queries) {
+    const outcome = await inspectPlan({
+      ...inspectionRequest(options, specifier),
+      queries,
+    });
+    return writeCliOutcome(this, options, outcome);
+  },
+  parameters: {
+    flags: inspectionTargetFlags,
+    positional: {
+      kind: "tuple",
+      parameters: [specifierParameter, inspectionPlanQueriesParameter],
+    },
+  },
+  docs: {
+    brief: "Execute a bounded query list over one shared Installed Evidence snapshot.",
+    fullDescription:
+      'Example: typepeek plan zod \'[{"intent":"interface-overview"}]\' --context . --json returns one atomic outcome.',
+  },
+});
+
 const rootRoute = buildRouteMap({
   routes: {
     overview: overviewCommand,
     export: exportCommand,
     signatures: signaturesCommand,
+    plan: planCommand,
   },
   defaultCommand: "overview",
   docs: {
     brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
     fullDescription:
-      "Use overview to discover exports, signatures to inspect parameters, or export for declarations and Supporting Types. Common flags may precede or follow an explicit command.",
+      "Use overview to discover exports, signatures to inspect parameters, export for declarations and Supporting Types, or plan to share one evidence snapshot. Common flags may precede or follow an explicit command.",
   },
 });
 
@@ -423,6 +458,44 @@ function parseAccessStyle(input: string): "import" | "require" {
     return input;
   }
   throw new Error('Access Style must be "import" or "require".');
+}
+
+function parseInspectionPlanQueries(input: string): readonly InspectionPlanQuery[] {
+  if (Buffer.byteLength(input) > MAX_PLAN_QUERY_JSON_BYTES) {
+    throw new Error("Inspection Plan query JSON exceeds its input limit.");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(input) as unknown;
+  } catch {
+    throw new Error("Inspection Plan queries must be valid JSON.");
+  }
+  if (!Array.isArray(value) || value.length < 1 || value.length > 16) {
+    throw new Error("Inspection Plan queries must contain from 1 through 16 entries.");
+  }
+  return value.map(parseInspectionPlanQuery);
+}
+
+function parseInspectionPlanQuery(value: unknown): InspectionPlanQuery {
+  if (!isPlainRecord(value)) {
+    throw new Error("Each Inspection Plan query must be an object.");
+  }
+  const intent = value["intent"];
+  if (intent === "interface-overview") {
+    return { intent };
+  }
+  const exportName = value["exportName"];
+  if (
+    (intent !== "export-inspection" && intent !== "signature-inspection") ||
+    typeof exportName !== "string"
+  ) {
+    throw new Error("Each focused Inspection Plan query requires a string exportName.");
+  }
+  return { intent, exportName };
+}
+
+function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function renderForCommand(

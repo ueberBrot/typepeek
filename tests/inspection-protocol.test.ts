@@ -30,6 +30,43 @@ it("normalizes the default Access Style at the process-entry protocol seam", () 
   });
 });
 
+it("normalizes a bounded inspection plan at the process-entry protocol seam", () => {
+  expect(
+    readInspectionRequest("inspection-plan", {
+      resolutionContext: "/repository",
+      specifier: "example",
+      queries: [
+        { intent: "interface-overview" },
+        { intent: "signature-inspection", exportName: "createExample" },
+      ],
+    }),
+  ).toEqual({
+    accepted: true,
+    request: {
+      resolutionContext: "/repository",
+      specifier: "example",
+      accessStyle: "import",
+      queries: [
+        { intent: "interface-overview" },
+        { intent: "signature-inspection", exportName: "createExample" },
+      ],
+    },
+  });
+});
+
+it("rejects empty and oversized inspection plans", () => {
+  const target = { resolutionContext: "/repository", specifier: "example" };
+  expect(readInspectionRequest("inspection-plan", { ...target, queries: [] })).toMatchObject({
+    accepted: false,
+  });
+  expect(
+    readInspectionRequest("inspection-plan", {
+      ...target,
+      queries: Array.from({ length: 17 }, () => ({ intent: "interface-overview" })),
+    }),
+  ).toMatchObject({ accepted: false });
+});
+
 it("rejects an invalid Access Style at the process-entry protocol seam", () => {
   expect(
     readInspectionRequest("interface-overview", {
@@ -101,6 +138,31 @@ it("rejects a structurally valid success for a different inspection intent", () 
   };
 
   expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual({
+    status: "unsupported",
+    message: "Inspection returned an invalid result.",
+  });
+});
+
+it("accepts an atomic Inspection Plan result for its requested intent", () => {
+  const outcome = {
+    status: "success",
+    result: {
+      intent: "inspection-plan",
+      inspections: [
+        {
+          intent: "interface-overview",
+          specifier: "example",
+          resolutionVariant: { accessStyle: "import" },
+          packageIdentity: { name: "example" },
+          publicSubpaths: [],
+          moduleExports: [{ name: "createExample" }],
+        },
+      ],
+    },
+  } as const;
+
+  expect(enforceInspectionOutcome("inspection-plan", outcome)).toEqual(outcome);
+  expect(enforceInspectionOutcome("interface-overview", outcome)).toEqual({
     status: "unsupported",
     message: "Inspection returned an invalid result.",
   });

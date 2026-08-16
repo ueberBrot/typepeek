@@ -8,7 +8,13 @@ import {
   type InspectableModuleEvidence,
   readInspectableModuleEvidence,
 } from "#typepeek/inspection/installed-evidence";
-import type { AnalysisRequest, InspectionOutcome } from "#typepeek/inspection/protocol";
+import type {
+  AnalysisRequest,
+  AtomicInspectionResult,
+  InspectionFailure,
+  InspectionOutcome,
+  InspectionPlanQuery,
+} from "#typepeek/inspection/protocol";
 import {
   constructInterfaceOverview,
   type InspectionResultConstructionContext,
@@ -45,39 +51,55 @@ function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOu
     identity: evidence.resultIdentity,
   };
 
-  if (analysisRequest.intent === "export-inspection") {
-    const result = inspectFocusedModuleExport(
-      evidence,
-      analysisRequest.request.exportName,
-      constructionContext,
-    );
-    return result === undefined
-      ? {
-          status: "not-found",
-          message: `Module Export "${analysisRequest.request.exportName}" was not found in "${request.specifier}".`,
-        }
-      : { status: "success", result };
+  if (analysisRequest.intent === "inspection-plan") {
+    const inspections: AtomicInspectionResult[] = [];
+    for (const query of analysisRequest.request.queries) {
+      const inspection = inspectEvidenceQuery(evidence, query, constructionContext);
+      if ("status" in inspection) {
+        return inspection;
+      }
+      inspections.push(inspection);
+    }
+    return {
+      status: "success",
+      result: { intent: "inspection-plan", inspections },
+    };
   }
 
-  if (analysisRequest.intent === "signature-inspection") {
-    const result = inspectModuleExportSignatures(
-      evidence,
-      analysisRequest.request.exportName,
-      constructionContext,
-    );
+  const inspection = inspectEvidenceQuery(
+    evidence,
+    analysisRequest.intent === "interface-overview"
+      ? { intent: analysisRequest.intent }
+      : { intent: analysisRequest.intent, exportName: analysisRequest.request.exportName },
+    constructionContext,
+  );
+  return "status" in inspection ? inspection : { status: "success", result: inspection };
+}
+
+function inspectEvidenceQuery(
+  evidence: InspectableModuleEvidence,
+  query: InspectionPlanQuery,
+  constructionContext: InspectionResultConstructionContext,
+): AtomicInspectionResult | InspectionFailure {
+  if (query.intent === "export-inspection") {
+    const result = inspectFocusedModuleExport(evidence, query.exportName, constructionContext);
     return result === undefined
-      ? missingExportOutcome(analysisRequest.request.exportName, request.specifier)
-      : { status: "success", result };
+      ? missingExportOutcome(query.exportName, constructionContext.specifier)
+      : result;
   }
 
-  return {
-    status: "success",
-    result: constructInterfaceOverview(
-      constructionContext,
-      evidence.publicSubpaths,
-      inspectModuleExports(evidence),
-    ),
-  };
+  if (query.intent === "signature-inspection") {
+    const result = inspectModuleExportSignatures(evidence, query.exportName, constructionContext);
+    return result === undefined
+      ? missingExportOutcome(query.exportName, constructionContext.specifier)
+      : result;
+  }
+
+  return constructInterfaceOverview(
+    constructionContext,
+    evidence.publicSubpaths,
+    inspectModuleExports(evidence),
+  );
 }
 
 function evidenceInspection(
@@ -92,10 +114,12 @@ function evidenceInspection(
       };
     case "interface-overview":
       return { intent: analysisRequest.intent };
+    case "inspection-plan":
+      return { intent: analysisRequest.intent, queries: analysisRequest.request.queries };
   }
 }
 
-function missingExportOutcome(exportName: string, specifier: string): InspectionOutcome {
+function missingExportOutcome(exportName: string, specifier: string): InspectionFailure {
   return {
     status: "not-found",
     message: `Module Export "${exportName}" was not found in "${specifier}".`,

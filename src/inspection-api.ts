@@ -3,8 +3,10 @@ export {
   inspectExport,
   inspectExportSignatures,
   inspectInterfaceOverview,
+  inspectPlan,
 } from "#typepeek/inspection/core";
 export type {
+  AtomicInspectionResult,
   ExportDeclarationSpace,
   ExportInspection,
   ExportInspectionRequest,
@@ -12,6 +14,9 @@ export type {
   InspectedDeclaration,
   InspectedSignature,
   InspectionOutcome,
+  InspectionPlan,
+  InspectionPlanQuery,
+  InspectionPlanRequest,
   InspectionResult,
   InterfaceOverview,
   InterfaceOverviewRequest,

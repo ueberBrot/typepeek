@@ -6,11 +6,14 @@ Every inspection is bounded in work, memory, traversal, and output. Exceeding a 
 
 Inspection Core starts one execa-managed Node subprocess per normalized request. It accepts one JSON result over byte-limited stdout only after exit code zero. The parent enforces a 10-second deadline, 100-millisecond kill escalation, 128 MiB old-generation heap, and 4 MiB stack. A process, rather than a worker thread, provides independent termination and startup-time memory enforcement.
 
+An Inspection Plan is still one normalized request and one subprocess. It contains at most 16 ordered queries for one Specifier and Access Style. The subprocess selects one Declaration Provider, materializes one bounded TypeScript program, and evaluates every query against that shared Installed Evidence. Any query failure fails the complete plan; partial results never cross the process boundary.
+
 ## Budgets
 
 | Area                                            | Bound                                                                  |
 | ----------------------------------------------- | ---------------------------------------------------------------------- |
 | Request / result construction / stdout / stderr | 16 / 60 / 64 / 64 KiB                                                  |
+| Inspection Plan                                 | 1 through 16 ordered queries; all-or-nothing result                    |
 | Terminal / JSON adapter output                  | 128 / 128 KiB                                                          |
 | Compiler host                                   | 50,000 operations; 8 MiB resolution reads; 384 files; 4 MiB source     |
 | Trusted standard-library catalog                | 128 files; 4 MiB source; 20,000 global names                           |
