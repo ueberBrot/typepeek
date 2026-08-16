@@ -586,6 +586,60 @@ export function enforceInspectionOutcome(
   }
 }
 
+/** Requires a complete outcome correlated with every selector in the normalized request. */
+export function enforceAnalysisRequestOutcome(
+  request: AnalysisRequest,
+  value: unknown,
+): InspectionOutcome {
+  if (request.intent === "inspection-plan") {
+    return enforceInspectionPlanOutcome(request.request, value);
+  }
+  if (request.intent === "declaration-inspection") {
+    return enforceDeclarationInspectionOutcome(request.request, value);
+  }
+  if (request.intent === "member-inspection") {
+    return enforceMemberInspectionOutcome(request.request, value);
+  }
+  const outcome = enforceInspectionOutcome(request.intent, value);
+  return outcome.status !== "success" || simpleResultMatchesRequest(outcome.result, request)
+    ? outcome
+    : INVALID_RESULT_OUTCOME;
+}
+
+function simpleResultMatchesRequest(
+  result: InspectionResult,
+  request: Exclude<
+    AnalysisRequest,
+    { readonly intent: "inspection-plan" | "declaration-inspection" | "member-inspection" }
+  >,
+): boolean {
+  return (
+    result.intent !== "inspection-plan" &&
+    inspectionMatchesTarget(result, request.request) &&
+    inspectionMatchesPlanQuery(result, simpleRequestPlanQuery(request))
+  );
+}
+
+function simpleRequestPlanQuery(
+  request: Exclude<
+    AnalysisRequest,
+    { readonly intent: "inspection-plan" | "declaration-inspection" | "member-inspection" }
+  >,
+): InspectionPlanQuery {
+  switch (request.intent) {
+    case "interface-overview":
+      return { intent: request.intent };
+    case "export-inspection":
+      return { intent: request.intent, exportName: request.request.exportName };
+    case "signature-inspection":
+      return { intent: request.intent, exportName: request.request.exportName };
+    case "export-search":
+      return { intent: request.intent, query: request.request.query };
+    case "public-subpath-discovery":
+      return { intent: request.intent };
+  }
+}
+
 /** Requires one complete result matching each ordered plan query exactly once. */
 export function enforceInspectionPlanOutcome(
   request: NormalizedInspectionPlanRequest,

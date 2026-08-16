@@ -25,9 +25,8 @@ import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { renderJsonOutcome } from "#typepeek/json-rendering";
 import { serializeTerminalSafeJson, terminalSafeLine } from "#typepeek/output-safety";
+import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 import { renderInspection, type TerminalRenderingOptions } from "#typepeek/terminal-rendering";
-
-import packageJson from "../package.json" with { type: "json" };
 
 const MAX_CLI_DIAGNOSTIC_BYTES = 128 * 1_024;
 const INSPECTION_FAILURE_EXIT_CODE = 1;
@@ -440,7 +439,7 @@ const app = buildApplication(rootRoute, {
     caseStyle: "allow-kebab-for-camel",
   },
   versionInfo: {
-    currentVersion: packageJson.version,
+    currentVersion: TYPEPEEK_VERSION,
   },
 });
 

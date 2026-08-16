@@ -57,6 +57,7 @@ interface BoundedCompilerHost extends ts.CompilerHost {
     fileName: string,
   ) => ts.SourceFile | undefined;
   readonly packageBoundaryObserver: PackageBoundaryObserver;
+  readonly observeResolution: CompilerWorkSession["observeResolution"];
   readonly resolveTypeReferenceDirectiveReferences: NonNullable<
     ts.CompilerHost["resolveTypeReferenceDirectiveReferences"]
   >;
@@ -689,6 +690,12 @@ function resolvedTypeReferenceSourceFile(
     host,
   ).resolvedTypeReferenceDirective;
   const resolvedFileName = resolution?.resolvedFileName;
+  host.observeResolution({
+    containingFile: containingFile.fileName,
+    kind: "type-reference",
+    ...(resolvedFileName === undefined ? {} : { resolvedPath: resolvedFileName }),
+    specifier: typeReferenceName,
+  });
   if (resolvedFileName === undefined) {
     throw unresolvedDeclarationReference();
   }
@@ -853,6 +860,7 @@ function createBoundedCompilerHost(
       return canonicalFileName === undefined ? undefined : sourceFiles.get(canonicalFileName);
     },
     packageBoundaryObserver,
+    observeResolution: compilerWorkSession.observeResolution,
     fileExists: (fileName) => resolutionHost.fileExists(fileName),
     readFile: (fileName) => resolutionHost.readFile(fileName),
     ...(resolutionHost.directoryExists === undefined
@@ -1031,6 +1039,13 @@ function resolveTypeReferenceDirectiveReference(
   )
     ? resolution
     : { ...resolution, resolvedTypeReferenceDirective: undefined };
+  const resolvedPath = authorizedResolution.resolvedTypeReferenceDirective?.resolvedFileName;
+  state.compilerWorkSession.observeResolution({
+    containingFile,
+    kind: "type-reference",
+    ...(resolvedPath === undefined ? {} : { resolvedPath }),
+    specifier: referenceName,
+  });
   state.typeReferenceResolutions.set(cacheKey, authorizedResolution);
   return authorizedResolution;
 }
@@ -1154,6 +1169,7 @@ function resolveModuleLiteral(
   options: ts.CompilerOptions,
   containingSourceFile: ts.SourceFile,
 ): ts.ResolvedModuleWithFailedLookupLocations {
+  const mode = ts.getModeForUsageLocation(containingSourceFile, moduleLiteral, options);
   const resolution = ts.resolveModuleName(
     moduleLiteral.text,
     containingFile,
@@ -1161,10 +1177,10 @@ function resolveModuleLiteral(
     createBoundedResolutionHost(state),
     undefined,
     redirectedReference,
-    ts.getModeForUsageLocation(containingSourceFile, moduleLiteral, options),
+    mode,
   );
   // Relative imports cannot authorize another package root.
-  return authorizeExternalPackage(
+  const authorizedResolution = authorizeExternalPackage(
     state,
     moduleLiteral.text,
     containingFile,
@@ -1172,6 +1188,15 @@ function resolveModuleLiteral(
   )
     ? resolution
     : { ...resolution, resolvedModule: undefined };
+  const resolvedPath = authorizedResolution.resolvedModule?.resolvedFileName;
+  state.compilerWorkSession.observeResolution({
+    accessStyle: mode === ts.ModuleKind.CommonJS ? "require" : "import",
+    containingFile,
+    kind: "module",
+    ...(resolvedPath === undefined ? {} : { resolvedPath }),
+    specifier: moduleLiteral.text,
+  });
+  return authorizedResolution;
 }
 
 function authorizeExternalPackage(
@@ -1327,6 +1352,7 @@ function readSourceText(
       "Inspection exceeded its declaration byte limit.",
     );
     state.sourceByteCount += Buffer.byteLength(sourceText);
+    state.compilerWorkSession.observeEvidenceFile(sourcePath, sourceText, "declaration");
     return sourceText;
   } catch (error) {
     if (error instanceof InspectionLimitError) {

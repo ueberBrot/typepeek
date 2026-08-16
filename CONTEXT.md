@@ -24,6 +24,14 @@ _Avoid_: comments, explanation
 The manifests, declarations, package-exposed TypeScript source, and attached Package Documentation already present in the repository's Supported Installation. Registry data, online documentation, and files downloaded during inspection are not Installed Evidence.
 _Avoid_: local truth, cached documentation
 
+**Installed Evidence Proof**:
+A bounded internal receipt of the canonical resolution choices, directory topology, and content fingerprints consumed by one completed inspection. It can invalidate an optional Inspection Cache Entry but never substitutes for Installed Evidence or crosses the public Inspection Core interface.
+_Avoid_: lockfile, cache key, Inspection Result
+
+**Inspection Cache Entry**:
+An optional, integrity-protected copy of one validated complete successful Inspection Outcome together with its normalized request, implementation and budget identities, canonical Installed Evidence identity, and Installed Evidence Proof. It is reusable only after bounded proof replay succeeds; a miss or invalid entry has no effect on inspection authority.
+_Avoid_: Installed Evidence, source of truth, partial result
+
 **Static Inspection**:
 Inspection that reads Installed Evidence without importing a package, executing dependency code, running package scripts, or evaluating project configuration code.
 _Avoid_: safe execution, runtime inspection

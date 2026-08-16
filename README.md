@@ -156,6 +156,19 @@ non-authoritative phase timings as JSON on stderr. Profiling never changes the
 Inspection Outcome on stdout and is disabled by default. Build and package
 artifacts exclude this repository-only diagnostic path.
 
+Successful inspections are reused across CLI invocations only while their
+bounded Installed Evidence Proof still matches every consumed manifest,
+declaration, resolution choice, and traversed Public Subpath directory. Failed,
+partial, bounded, or terminated analysis is never cached. The cache is an
+internal optimization and never appears in an Inspection Result or the public
+Inspection Core interface. By default it uses a private versioned directory
+under the operating-system temporary directory; set
+`TYPEPEEK_CACHE_DIRECTORY` to an absolute private directory when an isolated or
+longer-lived cache is desired. Direct source execution caches only with this
+explicit setting because it has no stable packaged-build identity. Persistent
+caching is disabled on Windows until directory privacy can be verified. Removing
+the directory is always safe.
+
 Run the source entry directly while developing:
 
 ```bash

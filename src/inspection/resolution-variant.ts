@@ -109,6 +109,7 @@ export function selectResolutionVariant({
             packageRoot,
             declarationRoots,
             resolver,
+            compilerWorkSession.observeEvidenceDirectory,
           )
         : [],
   };
@@ -131,12 +132,14 @@ function publicSubpathSpecifiers(
   packageRoot: string,
   declarationRoots: readonly string[],
   resolver: PackageDeclarationResolver,
+  observeEvidenceDirectory: CompilerWorkSession["observeEvidenceDirectory"],
 ): readonly PublicSubpath[] {
   return publicSubpathCandidates(
     packageRootSpecifier,
     exports,
     packageRoot,
     resolver.conditions,
+    observeEvidenceDirectory,
   ).flatMap((specifier) =>
     isResolvablePublicSubpath(specifier, declarationRoots, resolver) ? [{ specifier }] : [],
   );
@@ -147,6 +150,7 @@ function publicSubpathCandidates(
   exports: unknown,
   packageRoot: string,
   conditions: ResolutionConditions,
+  observeEvidenceDirectory: CompilerWorkSession["observeEvidenceDirectory"],
 ): readonly string[] {
   const subpathEntries = publicSubpathEntries(exports);
   assertPublicSubpathCount(subpathEntries.length);
@@ -167,6 +171,7 @@ function publicSubpathCandidates(
       conditions,
       targetTraversal,
       fileTraversal,
+      observeEvidenceDirectory,
     )) {
       candidateSpecifiers.add(specifier);
       assertPublicSubpathCount(candidateSpecifiers.size);
@@ -184,12 +189,18 @@ function publicSubpathEntryCandidates(
   conditions: ResolutionConditions,
   targetTraversal: ExportTargetTraversal,
   fileTraversal: { entries: number },
+  observeEvidenceDirectory: CompilerWorkSession["observeEvidenceDirectory"],
 ): readonly string[] {
   if (!subpathKey.includes("*")) {
     return [`${packageRootSpecifier}${subpathKey.slice(1)}`];
   }
   return exportTargetPatterns(target, conditions, targetTraversal).flatMap((targetPattern) =>
-    packageTargetCaptures(packageRoot, targetPattern, fileTraversal).flatMap((capture) =>
+    packageTargetCaptures(
+      packageRoot,
+      targetPattern,
+      fileTraversal,
+      observeEvidenceDirectory,
+    ).flatMap((capture) =>
       concretePublicSubpathSpecifier(packageRootSpecifier, subpathKey, capture),
     ),
   );
@@ -414,12 +425,13 @@ function packageTargetCaptures(
   packageRoot: string,
   targetPattern: string,
   traversal: { entries: number },
+  observeEvidenceDirectory: CompilerWorkSession["observeEvidenceDirectory"],
 ): readonly string[] {
   const wildcardIndex = targetPattern.indexOf("*");
   const prefix = targetPattern.slice(0, wildcardIndex);
   const suffix = targetPattern.slice(wildcardIndex + 1);
   const searchRoot = join(packageRoot, dirname(prefix.slice(2)));
-  return readBoundedPackageFiles(packageRoot, searchRoot, traversal)
+  return readBoundedPackageFiles(packageRoot, searchRoot, traversal, observeEvidenceDirectory)
     .flatMap((packageFile) => packageTargetCapture(packageRoot, packageFile, prefix, suffix))
     .sort();
 }
@@ -442,9 +454,11 @@ function readBoundedPackageFiles(
   packageRoot: string,
   searchRoot: string,
   traversal: { entries: number },
+  observeEvidenceDirectory: CompilerWorkSession["observeEvidenceDirectory"],
 ): readonly string[] {
   const readableSearchRoot = readPackageSearchRoot(packageRoot, searchRoot);
   if (readableSearchRoot === undefined) {
+    observeNearestReadableAncestor(packageRoot, searchRoot, traversal, observeEvidenceDirectory);
     return [];
   }
   const files: string[] = [];
@@ -465,8 +479,10 @@ function readBoundedPackageFiles(
         "Inspection exceeded its Public Subpath file traversal depth limit.",
       );
     }
-    const entries = readBoundedDirectoryEntries(candidate.canonicalDirectory, traversal).flatMap(
-      (entry) => readPackageEntry(packageRoot, candidate.logicalDirectory, entry),
+    const directoryEntries = readBoundedDirectoryEntries(candidate.canonicalDirectory, traversal);
+    observeEvidenceDirectory?.(candidate.canonicalDirectory, directoryEntries);
+    const entries = directoryEntries.flatMap((entry) =>
+      readPackageEntry(packageRoot, candidate.logicalDirectory, entry),
     );
     pending.push(
       ...entries
@@ -487,6 +503,37 @@ function readBoundedPackageFiles(
     );
   }
   return files;
+}
+
+function observeNearestReadableAncestor(
+  packageRoot: string,
+  searchRoot: string,
+  traversal: { entries: number },
+  observeEvidenceDirectory: CompilerWorkSession["observeEvidenceDirectory"],
+): void {
+  if (observeEvidenceDirectory === undefined) {
+    return;
+  }
+  let candidate = dirname(searchRoot);
+  while (isPathWithin(packageRoot, candidate)) {
+    const canonicalCandidate = canonicalEvidencePath(candidate);
+    if (
+      canonicalCandidate !== undefined &&
+      isPathWithin(packageRoot, canonicalCandidate) &&
+      isEvidenceDirectory(canonicalCandidate)
+    ) {
+      observeEvidenceDirectory(
+        canonicalCandidate,
+        readBoundedDirectoryEntries(canonicalCandidate, traversal),
+      );
+      return;
+    }
+    const parent = dirname(candidate);
+    if (parent === candidate) {
+      return;
+    }
+    candidate = parent;
+  }
 }
 
 function readPackageSearchRoot(

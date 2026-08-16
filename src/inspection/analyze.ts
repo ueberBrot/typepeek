@@ -9,11 +9,23 @@ import {
   inspectFocusedModuleExportMember,
 } from "#typepeek/inspection/export-inspection";
 import {
+  createInspectionCacheIdentity,
+  createInspectionCacheHitNotice,
+  type InspectionCacheHitNotice,
+  createInspectionCacheWriteReceipt,
+  type InspectionCacheWriteReceipt,
+  readInspectionCacheOutcome,
+} from "#typepeek/inspection/inspection-cache";
+import {
   type InspectableModuleEvidence,
   type InspectableModuleDiscoveryEvidence,
-  readInspectableModuleDiscoveryEvidence,
-  readInspectableModuleEvidence,
+  type InspectableModuleSelection,
+  inspectableModuleDiscoveryEvidence,
+  materializeInspectableModuleEvidence,
+  selectInspectableModule,
 } from "#typepeek/inspection/installed-evidence";
+import { createInstalledEvidenceFingerprintRecorder } from "#typepeek/inspection/installed-evidence-fingerprint";
+import { profileInspectionPhase } from "#typepeek/inspection/performance-profile";
 import type {
   AnalysisRequest,
   AtomicInspectionResult,
@@ -48,22 +60,72 @@ export function analyzeInspection(analysisRequest: AnalysisRequest): InspectionO
   }
 }
 
-function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOutcome {
-  return analysisRequiresProgram(analysisRequest)
-    ? inspectInstalledPackageProgram(analysisRequest)
-    : inspectInstalledPackageDiscovery(analysisRequest);
+export interface CachedAnalysisExecution {
+  readonly cacheHit?: InspectionCacheHitNotice;
+  readonly cacheWrite?: InspectionCacheWriteReceipt;
+  readonly outcome: InspectionOutcome;
 }
 
-function inspectInstalledPackageProgram(analysisRequest: AnalysisRequest): InspectionOutcome {
-  const { request } = analysisRequest;
-  const evidence = readInspectableModuleEvidence(request, evidenceInspection(analysisRequest));
-  if (evidence === undefined) {
-    return {
-      status: "not-found",
-      reason: "specifier-not-found",
-      message: `Specifier "${request.specifier}" is not installed from this Resolution Context.`,
-    };
+/** Uses only a previously validated complete outcome whose Installed Evidence still matches. */
+export function analyzeInspectionWithCache(
+  analysisRequest: AnalysisRequest,
+  readCache = true,
+): CachedAnalysisExecution {
+  const recorder = createInstalledEvidenceFingerprintRecorder();
+  try {
+    const selection = selectInspectableModule(analysisRequest.request, recorder);
+    if (selection === undefined) {
+      return { outcome: missingSpecifierOutcome(analysisRequest.request.specifier) };
+    }
+    const identity = createInspectionCacheIdentity(analysisRequest, selection);
+    const selectionEvidence = recorder.snapshot();
+    const cachedOutcome =
+      !readCache || selectionEvidence === undefined
+        ? undefined
+        : readInspectionCacheOutcome(identity, selectionEvidence);
+    if (cachedOutcome !== undefined) {
+      return {
+        cacheHit: createInspectionCacheHitNotice(identity),
+        outcome: profileInspectionPhase("inspection-cache-hit", () => cachedOutcome),
+      };
+    }
+    profileInspectionPhase("inspection-cache-miss", () => undefined);
+    const outcome = inspectSelectedPackage(analysisRequest, selection);
+    const cacheWrite =
+      outcome.status === "success"
+        ? createInspectionCacheWriteReceipt(identity, recorder.snapshot())
+        : undefined;
+    return cacheWrite === undefined ? { outcome } : { cacheWrite, outcome };
+  } catch (error) {
+    return { outcome: errorOutcome(error) };
   }
+}
+
+function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOutcome {
+  const selection = selectInspectableModule(analysisRequest.request);
+  return selection === undefined
+    ? missingSpecifierOutcome(analysisRequest.request.specifier)
+    : inspectSelectedPackage(analysisRequest, selection);
+}
+
+function inspectSelectedPackage(
+  analysisRequest: AnalysisRequest,
+  selection: InspectableModuleSelection,
+): InspectionOutcome {
+  return analysisRequiresProgram(analysisRequest)
+    ? inspectInstalledPackageProgram(analysisRequest, selection)
+    : inspectInstalledPackageDiscovery(analysisRequest, selection);
+}
+
+function inspectInstalledPackageProgram(
+  analysisRequest: AnalysisRequest,
+  selection: InspectableModuleSelection,
+): InspectionOutcome {
+  const { request } = analysisRequest;
+  const evidence = materializeInspectableModuleEvidence(
+    selection,
+    evidenceInspection(analysisRequest),
+  );
   const constructionContext = createInspectionResultConstructionContext({
     specifier: request.specifier,
     resolutionVariant: { accessStyle: request.accessStyle },
@@ -117,12 +179,12 @@ function inspectionQuery(analysisRequest: AnalysisRequest): InspectionPlanQuery 
   }
 }
 
-function inspectInstalledPackageDiscovery(analysisRequest: AnalysisRequest): InspectionOutcome {
+function inspectInstalledPackageDiscovery(
+  analysisRequest: AnalysisRequest,
+  selection: InspectableModuleSelection,
+): InspectionOutcome {
   const { request } = analysisRequest;
-  const evidence = readInspectableModuleDiscoveryEvidence(request);
-  if (evidence === undefined) {
-    return missingSpecifierOutcome(request.specifier);
-  }
+  const evidence = inspectableModuleDiscoveryEvidence(selection);
   const context = inspectionConstructionContext(request, evidence.resultIdentity);
   const publicSubpaths = evidence.publicSubpaths;
   if (analysisRequest.intent === "public-subpath-discovery") {
@@ -295,7 +357,7 @@ function inspectPublicSubpathQuery(
 
 function evidenceInspection(
   analysisRequest: AnalysisRequest,
-): Parameters<typeof readInspectableModuleEvidence>[1] {
+): Parameters<typeof materializeInspectableModuleEvidence>[1] {
   switch (analysisRequest.intent) {
     case "export-inspection":
     case "signature-inspection":
