@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 
+import { assertRepositoryProfilingExcluded } from "./artifact-boundary.ts";
+
+await assertRepositoryProfilingExcluded("dist");
+
 const cli = spawnSync(process.execPath, ["dist/cli.js", "--help"], {
   encoding: "utf8",
 });

@@ -1,6 +1,10 @@
 import { execaNode } from "execa";
 
 import {
+  forwardInspectionProfile,
+  inspectionProfilingEnabled,
+} from "#typepeek/inspection/performance-profile";
+import {
   enforceInspectionOutcome,
   type AnalysisRequest,
   type InspectionOutcome,
@@ -51,7 +55,12 @@ export async function runBoundedAnalysis(request: AnalysisRequest): Promise<Insp
       message: "Inspection exceeded its request input limit.",
     };
   }
-  return runProcess(request, analysisProcessEntryUrl(), PRODUCTION_LIMITS);
+  return runProcess(
+    request,
+    analysisProcessEntryUrl(),
+    PRODUCTION_LIMITS,
+    inspectionProfilingEnabled,
+  );
 }
 
 /** Exact trusted Node arguments shared with static-inspection adapters. */
@@ -69,7 +78,7 @@ export async function runAnalysisFixtureProcess(
   entryUrl: URL,
   limits: AnalysisProcessLimits,
 ): Promise<InspectionOutcome> {
-  return runProcess(request, entryUrl, limits);
+  return runProcess(request, entryUrl, limits, false);
 }
 
 /**
@@ -80,6 +89,7 @@ async function runProcess(
   request: AnalysisRequest,
   entryUrl: URL,
   limits: AnalysisProcessLimits,
+  forwardProfile: boolean,
 ): Promise<InspectionOutcome> {
   const result = await execaNode(entryUrl, [], {
     ipcInput: request,
@@ -109,6 +119,9 @@ async function runProcess(
   }
   if (result.failed || result.exitCode !== 0) {
     return TERMINATED_OUTCOME;
+  }
+  if (forwardProfile) {
+    forwardInspectionProfile(result.stderr);
   }
   const resultBytes = result.stdout.byteLength;
   if (resultBytes > limits.maxResultBytes) {

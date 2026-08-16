@@ -30,6 +30,7 @@ import {
   isKnownNodePlatformSpecifier,
   isNodePlatformSpecifier,
 } from "#typepeek/inspection/node-declaration-authority";
+import { profileInspectionPhase } from "#typepeek/inspection/performance-profile";
 import {
   type NormalizedInspectionTarget,
   type InspectionResultIdentity,
@@ -90,8 +91,14 @@ export function readInspectableModuleEvidence(
   inspection: InstalledProgramInspection,
 ): InspectableModuleEvidence | undefined {
   assertAbsoluteResolutionContext(request.resolutionContext);
-  const selection = selectDeclarationProvider(request, createCompilerWorkSession());
-  return selection === undefined ? undefined : materializeInspectableModule(selection, inspection);
+  const selection = profileInspectionPhase("declaration-provider-selection", () =>
+    selectDeclarationProvider(request, createCompilerWorkSession()),
+  );
+  return selection === undefined
+    ? undefined
+    : profileInspectionPhase("program-materialization", () =>
+        materializeInspectableModule(selection, inspection),
+      );
 }
 
 function selectDeclarationProvider(
