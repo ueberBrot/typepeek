@@ -104,13 +104,29 @@ Plans accept 1 through 16 `interface-overview`, `export-inspection`,
 If any query fails, the whole plan returns that typed failure without partial
 results.
 
+Compare the complete Module Export and Public Subpath indexes selected by two
+Resolution Contexts, Access Styles, Specifiers, or installed versions:
+
+```bash
+typepeek compare zod zod \
+  --before-context ./before \
+  --after-context ./after \
+  --before-access import \
+  --after-access require
+```
+
+The directional result preserves both Package or Declaration Provider
+identities and both Resolution Variants. It reports added and removed names; it
+does not claim that a retained name has unchanged declarations or signatures.
+Use focused Declaration or Signature Inspection when that distinction matters.
+
 Discover the adapter contract without inspecting a package:
 
 ```bash
 typepeek capabilities
 ```
 
-The result declares protocol version 1, supported intents, stable Failure
+The result declares protocol version 2, supported intents, stable Failure
 Reasons, and the Budget Dimensions reported by bounded failures.
 
 CLI `--json` is an adapter rendering, not the versioned Inspection Protocol. It
@@ -123,7 +139,8 @@ release compatibility policy; Inspection Protocol changes are represented by a
 new protocol version.
 
 The common `--access`, `--context`, and `--json` options may precede or follow an
-explicit command. `--subpaths` and `--match` affect only human Interface
+ordinary single-target command. Comparison uses explicit `--before-*` and
+`--after-*` target options plus the common `--json` option. `--subpaths` and `--match` affect only human Interface
 Overview rendering and cannot be combined with `--json`, whose complete result
 already contains every Public Subpath and Module Export. Put `--` before a
 Module Export name that begins with a hyphen. The `export` and `signatures`

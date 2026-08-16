@@ -235,6 +235,9 @@ function outcomeMatchesCacheIdentity(
   result: InspectionResult,
   identity: InspectionCacheIdentityValue,
 ): boolean {
+  if (result.intent === "public-interface-comparison") {
+    return false;
+  }
   return result.intent === "inspection-plan"
     ? result.inspections.length > 0 &&
         result.inspections.every((inspection) =>

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 import {
   INSPECTION_PROTOCOL_VERSION,
   INSPECTION_INTENTS,
+  comparePublicInterfaces,
   inspectCapabilities,
   inspectExport,
   invokeInspectionProtocol,
@@ -34,6 +35,7 @@ it("publishes deterministic adapter capabilities without TypeScript enums", () =
       "declaration-inspection",
       "member-inspection",
       "inspection-plan",
+      "public-interface-comparison",
     ],
     failureReasons: [
       "specifier-not-found",
@@ -59,6 +61,30 @@ it("publishes deterministic adapter capabilities without TypeScript enums", () =
       "merged-declarations",
     ]),
   });
+});
+
+it("dispatches Public Interface comparison through the versioned protocol", async () => {
+  const request = {
+    before: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/conditional",
+      accessStyle: "import",
+    },
+    after: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/conditional",
+      accessStyle: "require",
+    },
+  } as const;
+
+  const direct = await comparePublicInterfaces(request);
+  await expect(
+    invokeInspectionProtocol({
+      protocolVersion: INSPECTION_PROTOCOL_VERSION,
+      intent: "public-interface-comparison",
+      request,
+    }),
+  ).resolves.toEqual({ protocolVersion: INSPECTION_PROTOCOL_VERSION, outcome: direct });
 });
 
 it("returns machine-readable reasons and exceeded budget dimensions", async () => {
@@ -97,7 +123,7 @@ it("returns machine-readable reasons and exceeded budget dimensions", async () =
 it("rejects unsupported protocol versions before inspection", async () => {
   await expect(
     invokeInspectionProtocol({
-      protocolVersion: "999",
+      protocolVersion: "1",
       intent: "interface-overview",
       request: {
         resolutionContext: fixture.resolutionContext,
@@ -109,7 +135,7 @@ it("rejects unsupported protocol versions before inspection", async () => {
     outcome: {
       status: "unsupported",
       reason: "unsupported-protocol-version",
-      message: 'Inspection protocol version "999" is not supported.',
+      message: 'Inspection protocol version "1" is not supported.',
     },
   });
 });

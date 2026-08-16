@@ -11,6 +11,8 @@ import type {
   MemberInspection,
   PackageIdentity,
   PublicSubpathDiscovery,
+  PublicInterfaceComparison,
+  PublicInterfaceComparisonTarget,
   ResolutionVariant,
   SignatureInspection,
 } from "#typepeek/inspection";
@@ -46,6 +48,15 @@ function renderInspectionResult(
   result: InspectionResult,
   options: TerminalRenderingOptions,
 ): string {
+  return result.intent === "public-interface-comparison"
+    ? renderPublicInterfaceComparison(result)
+    : renderSingleTargetInspectionResult(result, options);
+}
+
+function renderSingleTargetInspectionResult(
+  result: Exclude<InspectionResult, PublicInterfaceComparison>,
+  options: TerminalRenderingOptions,
+): string {
   switch (result.intent) {
     case "interface-overview":
       return renderInterfaceOverview(
@@ -68,6 +79,36 @@ function renderInspectionResult(
     case "member-inspection":
       return renderMemberInspection(result);
   }
+}
+
+function renderPublicInterfaceComparison(result: PublicInterfaceComparison): string {
+  return [
+    "Public Interface Comparison (Interface Overview indexes)",
+    ...renderComparisonTarget("Before", result.before),
+    ...renderComparisonTarget("After", result.after),
+    `Module Exports (${result.moduleExports.added.length} added, ${result.moduleExports.removed.length} removed):`,
+    ...result.moduleExports.added.map(({ name }) => `+ ${terminalSafeLine(name)}`),
+    ...result.moduleExports.removed.map(({ name }) => `- ${terminalSafeLine(name)}`),
+    `Public Subpaths (${result.publicSubpaths.added.length} added, ${result.publicSubpaths.removed.length} removed):`,
+    ...result.publicSubpaths.added.map(({ specifier }) => `+ ${terminalSafeLine(specifier)}`),
+    ...result.publicSubpaths.removed.map(({ specifier }) => `- ${terminalSafeLine(specifier)}`),
+  ].join("\n");
+}
+
+function renderComparisonTarget(
+  label: "Before" | "After",
+  target: PublicInterfaceComparisonTarget,
+): readonly string[] {
+  return [
+    `${label} Specifier: ${terminalSafeLine(target.specifier)}`,
+    `${label} Access Style: ${terminalSafeLine(target.resolutionVariant.accessStyle)}`,
+    ...(target.packageIdentity === undefined
+      ? []
+      : [`${label} Package: ${renderPackageIdentity(target.packageIdentity)}`]),
+    ...(target.declarationProvider === undefined
+      ? []
+      : [`${label} Declaration Provider: ${renderPackageIdentity(target.declarationProvider)}`]),
+  ];
 }
 
 function renderDeclarationInspection(result: DeclarationInspection): string {

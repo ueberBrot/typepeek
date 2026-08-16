@@ -8,12 +8,15 @@ Inspection Core starts one execa-managed Node subprocess per normalized request.
 
 An Inspection Plan is still one normalized request and one subprocess. It contains at most 16 ordered queries for one Specifier and Access Style. The subprocess selects one Declaration Provider and evaluates every query against that shared Installed Evidence. It materializes one bounded TypeScript program when any query needs declaration evidence; a plan containing only Public Subpath Discovery queries remains manifest-only. Compiler, traversal, result-construction, protocol, and transport limits are aggregate plan budgets. Any query failure or aggregate exhaustion fails the complete plan; partial results never cross the process boundary.
 
+A Public Interface Comparison owns exactly two independent normalized Interface Overview requests. Each side retains its own Resolution Context, Specifier, Access Style, Installed Evidence identity, cache decision, and isolated subprocess; neither side's Resolution Variant is merged into the other. Both must succeed before the parent constructs one directional index delta under the ordinary aggregate result-construction budget. A failure on either side fails the comparison without exposing a partial comparison.
+
 ## Budgets
 
 | Area                                            | Bound                                                                  |
 | ----------------------------------------------- | ---------------------------------------------------------------------- |
 | Request / result construction / stdout / stderr | 16 / 60 / 64 / 64 KiB                                                  |
 | Inspection Plan                                 | 1 through 16 ordered queries; all-or-nothing result                    |
+| Public Interface Comparison                     | exactly 2 bounded Interface Overviews; all-or-nothing delta            |
 | Terminal / JSON adapter output                  | 128 / 128 KiB                                                          |
 | Compiler host                                   | 50,000 operations; 8 MiB resolution reads; 384 files; 4 MiB source     |
 | Trusted standard-library catalog                | 128 files; 4 MiB source; 20,000 global names                           |

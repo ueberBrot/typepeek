@@ -51,6 +51,7 @@ describe("typepeek CLI", () => {
     expect(result.stdout).toContain("subpaths");
     expect(result.stdout).toContain("declarations");
     expect(result.stdout).toContain("member");
+    expect(result.stdout).toContain("compare");
     expect(result.stdout).toContain("capabilities");
   });
 
@@ -68,9 +69,37 @@ describe("typepeek CLI", () => {
 
     expect(JSON.parse(result.stdout)).toMatchObject({
       intent: "capabilities",
-      protocolVersion: "1",
-      supportedIntents: expect.arrayContaining(["inspection-plan", "member-inspection"]),
+      protocolVersion: "2",
+      supportedIntents: expect.arrayContaining([
+        "inspection-plan",
+        "member-inspection",
+        "public-interface-comparison",
+      ]),
     });
+  });
+
+  it("compares two Interface Overview indexes through the CLI", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "compare",
+      "@typepeek-fixture/conditional",
+      "@typepeek-fixture/conditional",
+      "--before-context",
+      fixture.resolutionContext,
+      "--after-context",
+      fixture.resolutionContext,
+      "--before-access",
+      "import",
+      "--after-access",
+      "require",
+    ]);
+
+    expect(result.stdout).toContain("Public Interface Comparison");
+    expect(result.stdout).toContain("Before Access Style: import");
+    expect(result.stdout).toContain("After Access Style: require");
+    expect(result.stdout).toContain("+ requireExport");
+    expect(result.stdout).toContain("- importExport");
+    expect(result.stderr).toBe("");
   });
 
   it("renders declaration-only inspection", async () => {

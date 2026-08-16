@@ -3,6 +3,7 @@ import { access } from "node:fs/promises";
 import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
 import {
+  comparePublicInterfaces,
   inspectExport,
   inspectExportDeclarations,
   inspectExportMember,
@@ -24,6 +25,68 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await fixture?.cleanup();
+});
+
+it("compares complete Interface Overview indexes without merging Resolution Variants", async () => {
+  const outcome = await comparePublicInterfaces({
+    before: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/conditional",
+      accessStyle: "import",
+    },
+    after: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/conditional",
+      accessStyle: "require",
+    },
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "public-interface-comparison",
+      scope: "interface-overview",
+      before: {
+        specifier: "@typepeek-fixture/conditional",
+        resolutionVariant: { accessStyle: "import" },
+      },
+      after: {
+        specifier: "@typepeek-fixture/conditional",
+        resolutionVariant: { accessStyle: "require" },
+      },
+      moduleExports: {
+        added: [{ name: "requireExport" }],
+        removed: [{ name: "importExport" }],
+      },
+      publicSubpaths: {
+        added: [
+          { specifier: "@typepeek-fixture/conditional/require-feature" },
+          { specifier: "@typepeek-fixture/conditional/require-patterns/blue" },
+        ],
+        removed: [],
+      },
+    },
+  });
+});
+
+it("fails a comparison without returning a partial side", async () => {
+  const outcome = await comparePublicInterfaces({
+    before: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/missing-before",
+    },
+    after: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/focused",
+    },
+  });
+
+  expect(outcome).toEqual({
+    status: "not-found",
+    reason: "specifier-not-found",
+    message:
+      'Specifier "@typepeek-fixture/missing-before" is not installed from this Resolution Context.',
+  });
 });
 
 it("executes one atomic inspection plan over shared Installed Evidence", async () => {
