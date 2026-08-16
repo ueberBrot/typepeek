@@ -6,6 +6,7 @@ import {
   inspectExport,
   inspectExportSignatures,
   inspectInterfaceOverview,
+  inspectPlan,
 } from "#typepeek/inspection";
 import { analyzeInspection } from "#typepeek/inspection/analyze";
 
@@ -19,6 +20,65 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await fixture?.cleanup();
+});
+
+it("executes one atomic inspection plan over shared Installed Evidence", async () => {
+  const outcome = await inspectPlan({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    queries: [
+      { intent: "interface-overview" },
+      { intent: "signature-inspection", exportName: "detailed" },
+      { intent: "export-inspection", exportName: "createWidget" },
+    ],
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "inspection-plan",
+      inspections: [
+        { intent: "interface-overview" },
+        { intent: "signature-inspection", moduleExport: { name: "detailed" } },
+        { intent: "export-inspection", moduleExport: { name: "createWidget" } },
+      ],
+    },
+  });
+});
+
+it("fails an inspection plan atomically when one selected export is missing", async () => {
+  const outcome = await inspectPlan({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    queries: [
+      { intent: "interface-overview" },
+      { intent: "signature-inspection", exportName: "missing" },
+    ],
+  });
+
+  expect(outcome).toEqual({
+    status: "not-found",
+    message: 'Module Export "missing" was not found in "@typepeek-fixture/focused".',
+  });
+});
+
+it("applies one aggregate result-construction budget to an inspection plan", async () => {
+  const request = {
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/plan-aggregate-output",
+    accessStyle: "import",
+    queries: Array.from(
+      { length: 16 },
+      () => ({ intent: "export-inspection", exportName: "inspect" }) as const,
+    ),
+  } as const;
+  const expected = {
+    status: "limit-exceeded",
+    message: "Inspection exceeded its output limit.",
+  } as const;
+
+  expect(analyzeInspection({ intent: "inspection-plan", request })).toEqual(expected);
+  await expect(inspectPlan(request)).resolves.toEqual(expected);
 });
 
 it("fails explicitly before an oversized request crosses the analysis process seam", async () => {

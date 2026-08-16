@@ -2,6 +2,7 @@ import { expect, expectTypeOf, it } from "vite-plus/test";
 
 import {
   enforceInspectionOutcome,
+  enforceInspectionPlanOutcome,
   type ExportDeclarationSpace,
   type ExportInspection,
   type ExportNamespaceMember,
@@ -28,6 +29,43 @@ it("normalizes the default Access Style at the process-entry protocol seam", () 
       accessStyle: "import",
     },
   });
+});
+
+it("normalizes a bounded inspection plan at the process-entry protocol seam", () => {
+  expect(
+    readInspectionRequest("inspection-plan", {
+      resolutionContext: "/repository",
+      specifier: "example",
+      queries: [
+        { intent: "interface-overview" },
+        { intent: "signature-inspection", exportName: "createExample" },
+      ],
+    }),
+  ).toEqual({
+    accepted: true,
+    request: {
+      resolutionContext: "/repository",
+      specifier: "example",
+      accessStyle: "import",
+      queries: [
+        { intent: "interface-overview" },
+        { intent: "signature-inspection", exportName: "createExample" },
+      ],
+    },
+  });
+});
+
+it("rejects empty and oversized inspection plans", () => {
+  const target = { resolutionContext: "/repository", specifier: "example" };
+  expect(readInspectionRequest("inspection-plan", { ...target, queries: [] })).toMatchObject({
+    accepted: false,
+  });
+  expect(
+    readInspectionRequest("inspection-plan", {
+      ...target,
+      queries: Array.from({ length: 17 }, () => ({ intent: "interface-overview" })),
+    }),
+  ).toMatchObject({ accepted: false });
 });
 
 it("rejects an invalid Access Style at the process-entry protocol seam", () => {
@@ -104,6 +142,70 @@ it("rejects a structurally valid success for a different inspection intent", () 
     status: "unsupported",
     message: "Inspection returned an invalid result.",
   });
+});
+
+it("accepts an atomic Inspection Plan result for its requested intent", () => {
+  const outcome = {
+    status: "success",
+    result: {
+      intent: "inspection-plan",
+      inspections: [
+        {
+          intent: "interface-overview",
+          specifier: "example",
+          resolutionVariant: { accessStyle: "import" },
+          packageIdentity: { name: "example" },
+          publicSubpaths: [],
+          moduleExports: [{ name: "createExample" }],
+        },
+      ],
+    },
+  } as const;
+
+  expect(enforceInspectionOutcome("inspection-plan", outcome)).toEqual(outcome);
+  expect(enforceInspectionOutcome("interface-overview", outcome)).toEqual({
+    status: "unsupported",
+    message: "Inspection returned an invalid result.",
+  });
+});
+
+it("rejects a plan result that omits or reorders requested inspections", () => {
+  const overview = {
+    intent: "interface-overview",
+    specifier: "example",
+    resolutionVariant: { accessStyle: "import" },
+    packageIdentity: { name: "example" },
+    publicSubpaths: [],
+    moduleExports: [{ name: "createExample" }],
+  } as const;
+  const signatures = {
+    intent: "signature-inspection",
+    specifier: "example",
+    resolutionVariant: { accessStyle: "import" },
+    packageIdentity: { name: "example" },
+    moduleExport: { name: "createExample", signatures: [] },
+  } as const;
+  const queries = [
+    { intent: "interface-overview" },
+    { intent: "signature-inspection", exportName: "createExample" },
+  ] as const;
+  const invalid = {
+    status: "unsupported",
+    message: "Inspection returned an invalid result.",
+  } as const;
+
+  expect(
+    enforceInspectionPlanOutcome(queries, {
+      status: "success",
+      result: { intent: "inspection-plan", inspections: [overview] },
+    }),
+  ).toEqual(invalid);
+  expect(
+    enforceInspectionPlanOutcome(queries, {
+      status: "success",
+      result: { intent: "inspection-plan", inspections: [signatures, overview] },
+    }),
+  ).toEqual(invalid);
 });
 
 it("accepts a provider-backed Platform Module without a Package Identity", () => {

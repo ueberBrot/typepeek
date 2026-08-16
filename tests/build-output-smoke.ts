@@ -53,6 +53,11 @@ const inspectionApi = (await import(inspectionApiPath)) as {
     readonly specifier: string;
     readonly exportName: string;
   }) => Promise<unknown>;
+  readonly inspectPlan: (request: {
+    readonly resolutionContext: string;
+    readonly specifier: string;
+    readonly queries: readonly { readonly intent: "interface-overview" }[];
+  }) => Promise<unknown>;
 };
 const outcome = await inspectionApi.inspectExportSignatures({
   resolutionContext: resolve("."),
@@ -60,3 +65,13 @@ const outcome = await inspectionApi.inspectExportSignatures({
   exportName: "type",
 });
 assert.deepEqual(outcome, cliOutcome);
+const planOutcome = await inspectionApi.inspectPlan({
+  resolutionContext: resolve("."),
+  specifier: "arktype",
+  queries: [{ intent: "interface-overview" }],
+});
+assert.equal(
+  (planOutcome as { readonly status?: unknown }).status,
+  "success",
+  JSON.stringify(planOutcome),
+);

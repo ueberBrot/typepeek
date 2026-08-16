@@ -77,6 +77,18 @@ independently, and follows only the bounded Supporting Types reachable from the
 selected Module Export. Attached Package Documentation is labeled as untrusted
 Installed Evidence and sanitized before terminal presentation.
 
+Use an Inspection Plan when several questions concern the same Specifier. The
+ordered JSON query list runs atomically over one Declaration Provider selection
+and one TypeScript program materialization:
+
+```bash
+typepeek plan zod '[{"intent":"interface-overview"},{"intent":"signature-inspection","exportName":"ZodError"}]' --context . --json
+```
+
+Plans accept 1 through 16 `interface-overview`, `export-inspection`, or
+`signature-inspection` queries. If any query fails, the whole plan returns that
+typed failure without partial results.
+
 `--json` emits one complete, newline-terminated Inspection Outcome on stdout,
 including the selected Access Style. Successful inspections exit with status 0;
 typed inspection failures exit with status 1 and are also emitted as JSON on
@@ -154,14 +166,16 @@ import {
   inspectExport,
   inspectExportSignatures,
   inspectInterfaceOverview,
+  inspectPlan,
 } from "typepeek/inspection";
 ```
 
-All three functions accept a `resolutionContext` and `specifier`;
+All four functions accept a `resolutionContext` and `specifier`;
 `inspectExport` and `inspectExportSignatures` additionally accept an
-`exportName`. The CLI is one adapter over this interface. An MCP adapter is not
-implemented yet; it can live in this package later and call the same functions
-without invoking the CLI.
+`exportName`; `inspectPlan` accepts the bounded ordered query list. The CLI is
+one adapter over this interface. An MCP adapter is not implemented yet; it can
+live in this package later and call the same functions without invoking the
+CLI.
 
 pnpm rejects package versions published less than seven days ago.
 

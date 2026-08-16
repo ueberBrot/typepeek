@@ -205,6 +205,8 @@ const inspectionSchemas = type.module({
 });
 
 const inspectionOutcomeSchema = inspectionSchemas.inspectionOutcome.onDeepUndeclaredKey("reject");
+const atomicInspectionResultSchema =
+  inspectionSchemas.inspectionResult.onDeepUndeclaredKey("reject");
 
 /**
  * Projects ArkType-inferred protocol values into readonly TypeScript shapes.
@@ -248,6 +250,16 @@ export interface SignatureInspectionRequest extends InterfaceOverviewRequest {
 }
 export interface NormalizedSignatureInspectionRequest extends NormalizedInspectionTarget {
   readonly exportName: string;
+}
+export type InspectionPlanQuery =
+  | { readonly intent: "interface-overview" }
+  | { readonly intent: "export-inspection"; readonly exportName: string }
+  | { readonly intent: "signature-inspection"; readonly exportName: string };
+export interface InspectionPlanRequest extends InterfaceOverviewRequest {
+  readonly queries: readonly InspectionPlanQuery[];
+}
+export interface NormalizedInspectionPlanRequest extends NormalizedInspectionTarget {
+  readonly queries: readonly InspectionPlanQuery[];
 }
 export type ModuleExportIndexEntry = ProtocolType<
   typeof inspectionSchemas.moduleExportIndexEntry.infer
@@ -303,7 +315,12 @@ export type InspectedModuleExportSignatures = ProtocolType<
   typeof inspectionSchemas.inspectedModuleExportSignatures.infer
 >;
 export type SignatureInspection = ProtocolType<typeof inspectionSchemas.signatureInspection.infer>;
-export type InspectionResult = ProtocolType<typeof inspectionSchemas.inspectionResult.infer>;
+export type AtomicInspectionResult = InterfaceOverview | ExportInspection | SignatureInspection;
+export interface InspectionPlan {
+  readonly intent: "inspection-plan";
+  readonly inspections: readonly AtomicInspectionResult[];
+}
+export type InspectionResult = AtomicInspectionResult | InspectionPlan;
 export type InspectionFailure = ProtocolType<typeof inspectionSchemas.inspectionFailure.infer>;
 
 /** A complete Inspection Result or an explicit non-authoritative failure. */
@@ -330,7 +347,8 @@ export type AnalysisRequest =
   | {
       readonly intent: "signature-inspection";
       readonly request: NormalizedSignatureInspectionRequest;
-    };
+    }
+  | { readonly intent: "inspection-plan"; readonly request: NormalizedInspectionPlanRequest };
 
 export type AnalysisRequestReading =
   | {
@@ -365,6 +383,10 @@ export function enforceInspectionOutcome(
   value: unknown,
 ): InspectionOutcome<SignatureInspection>;
 export function enforceInspectionOutcome(
+  intent: "inspection-plan",
+  value: unknown,
+): InspectionOutcome<InspectionPlan>;
+export function enforceInspectionOutcome(
   intent: InspectionResult["intent"],
   value: unknown,
 ): InspectionOutcome;
@@ -384,14 +406,97 @@ export function enforceInspectionOutcome(
   }
 }
 
+/** Requires one complete result matching each ordered plan query exactly once. */
+export function enforceInspectionPlanOutcome(
+  queries: readonly InspectionPlanQuery[],
+  value: unknown,
+): InspectionOutcome<InspectionPlan> {
+  const outcome = enforceInspectionOutcome("inspection-plan", value);
+  if (outcome.status !== "success") {
+    return outcome;
+  }
+  return outcome.result.inspections.length === queries.length &&
+    outcome.result.inspections.every((inspection, index) =>
+      inspectionMatchesPlanQuery(inspection, queries[index]),
+    )
+    ? outcome
+    : INVALID_RESULT_OUTCOME;
+}
+
+function inspectionMatchesPlanQuery(
+  inspection: AtomicInspectionResult,
+  query: InspectionPlanQuery | undefined,
+): boolean {
+  if (query === undefined || inspection.intent !== query.intent) {
+    return false;
+  }
+  switch (query.intent) {
+    case "interface-overview":
+      return true;
+    case "export-inspection":
+    case "signature-inspection":
+      return (
+        inspection.intent === query.intent && inspection.moduleExport.name === query.exportName
+      );
+  }
+}
+
 function isInspectionOutcome(value: unknown): value is InspectionOutcome {
   // Manual graph guards run before ArkType so cyclic, sparse, accessor-backed,
   // or excessively deep values cannot make recursive schema validation unsafe.
+  if (!hasBoundedDataPropertyGraph(value) || !hasBoundedNamespaceGraph(value)) {
+    return false;
+  }
+  return isInspectionPlanSuccess(value)
+    ? isValidInspectionPlanSuccess(value)
+    : inspectionOutcomeSchema.allows(value);
+}
+
+function isInspectionPlanSuccess(value: unknown): boolean {
   return (
-    hasBoundedDataPropertyGraph(value) &&
-    hasBoundedNamespaceGraph(value) &&
-    inspectionOutcomeSchema.allows(value)
+    isRecord(value) &&
+    value["status"] === "success" &&
+    isRecord(value["result"]) &&
+    value["result"]["intent"] === "inspection-plan"
   );
+}
+
+function isValidInspectionPlanSuccess(value: unknown): value is InspectionOutcome<InspectionPlan> {
+  const result = inspectionPlanResult(value);
+  if (result === undefined) {
+    return false;
+  }
+  const inspections = result["inspections"];
+  return (
+    Array.isArray(inspections) &&
+    hasInspectionPlanLength(inspections) &&
+    everyArrayItem(inspections, (inspection) => atomicInspectionResultSchema.allows(inspection))
+  );
+}
+
+function inspectionPlanResult(value: unknown): Readonly<Record<string, unknown>> | undefined {
+  if (
+    !isRecord(value) ||
+    value["status"] !== "success" ||
+    !hasOnlyKeys(value, ["status", "result"])
+  ) {
+    return undefined;
+  }
+  const result = value["result"];
+  return isRecord(result) &&
+    result["intent"] === "inspection-plan" &&
+    hasOnlyKeys(result, ["intent", "inspections"])
+    ? result
+    : undefined;
+}
+
+function hasInspectionPlanLength(inspections: readonly unknown[]): boolean {
+  return inspections.length >= 1 && inspections.length <= 16;
+}
+
+function hasOnlyKeys(value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean {
+  const actualKeys = Object.keys(value);
+  return actualKeys.length === keys.length && keys.every((key) => actualKeys.includes(key));
 }
 
 function hasBoundedDataPropertyGraph(value: unknown): boolean {
@@ -459,6 +564,17 @@ function hasBoundedNamespaceGraph(value: unknown): boolean {
     return true;
   }
   const result = value["result"];
+  if (!isRecord(result)) {
+    return true;
+  }
+  const inspections =
+    result["intent"] === "inspection-plan" && Array.isArray(result["inspections"])
+      ? result["inspections"]
+      : [result];
+  return everyArrayItem(inspections, hasBoundedInspectionNamespaceGraph);
+}
+
+function hasBoundedInspectionNamespaceGraph(result: unknown): boolean {
   if (!isRecord(result) || result["intent"] !== "export-inspection") {
     return true;
   }

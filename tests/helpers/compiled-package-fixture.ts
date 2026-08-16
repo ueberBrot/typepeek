@@ -546,6 +546,21 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     runtime: 'throw new Error("Typepeek executed the aggregate output fixture runtime");\n',
   },
   {
+    directory: "plan-aggregate-output-package",
+    name: "@typepeek-fixture/plan-aggregate-output",
+    version: "1.0.0",
+    declaration: [
+      ...Array.from(
+        { length: 4 },
+        (_, index) =>
+          `interface PlanAggregate${index} { readonly property${index}: "${"x".repeat(1_100)}"; }`,
+      ),
+      "export declare function inspect(value: [PlanAggregate0, PlanAggregate1, PlanAggregate2, PlanAggregate3]): void;",
+      "",
+    ].join("\n"),
+    runtime: 'throw new Error("Typepeek executed the plan aggregate output fixture runtime");\n',
+  },
+  {
     directory: "deep-supporting-types-package",
     name: "@typepeek-fixture/deep-supporting-types",
     version: "1.0.0",

@@ -8,6 +8,7 @@ import type {
   ExportSignature,
   InspectedDeclaration,
   InspectedModuleExport,
+  InspectionPlan,
   InspectionResultIdentity,
   InterfaceOverview,
   InspectedSignature,
@@ -17,6 +18,7 @@ import type {
   ResolutionVariant,
   SignatureInspection,
   SupportingType,
+  AtomicInspectionResult,
 } from "#typepeek/inspection/protocol";
 
 const MAX_RESULT_CONSTRUCTION_BYTES = 60 * 1_024;
@@ -68,13 +70,37 @@ class ResultConstructionBudget {
   }
 }
 
+const constructionBudgets = new WeakMap<
+  InspectionResultConstructionContext,
+  ResultConstructionBudget
+>();
+
+export function createInspectionResultConstructionContext(
+  context: Omit<InspectionResultConstructionContext, "budget">,
+): InspectionResultConstructionContext {
+  const constructionContext = { ...context };
+  constructionBudgets.set(constructionContext, new ResultConstructionBudget());
+  return constructionContext;
+}
+
+function constructionBudget(
+  context: InspectionResultConstructionContext,
+): ResultConstructionBudget {
+  const budget = constructionBudgets.get(context);
+  if (budget === undefined) {
+    throw new Error("Inspection Result construction received an unowned context.");
+  }
+  return budget;
+}
+
 /** Owns exact aggregate accounting and assembly for one Export Inspection. */
 export class ExportInspectionConstruction {
-  readonly #budget = new ResultConstructionBudget();
+  readonly #budget: ResultConstructionBudget;
   readonly #context: InspectionResultConstructionContext;
 
   constructor(context: InspectionResultConstructionContext) {
     this.#context = context;
+    this.#budget = constructionBudget(context);
   }
 
   declaration<Value extends InspectedDeclaration>(value: Value): Value {
@@ -159,11 +185,12 @@ export class ExportInspectionConstruction {
 
 /** Owns aggregate accounting and assembly for one Signature Inspection. */
 export class SignatureInspectionConstruction {
-  readonly #budget = new ResultConstructionBudget();
+  readonly #budget: ResultConstructionBudget;
   readonly #context: InspectionResultConstructionContext;
 
   constructor(context: InspectionResultConstructionContext) {
     this.#context = context;
+    this.#budget = constructionBudget(context);
   }
 
   signature(value: InspectedSignature): InspectedSignature {
@@ -205,7 +232,7 @@ export function constructInterfaceOverview(
   publicSubpaths: readonly PublicSubpath[],
   moduleExports: readonly { readonly name: string }[],
 ): InterfaceOverview {
-  const budget = new ResultConstructionBudget();
+  const budget = constructionBudget(context);
   const retainedSubpaths = publicSubpaths.map((subpath) => budget.leaf(subpath));
   const retainedExports = moduleExports.map((moduleExport) => budget.leaf(moduleExport));
   return budget.container(
@@ -218,6 +245,17 @@ export function constructInterfaceOverview(
       moduleExports: retainedExports,
     },
     [...retainedSubpaths, ...retainedExports],
+  );
+}
+
+/** Completes one ordered plan while charging its children to the same aggregate budget. */
+export function constructInspectionPlan(
+  context: InspectionResultConstructionContext,
+  inspections: readonly AtomicInspectionResult[],
+): InspectionPlan {
+  return constructionBudget(context).container(
+    { intent: "inspection-plan", inspections },
+    inspections,
   );
 }
 

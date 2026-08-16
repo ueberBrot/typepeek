@@ -6,6 +6,7 @@ import {
 } from "#typepeek/inspection/performance-profile";
 import {
   enforceInspectionOutcome,
+  enforceInspectionPlanOutcome,
   type AnalysisRequest,
   type InspectionOutcome,
 } from "#typepeek/inspection/protocol";
@@ -132,7 +133,13 @@ async function runProcess(
     return INVALID_PROCESS_RESULT_OUTCOME;
   }
 
-  return enforceInspectionOutcome(request.intent, value);
+  return enforceAnalysisOutcome(request, value);
+}
+
+function enforceAnalysisOutcome(request: AnalysisRequest, value: unknown): InspectionOutcome {
+  return request.intent === "inspection-plan"
+    ? enforceInspectionPlanOutcome(request.request.queries, value)
+    : enforceInspectionOutcome(request.intent, value);
 }
 
 function analysisProcessEntryUrl(): URL {
