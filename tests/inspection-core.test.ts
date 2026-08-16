@@ -105,6 +105,8 @@ it("applies one aggregate Member type traversal budget to an inspection plan", a
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "supporting-type-traversal",
     message: "Inspection exceeded its Supporting Type traversal limit.",
   });
 });
@@ -122,6 +124,8 @@ it("applies one aggregate inferred declaration budget to an inspection plan", as
 
   expect(outcome).toEqual({
     status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "supporting-type-traversal",
     message: "Inspection exceeded its Supporting Type traversal limit.",
   });
 });
@@ -330,6 +334,7 @@ it.each(["InferredArrayMember", "InferredPromiseMember"])(
 
     expect(outcome).toEqual({
       status: "unsupported",
+      reason: "unsupported-evidence",
       message:
         "An inferred Public Interface type cannot be represented statically without standard libraries.",
     });
