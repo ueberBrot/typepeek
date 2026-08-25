@@ -2,18 +2,19 @@ import { Effect, Result, Schema } from "effect";
 import { isAbsolute } from "node:path";
 
 import {
+  inspectionPlanQueriesSchema,
   isBoundedExportSearchQuery,
   MAX_EXPORT_SEARCH_QUERY_BYTES,
   MAX_INSPECTION_PLAN_QUERIES,
   readInspectionPlanQueries,
 } from "#typepeek/inspection/inspection-plan-query";
 import {
+  memberPathSchema,
   MAX_MEMBER_PATH_SEGMENTS,
   MAX_MEMBER_PATH_SEGMENT_BYTES,
   readBoundedMemberPath,
 } from "#typepeek/inspection/member-path";
 import type {
-  AnalysisRequest,
   AnalysisRequestReading,
   InspectionRequestByIntent,
   InspectionFailure,
@@ -129,9 +130,47 @@ const normalizedExportSearchSchema = Schema.Struct({
     Schema.makeFilter(isBoundedExportSearchQuery, { expected: "a bounded search query" }),
   ),
 });
+const normalizedMemberSchema = Schema.Struct({
+  ...normalizedTargetFields,
+  exportName: Schema.String,
+  memberPath: memberPathSchema,
+});
+const normalizedPlanSchema = Schema.Struct({
+  ...normalizedTargetFields,
+  queries: inspectionPlanQueriesSchema,
+});
+const normalizedComparisonSchema = Schema.Struct({
+  before: normalizedTargetSchema,
+  after: normalizedTargetSchema,
+});
+const analysisIntentSchema = Schema.Literals(ANALYSIS_INTENTS);
+const analysisRequestSchema = Schema.Union([
+  Schema.Struct({ intent: Schema.Literal("interface-overview"), request: normalizedTargetSchema }),
+  Schema.Struct({ intent: Schema.Literal("export-inspection"), request: normalizedExportSchema }),
+  Schema.Struct({
+    intent: Schema.Literal("signature-inspection"),
+    request: normalizedExportSchema,
+  }),
+  Schema.Struct({ intent: Schema.Literal("export-search"), request: normalizedExportSearchSchema }),
+  Schema.Struct({
+    intent: Schema.Literal("public-subpath-discovery"),
+    request: normalizedTargetSchema,
+  }),
+  Schema.Struct({
+    intent: Schema.Literal("declaration-inspection"),
+    request: normalizedExportSchema,
+  }),
+  Schema.Struct({ intent: Schema.Literal("member-inspection"), request: normalizedMemberSchema }),
+  Schema.Struct({ intent: Schema.Literal("inspection-plan"), request: normalizedPlanSchema }),
+]);
 const decodeTargetCandidate = Schema.decodeUnknownResult(normalizedTargetSchema);
 const decodeExportCandidate = Schema.decodeUnknownResult(normalizedExportSchema);
 const decodeExportSearchCandidate = Schema.decodeUnknownResult(normalizedExportSearchSchema);
+const decodeMemberCandidate = Schema.decodeUnknownResult(normalizedMemberSchema);
+const decodePlanCandidate = Schema.decodeUnknownResult(normalizedPlanSchema);
+const decodeComparisonCandidate = Schema.decodeUnknownResult(normalizedComparisonSchema);
+const decodeAnalysisIntent = Schema.decodeUnknownResult(analysisIntentSchema);
+const decodeAnalysisRequest = Schema.decodeUnknownResult(analysisRequestSchema);
 
 const INVALID_ANALYSIS_REQUEST_OUTCOME: InspectionFailure = {
   status: "unsupported",
@@ -150,7 +189,6 @@ const INVALID_REQUEST_OUTCOMES = {
   "public-interface-comparison": invalidRequest("Public Interface Comparison"),
 } as const satisfies Readonly<Record<InspectionIntent, InspectionFailure>>;
 const ANALYSIS_REQUEST_FIELDS = ["intent", "request"] as const;
-const ANALYSIS_INTENT_SET = new Set<AnalysisRequest["intent"]>(ANALYSIS_INTENTS);
 
 const REQUEST_DEFINITIONS = deepFreeze({
   "interface-overview": defineRequest(
@@ -306,14 +344,20 @@ export function readInspectionRequest<Intent extends InspectionIntent>(
 export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
   try {
     const envelope = snapshotDataProperties(value, ANALYSIS_REQUEST_FIELDS);
-    const intent = envelope?.["intent"];
-    if (!isAnalysisIntent(intent)) {
+    const intent = Result.getOrUndefined(decodeAnalysisIntent(envelope?.["intent"]));
+    if (intent === undefined) {
       return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
     }
     const reading = readInspectionRequest(intent, envelope?.["request"]);
-    return reading.accepted
-      ? { accepted: true, request: { intent, request: reading.request } as AnalysisRequest }
-      : { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
+    if (!reading.accepted) {
+      return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
+    }
+    const request = Result.getOrUndefined(
+      decodeAnalysisRequest({ intent, request: reading.request }),
+    );
+    return request === undefined
+      ? { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME }
+      : { accepted: true, request };
   } catch {
     return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
   }
@@ -374,7 +418,9 @@ function readMemberCandidate(
 ): NormalizedMemberInspectionRequest | undefined {
   const request = readExportCandidate(value);
   const memberPath = readBoundedMemberPath(value["memberPath"]);
-  return request === undefined || memberPath === undefined ? undefined : { ...request, memberPath };
+  return request === undefined || memberPath === undefined
+    ? undefined
+    : Result.getOrUndefined(decodeMemberCandidate({ ...request, memberPath }));
 }
 
 function readPlanCandidate(
@@ -384,7 +430,7 @@ function readPlanCandidate(
   const queries = readInspectionPlanQueries(value["queries"]);
   return request === undefined || !queries.accepted
     ? undefined
-    : { ...request, queries: queries.queries };
+    : Result.getOrUndefined(decodePlanCandidate({ ...request, queries: queries.queries }));
 }
 
 function readComparisonCandidate(
@@ -392,7 +438,9 @@ function readComparisonCandidate(
 ): NormalizedPublicInterfaceComparisonRequest | undefined {
   const before = readTarget(value["before"]);
   const after = readTarget(value["after"]);
-  return before === undefined || after === undefined ? undefined : { before, after };
+  return before === undefined || after === undefined
+    ? undefined
+    : Result.getOrUndefined(decodeComparisonCandidate({ before, after }));
 }
 
 function deepFreeze<Value>(value: Value): Readonly<Value> {
@@ -411,8 +459,4 @@ function invalidRequest(name: string): InspectionFailure {
     reason: "invalid-request",
     message: `Inspection received an invalid ${name} request.`,
   };
-}
-
-function isAnalysisIntent(value: unknown): value is AnalysisRequest["intent"] {
-  return typeof value === "string" && ANALYSIS_INTENT_SET.has(value as AnalysisRequest["intent"]);
 }

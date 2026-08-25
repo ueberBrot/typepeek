@@ -42,12 +42,6 @@ export function signatureEvidenceProjection(
   };
 }
 
-export function isSignatureEvidenceKind(value: unknown): value is SignatureEvidenceKind {
-  return (
-    typeof value === "string" && (SIGNATURE_EVIDENCE_KINDS as readonly string[]).includes(value)
-  );
-}
-
 function projectInspectionResult<Evidence extends SignatureEvidenceKind>(
   result: InspectionResult,
   evidence: Evidence,
