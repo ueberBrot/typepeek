@@ -189,121 +189,47 @@ const platformIdentityFields = {
   packageIdentity: optionalUndefined,
   declarationProvider: packageIdentitySchema,
 } as const;
-const packageInterfaceOverviewSchema = Schema.Struct({
+const withInspectionResultIdentity = <const Fields extends Schema.Struct.Fields>(fields: Fields) =>
+  Schema.Union([
+    Schema.Struct({ ...fields, ...packageIdentityFields }),
+    Schema.Struct({ ...fields, ...platformIdentityFields }),
+  ]);
+const interfaceOverviewSchema = withInspectionResultIdentity({
   intent: Schema.Literal("interface-overview"),
-  ...packageIdentityFields,
   publicSubpaths: Schema.Array(publicSubpathSchema),
   moduleExports: Schema.Array(moduleExportIndexEntrySchema),
 });
-const platformInterfaceOverviewSchema = Schema.Struct({
-  intent: Schema.Literal("interface-overview"),
-  ...platformIdentityFields,
-  publicSubpaths: Schema.Array(publicSubpathSchema),
-  moduleExports: Schema.Array(moduleExportIndexEntrySchema),
-});
-const interfaceOverviewSchema = Schema.Union([
-  packageInterfaceOverviewSchema,
-  platformInterfaceOverviewSchema,
-]);
-const packageExportInspectionSchema = Schema.Struct({
+const exportInspectionSchema = withInspectionResultIdentity({
   intent: Schema.Literal("export-inspection"),
-  ...packageIdentityFields,
   moduleExport: inspectedModuleExportSchema,
   supportingTypes: Schema.Array(supportingTypeSchema),
   packageDocumentation: Schema.optional(packageDocumentationSchema),
 });
-const platformExportInspectionSchema = Schema.Struct({
-  intent: Schema.Literal("export-inspection"),
-  ...platformIdentityFields,
-  moduleExport: inspectedModuleExportSchema,
-  supportingTypes: Schema.Array(supportingTypeSchema),
-  packageDocumentation: Schema.optional(packageDocumentationSchema),
-});
-const exportInspectionSchema = Schema.Union([
-  packageExportInspectionSchema,
-  platformExportInspectionSchema,
-]);
-const packageSignatureInspectionSchema = Schema.Struct({
+const signatureInspectionSchema = withInspectionResultIdentity({
   intent: Schema.Literal("signature-inspection"),
-  ...packageIdentityFields,
   moduleExport: inspectedModuleExportSignaturesSchema,
 });
-const platformSignatureInspectionSchema = Schema.Struct({
-  intent: Schema.Literal("signature-inspection"),
-  ...platformIdentityFields,
-  moduleExport: inspectedModuleExportSignaturesSchema,
-});
-const signatureInspectionSchema = Schema.Union([
-  packageSignatureInspectionSchema,
-  platformSignatureInspectionSchema,
-]);
-const packageExportSearchSchema = Schema.Struct({
+const exportSearchSchema = withInspectionResultIdentity({
   intent: Schema.Literal("export-search"),
-  ...packageIdentityFields,
   query: Schema.String,
   totalModuleExports: Schema.Natural,
   matches: Schema.Array(moduleExportIndexEntrySchema),
 });
-const platformExportSearchSchema = Schema.Struct({
-  intent: Schema.Literal("export-search"),
-  ...platformIdentityFields,
-  query: Schema.String,
-  totalModuleExports: Schema.Natural,
-  matches: Schema.Array(moduleExportIndexEntrySchema),
-});
-const exportSearchSchema = Schema.Union([packageExportSearchSchema, platformExportSearchSchema]);
-const packagePublicSubpathDiscoverySchema = Schema.Struct({
+const publicSubpathDiscoverySchema = withInspectionResultIdentity({
   intent: Schema.Literal("public-subpath-discovery"),
-  ...packageIdentityFields,
   publicSubpaths: Schema.Array(publicSubpathSchema),
 });
-const platformPublicSubpathDiscoverySchema = Schema.Struct({
-  intent: Schema.Literal("public-subpath-discovery"),
-  ...platformIdentityFields,
-  publicSubpaths: Schema.Array(publicSubpathSchema),
-});
-const publicSubpathDiscoverySchema = Schema.Union([
-  packagePublicSubpathDiscoverySchema,
-  platformPublicSubpathDiscoverySchema,
-]);
-const packageDeclarationInspectionSchema = Schema.Struct({
+const declarationInspectionSchema = withInspectionResultIdentity({
   intent: Schema.Literal("declaration-inspection"),
-  ...packageIdentityFields,
   moduleExport: inspectedModuleExportDeclarationsSchema,
 });
-const platformDeclarationInspectionSchema = Schema.Struct({
-  intent: Schema.Literal("declaration-inspection"),
-  ...platformIdentityFields,
-  moduleExport: inspectedModuleExportDeclarationsSchema,
-});
-const declarationInspectionSchema = Schema.Union([
-  packageDeclarationInspectionSchema,
-  platformDeclarationInspectionSchema,
-]);
-const packageMemberInspectionSchema = Schema.Struct({
+const memberInspectionSchema = withInspectionResultIdentity({
   intent: Schema.Literal("member-inspection"),
-  ...packageIdentityFields,
   moduleExportName: Schema.String,
   memberPath: Schema.Array(Schema.String),
   declarations: Schema.Array(inspectedDeclarationSchema),
 });
-const platformMemberInspectionSchema = Schema.Struct({
-  intent: Schema.Literal("member-inspection"),
-  ...platformIdentityFields,
-  moduleExportName: Schema.String,
-  memberPath: Schema.Array(Schema.String),
-  declarations: Schema.Array(inspectedDeclarationSchema),
-});
-const memberInspectionSchema = Schema.Union([
-  packageMemberInspectionSchema,
-  platformMemberInspectionSchema,
-]);
-const packageComparisonTargetSchema = Schema.Struct(packageIdentityFields);
-const platformComparisonTargetSchema = Schema.Struct(platformIdentityFields);
-const comparisonTargetSchema = Schema.Union([
-  packageComparisonTargetSchema,
-  platformComparisonTargetSchema,
-]);
+const comparisonTargetSchema = withInspectionResultIdentity({});
 const moduleExportIndexDeltaSchema = Schema.Struct({
   added: Schema.Array(moduleExportIndexEntrySchema),
   removed: Schema.Array(moduleExportIndexEntrySchema),

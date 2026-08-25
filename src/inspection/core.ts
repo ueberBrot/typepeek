@@ -162,7 +162,7 @@ function prepareInspectionCoreRequest(
     : reading;
 }
 
-const invokePreparedInspectionCore = Effect.fn("InspectionCore.invokePrepared")(function* (
+const invokePreparedInspectionCore = Effect.fn("invokePreparedInspectionCore")(function* (
   prepared: PreparedInspectionCoreRequest,
 ) {
   return yield* prepared.intent === "public-interface-comparison"
@@ -170,102 +170,104 @@ const invokePreparedInspectionCore = Effect.fn("InspectionCore.invokePrepared")(
     : invokePreparedAnalysis(prepared);
 });
 
-function invokePreparedAnalysis(prepared: AnalysisRequest): Effect.Effect<InspectionOutcome> {
+const invokePreparedAnalysis = Effect.fn("invokePreparedAnalysis")(function* (
+  prepared: AnalysisRequest,
+) {
   switch (prepared.intent) {
     case "interface-overview":
-      return executeInterfaceOverview(prepared.request);
+      return yield* executeInterfaceOverview(prepared.request);
     case "export-inspection":
-      return executeExportInspection(prepared.request);
+      return yield* executeExportInspection(prepared.request);
     case "signature-inspection":
-      return executeSignatureInspection(prepared.request);
+      return yield* executeSignatureInspection(prepared.request);
     case "export-search":
-      return executeExportSearch(prepared.request);
+      return yield* executeExportSearch(prepared.request);
     case "public-subpath-discovery":
-      return executePublicSubpathDiscovery(prepared.request);
+      return yield* executePublicSubpathDiscovery(prepared.request);
     case "declaration-inspection":
-      return executeDeclarationInspection(prepared.request);
+      return yield* executeDeclarationInspection(prepared.request);
     case "member-inspection":
-      return executeMemberInspection(prepared.request);
+      return yield* executeMemberInspection(prepared.request);
     case "inspection-plan":
-      return executeInspectionPlan(prepared.request);
+      return yield* executeInspectionPlan(prepared.request);
   }
-}
+});
 
-const executePublicInterfaceComparison = Effect.fn("InspectionCore.comparePublicInterfaces")(
-  function* (request: NormalizedPublicInterfaceComparisonRequest) {
-    const [before, after] = yield* Effect.all(
-      [executeInterfaceOverview(request.before), executeInterfaceOverview(request.after)],
-      { concurrency: 2 },
-    );
-    if (before.status !== "success") {
-      return before;
-    }
-    return after.status === "success"
-      ? enforceInspectionOutcome(
-          "public-interface-comparison",
-          compareInterfaceOverviews(before.result, after.result),
-        )
-      : after;
-  },
-);
+const executePublicInterfaceComparison = Effect.fn("executePublicInterfaceComparison")(function* (
+  request: NormalizedPublicInterfaceComparisonRequest,
+) {
+  const [before, after] = yield* Effect.all(
+    [executeInterfaceOverview(request.before), executeInterfaceOverview(request.after)],
+    { concurrency: 2 },
+  );
+  if (before.status !== "success") {
+    return before;
+  }
+  return after.status === "success"
+    ? enforceInspectionOutcome(
+        "public-interface-comparison",
+        compareInterfaceOverviews(before.result, after.result),
+      )
+    : after;
+});
 
-const executeExportSearch = Effect.fn("InspectionCore.inspectExportSearch")(
+const executeExportSearch = Effect.fn("executeExportSearch")(
   (request: NormalizedExportSearchRequest) =>
     executeAnalysis({ intent: "export-search", request }).pipe(
       Effect.map((outcome) => enforceInspectionOutcome("export-search", outcome)),
     ),
 );
 
-const executePublicSubpathDiscovery = Effect.fn("InspectionCore.inspectPublicSubpaths")(
+const executePublicSubpathDiscovery = Effect.fn("executePublicSubpathDiscovery")(
   (request: NormalizedPublicSubpathDiscoveryRequest) =>
     executeAnalysis({ intent: "public-subpath-discovery", request }).pipe(
       Effect.map((outcome) => enforceInspectionOutcome("public-subpath-discovery", outcome)),
     ),
 );
 
-const executeInspectionPlan = Effect.fn("InspectionCore.inspectPlan")(
+const executeInspectionPlan = Effect.fn("executeInspectionPlan")(
   (request: NormalizedInspectionPlanRequest) =>
     executeAnalysis({ intent: "inspection-plan", request }).pipe(
       Effect.map((outcome) => enforceInspectionPlanOutcome(request, outcome)),
     ),
 );
 
-const executeInterfaceOverview = Effect.fn("InspectionCore.inspectInterfaceOverview")(
+const executeInterfaceOverview = Effect.fn("executeInterfaceOverview")(
   (request: NormalizedInterfaceOverviewRequest) =>
     executeAnalysis({ intent: "interface-overview", request }).pipe(
       Effect.map((outcome) => enforceInspectionOutcome("interface-overview", outcome)),
     ),
 );
 
-const executeExportInspection = Effect.fn("InspectionCore.inspectExport")(
+const executeExportInspection = Effect.fn("executeExportInspection")(
   (request: NormalizedExportInspectionRequest) =>
     executeAnalysis({ intent: "export-inspection", request }).pipe(
       Effect.map((outcome) => enforceInspectionOutcome("export-inspection", outcome)),
     ),
 );
 
-const executeSignatureInspection = Effect.fn("InspectionCore.inspectExportSignatures")(
+const executeSignatureInspection = Effect.fn("executeSignatureInspection")(
   (request: NormalizedSignatureInspectionRequest) =>
     executeAnalysis({ intent: "signature-inspection", request }).pipe(
       Effect.map((outcome) => enforceInspectionOutcome("signature-inspection", outcome)),
     ),
 );
 
-const executeDeclarationInspection = Effect.fn("InspectionCore.inspectExportDeclarations")(
+const executeDeclarationInspection = Effect.fn("executeDeclarationInspection")(
   (request: NormalizedDeclarationInspectionRequest) =>
     executeAnalysis({ intent: "declaration-inspection", request }).pipe(
       Effect.map((outcome) => enforceDeclarationInspectionOutcome(request, outcome)),
     ),
 );
 
-const executeMemberInspection = Effect.fn("InspectionCore.inspectExportMember")(
+const executeMemberInspection = Effect.fn("executeMemberInspection")(
   (request: NormalizedMemberInspectionRequest) =>
     executeAnalysis({ intent: "member-inspection", request }).pipe(
       Effect.map((outcome) => enforceMemberInspectionOutcome(request, outcome)),
     ),
 );
 
-const executeAnalysis = Effect.fn("InspectionCore.executeAnalysis")((request: AnalysisRequest) =>
+const executeAnalysis = Effect.fn("executeAnalysis")((request: AnalysisRequest) =>
   Effect.promise(() => runBoundedAnalysis(request)),
 );
 
