@@ -126,8 +126,40 @@ Discover the adapter contract without inspecting a package:
 typepeek capabilities
 ```
 
-The result declares protocol version 2, supported intents, stable Failure
-Reasons, and the Budget Dimensions reported by bounded failures.
+The result declares protocol version 1, supported intents, stable Failure
+Reasons, Budget Dimensions, request fields and examples, and response options.
+
+Agents can invoke that protocol directly with one bounded JSON request on stdin:
+
+```bash
+node -e 'process.stdout.write(JSON.stringify({protocolVersion:"1",intent:"signature-inspection",request:{resolutionContext:process.cwd(),specifier:"arktype",exportName:"type"}}))' \
+  | typepeek protocol
+```
+
+Protocol Resolution Contexts are absolute paths. Capabilities mark that format
+explicitly; CLI commands continue to resolve their `--context` option for humans.
+
+Protocol Signature Inspection defaults to structured evidence, which includes
+parameters and return semantics without repeating the compiler-rendered
+signature text. Request exact text or both representations when needed:
+
+```json
+{
+  "protocolVersion": "1",
+  "intent": "signature-inspection",
+  "request": {
+    "resolutionContext": ".",
+    "specifier": "arktype",
+    "exportName": "type"
+  },
+  "response": { "signatureEvidence": "both" }
+}
+```
+
+Responses identify any omitted signature evidence. A failed focused lookup may
+also include bounded `recovery` entries containing complete protocol requests
+that an agent can execute without inventing parameters. Recovery is guidance,
+not part of the authoritative Inspection Outcome.
 
 CLI `--json` is an adapter rendering, not the versioned Inspection Protocol. It
 emits one complete, newline-terminated Inspection Outcome on stdout,
@@ -136,7 +168,10 @@ typed inspection failures exit with status 1 and are also emitted as JSON on
 stdout. Invalid invocations exit with status 2 and emit an
 `invalid-invocation` CLI diagnostic as JSON. Unexpected CLI failures use status 70. Machine-mode invocations leave stderr empty. CLI JSON follows the CLI's
 release compatibility policy; Inspection Protocol changes are represented by a
-new protocol version.
+new protocol version. The `protocol` command uses the same success and typed
+failure exit statuses; invalid wire input exits with status 2 and unexpected
+failures use status 70. It emits exactly one bounded JSON value on stdout and
+leaves stderr empty.
 
 The common `--access`, `--context`, and `--json` options may precede or follow an
 ordinary single-target command. Comparison uses explicit `--before-*` and
@@ -166,6 +201,7 @@ vp run dependencies:update   # select and apply updates
 vp run benchmark:source      # measure source-checkout inspection latency
 vp run benchmark:build       # measure the application bundle
 vp run benchmark:package     # measure the publishable artifact
+vp run benchmark:agent-protocol # compare protocol evidence bytes and recovery workloads
 ```
 
 Set `TYPEPEEK_PROFILE=1` on a source-checkout invocation to emit bounded,
@@ -198,6 +234,8 @@ whose installed packages you want to inspect:
 ```bash
 vp build
 node .vite-plus/build/cli.js signatures zod ZodError --context /path/to/consumer --json
+printf '%s\n' '{"protocolVersion":"1","intent":"export-search","request":{"resolutionContext":"/path/to/consumer","specifier":"zod","query":"Error"}}' \
+  | node .vite-plus/build/cli.js protocol
 ```
 
 To test the publishable artifact, build `dist` and invoke that CLI:
@@ -205,6 +243,8 @@ To test the publishable artifact, build `dist` and invoke that CLI:
 ```bash
 vp pack
 node dist/cli.js signatures zod ZodError --context /path/to/consumer --json
+printf '%s\n' '{"protocolVersion":"1","intent":"export-search","request":{"resolutionContext":"/path/to/consumer","specifier":"zod","query":"Error"}}' \
+  | node dist/cli.js protocol
 ```
 
 `vp build` produces the application bundle under `.vite-plus/build`; `vp pack`
@@ -235,7 +275,9 @@ import {
 The focused functions accept a `resolutionContext` and `specifier`, plus their
 focused selector. `inspectPlan` accepts the bounded ordered query list.
 `invokeInspectionProtocol` is the canonical versioned adapter seam, and
-`inspectCapabilities` describes it without reading Installed Evidence.
+`inspectCapabilities` describes it without reading Installed Evidence. Protocol
+responses can project signature evidence and can attach bounded executable
+recovery requests without changing Inspection Core's canonical outcomes.
 No MCP adapter is implemented or shipped; a future adapter can use this seam
 without invoking the CLI or parsing CLI JSON.
 

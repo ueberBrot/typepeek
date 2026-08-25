@@ -2,42 +2,11 @@ import { InspectionLimitError } from "#typepeek/inspection/errors";
 import type {
   InspectionFailure,
   InspectionOutcome,
-  InspectionRequestReading,
   InterfaceOverview,
-  NormalizedPublicInterfaceComparisonRequest,
   PublicInterfaceComparison,
   PublicInterfaceComparisonTarget,
 } from "#typepeek/inspection/protocol";
-import { readInspectionRequest } from "#typepeek/inspection/request-codec";
 import { assertInspectionResultConstructionBound } from "#typepeek/inspection/result-construction";
-import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
-
-const COMPARISON_REQUEST_FIELDS = ["before", "after"] as const;
-
-const INVALID_COMPARISON_REQUEST: InspectionFailure = {
-  status: "unsupported",
-  reason: "invalid-request",
-  message: "Inspection received an invalid Public Interface Comparison request.",
-};
-
-/** Snapshots both targets without enumerating or evaluating unknown request fields. */
-export function readPublicInterfaceComparisonRequest(
-  value: unknown,
-): InspectionRequestReading<NormalizedPublicInterfaceComparisonRequest> {
-  try {
-    const request = snapshotDataProperties(value, COMPARISON_REQUEST_FIELDS);
-    if (request === undefined) {
-      return { accepted: false, outcome: INVALID_COMPARISON_REQUEST };
-    }
-    const before = readInspectionRequest("interface-overview", request["before"]);
-    const after = readInspectionRequest("interface-overview", request["after"]);
-    return before.accepted && after.accepted
-      ? { accepted: true, request: { before: before.request, after: after.request } }
-      : { accepted: false, outcome: INVALID_COMPARISON_REQUEST };
-  } catch {
-    return { accepted: false, outcome: INVALID_COMPARISON_REQUEST };
-  }
-}
 
 /** Constructs one bounded directional delta while preserving both Resolution Variants. */
 export function compareInterfaceOverviews(

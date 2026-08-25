@@ -1,50 +1,25 @@
-import { invokeInspectionCore } from "#typepeek/inspection/core";
+import { invokeInspectionCoreWithReceipt } from "#typepeek/inspection/core";
 import type {
-  InspectionPlanRequest,
   InspectionFailure,
   InspectionOutcome,
-  DeclarationInspectionRequest,
-  ExportInspectionRequest,
-  ExportSearchRequest,
-  InterfaceOverviewRequest,
-  MemberInspectionRequest,
-  PublicSubpathDiscoveryRequest,
-  PublicInterfaceComparisonRequest,
-  SignatureInspectionRequest,
+  InspectionProtocolResponse,
+  SignatureEvidenceKind,
 } from "#typepeek/inspection/protocol";
+import { protocolRecoveryGuidance } from "#typepeek/inspection/protocol-recovery";
 import {
   INSPECTION_INTENTS,
   INSPECTION_PROTOCOL_VERSION,
   type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
+import {
+  isSignatureEvidenceKind,
+  projectInspectionOutcome,
+  signatureEvidenceProjection,
+} from "#typepeek/inspection/signature-evidence-projection";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
-const PROTOCOL_ENVELOPE_FIELDS = ["protocolVersion", "intent", "request"] as const;
-
-export interface InspectionRequestByIntent {
-  readonly "interface-overview": InterfaceOverviewRequest;
-  readonly "export-inspection": ExportInspectionRequest;
-  readonly "signature-inspection": SignatureInspectionRequest;
-  readonly "export-search": ExportSearchRequest;
-  readonly "public-subpath-discovery": PublicSubpathDiscoveryRequest;
-  readonly "declaration-inspection": DeclarationInspectionRequest;
-  readonly "member-inspection": MemberInspectionRequest;
-  readonly "inspection-plan": InspectionPlanRequest;
-  readonly "public-interface-comparison": PublicInterfaceComparisonRequest;
-}
-
-export type InspectionProtocolRequest = {
-  readonly [Intent in InspectionIntent]: {
-    readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
-    readonly intent: Intent;
-    readonly request: InspectionRequestByIntent[Intent];
-  };
-}[InspectionIntent];
-
-export interface InspectionProtocolResponse {
-  readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
-  readonly outcome: InspectionOutcome;
-}
+const PROTOCOL_ENVELOPE_FIELDS = ["protocolVersion", "intent", "request", "response"] as const;
+const PROTOCOL_RESPONSE_OPTION_FIELDS = ["signatureEvidence"] as const;
 
 /** Validates and dispatches one versioned request through the Inspection Core. */
 export async function invokeInspectionProtocol(
@@ -69,7 +44,24 @@ export async function invokeInspectionProtocol(
   if (!isInspectionIntent(envelope.intent)) {
     return protocolResponse(invalidProtocolRequest());
   }
-  return protocolResponse(await invokeInspectionCore(envelope.intent, envelope.request));
+  const projection = readSignatureEvidenceProjection(envelope.intent, envelope.response);
+  if (projection === null) {
+    return protocolResponse(invalidProtocolRequest());
+  }
+  const invocation = await invokeInspectionCoreWithReceipt(envelope.intent, envelope.request);
+  const response =
+    projection === undefined
+      ? protocolResponse(invocation.outcome)
+      : {
+          protocolVersion: INSPECTION_PROTOCOL_VERSION,
+          projection: signatureEvidenceProjection(projection),
+          outcome: projectInspectionOutcome(invocation.outcome, projection),
+        };
+  if (invocation.preparedRequest === undefined) {
+    return response;
+  }
+  const recovery = protocolRecoveryGuidance(invocation.preparedRequest, invocation.outcome);
+  return recovery.length === 0 ? response : { ...response, recovery };
 }
 
 function protocolResponse(outcome: InspectionOutcome): InspectionProtocolResponse {
@@ -88,6 +80,7 @@ interface ProtocolEnvelope {
   readonly protocolVersion: string;
   readonly intent: unknown;
   readonly request: unknown;
+  readonly response: unknown;
 }
 
 function readProtocolEnvelope(value: unknown): ProtocolEnvelope | undefined {
@@ -103,7 +96,24 @@ function readProtocolEnvelope(value: unknown): ProtocolEnvelope | undefined {
     protocolVersion: version,
     intent: record["intent"],
     request: record["request"],
+    response: record["response"],
   };
+}
+
+function readSignatureEvidenceProjection(
+  intent: InspectionIntent,
+  response: unknown,
+): SignatureEvidenceKind | null | undefined {
+  const supportsProjection = intent === "signature-inspection" || intent === "inspection-plan";
+  if (!supportsProjection) {
+    return response === undefined ? undefined : null;
+  }
+  if (response === undefined) {
+    return "structured";
+  }
+  const options = snapshotDataProperties(response, PROTOCOL_RESPONSE_OPTION_FIELDS);
+  const signatureEvidence = options?.["signatureEvidence"];
+  return isSignatureEvidenceKind(signatureEvidence) ? signatureEvidence : null;
 }
 
 function isBoundedProtocolVersion(value: unknown): value is string {

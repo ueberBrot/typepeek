@@ -162,6 +162,10 @@ export default defineConfig({
         dependsOn: ["pack"],
         output: [],
       },
+      "benchmark:agent-protocol": {
+        command: "node benchmarks/agent-protocol.ts",
+        output: [],
+      },
       test: {
         command: "vp test",
         output: [],

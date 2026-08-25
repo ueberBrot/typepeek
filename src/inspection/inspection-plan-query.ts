@@ -2,8 +2,8 @@ import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import type { AnalysisRequest, InspectionPlanQuery } from "#typepeek/inspection/protocol";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
-const MAX_INSPECTION_PLAN_QUERIES = 16;
-const MAX_EXPORT_SEARCH_QUERY_BYTES = 256;
+export const MAX_INSPECTION_PLAN_QUERIES = 16;
+export const MAX_EXPORT_SEARCH_QUERY_BYTES = 256;
 const INSPECTION_PLAN_QUERY_FIELDS = ["intent", "query", "exportName", "memberPath"] as const;
 
 export type InspectionPlanQueryIssue =

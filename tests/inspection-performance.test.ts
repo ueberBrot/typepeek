@@ -25,3 +25,31 @@ it("benchmarks successful source-checkout inspections through the CLI seam", asy
     ],
   });
 });
+
+it("measures agent protocol projection and recovery workloads", async () => {
+  const result = await execa(process.execPath, ["benchmarks/agent-protocol.ts"]);
+
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    kind: "agent-protocol-benchmark",
+    schemaVersion: 1,
+    protocolVersion: "1",
+    workloads: [
+      {
+        id: "arktype-type-invocation",
+        passed: true,
+        reductionRatio: expect.any(Number),
+      },
+      {
+        id: "arktype-export-recovery",
+        passed: true,
+        recoveredStatus: "success",
+      },
+      {
+        id: "execa-export-discovery",
+        passed: true,
+        matches: expect.arrayContaining(["ExecaError"]),
+      },
+    ],
+  });
+});

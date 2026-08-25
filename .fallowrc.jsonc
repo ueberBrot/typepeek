@@ -4,6 +4,7 @@
   // Package exports and bins are discovered automatically. These additional
   // roots cover repository-only executables that are not published.
   "entry": [
+    "benchmarks/agent-protocol.ts",
     "src/inspection/analysis-process-entry.ts",
     "taze.config.ts",
     "tests/build-output-smoke.ts",

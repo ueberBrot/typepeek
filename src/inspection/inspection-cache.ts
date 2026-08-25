@@ -40,13 +40,12 @@ import type {
   InspectionResultIdentity,
   PackageIdentity,
 } from "#typepeek/inspection/protocol";
-import { INSPECTION_PROTOCOL_VERSION } from "#typepeek/inspection/protocol-vocabulary";
 import { readAnalysisRequest } from "#typepeek/inspection/request-codec";
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 import { HAS_EMBEDDED_TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 
 const CACHE_SCHEMA_VERSION = 1;
-const INSPECTION_CACHE_SEMANTICS_VERSION = "1";
+const INSPECTION_CACHE_SEMANTICS_VERSION = "2";
 const MAX_CACHE_DIRECTORY_ENTRIES = 256;
 const MAX_CACHE_ENTRY_BYTES = 160 * 1_024;
 const MAX_CACHE_RECEIPT_BYTES = 96 * 1_024;
@@ -66,7 +65,6 @@ export interface InspectionCacheIdentityValue {
     readonly resolutionContextDirectory: string;
     readonly resultIdentity: InspectionResultIdentity;
   };
-  readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
   readonly request: AnalysisRequest;
   readonly typepeekVersion: typeof TYPEPEEK_VERSION;
 }
@@ -116,7 +114,6 @@ export function createInspectionCacheIdentity(
       resolutionContextDirectory: selection.resolutionContextDirectory,
       resultIdentity: selection.resultIdentity,
     },
-    protocolVersion: INSPECTION_PROTOCOL_VERSION,
     request,
     typepeekVersion: TYPEPEEK_VERSION,
   };
@@ -532,7 +529,6 @@ function readIdentity(value: unknown): InspectionCacheIdentityValue | undefined 
     cacheSemanticsVersion: INSPECTION_CACHE_SEMANTICS_VERSION,
     compilerVersion: ts.version,
     evidence,
-    protocolVersion: INSPECTION_PROTOCOL_VERSION,
     request: requestReading.request,
     typepeekVersion: TYPEPEEK_VERSION,
   };
@@ -543,7 +539,6 @@ function cacheIdentityVersionsMatch(value: Readonly<Record<string, unknown>>): b
     value["budgetVersion"] === INSPECTION_BUDGET_POLICY_VERSION &&
     value["cacheSemanticsVersion"] === INSPECTION_CACHE_SEMANTICS_VERSION &&
     value["compilerVersion"] === ts.version &&
-    value["protocolVersion"] === INSPECTION_PROTOCOL_VERSION &&
     value["typepeekVersion"] === TYPEPEEK_VERSION
   );
 }

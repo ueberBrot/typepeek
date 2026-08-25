@@ -1,4 +1,4 @@
-export const INSPECTION_PROTOCOL_VERSION = "2" as const;
+export const INSPECTION_PROTOCOL_VERSION = "1" as const;
 
 export const ANALYSIS_INTENTS = Object.freeze([
   "interface-overview",

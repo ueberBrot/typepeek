@@ -57,6 +57,29 @@ assert.equal(cliOutcome.result.intent, "signature-inspection");
 assert.equal(cliOutcome.result.moduleExport.name, "type");
 assert.equal(cliOutcome.result.moduleExport.signatures.length, 3);
 assert.match(cliOutcome.result.moduleExport.signatures[0]?.text ?? "", /^<const def/u);
+
+const protocolCli = spawnSync(process.execPath, [".vite-plus/build/cli.js", "protocol"], {
+  encoding: "utf8",
+  input: JSON.stringify({
+    protocolVersion: "1",
+    intent: "signature-inspection",
+    request: {
+      resolutionContext: resolve("."),
+      specifier: "arktype",
+      exportName: "type",
+    },
+  }),
+});
+assert.equal(protocolCli.status, 0, protocolCli.stderr || protocolCli.stdout);
+assert.equal(protocolCli.stderr, "");
+const protocolResponse = JSON.parse(protocolCli.stdout) as {
+  readonly protocolVersion: string;
+  readonly projection?: { readonly signatureEvidence?: string };
+  readonly outcome: { readonly status: string };
+};
+assert.equal(protocolResponse.protocolVersion, "1");
+assert.equal(protocolResponse.projection?.signatureEvidence, "structured");
+assert.equal(protocolResponse.outcome.status, "success");
 await assertArtifactCacheReuse(".vite-plus/build/cli.js");
 
 const inspectionApiPath = "../.vite-plus/build/inspection-api.js";

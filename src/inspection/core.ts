@@ -1,15 +1,17 @@
 import { runBoundedAnalysis } from "#typepeek/inspection/analysis-process";
 import {
+  enforceDeclarationInspectionOutcome,
   enforceInspectionOutcome,
   enforceInspectionPlanOutcome,
-  enforceDeclarationInspectionOutcome,
   enforceMemberInspectionOutcome,
-  type ExportInspection,
-  type ExportInspectionRequest,
+  type AnalysisRequest,
   type DeclarationInspection,
   type DeclarationInspectionRequest,
+  type ExportInspection,
+  type ExportInspectionRequest,
   type ExportSearch,
   type ExportSearchRequest,
+  type InspectionFailure,
   type InspectionOutcome,
   type InspectionPlan,
   type InspectionPlanRequest,
@@ -17,66 +19,182 @@ import {
   type InterfaceOverviewRequest,
   type MemberInspection,
   type MemberInspectionRequest,
-  type PublicSubpathDiscovery,
-  type PublicSubpathDiscoveryRequest,
+  type NormalizedDeclarationInspectionRequest,
+  type NormalizedExportInspectionRequest,
+  type NormalizedExportSearchRequest,
+  type NormalizedInspectionPlanRequest,
+  type NormalizedInterfaceOverviewRequest,
+  type NormalizedMemberInspectionRequest,
+  type NormalizedPublicInterfaceComparisonRequest,
+  type NormalizedPublicSubpathDiscoveryRequest,
+  type NormalizedSignatureInspectionRequest,
   type PublicInterfaceComparison,
   type PublicInterfaceComparisonRequest,
+  type PublicSubpathDiscovery,
+  type PublicSubpathDiscoveryRequest,
   type SignatureInspection,
   type SignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
 import type { InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
-import {
-  compareInterfaceOverviews,
-  readPublicInterfaceComparisonRequest,
-} from "#typepeek/inspection/public-interface-comparison";
+import { compareInterfaceOverviews } from "#typepeek/inspection/public-interface-comparison";
 import { readInspectionRequest } from "#typepeek/inspection/request-codec";
 
-type InspectionCoreHandler = (request: unknown) => Promise<InspectionOutcome>;
+export type PreparedInspectionCoreRequest =
+  | AnalysisRequest
+  | {
+      readonly intent: "public-interface-comparison";
+      readonly request: NormalizedPublicInterfaceComparisonRequest;
+    };
 
-const INSPECTION_CORE_HANDLERS = {
-  "interface-overview": invokeInterfaceOverview,
-  "export-inspection": invokeExportInspection,
-  "signature-inspection": invokeSignatureInspection,
-  "export-search": invokeExportSearch,
-  "public-subpath-discovery": invokePublicSubpathDiscovery,
-  "declaration-inspection": invokeDeclarationInspection,
-  "member-inspection": invokeMemberInspection,
-  "inspection-plan": invokeInspectionPlan,
-  "public-interface-comparison": invokePublicInterfaceComparison,
-} as const satisfies Readonly<Record<InspectionIntent, InspectionCoreHandler>>;
+export interface InspectionCoreInvocationReceipt {
+  readonly outcome: InspectionOutcome;
+  readonly preparedRequest?: PreparedInspectionCoreRequest;
+}
 
-/**
- * Owns request validation and dispatch for every transport-neutral Inspection
- * Core intent. Adapters validate only their own envelopes before crossing this
- * seam.
- */
-export function invokeInspectionCore(
+type InspectionCorePreparation =
+  | { readonly accepted: true; readonly preparedRequest: PreparedInspectionCoreRequest }
+  | { readonly accepted: false; readonly outcome: InspectionFailure };
+
+/** Validates once, dispatches, and retains the trusted normalized request for adapters. */
+export async function invokeInspectionCoreWithReceipt(
+  intent: InspectionIntent,
+  request: unknown,
+): Promise<InspectionCoreInvocationReceipt> {
+  const preparation = prepareInspectionCoreRequest(intent, request);
+  if (!preparation.accepted) {
+    return { outcome: preparation.outcome };
+  }
+  return {
+    preparedRequest: preparation.preparedRequest,
+    outcome: await invokePreparedInspectionCore(preparation.preparedRequest),
+  };
+}
+
+/** Owns request validation and dispatch for every transport-neutral Inspection Core intent. */
+async function invokeInspectionCore(
   intent: InspectionIntent,
   request: unknown,
 ): Promise<InspectionOutcome> {
-  return INSPECTION_CORE_HANDLERS[intent](request);
+  return (await invokeInspectionCoreWithReceipt(intent, request)).outcome;
 }
 
-/**
- * Compares two complete Interface Overview indexes while keeping their
- * Resolution Contexts and Resolution Variants independent.
- */
-export async function comparePublicInterfaces(
+/** Compares complete Interface Overview indexes without merging Resolution Variants. */
+export function comparePublicInterfaces(
   request: PublicInterfaceComparisonRequest,
 ): Promise<InspectionOutcome<PublicInterfaceComparison>> {
-  return invokePublicInterfaceComparison(request);
+  return invokeTypedInspection("public-interface-comparison", request);
 }
 
-async function invokePublicInterfaceComparison(
+/** Searches the bounded Module Export index without returning Public Subpaths. */
+export function inspectExportSearch(
+  request: ExportSearchRequest,
+): Promise<InspectionOutcome<ExportSearch>> {
+  return invokeTypedInspection("export-search", request);
+}
+
+/** Discovers manifest Public Subpaths without materializing a TypeScript program. */
+export function inspectPublicSubpaths(
+  request: PublicSubpathDiscoveryRequest,
+): Promise<InspectionOutcome<PublicSubpathDiscovery>> {
+  return invokeTypedInspection("public-subpath-discovery", request);
+}
+
+/** Executes a bounded all-or-nothing query list over one evidence snapshot. */
+export function inspectPlan(
+  request: InspectionPlanRequest,
+): Promise<InspectionOutcome<InspectionPlan>> {
+  return invokeTypedInspection("inspection-plan", request);
+}
+
+/** Produces a bounded Module Export and Public Subpath index. */
+export function inspectInterfaceOverview(
+  request: InterfaceOverviewRequest,
+): Promise<InspectionOutcome<InterfaceOverview>> {
+  return invokeTypedInspection("interface-overview", request);
+}
+
+/** Produces a bounded Export Inspection with reachable Supporting Types. */
+export function inspectExport(
+  request: ExportInspectionRequest,
+): Promise<InspectionOutcome<ExportInspection>> {
+  return invokeTypedInspection("export-inspection", request);
+}
+
+/** Returns only public call and construct signatures without Supporting Type traversal. */
+export function inspectExportSignatures(
+  request: SignatureInspectionRequest,
+): Promise<InspectionOutcome<SignatureInspection>> {
+  return invokeTypedInspection("signature-inspection", request);
+}
+
+/** Returns one Module Export's declarations without signatures or Supporting Types. */
+export function inspectExportDeclarations(
+  request: DeclarationInspectionRequest,
+): Promise<InspectionOutcome<DeclarationInspection>> {
+  return invokeTypedInspection("declaration-inspection", request);
+}
+
+/** Returns exactly one public member path without unrelated declaration traversal. */
+export function inspectExportMember(
+  request: MemberInspectionRequest,
+): Promise<InspectionOutcome<MemberInspection>> {
+  return invokeTypedInspection("member-inspection", request);
+}
+
+function prepareInspectionCoreRequest(
+  intent: InspectionIntent,
   request: unknown,
-): Promise<InspectionOutcome<PublicInterfaceComparison>> {
-  const requestReading = readPublicInterfaceComparisonRequest(request);
-  if (!requestReading.accepted) {
-    return requestReading.outcome;
+): InspectionCorePreparation {
+  if (intent === "public-interface-comparison") {
+    const reading = readInspectionRequest(intent, request);
+    return reading.accepted
+      ? { accepted: true, preparedRequest: { intent, request: reading.request } }
+      : reading;
   }
+  const reading = readInspectionRequest(intent, request);
+  return reading.accepted
+    ? {
+        accepted: true,
+        preparedRequest: { intent, request: reading.request } as AnalysisRequest,
+      }
+    : reading;
+}
+
+async function invokePreparedInspectionCore(
+  prepared: PreparedInspectionCoreRequest,
+): Promise<InspectionOutcome> {
+  return prepared.intent === "public-interface-comparison"
+    ? executePublicInterfaceComparison(prepared.request)
+    : invokePreparedAnalysis(prepared);
+}
+
+async function invokePreparedAnalysis(prepared: AnalysisRequest): Promise<InspectionOutcome> {
+  switch (prepared.intent) {
+    case "interface-overview":
+      return executeInterfaceOverview(prepared.request);
+    case "export-inspection":
+      return executeExportInspection(prepared.request);
+    case "signature-inspection":
+      return executeSignatureInspection(prepared.request);
+    case "export-search":
+      return executeExportSearch(prepared.request);
+    case "public-subpath-discovery":
+      return executePublicSubpathDiscovery(prepared.request);
+    case "declaration-inspection":
+      return executeDeclarationInspection(prepared.request);
+    case "member-inspection":
+      return executeMemberInspection(prepared.request);
+    case "inspection-plan":
+      return executeInspectionPlan(prepared.request);
+  }
+}
+
+async function executePublicInterfaceComparison(
+  request: NormalizedPublicInterfaceComparisonRequest,
+): Promise<InspectionOutcome<PublicInterfaceComparison>> {
   const [before, after] = await Promise.all([
-    inspectInterfaceOverview(requestReading.request.before),
-    inspectInterfaceOverview(requestReading.request.after),
+    executeInterfaceOverview(request.before),
+    executeInterfaceOverview(request.after),
   ]);
   if (before.status !== "success") {
     return before;
@@ -89,193 +207,95 @@ async function invokePublicInterfaceComparison(
     : after;
 }
 
-/** Searches the bounded Module Export index without returning Public Subpaths. */
-export async function inspectExportSearch(
-  request: ExportSearchRequest,
+async function executeExportSearch(
+  request: NormalizedExportSearchRequest,
 ): Promise<InspectionOutcome<ExportSearch>> {
-  return invokeExportSearch(request);
-}
-
-async function invokeExportSearch(request: unknown): Promise<InspectionOutcome<ExportSearch>> {
-  const requestReading = readInspectionRequest("export-search", request);
-  if (!requestReading.accepted) {
-    return requestReading.outcome;
-  }
   return enforceInspectionOutcome(
     "export-search",
-    await runBoundedAnalysis({ intent: "export-search", request: requestReading.request }),
+    await runBoundedAnalysis({ intent: "export-search", request }),
   );
 }
 
-/** Discovers manifest Public Subpaths without materializing a TypeScript program. */
-export async function inspectPublicSubpaths(
-  request: PublicSubpathDiscoveryRequest,
+async function executePublicSubpathDiscovery(
+  request: NormalizedPublicSubpathDiscoveryRequest,
 ): Promise<InspectionOutcome<PublicSubpathDiscovery>> {
-  return invokePublicSubpathDiscovery(request);
-}
-
-async function invokePublicSubpathDiscovery(
-  request: unknown,
-): Promise<InspectionOutcome<PublicSubpathDiscovery>> {
-  const requestReading = readInspectionRequest("public-subpath-discovery", request);
-  if (!requestReading.accepted) {
-    return requestReading.outcome;
-  }
   return enforceInspectionOutcome(
     "public-subpath-discovery",
-    await runBoundedAnalysis({
-      intent: "public-subpath-discovery",
-      request: requestReading.request,
-    }),
+    await runBoundedAnalysis({ intent: "public-subpath-discovery", request }),
   );
 }
 
-/**
- * Executes a bounded, all-or-nothing query list in one analysis process while
- * sharing declaration-provider selection and TypeScript program evidence.
- */
-export async function inspectPlan(
-  request: InspectionPlanRequest,
+async function executeInspectionPlan(
+  request: NormalizedInspectionPlanRequest,
 ): Promise<InspectionOutcome<InspectionPlan>> {
-  return invokeInspectionPlan(request);
-}
-
-async function invokeInspectionPlan(request: unknown): Promise<InspectionOutcome<InspectionPlan>> {
-  const requestReading = readInspectionRequest("inspection-plan", request);
-  if (!requestReading.accepted) {
-    return requestReading.outcome;
-  }
-
   return enforceInspectionPlanOutcome(
-    requestReading.request,
-    await runBoundedAnalysis({ intent: "inspection-plan", request: requestReading.request }),
+    request,
+    await runBoundedAnalysis({ intent: "inspection-plan", request }),
   );
 }
 
-/**
- * Validates a request and produces a bounded index of the Module Exports visible
- * from its Resolution Context. Analysis runs in an isolated subprocess, and its
- * result is size- and schema-checked before it crosses the Inspection Core seam.
- */
-export async function inspectInterfaceOverview(
-  request: InterfaceOverviewRequest,
+async function executeInterfaceOverview(
+  request: NormalizedInterfaceOverviewRequest,
 ): Promise<InspectionOutcome<InterfaceOverview>> {
-  return invokeInterfaceOverview(request);
-}
-
-async function invokeInterfaceOverview(
-  request: unknown,
-): Promise<InspectionOutcome<InterfaceOverview>> {
-  const requestReading = readInspectionRequest("interface-overview", request);
-  if (!requestReading.accepted) {
-    return requestReading.outcome;
-  }
-
   return enforceInspectionOutcome(
     "interface-overview",
-    await runBoundedAnalysis({
-      intent: "interface-overview",
-      request: requestReading.request,
-    }),
+    await runBoundedAnalysis({ intent: "interface-overview", request }),
   );
 }
 
-/**
- * Validates a request and produces a bounded Export Inspection for one Module
- * Export. Missing exports and all supported failure modes are returned as
- * structured outcomes rather than partial Inspection Results.
- */
-export async function inspectExport(
-  request: ExportInspectionRequest,
+async function executeExportInspection(
+  request: NormalizedExportInspectionRequest,
 ): Promise<InspectionOutcome<ExportInspection>> {
-  return invokeExportInspection(request);
-}
-
-async function invokeExportInspection(
-  request: unknown,
-): Promise<InspectionOutcome<ExportInspection>> {
-  const requestReading = readInspectionRequest("export-inspection", request);
-  if (!requestReading.accepted) {
-    return requestReading.outcome;
-  }
-
   return enforceInspectionOutcome(
     "export-inspection",
-    await runBoundedAnalysis({
-      intent: "export-inspection",
-      request: requestReading.request,
-    }),
+    await runBoundedAnalysis({ intent: "export-inspection", request }),
   );
 }
 
-/**
- * Validates a request and returns only the public call and construct signatures
- * for one Module Export, without traversing Supporting Types.
- */
-export async function inspectExportSignatures(
-  request: SignatureInspectionRequest,
+async function executeSignatureInspection(
+  request: NormalizedSignatureInspectionRequest,
 ): Promise<InspectionOutcome<SignatureInspection>> {
-  return invokeSignatureInspection(request);
-}
-
-async function invokeSignatureInspection(
-  request: unknown,
-): Promise<InspectionOutcome<SignatureInspection>> {
-  const requestReading = readInspectionRequest("signature-inspection", request);
-  if (!requestReading.accepted) {
-    return requestReading.outcome;
-  }
-
   return enforceInspectionOutcome(
     "signature-inspection",
-    await runBoundedAnalysis({
-      intent: "signature-inspection",
-      request: requestReading.request,
-    }),
+    await runBoundedAnalysis({ intent: "signature-inspection", request }),
   );
 }
 
-/** Returns one Module Export's declarations without signatures or Supporting Types. */
-export async function inspectExportDeclarations(
-  request: DeclarationInspectionRequest,
+async function executeDeclarationInspection(
+  request: NormalizedDeclarationInspectionRequest,
 ): Promise<InspectionOutcome<DeclarationInspection>> {
-  return invokeDeclarationInspection(request);
-}
-
-async function invokeDeclarationInspection(
-  request: unknown,
-): Promise<InspectionOutcome<DeclarationInspection>> {
-  const requestReading = readInspectionRequest("declaration-inspection", request);
-  if (!requestReading.accepted) {
-    return requestReading.outcome;
-  }
-
   return enforceDeclarationInspectionOutcome(
-    requestReading.request,
-    await runBoundedAnalysis({
-      intent: "declaration-inspection",
-      request: requestReading.request,
-    }),
+    request,
+    await runBoundedAnalysis({ intent: "declaration-inspection", request }),
   );
 }
 
-/** Returns exactly one public member path without unrelated declaration traversal. */
-export async function inspectExportMember(
-  request: MemberInspectionRequest,
+async function executeMemberInspection(
+  request: NormalizedMemberInspectionRequest,
 ): Promise<InspectionOutcome<MemberInspection>> {
-  return invokeMemberInspection(request);
-}
-
-async function invokeMemberInspection(
-  request: unknown,
-): Promise<InspectionOutcome<MemberInspection>> {
-  const requestReading = readInspectionRequest("member-inspection", request);
-  if (!requestReading.accepted) {
-    return requestReading.outcome;
-  }
-
   return enforceMemberInspectionOutcome(
-    requestReading.request,
-    await runBoundedAnalysis({ intent: "member-inspection", request: requestReading.request }),
+    request,
+    await runBoundedAnalysis({ intent: "member-inspection", request }),
   );
+}
+
+interface InspectionResultByIntent {
+  readonly "interface-overview": InterfaceOverview;
+  readonly "export-inspection": ExportInspection;
+  readonly "signature-inspection": SignatureInspection;
+  readonly "export-search": ExportSearch;
+  readonly "public-subpath-discovery": PublicSubpathDiscovery;
+  readonly "declaration-inspection": DeclarationInspection;
+  readonly "member-inspection": MemberInspection;
+  readonly "inspection-plan": InspectionPlan;
+  readonly "public-interface-comparison": PublicInterfaceComparison;
+}
+
+async function invokeTypedInspection<Intent extends InspectionIntent>(
+  intent: Intent,
+  request: unknown,
+): Promise<InspectionOutcome<InspectionResultByIntent[Intent]>> {
+  return invokeInspectionCore(intent, request) as Promise<
+    InspectionOutcome<InspectionResultByIntent[Intent]>
+  >;
 }

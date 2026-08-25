@@ -29,6 +29,11 @@ import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { renderJsonOutcome } from "#typepeek/json-rendering";
 import { serializeTerminalSafeJson, terminalSafeLine } from "#typepeek/output-safety";
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
+import {
+  internalProtocolWireError,
+  readProtocolWireInput,
+  renderProtocolWireValue,
+} from "#typepeek/protocol-wire";
 import { renderInspection, type TerminalRenderingOptions } from "#typepeek/terminal-rendering";
 
 const MAX_CLI_DIAGNOSTIC_BYTES = 128 * 1_024;
@@ -408,9 +413,25 @@ const subpathsCommand = buildCommand<InspectionTargetOptions, [string], Applicat
   },
 });
 
-const capabilitiesCommand = buildCommand<Readonly<Record<never, never>>, [], ApplicationContext>({
+const capabilitiesCommand = buildCommand<CliOutputOptions, [], ApplicationContext>({
   func() {
     this.process.stdout.write(`${serializeTerminalSafeJson(inspectCapabilities())}\n`);
+  },
+  parameters: {
+    flags: { json: inspectionTargetFlags.json },
+    positional: {
+      kind: "tuple",
+      parameters: [],
+    },
+  },
+  docs: {
+    brief: "Print the versioned Inspection Core capabilities as JSON.",
+  },
+});
+
+const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], ApplicationContext>({
+  async func() {
+    await runProtocolCommand(this);
   },
   parameters: {
     flags: {},
@@ -420,7 +441,7 @@ const capabilitiesCommand = buildCommand<Readonly<Record<never, never>>, [], App
     },
   },
   docs: {
-    brief: "Print the versioned Inspection Core capabilities as JSON.",
+    brief: "Invoke protocol version 1 with one bounded JSON request on stdin.",
   },
 });
 
@@ -494,12 +515,13 @@ const rootRoute = buildRouteMap({
     member: memberCommand,
     compare: compareCommand,
     capabilities: capabilitiesCommand,
+    protocol: protocolCommand,
   },
   defaultCommand: "overview",
   docs: {
     brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
     fullDescription:
-      "Use overview to discover exports; use search or subpaths for lighter discovery, declarations or member for narrow declaration questions, signatures for parameters, export for declarations and Supporting Types, plan to share one evidence snapshot, compare to diff two overview indexes, or capabilities to discover the adapter protocol. Common flags may precede or follow an explicit inspection command.",
+      "Use overview to discover exports; use search or subpaths for lighter discovery, declarations or member for narrow declaration questions, signatures for parameters, export for declarations and Supporting Types, plan to share one evidence snapshot, compare to diff two overview indexes, capabilities to discover the adapter protocol, or protocol for bounded stdin/stdout invocation. Common flags may precede or follow an explicit inspection command.",
   },
 });
 
@@ -528,6 +550,60 @@ export async function runCli(rawInputs: readonly string[]): Promise<void> {
   const inputs = rawInputs.length === 0 ? ["--help"] : normalizeCommonOptionPlacement(rawInputs);
   await run(app, inputs, { process: session.process });
   session.complete(rawInputs);
+}
+
+async function runProtocolCommand(context: ApplicationContext): Promise<void> {
+  try {
+    const reading = await readProtocolWireInput(process.stdin);
+    if (!reading.accepted) {
+      writeProtocolWireValue(context, reading.error, INVALID_INVOCATION_EXIT_CODE);
+      return;
+    }
+    const response = await invokeInspectionProtocol(reading.value);
+    writeProtocolResponse(context, response);
+  } catch {
+    writeProtocolWireValue(
+      context,
+      internalProtocolWireError("unexpected-error"),
+      INTERNAL_ERROR_EXIT_CODE,
+    );
+  }
+}
+
+function writeProtocolResponse(
+  context: ApplicationContext,
+  response: Awaited<ReturnType<typeof invokeInspectionProtocol>>,
+): void {
+  const exitCode = response.outcome.status === "success" ? 0 : INSPECTION_FAILURE_EXIT_CODE;
+  if (!writeProtocolWireValue(context, response, exitCode)) {
+    writeProtocolWireValue(context, protocolOutputLimitResponse(), INSPECTION_FAILURE_EXIT_CODE);
+  }
+}
+
+function writeProtocolWireValue(
+  context: ApplicationContext,
+  value: unknown,
+  exitCode: number,
+): boolean {
+  const rendering = renderProtocolWireValue(value);
+  if (rendering === undefined) {
+    return false;
+  }
+  context.process.stdout.write(rendering);
+  context.process.exitCode = exitCode;
+  return true;
+}
+
+function protocolOutputLimitResponse() {
+  return {
+    protocolVersion: INSPECTION_PROTOCOL_VERSION,
+    outcome: {
+      status: "limit-exceeded",
+      reason: "budget-exceeded",
+      exceededBudget: "json-output",
+      message: "Inspection exceeded its protocol output limit.",
+    },
+  } as const;
 }
 
 function normalizeCommonOptionPlacement(inputs: readonly string[]): readonly string[] {
@@ -652,8 +728,26 @@ async function invokeCliInspection<Intent extends InspectionIntent>(
     protocolVersion: INSPECTION_PROTOCOL_VERSION,
     intent,
     request,
+    ...(cliRequestUsesSignatureEvidence(intent, request)
+      ? { response: { signatureEvidence: "both" } }
+      : {}),
   });
-  return response.outcome;
+  return response.outcome as InspectionOutcome;
+}
+
+function cliRequestUsesSignatureEvidence<Intent extends InspectionIntent>(
+  intent: Intent,
+  request: InspectionRequestByIntent[Intent],
+): boolean {
+  if (intent === "signature-inspection") {
+    return true;
+  }
+  if (intent !== "inspection-plan") {
+    return false;
+  }
+  return (request as InspectionRequestByIntent["inspection-plan"]).queries.some(
+    (query) => query.intent === "signature-inspection",
+  );
 }
 
 function writeCliOutcome(

@@ -1,5 +1,5 @@
-const MAX_MEMBER_PATH_SEGMENTS = 16;
-const MAX_MEMBER_PATH_SEGMENT_BYTES = 256;
+export const MAX_MEMBER_PATH_SEGMENTS = 16;
+export const MAX_MEMBER_PATH_SEGMENT_BYTES = 256;
 
 /** Snapshots one bounded, dense Member path without invoking array accessors. */
 export function readBoundedMemberPath(value: unknown): readonly string[] | undefined {

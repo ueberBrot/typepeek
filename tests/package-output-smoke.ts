@@ -29,14 +29,38 @@ const cli = spawnSync(process.execPath, ["dist/cli.js", "--help"], {
 });
 
 assert.equal(cli.status, 0, cli.stderr);
-assert.match(cli.stdout, /typepeek/u);
-assert.match(cli.stdout, /Use overview to discover exports/u);
-assert.match(cli.stdout, /signatures\s+Inspect only the public call and construct signatures/u);
-assert.match(cli.stdout, /plan\s+Execute a bounded query list/u);
-assert.match(cli.stdout, /search\s+Search the bounded Module Export index/u);
-assert.match(cli.stdout, /subpaths\s+Discover manifest Public Subpaths/u);
-assert.match(cli.stdout, /compare\s+Compare two complete Interface Overview indexes/u);
-assert.match(cli.stdout, /capabilities\s+Print the versioned Inspection Core capabilities/u);
+for (const expected of [
+  /typepeek/u,
+  /Use overview to discover exports/u,
+  /signatures\s+Inspect only the public call and construct signatures/u,
+  /plan\s+Execute a bounded query list/u,
+  /search\s+Search the bounded Module Export index/u,
+  /subpaths\s+Discover manifest Public Subpaths/u,
+  /compare\s+Compare two complete Interface Overview indexes/u,
+  /capabilities\s+Print the versioned Inspection Core capabilities/u,
+  /protocol\s+Invoke protocol version 1/u,
+]) {
+  assert.match(cli.stdout, expected);
+}
+
+const protocolCli = spawnSync(process.execPath, ["dist/cli.js", "protocol"], {
+  encoding: "utf8",
+  input: JSON.stringify({
+    protocolVersion: "1",
+    intent: "signature-inspection",
+    request: {
+      resolutionContext: process.cwd(),
+      specifier: "arktype",
+      exportName: "type",
+    },
+  }),
+});
+assert.equal(protocolCli.status, 0, protocolCli.stderr || protocolCli.stdout);
+assert.equal(protocolCli.stderr, "");
+assert.equal(
+  (JSON.parse(protocolCli.stdout) as { readonly protocolVersion?: unknown }).protocolVersion,
+  "1",
+);
 await assertArtifactCacheReuse("dist/cli.js");
 const inspectionApiPath = "../dist/inspection-api.js";
 const inspectionApi: unknown = await import(inspectionApiPath);

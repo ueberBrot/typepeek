@@ -39,7 +39,7 @@ Failed lookups, directory entries, containers, and rendered fragments consume th
 
 ## Cache authority
 
-The optional persistent cache stores only a successful Inspection Outcome after the parent process has validated it at the same protocol seam as an uncached result. Its identity includes the normalized request, the package-manifest Typepeek version, compiler and protocol versions, the named budget-policy version, cache semantics, and the canonical Installed Evidence selection. Changing any identity dimension creates a miss.
+The optional persistent cache stores only a successful Inspection Outcome after the parent process has validated it at the same protocol seam as an uncached result. Its identity includes the normalized request, the package-manifest Typepeek version, compiler version, the named budget-policy version, cache semantics, and the canonical Installed Evidence selection. Transport protocol versions do not affect canonical Inspection Outcomes. Changing any cache identity dimension creates a miss.
 
 Automatic persistent reuse is enabled only for packaged builds with an embedded package version. Direct source execution requires an explicit cache directory, and Windows persistence remains disabled until private ownership can be verified rather than assumed.
 

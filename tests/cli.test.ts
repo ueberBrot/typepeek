@@ -53,6 +53,7 @@ describe("typepeek CLI", () => {
     expect(result.stdout).toContain("member");
     expect(result.stdout).toContain("compare");
     expect(result.stdout).toContain("capabilities");
+    expect(result.stdout).toContain("protocol");
   });
 
   it("reports the version declared by the package manifest", async () => {
@@ -64,17 +65,113 @@ describe("typepeek CLI", () => {
     expect(result.stdout).toContain(manifest.version);
   });
 
-  it("prints the versioned adapter capabilities", async () => {
-    const result = await execa(process.execPath, ["src/cli.ts", "capabilities"]);
+  it.each([{ flags: [] }, { flags: ["--json"] }])(
+    "prints the versioned adapter capabilities with optional JSON signaling",
+    async ({ flags }) => {
+      const result = await execa(process.execPath, ["src/cli.ts", "capabilities", ...flags]);
 
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        intent: "capabilities",
+        protocolVersion: "1",
+        supportedIntents: expect.arrayContaining([
+          "inspection-plan",
+          "member-inspection",
+          "public-interface-comparison",
+        ]),
+      });
+    },
+  );
+
+  it("invokes protocol version 1 through bounded stdin and stdout", async () => {
+    const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
+      input: JSON.stringify({
+        protocolVersion: "1",
+        intent: "signature-inspection",
+        request: {
+          resolutionContext: fixture.resolutionContext,
+          specifier: "@typepeek-fixture/focused",
+          exportName: "createWidget",
+        },
+      }),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toMatchObject({
-      intent: "capabilities",
-      protocolVersion: "2",
-      supportedIntents: expect.arrayContaining([
-        "inspection-plan",
-        "member-inspection",
-        "public-interface-comparison",
-      ]),
+      protocolVersion: "1",
+      outcome: {
+        status: "success",
+        result: {
+          intent: "signature-inspection",
+          moduleExport: { name: "createWidget" },
+        },
+      },
+    });
+  });
+
+  it("returns typed protocol failures on stdout with exit status 1", async () => {
+    const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
+      input: JSON.stringify({
+        protocolVersion: "1",
+        intent: "signature-inspection",
+        request: {
+          resolutionContext: fixture.resolutionContext,
+          specifier: "@typepeek-fixture/focused",
+          exportName: "MissingExport",
+        },
+      }),
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      protocolVersion: "1",
+      outcome: { status: "not-found", reason: "export-not-found" },
+      recovery: [
+        {
+          reason: "search-related-export-names",
+          request: { protocolVersion: "1", intent: "export-search" },
+        },
+      ],
+    });
+  });
+
+  it.each([
+    ["", "empty-input"],
+    ["{", "malformed-json"],
+    ["{} {}", "malformed-json"],
+  ])("returns one stable wire error for invalid protocol input", async (input, reason) => {
+    const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
+      input,
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({
+      wireVersion: "1",
+      status: "invalid-input",
+      reason,
+      message: "Typepeek received invalid protocol input.",
+    });
+  });
+
+  it.each([
+    [Buffer.alloc(32 * 1_024 + 1, 0x20), "input-too-large"],
+    [Buffer.from([0xc3, 0x28]), "invalid-utf8"],
+  ])("rejects unsafe protocol wire bytes before JSON parsing", async (input, reason) => {
+    const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
+      input,
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      wireVersion: "1",
+      status: "invalid-input",
+      reason,
     });
   });
 
