@@ -1,3 +1,4 @@
+import { Effect, Result, Schema } from "effect";
 import { isAbsolute } from "node:path";
 
 import {
@@ -12,7 +13,6 @@ import {
   readBoundedMemberPath,
 } from "#typepeek/inspection/member-path";
 import type {
-  AccessStyle,
   InspectionRequestByIntent,
   NormalizedDeclarationInspectionRequest,
   NormalizedExportInspectionRequest,
@@ -105,6 +105,54 @@ const TARGET_FIELDS = [
   },
 ] as const;
 const EXPORT_NAME_FIELD = { name: "exportName", kind: "string", required: true } as const;
+
+const accessStyleSchema = Schema.Literals(["import", "require"]);
+const normalizedTargetFields = {
+  resolutionContext: Schema.String.check(
+    Schema.makeFilter(isAbsolute, { expected: "an absolute path" }),
+  ),
+  specifier: Schema.String,
+  accessStyle: accessStyleSchema.pipe(Schema.withDecodingDefault(Effect.succeed("import"))),
+} as const;
+const normalizedTargetSchema = Schema.Struct(normalizedTargetFields);
+const normalizedExportSchema = Schema.Struct({
+  ...normalizedTargetFields,
+  exportName: Schema.String,
+});
+const normalizedExportSearchSchema = Schema.Struct({
+  ...normalizedTargetFields,
+  query: Schema.String.check(
+    Schema.makeFilter(isBoundedExportSearchQuery, { expected: "a bounded search query" }),
+  ),
+});
+const memberPathSchema = Schema.Array(Schema.String);
+const normalizedMemberSchema = Schema.Struct({
+  ...normalizedTargetFields,
+  exportName: Schema.String,
+  memberPath: memberPathSchema,
+});
+const inspectionPlanQuerySchema = Schema.Union([
+  Schema.Struct({ intent: Schema.Literal("interface-overview") }),
+  Schema.Struct({ intent: Schema.Literal("export-inspection"), exportName: Schema.String }),
+  Schema.Struct({ intent: Schema.Literal("signature-inspection"), exportName: Schema.String }),
+  Schema.Struct({ intent: Schema.Literal("export-search"), query: Schema.String }),
+  Schema.Struct({ intent: Schema.Literal("public-subpath-discovery") }),
+  Schema.Struct({ intent: Schema.Literal("declaration-inspection"), exportName: Schema.String }),
+  Schema.Struct({
+    intent: Schema.Literal("member-inspection"),
+    exportName: Schema.String,
+    memberPath: memberPathSchema,
+  }),
+]);
+const normalizedPlanSchema = Schema.Struct({
+  ...normalizedTargetFields,
+  queries: Schema.Array(inspectionPlanQuerySchema),
+});
+const decodeTargetCandidate = Schema.decodeUnknownResult(normalizedTargetSchema);
+const decodeExportCandidate = Schema.decodeUnknownResult(normalizedExportSchema);
+const decodeExportSearchCandidate = Schema.decodeUnknownResult(normalizedExportSearchSchema);
+const decodeMemberCandidate = Schema.decodeUnknownResult(normalizedMemberSchema);
+const decodePlanCandidate = Schema.decodeUnknownResult(normalizedPlanSchema);
 
 const REQUEST_DEFINITIONS = deepFreeze({
   "interface-overview": defineRequest(
@@ -280,18 +328,7 @@ function defineRequest<Intent extends InspectionIntent>(
 function readTargetCandidate(
   value: Readonly<Record<string, unknown>>,
 ): NormalizedInterfaceOverviewRequest | undefined {
-  const resolutionContext = value["resolutionContext"];
-  const specifier = value["specifier"];
-  const accessStyle = value["accessStyle"];
-  if (
-    typeof resolutionContext !== "string" ||
-    !isAbsolute(resolutionContext) ||
-    typeof specifier !== "string" ||
-    !isAccessStyle(accessStyle)
-  ) {
-    return undefined;
-  }
-  return { resolutionContext, specifier, accessStyle: accessStyle ?? "import" };
+  return Result.getOrUndefined(decodeTargetCandidate(value));
 }
 
 function readTarget(value: unknown): NormalizedInterfaceOverviewRequest | undefined {
@@ -305,39 +342,31 @@ function readTarget(value: unknown): NormalizedInterfaceOverviewRequest | undefi
 function readExportCandidate(
   value: Readonly<Record<string, unknown>>,
 ): NormalizedExportInspectionRequest | undefined {
-  const target = readTargetCandidate(value);
-  const exportName = value["exportName"];
-  return target === undefined || typeof exportName !== "string"
-    ? undefined
-    : { ...target, exportName };
+  return Result.getOrUndefined(decodeExportCandidate(value));
 }
 
 function readExportSearchCandidate(
   value: Readonly<Record<string, unknown>>,
 ): NormalizedExportSearchRequest | undefined {
-  const target = readTargetCandidate(value);
-  const query = value["query"];
-  return target === undefined || !isBoundedExportSearchQuery(query)
-    ? undefined
-    : { ...target, query };
+  return Result.getOrUndefined(decodeExportSearchCandidate(value));
 }
 
 function readMemberCandidate(
   value: Readonly<Record<string, unknown>>,
 ): NormalizedMemberInspectionRequest | undefined {
-  const request = readExportCandidate(value);
   const memberPath = readBoundedMemberPath(value["memberPath"]);
-  return request === undefined || memberPath === undefined ? undefined : { ...request, memberPath };
+  return memberPath === undefined
+    ? undefined
+    : Result.getOrUndefined(decodeMemberCandidate({ ...value, memberPath }));
 }
 
 function readPlanCandidate(
   value: Readonly<Record<string, unknown>>,
 ): NormalizedInspectionPlanRequest | undefined {
-  const target = readTargetCandidate(value);
   const queries = readInspectionPlanQueries(value["queries"]);
-  return target === undefined || !queries.accepted
+  return !queries.accepted
     ? undefined
-    : { ...target, queries: queries.queries };
+    : Result.getOrUndefined(decodePlanCandidate({ ...value, queries: queries.queries }));
 }
 
 function readComparisonCandidate(
@@ -346,10 +375,6 @@ function readComparisonCandidate(
   const before = readTarget(value["before"]);
   const after = readTarget(value["after"]);
   return before === undefined || after === undefined ? undefined : { before, after };
-}
-
-function isAccessStyle(value: unknown): value is AccessStyle | undefined {
-  return value === undefined || value === "import" || value === "require";
 }
 
 function deepFreeze<Value>(value: Value): Readonly<Value> {

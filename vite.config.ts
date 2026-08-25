@@ -39,7 +39,7 @@ export default defineConfig({
     },
     outDir: ".vite-plus/build",
     rolldownOptions: {
-      external: [/^node:/u, "@stricli/core", "@typescript/typescript6", "arktype", "execa"],
+      external: [/^node:/u, "@stricli/core", "@typescript/typescript6", "effect", "execa"],
       output: {
         // analysis-process.ts resolves the emitted worker relative to a shared
         // implementation chunk, so shared chunks deliberately remain at root.

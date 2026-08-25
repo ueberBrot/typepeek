@@ -1,4 +1,4 @@
-import { type } from "arktype";
+import { Result, Schema } from "effect";
 
 import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection-plan-query";
 import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
@@ -13,344 +13,368 @@ import {
 const MAX_PROTOCOL_GRAPH_OBJECTS = 4_096;
 const MAX_PROTOCOL_GRAPH_VALUES = 16_384;
 
-const portableRelativePathSchema = type("string").narrow(isPortableRelativePath);
-const positiveIntegerSchema = type("number.integer").narrow((value) => value > 0);
-const nonnegativeIntegerSchema = type("number.integer").narrow((value) => value >= 0);
-const nonArrayRecordSchema = type("object").narrow((value): boolean => isRecord(value));
-const budgetDimensionSchema = type.enumerated(...INSPECTION_BUDGET_DIMENSIONS);
-const notFoundFailureReasonSchema = type.enumerated(...NOT_FOUND_FAILURE_REASONS);
-const unsupportedFailureReasonSchema = type.enumerated(...UNSUPPORTED_FAILURE_REASONS);
-const record = <const Definition extends object>(definition: Definition) =>
-  [nonArrayRecordSchema, "&", definition] as const;
+const portableRelativePathSchema = Schema.String.check(
+  Schema.makeFilter(isPortableRelativePath, { expected: "a portable relative path" }),
+);
+const positiveIntegerSchema = Schema.Int.check(Schema.isGreaterThan(0));
+const accessStyleSchema = Schema.Literals(["import", "require"]);
+const budgetDimensionSchema = Schema.Literals(INSPECTION_BUDGET_DIMENSIONS);
+const notFoundFailureReasonSchema = Schema.Literals(NOT_FOUND_FAILURE_REASONS);
+const unsupportedFailureReasonSchema = Schema.Literals(UNSUPPORTED_FAILURE_REASONS);
+const optionalUndefined = Schema.optional(Schema.Never);
 
-const inspectionSchemas = type.module({
-  accessStyle: "'import' | 'require'",
-  moduleExportIndexEntry: record({
-    name: "string",
-  }),
-  publicSubpath: record({
-    specifier: "string",
-  }),
-  packageIdentity: record({
-    name: "string",
-    "version?": "string | undefined",
-  }),
-  resolutionVariant: record({
-    accessStyle: "accessStyle",
-  }),
-  declarationSpace: "'type' | 'value' | 'namespace'",
-  declarationKind:
-    "'accessor' | 'alias' | 'class' | 'constructor' | 'enum' | 'enum-member' | 'function' | 'interface' | 'method' | 'namespace' | 'property' | 'type-alias' | 'variable'",
-  declarationProvenance: record({
-    packageIdentity: "packageIdentity",
-    file: portableRelativePathSchema,
-    line: positiveIntegerSchema,
-    column: positiveIntegerSchema,
-  }),
-  inspectedDeclaration: record({
-    kind: "declarationKind",
-    text: "string",
-    provenance: "declarationProvenance",
-  }),
-  aliasDeclaration: record({
-    kind: "'alias'",
-    text: "string",
-    provenance: "declarationProvenance",
-  }),
-  exportTypeOrValueDeclarationSpace: record({
-    space: "'type' | 'value'",
-    declarations: "inspectedDeclaration[]",
-  }),
-  exportNamespaceMember: record({
-    name: "string",
-    declarations: "inspectedDeclaration[]",
-    members: "exportNamespaceMember[]",
-  }),
-  exportNamespaceDeclarationSpace: record({
-    space: "'namespace'",
-    members: "exportNamespaceMember[]",
-  }),
-  exportDeclarationSpace: "exportTypeOrValueDeclarationSpace | exportNamespaceDeclarationSpace",
-  exportAlias: record({
-    targetName: "string",
-    declaration: "aliasDeclaration",
-  }),
-  exportSignature: record({
-    kind: "'call' | 'construct'",
-    text: "string",
-  }),
-  signatureIdentifierBinding: record({
-    kind: "'identifier'",
-    name: "string",
-    synthetic: "boolean",
-  }),
-  signaturePatternBinding: record({
-    kind: "'pattern'",
-    text: "string",
-  }),
-  signatureBinding: "signatureIdentifierBinding | signaturePatternBinding",
-  signatureParameter: record({
-    binding: "signatureBinding",
-    type: "string",
-    optional: "boolean",
-    rest: "boolean",
-  }),
-  signatureThisParameter: record({
-    type: "string",
-  }),
-  signatureTypeParameterModifier: "'const' | 'in' | 'out'",
-  signatureTypeParameter: record({
-    name: "string",
-    modifiers: "signatureTypeParameterModifier[]",
-    "constraint?": "string | undefined",
-    "default?": "string | undefined",
-    synthetic: "boolean",
-  }),
-  signatureTypeReturn: record({
-    kind: "'type'",
-    type: "string",
-  }),
-  signaturePredicateReturn: record({
-    kind: "'predicate'",
-    parameter: "string",
-    type: "string",
-  }),
-  signatureAssertionReturn: record({
-    kind: "'assertion'",
-    parameter: "string",
-    "type?": "string | undefined",
-  }),
-  signatureReturn: "signatureTypeReturn | signaturePredicateReturn | signatureAssertionReturn",
-  inspectedSignature: record({
-    kind: "'call' | 'construct'",
-    text: "string",
-    typeParameters: "signatureTypeParameter[]",
-    "thisParameter?": "signatureThisParameter | undefined",
-    parameters: "signatureParameter[]",
-    returns: "signatureReturn",
-  }),
-  inspectedModuleExport: record({
-    name: "string",
-    "alias?": "exportAlias | undefined",
-    spaces: "exportDeclarationSpace[]",
-    signatures: "exportSignature[]",
-  }),
-  inspectedModuleExportSignatures: record({
-    name: "string",
-    "aliasTargetName?": "string | undefined",
-    signatures: "inspectedSignature[]",
-  }),
-  inspectedModuleExportDeclarations: record({
-    name: "string",
-    "alias?": "exportAlias | undefined",
-    spaces: "exportDeclarationSpace[]",
-  }),
-  supportingType: record({
-    name: "string",
-    declarations: "inspectedDeclaration[]",
-  }),
-  packageDocumentation: record({
-    provenance: "'installed-evidence'",
-    trust: "'untrusted'",
-    text: "string",
-  }),
-  packageInterfaceOverview: record({
-    intent: "'interface-overview'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    packageIdentity: "packageIdentity",
-    "declarationProvider?": "packageIdentity | undefined",
-    publicSubpaths: "publicSubpath[]",
-    moduleExports: "moduleExportIndexEntry[]",
-  }),
-  platformInterfaceOverview: record({
-    intent: "'interface-overview'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    "packageIdentity?": "undefined",
-    declarationProvider: "packageIdentity",
-    publicSubpaths: "publicSubpath[]",
-    moduleExports: "moduleExportIndexEntry[]",
-  }),
-  interfaceOverview: "packageInterfaceOverview | platformInterfaceOverview",
-  packageExportInspection: record({
-    intent: "'export-inspection'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    packageIdentity: "packageIdentity",
-    "declarationProvider?": "packageIdentity | undefined",
-    moduleExport: "inspectedModuleExport",
-    supportingTypes: "supportingType[]",
-    "packageDocumentation?": "packageDocumentation | undefined",
-  }),
-  platformExportInspection: record({
-    intent: "'export-inspection'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    "packageIdentity?": "undefined",
-    declarationProvider: "packageIdentity",
-    moduleExport: "inspectedModuleExport",
-    supportingTypes: "supportingType[]",
-    "packageDocumentation?": "packageDocumentation | undefined",
-  }),
-  exportInspection: "packageExportInspection | platformExportInspection",
-  packageSignatureInspection: record({
-    intent: "'signature-inspection'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    packageIdentity: "packageIdentity",
-    "declarationProvider?": "packageIdentity | undefined",
-    moduleExport: "inspectedModuleExportSignatures",
-  }),
-  platformSignatureInspection: record({
-    intent: "'signature-inspection'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    "packageIdentity?": "undefined",
-    declarationProvider: "packageIdentity",
-    moduleExport: "inspectedModuleExportSignatures",
-  }),
-  signatureInspection: "packageSignatureInspection | platformSignatureInspection",
-  packageExportSearch: record({
-    intent: "'export-search'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    packageIdentity: "packageIdentity",
-    "declarationProvider?": "packageIdentity | undefined",
-    query: "string",
-    totalModuleExports: nonnegativeIntegerSchema,
-    matches: "moduleExportIndexEntry[]",
-  }),
-  platformExportSearch: record({
-    intent: "'export-search'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    "packageIdentity?": "undefined",
-    declarationProvider: "packageIdentity",
-    query: "string",
-    totalModuleExports: nonnegativeIntegerSchema,
-    matches: "moduleExportIndexEntry[]",
-  }),
-  exportSearch: "packageExportSearch | platformExportSearch",
-  packagePublicSubpathDiscovery: record({
-    intent: "'public-subpath-discovery'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    packageIdentity: "packageIdentity",
-    "declarationProvider?": "packageIdentity | undefined",
-    publicSubpaths: "publicSubpath[]",
-  }),
-  platformPublicSubpathDiscovery: record({
-    intent: "'public-subpath-discovery'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    "packageIdentity?": "undefined",
-    declarationProvider: "packageIdentity",
-    publicSubpaths: "publicSubpath[]",
-  }),
-  publicSubpathDiscovery: "packagePublicSubpathDiscovery | platformPublicSubpathDiscovery",
-  packageDeclarationInspection: record({
-    intent: "'declaration-inspection'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    packageIdentity: "packageIdentity",
-    "declarationProvider?": "packageIdentity | undefined",
-    moduleExport: "inspectedModuleExportDeclarations",
-  }),
-  platformDeclarationInspection: record({
-    intent: "'declaration-inspection'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    "packageIdentity?": "undefined",
-    declarationProvider: "packageIdentity",
-    moduleExport: "inspectedModuleExportDeclarations",
-  }),
-  declarationInspection: "packageDeclarationInspection | platformDeclarationInspection",
-  packageMemberInspection: record({
-    intent: "'member-inspection'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    packageIdentity: "packageIdentity",
-    "declarationProvider?": "packageIdentity | undefined",
-    moduleExportName: "string",
-    memberPath: "string[]",
-    declarations: "inspectedDeclaration[]",
-  }),
-  platformMemberInspection: record({
-    intent: "'member-inspection'",
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    "packageIdentity?": "undefined",
-    declarationProvider: "packageIdentity",
-    moduleExportName: "string",
-    memberPath: "string[]",
-    declarations: "inspectedDeclaration[]",
-  }),
-  memberInspection: "packageMemberInspection | platformMemberInspection",
-  packageComparisonTarget: record({
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    packageIdentity: "packageIdentity",
-    "declarationProvider?": "packageIdentity | undefined",
-  }),
-  platformComparisonTarget: record({
-    specifier: "string",
-    resolutionVariant: "resolutionVariant",
-    "packageIdentity?": "undefined",
-    declarationProvider: "packageIdentity",
-  }),
-  comparisonTarget: "packageComparisonTarget | platformComparisonTarget",
-  moduleExportIndexDelta: record({
-    added: "moduleExportIndexEntry[]",
-    removed: "moduleExportIndexEntry[]",
-  }),
-  publicSubpathIndexDelta: record({
-    added: "publicSubpath[]",
-    removed: "publicSubpath[]",
-  }),
-  publicInterfaceComparison: record({
-    intent: "'public-interface-comparison'",
-    scope: "'interface-overview'",
-    before: "comparisonTarget",
-    after: "comparisonTarget",
-    moduleExports: "moduleExportIndexDelta",
-    publicSubpaths: "publicSubpathIndexDelta",
-  }),
-  atomicInspectionResult:
-    "interfaceOverview | exportInspection | signatureInspection | exportSearch | publicSubpathDiscovery | declarationInspection | memberInspection",
-  inspectionResult: "atomicInspectionResult | publicInterfaceComparison",
-  notFoundFailure: record({
-    status: "'not-found'",
-    reason: notFoundFailureReasonSchema,
-    message: "string",
-  }),
-  unsupportedFailure: record({
-    status: "'unsupported'",
-    reason: unsupportedFailureReasonSchema,
-    message: "string",
-  }),
-  staticBoundaryFailure: record({
-    status: "'static-boundary'",
-    reason: "'static-boundary'",
-    message: "string",
-  }),
-  limitFailure: record({
-    status: "'limit-exceeded'",
-    reason: "'budget-exceeded'",
-    exceededBudget: budgetDimensionSchema,
-    message: "string",
-  }),
-  inspectionFailure: "notFoundFailure | unsupportedFailure | staticBoundaryFailure | limitFailure",
-  inspectionSuccess: record({
-    status: "'success'",
-    result: "inspectionResult",
-  }),
-  inspectionOutcome: "inspectionSuccess | inspectionFailure",
+const moduleExportIndexEntrySchema = Schema.Struct({ name: Schema.String });
+const publicSubpathSchema = Schema.Struct({ specifier: Schema.String });
+const packageIdentitySchema = Schema.Struct({
+  name: Schema.String,
+  version: Schema.optional(Schema.String),
+});
+const resolutionVariantSchema = Schema.Struct({ accessStyle: accessStyleSchema });
+const declarationSpaceSchema = Schema.Literals(["type", "value", "namespace"]);
+const declarationKindSchema = Schema.Literals([
+  "accessor",
+  "alias",
+  "class",
+  "constructor",
+  "enum",
+  "enum-member",
+  "function",
+  "interface",
+  "method",
+  "namespace",
+  "property",
+  "type-alias",
+  "variable",
+]);
+const declarationProvenanceSchema = Schema.Struct({
+  packageIdentity: packageIdentitySchema,
+  file: portableRelativePathSchema,
+  line: positiveIntegerSchema,
+  column: positiveIntegerSchema,
+});
+const inspectedDeclarationSchema = Schema.Struct({
+  kind: declarationKindSchema,
+  text: Schema.String,
+  provenance: declarationProvenanceSchema,
+});
+const aliasDeclarationSchema = Schema.Struct({
+  kind: Schema.Literal("alias"),
+  text: Schema.String,
+  provenance: declarationProvenanceSchema,
+});
+const exportTypeOrValueDeclarationSpaceSchema = Schema.Struct({
+  space: Schema.Literals(["type", "value"]),
+  declarations: Schema.Array(inspectedDeclarationSchema),
+});
+interface ExportNamespaceMemberSchemaType {
+  readonly name: string;
+  readonly declarations: ReadonlyArray<typeof inspectedDeclarationSchema.Type>;
+  readonly members: ReadonlyArray<ExportNamespaceMemberSchemaType>;
+}
+const exportNamespaceMemberSchema: Schema.Codec<ExportNamespaceMemberSchemaType> = Schema.Struct({
+  name: Schema.String,
+  declarations: Schema.Array(inspectedDeclarationSchema),
+  members: Schema.Array(
+    Schema.suspend(
+      (): Schema.Codec<ExportNamespaceMemberSchemaType> => exportNamespaceMemberSchema,
+    ),
+  ),
+});
+const exportNamespaceDeclarationSpaceSchema = Schema.Struct({
+  space: Schema.Literal("namespace"),
+  members: Schema.Array(exportNamespaceMemberSchema),
+});
+const exportDeclarationSpaceSchema = Schema.Union([
+  exportTypeOrValueDeclarationSpaceSchema,
+  exportNamespaceDeclarationSpaceSchema,
+]);
+const exportAliasSchema = Schema.Struct({
+  targetName: Schema.String,
+  declaration: aliasDeclarationSchema,
+});
+const exportSignatureSchema = Schema.Struct({
+  kind: Schema.Literals(["call", "construct"]),
+  text: Schema.String,
+});
+const signatureIdentifierBindingSchema = Schema.Struct({
+  kind: Schema.Literal("identifier"),
+  name: Schema.String,
+  synthetic: Schema.Boolean,
+});
+const signaturePatternBindingSchema = Schema.Struct({
+  kind: Schema.Literal("pattern"),
+  text: Schema.String,
+});
+const signatureBindingSchema = Schema.Union([
+  signatureIdentifierBindingSchema,
+  signaturePatternBindingSchema,
+]);
+const signatureParameterSchema = Schema.Struct({
+  binding: signatureBindingSchema,
+  type: Schema.String,
+  optional: Schema.Boolean,
+  rest: Schema.Boolean,
+});
+const signatureThisParameterSchema = Schema.Struct({ type: Schema.String });
+const signatureTypeParameterModifierSchema = Schema.Literals(["const", "in", "out"]);
+const signatureTypeParameterSchema = Schema.Struct({
+  name: Schema.String,
+  modifiers: Schema.Array(signatureTypeParameterModifierSchema),
+  constraint: Schema.optional(Schema.String),
+  default: Schema.optional(Schema.String),
+  synthetic: Schema.Boolean,
+});
+const signatureTypeReturnSchema = Schema.Struct({
+  kind: Schema.Literal("type"),
+  type: Schema.String,
+});
+const signaturePredicateReturnSchema = Schema.Struct({
+  kind: Schema.Literal("predicate"),
+  parameter: Schema.String,
+  type: Schema.String,
+});
+const signatureAssertionReturnSchema = Schema.Struct({
+  kind: Schema.Literal("assertion"),
+  parameter: Schema.String,
+  type: Schema.optional(Schema.String),
+});
+const signatureReturnSchema = Schema.Union([
+  signatureTypeReturnSchema,
+  signaturePredicateReturnSchema,
+  signatureAssertionReturnSchema,
+]);
+const inspectedSignatureSchema = Schema.Struct({
+  kind: Schema.Literals(["call", "construct"]),
+  text: Schema.String,
+  typeParameters: Schema.Array(signatureTypeParameterSchema),
+  thisParameter: Schema.optional(signatureThisParameterSchema),
+  parameters: Schema.Array(signatureParameterSchema),
+  returns: signatureReturnSchema,
+});
+const inspectedModuleExportSchema = Schema.Struct({
+  name: Schema.String,
+  alias: Schema.optional(exportAliasSchema),
+  spaces: Schema.Array(exportDeclarationSpaceSchema),
+  signatures: Schema.Array(exportSignatureSchema),
+});
+const inspectedModuleExportSignaturesSchema = Schema.Struct({
+  name: Schema.String,
+  aliasTargetName: Schema.optional(Schema.String),
+  signatures: Schema.Array(inspectedSignatureSchema),
+});
+const inspectedModuleExportDeclarationsSchema = Schema.Struct({
+  name: Schema.String,
+  alias: Schema.optional(exportAliasSchema),
+  spaces: Schema.Array(exportDeclarationSpaceSchema),
+});
+const supportingTypeSchema = Schema.Struct({
+  name: Schema.String,
+  declarations: Schema.Array(inspectedDeclarationSchema),
+});
+const packageDocumentationSchema = Schema.Struct({
+  provenance: Schema.Literal("installed-evidence"),
+  trust: Schema.Literal("untrusted"),
+  text: Schema.String,
 });
 
-const inspectionOutcomeSchema = inspectionSchemas.inspectionOutcome.onDeepUndeclaredKey("reject");
-const atomicInspectionResultSchema =
-  inspectionSchemas.atomicInspectionResult.onDeepUndeclaredKey("reject");
+const packageIdentityFields = {
+  specifier: Schema.String,
+  resolutionVariant: resolutionVariantSchema,
+  packageIdentity: packageIdentitySchema,
+  declarationProvider: Schema.optional(packageIdentitySchema),
+} as const;
+const platformIdentityFields = {
+  specifier: Schema.String,
+  resolutionVariant: resolutionVariantSchema,
+  packageIdentity: optionalUndefined,
+  declarationProvider: packageIdentitySchema,
+} as const;
+const packageInterfaceOverviewSchema = Schema.Struct({
+  intent: Schema.Literal("interface-overview"),
+  ...packageIdentityFields,
+  publicSubpaths: Schema.Array(publicSubpathSchema),
+  moduleExports: Schema.Array(moduleExportIndexEntrySchema),
+});
+const platformInterfaceOverviewSchema = Schema.Struct({
+  intent: Schema.Literal("interface-overview"),
+  ...platformIdentityFields,
+  publicSubpaths: Schema.Array(publicSubpathSchema),
+  moduleExports: Schema.Array(moduleExportIndexEntrySchema),
+});
+const interfaceOverviewSchema = Schema.Union([
+  packageInterfaceOverviewSchema,
+  platformInterfaceOverviewSchema,
+]);
+const packageExportInspectionSchema = Schema.Struct({
+  intent: Schema.Literal("export-inspection"),
+  ...packageIdentityFields,
+  moduleExport: inspectedModuleExportSchema,
+  supportingTypes: Schema.Array(supportingTypeSchema),
+  packageDocumentation: Schema.optional(packageDocumentationSchema),
+});
+const platformExportInspectionSchema = Schema.Struct({
+  intent: Schema.Literal("export-inspection"),
+  ...platformIdentityFields,
+  moduleExport: inspectedModuleExportSchema,
+  supportingTypes: Schema.Array(supportingTypeSchema),
+  packageDocumentation: Schema.optional(packageDocumentationSchema),
+});
+const exportInspectionSchema = Schema.Union([
+  packageExportInspectionSchema,
+  platformExportInspectionSchema,
+]);
+const packageSignatureInspectionSchema = Schema.Struct({
+  intent: Schema.Literal("signature-inspection"),
+  ...packageIdentityFields,
+  moduleExport: inspectedModuleExportSignaturesSchema,
+});
+const platformSignatureInspectionSchema = Schema.Struct({
+  intent: Schema.Literal("signature-inspection"),
+  ...platformIdentityFields,
+  moduleExport: inspectedModuleExportSignaturesSchema,
+});
+const signatureInspectionSchema = Schema.Union([
+  packageSignatureInspectionSchema,
+  platformSignatureInspectionSchema,
+]);
+const packageExportSearchSchema = Schema.Struct({
+  intent: Schema.Literal("export-search"),
+  ...packageIdentityFields,
+  query: Schema.String,
+  totalModuleExports: Schema.Natural,
+  matches: Schema.Array(moduleExportIndexEntrySchema),
+});
+const platformExportSearchSchema = Schema.Struct({
+  intent: Schema.Literal("export-search"),
+  ...platformIdentityFields,
+  query: Schema.String,
+  totalModuleExports: Schema.Natural,
+  matches: Schema.Array(moduleExportIndexEntrySchema),
+});
+const exportSearchSchema = Schema.Union([packageExportSearchSchema, platformExportSearchSchema]);
+const packagePublicSubpathDiscoverySchema = Schema.Struct({
+  intent: Schema.Literal("public-subpath-discovery"),
+  ...packageIdentityFields,
+  publicSubpaths: Schema.Array(publicSubpathSchema),
+});
+const platformPublicSubpathDiscoverySchema = Schema.Struct({
+  intent: Schema.Literal("public-subpath-discovery"),
+  ...platformIdentityFields,
+  publicSubpaths: Schema.Array(publicSubpathSchema),
+});
+const publicSubpathDiscoverySchema = Schema.Union([
+  packagePublicSubpathDiscoverySchema,
+  platformPublicSubpathDiscoverySchema,
+]);
+const packageDeclarationInspectionSchema = Schema.Struct({
+  intent: Schema.Literal("declaration-inspection"),
+  ...packageIdentityFields,
+  moduleExport: inspectedModuleExportDeclarationsSchema,
+});
+const platformDeclarationInspectionSchema = Schema.Struct({
+  intent: Schema.Literal("declaration-inspection"),
+  ...platformIdentityFields,
+  moduleExport: inspectedModuleExportDeclarationsSchema,
+});
+const declarationInspectionSchema = Schema.Union([
+  packageDeclarationInspectionSchema,
+  platformDeclarationInspectionSchema,
+]);
+const packageMemberInspectionSchema = Schema.Struct({
+  intent: Schema.Literal("member-inspection"),
+  ...packageIdentityFields,
+  moduleExportName: Schema.String,
+  memberPath: Schema.Array(Schema.String),
+  declarations: Schema.Array(inspectedDeclarationSchema),
+});
+const platformMemberInspectionSchema = Schema.Struct({
+  intent: Schema.Literal("member-inspection"),
+  ...platformIdentityFields,
+  moduleExportName: Schema.String,
+  memberPath: Schema.Array(Schema.String),
+  declarations: Schema.Array(inspectedDeclarationSchema),
+});
+const memberInspectionSchema = Schema.Union([
+  packageMemberInspectionSchema,
+  platformMemberInspectionSchema,
+]);
+const packageComparisonTargetSchema = Schema.Struct(packageIdentityFields);
+const platformComparisonTargetSchema = Schema.Struct(platformIdentityFields);
+const comparisonTargetSchema = Schema.Union([
+  packageComparisonTargetSchema,
+  platformComparisonTargetSchema,
+]);
+const moduleExportIndexDeltaSchema = Schema.Struct({
+  added: Schema.Array(moduleExportIndexEntrySchema),
+  removed: Schema.Array(moduleExportIndexEntrySchema),
+});
+const publicSubpathIndexDeltaSchema = Schema.Struct({
+  added: Schema.Array(publicSubpathSchema),
+  removed: Schema.Array(publicSubpathSchema),
+});
+const publicInterfaceComparisonSchema = Schema.Struct({
+  intent: Schema.Literal("public-interface-comparison"),
+  scope: Schema.Literal("interface-overview"),
+  before: comparisonTargetSchema,
+  after: comparisonTargetSchema,
+  moduleExports: moduleExportIndexDeltaSchema,
+  publicSubpaths: publicSubpathIndexDeltaSchema,
+});
+const atomicInspectionResultSchema = Schema.Union([
+  interfaceOverviewSchema,
+  exportInspectionSchema,
+  signatureInspectionSchema,
+  exportSearchSchema,
+  publicSubpathDiscoverySchema,
+  declarationInspectionSchema,
+  memberInspectionSchema,
+]);
+const inspectionResultSchema = Schema.Union([
+  atomicInspectionResultSchema,
+  publicInterfaceComparisonSchema,
+]);
+const notFoundFailureSchema = Schema.Struct({
+  status: Schema.Literal("not-found"),
+  reason: notFoundFailureReasonSchema,
+  message: Schema.String,
+});
+const unsupportedFailureSchema = Schema.Struct({
+  status: Schema.Literal("unsupported"),
+  reason: unsupportedFailureReasonSchema,
+  message: Schema.String,
+});
+const staticBoundaryFailureSchema = Schema.Struct({
+  status: Schema.Literal("static-boundary"),
+  reason: Schema.Literal("static-boundary"),
+  message: Schema.String,
+});
+const limitFailureSchema = Schema.Struct({
+  status: Schema.Literal("limit-exceeded"),
+  reason: Schema.Literal("budget-exceeded"),
+  exceededBudget: budgetDimensionSchema,
+  message: Schema.String,
+});
+const inspectionFailureSchema = Schema.Union([
+  notFoundFailureSchema,
+  unsupportedFailureSchema,
+  staticBoundaryFailureSchema,
+  limitFailureSchema,
+]);
+const inspectionSuccessSchema = Schema.Struct({
+  status: Schema.Literal("success"),
+  result: inspectionResultSchema,
+});
+const inspectionOutcomeSchema = Schema.Union([inspectionSuccessSchema, inspectionFailureSchema]);
+
+const STRICT_PROTOCOL_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
+const decodeInspectionOutcome = Schema.decodeUnknownResult(
+  inspectionOutcomeSchema,
+  STRICT_PROTOCOL_PARSE_OPTIONS,
+);
+const decodeAtomicInspectionResult = Schema.decodeUnknownResult(
+  atomicInspectionResultSchema,
+  STRICT_PROTOCOL_PARSE_OPTIONS,
+);
 
 /**
  * Projects ArkType-inferred protocol values into readonly TypeScript shapes.
@@ -371,7 +395,7 @@ export type ProtocolType<Value> = Value extends readonly (infer Item)[]
       }
     : Value;
 
-export type AccessStyle = ProtocolType<typeof inspectionSchemas.accessStyle.infer>;
+export type AccessStyle = ProtocolType<typeof accessStyleSchema.Type>;
 export interface InterfaceOverviewRequest {
   readonly resolutionContext: string;
   readonly specifier: string;
@@ -437,12 +461,10 @@ export interface NormalizedPublicInterfaceComparisonRequest {
   readonly before: NormalizedInterfaceOverviewRequest;
   readonly after: NormalizedInterfaceOverviewRequest;
 }
-export type ModuleExportIndexEntry = ProtocolType<
-  typeof inspectionSchemas.moduleExportIndexEntry.infer
->;
-export type PublicSubpath = ProtocolType<typeof inspectionSchemas.publicSubpath.infer>;
-export type PackageIdentity = ProtocolType<typeof inspectionSchemas.packageIdentity.infer>;
-export type ResolutionVariant = ProtocolType<typeof inspectionSchemas.resolutionVariant.infer>;
+export type ModuleExportIndexEntry = ProtocolType<typeof moduleExportIndexEntrySchema.Type>;
+export type PublicSubpath = ProtocolType<typeof publicSubpathSchema.Type>;
+export type PackageIdentity = ProtocolType<typeof packageIdentitySchema.Type>;
+export type ResolutionVariant = ProtocolType<typeof resolutionVariantSchema.Type>;
 export type InspectionResultIdentity =
   | {
       readonly packageIdentity: PackageIdentity;
@@ -452,62 +474,40 @@ export type InspectionResultIdentity =
       readonly packageIdentity?: never;
       readonly declarationProvider: PackageIdentity;
     };
-export type InterfaceOverview = ProtocolType<typeof inspectionSchemas.interfaceOverview.infer>;
-export type DeclarationSpace = ProtocolType<typeof inspectionSchemas.declarationSpace.infer>;
-export type DeclarationKind = ProtocolType<typeof inspectionSchemas.declarationKind.infer>;
-export type InspectedDeclaration = ProtocolType<
-  typeof inspectionSchemas.inspectedDeclaration.infer
->;
-export type ExportNamespaceMember = ProtocolType<
-  typeof inspectionSchemas.exportNamespaceMember.infer
->;
-export type ExportDeclarationSpace = ProtocolType<
-  typeof inspectionSchemas.exportDeclarationSpace.infer
->;
-export type ExportAlias = ProtocolType<typeof inspectionSchemas.exportAlias.infer>;
-export type ExportSignature = ProtocolType<typeof inspectionSchemas.exportSignature.infer>;
-export type SignatureBinding = ProtocolType<typeof inspectionSchemas.signatureBinding.infer>;
-export type SignatureParameter = ProtocolType<typeof inspectionSchemas.signatureParameter.infer>;
-export type SignatureThisParameter = ProtocolType<
-  typeof inspectionSchemas.signatureThisParameter.infer
->;
+export type InterfaceOverview = ProtocolType<typeof interfaceOverviewSchema.Type>;
+export type DeclarationSpace = ProtocolType<typeof declarationSpaceSchema.Type>;
+export type DeclarationKind = ProtocolType<typeof declarationKindSchema.Type>;
+export type InspectedDeclaration = ProtocolType<typeof inspectedDeclarationSchema.Type>;
+export type ExportNamespaceMember = ProtocolType<typeof exportNamespaceMemberSchema.Type>;
+export type ExportDeclarationSpace = ProtocolType<typeof exportDeclarationSpaceSchema.Type>;
+export type ExportAlias = ProtocolType<typeof exportAliasSchema.Type>;
+export type ExportSignature = ProtocolType<typeof exportSignatureSchema.Type>;
+export type SignatureBinding = ProtocolType<typeof signatureBindingSchema.Type>;
+export type SignatureParameter = ProtocolType<typeof signatureParameterSchema.Type>;
+export type SignatureThisParameter = ProtocolType<typeof signatureThisParameterSchema.Type>;
 export type SignatureTypeParameterModifier = ProtocolType<
-  typeof inspectionSchemas.signatureTypeParameterModifier.infer
+  typeof signatureTypeParameterModifierSchema.Type
 >;
-export type SignatureTypeParameter = ProtocolType<
-  typeof inspectionSchemas.signatureTypeParameter.infer
->;
-export type SignatureReturn = ProtocolType<typeof inspectionSchemas.signatureReturn.infer>;
-export type InspectedSignature = ProtocolType<typeof inspectionSchemas.inspectedSignature.infer>;
-export type InspectedModuleExport = ProtocolType<
-  typeof inspectionSchemas.inspectedModuleExport.infer
->;
-export type SupportingType = ProtocolType<typeof inspectionSchemas.supportingType.infer>;
-export type PackageDocumentation = ProtocolType<
-  typeof inspectionSchemas.packageDocumentation.infer
->;
-export type ExportInspection = ProtocolType<typeof inspectionSchemas.exportInspection.infer>;
+export type SignatureTypeParameter = ProtocolType<typeof signatureTypeParameterSchema.Type>;
+export type SignatureReturn = ProtocolType<typeof signatureReturnSchema.Type>;
+export type InspectedSignature = ProtocolType<typeof inspectedSignatureSchema.Type>;
+export type InspectedModuleExport = ProtocolType<typeof inspectedModuleExportSchema.Type>;
+export type SupportingType = ProtocolType<typeof supportingTypeSchema.Type>;
+export type PackageDocumentation = ProtocolType<typeof packageDocumentationSchema.Type>;
+export type ExportInspection = ProtocolType<typeof exportInspectionSchema.Type>;
 export type InspectedModuleExportSignatures = ProtocolType<
-  typeof inspectionSchemas.inspectedModuleExportSignatures.infer
+  typeof inspectedModuleExportSignaturesSchema.Type
 >;
-export type SignatureInspection = ProtocolType<typeof inspectionSchemas.signatureInspection.infer>;
-export type ExportSearch = ProtocolType<typeof inspectionSchemas.exportSearch.infer>;
-export type PublicSubpathDiscovery = ProtocolType<
-  typeof inspectionSchemas.publicSubpathDiscovery.infer
->;
+export type SignatureInspection = ProtocolType<typeof signatureInspectionSchema.Type>;
+export type ExportSearch = ProtocolType<typeof exportSearchSchema.Type>;
+export type PublicSubpathDiscovery = ProtocolType<typeof publicSubpathDiscoverySchema.Type>;
 export type InspectedModuleExportDeclarations = ProtocolType<
-  typeof inspectionSchemas.inspectedModuleExportDeclarations.infer
+  typeof inspectedModuleExportDeclarationsSchema.Type
 >;
-export type DeclarationInspection = ProtocolType<
-  typeof inspectionSchemas.declarationInspection.infer
->;
-export type MemberInspection = ProtocolType<typeof inspectionSchemas.memberInspection.infer>;
-export type PublicInterfaceComparisonTarget = ProtocolType<
-  typeof inspectionSchemas.comparisonTarget.infer
->;
-export type PublicInterfaceComparison = ProtocolType<
-  typeof inspectionSchemas.publicInterfaceComparison.infer
->;
+export type DeclarationInspection = ProtocolType<typeof declarationInspectionSchema.Type>;
+export type MemberInspection = ProtocolType<typeof memberInspectionSchema.Type>;
+export type PublicInterfaceComparisonTarget = ProtocolType<typeof comparisonTargetSchema.Type>;
+export type PublicInterfaceComparison = ProtocolType<typeof publicInterfaceComparisonSchema.Type>;
 export type AtomicInspectionResult =
   | InterfaceOverview
   | ExportInspection
@@ -521,7 +521,7 @@ export interface InspectionPlan {
   readonly inspections: readonly AtomicInspectionResult[];
 }
 export type InspectionResult = AtomicInspectionResult | InspectionPlan | PublicInterfaceComparison;
-export type InspectionFailure = ProtocolType<typeof inspectionSchemas.inspectionFailure.infer>;
+export type InspectionFailure = ProtocolType<typeof inspectionFailureSchema.Type>;
 
 /** A complete Inspection Result or an explicit non-authoritative failure. */
 export type InspectionOutcome<Result extends InspectionResult = InspectionResult> =
@@ -922,14 +922,14 @@ function memberPathsEqual(left: readonly string[], right: readonly string[]): bo
 }
 
 function isInspectionOutcome(value: unknown): value is InspectionOutcome {
-  // Manual graph guards run before ArkType so cyclic, sparse, accessor-backed,
+  // Manual graph guards run before Schema so cyclic, sparse, accessor-backed,
   // or excessively deep values cannot make recursive schema validation unsafe.
   if (!hasBoundedDataPropertyGraph(value) || !hasBoundedNamespaceGraph(value)) {
     return false;
   }
   return isInspectionPlanSuccess(value)
     ? isValidInspectionPlanSuccess(value)
-    : inspectionOutcomeSchema.allows(value);
+    : Result.isSuccess(decodeInspectionOutcome(value));
 }
 
 function isInspectionPlanSuccess(value: unknown): boolean {
@@ -950,7 +950,9 @@ function isValidInspectionPlanSuccess(value: unknown): value is InspectionOutcom
   return (
     Array.isArray(inspections) &&
     hasInspectionPlanLength(inspections) &&
-    everyArrayItem(inspections, (inspection) => atomicInspectionResultSchema.allows(inspection))
+    everyArrayItem(inspections, (inspection) =>
+      Result.isSuccess(decodeAtomicInspectionResult(inspection)),
+    )
   );
 }
 
