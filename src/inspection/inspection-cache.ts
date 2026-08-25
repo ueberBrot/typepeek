@@ -40,7 +40,7 @@ import type {
   InspectionResultIdentity,
   PackageIdentity,
 } from "#typepeek/inspection/protocol";
-import { readAnalysisRequest } from "#typepeek/inspection/request-codec";
+import { readAnalysisRequest } from "#typepeek/inspection/request-definitions";
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 import { HAS_EMBEDDED_TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 

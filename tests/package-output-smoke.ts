@@ -37,8 +37,8 @@ for (const expected of [
   /search\s+Search the bounded Module Export index/u,
   /subpaths\s+Discover manifest Public Subpaths/u,
   /compare\s+Compare two complete Interface Overview indexes/u,
-  /capabilities\s+Print the versioned Inspection Core capabilities/u,
-  /protocol\s+Invoke protocol version 1/u,
+  /capabilities\s+Print the Inspection Core capabilities/u,
+  /protocol\s+Invoke the Inspection Protocol/u,
 ]) {
   assert.match(cli.stdout, expected);
 }

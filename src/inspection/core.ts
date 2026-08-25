@@ -2,10 +2,7 @@ import { Effect } from "effect";
 
 import { runBoundedAnalysis } from "#typepeek/inspection/analysis-process";
 import {
-  enforceDeclarationInspectionOutcome,
   enforceInspectionOutcome,
-  enforceInspectionPlanOutcome,
-  enforceMemberInspectionOutcome,
   type AnalysisRequest,
   type DeclarationInspection,
   type DeclarationInspectionRequest,
@@ -21,15 +18,7 @@ import {
   type InterfaceOverviewRequest,
   type MemberInspection,
   type MemberInspectionRequest,
-  type NormalizedDeclarationInspectionRequest,
-  type NormalizedExportInspectionRequest,
-  type NormalizedExportSearchRequest,
-  type NormalizedInspectionPlanRequest,
-  type NormalizedInterfaceOverviewRequest,
-  type NormalizedMemberInspectionRequest,
   type NormalizedPublicInterfaceComparisonRequest,
-  type NormalizedPublicSubpathDiscoveryRequest,
-  type NormalizedSignatureInspectionRequest,
   type PublicInterfaceComparison,
   type PublicInterfaceComparisonRequest,
   type PublicSubpathDiscovery,
@@ -39,7 +28,7 @@ import {
 } from "#typepeek/inspection/protocol";
 import type { InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
 import { compareInterfaceOverviews } from "#typepeek/inspection/public-interface-comparison";
-import { readInspectionRequest } from "#typepeek/inspection/request-codec";
+import { readInspectionRequest } from "#typepeek/inspection/request-definitions";
 
 export type PreparedInspectionCoreRequest =
   | AnalysisRequest
@@ -167,39 +156,21 @@ const invokePreparedInspectionCore = Effect.fn("invokePreparedInspectionCore")(f
 ) {
   return yield* prepared.intent === "public-interface-comparison"
     ? executePublicInterfaceComparison(prepared.request)
-    : invokePreparedAnalysis(prepared);
-});
-
-const invokePreparedAnalysis = Effect.fn("invokePreparedAnalysis")(function* (
-  prepared: AnalysisRequest,
-) {
-  switch (prepared.intent) {
-    case "interface-overview":
-      return yield* executeInterfaceOverview(prepared.request);
-    case "export-inspection":
-      return yield* executeExportInspection(prepared.request);
-    case "signature-inspection":
-      return yield* executeSignatureInspection(prepared.request);
-    case "export-search":
-      return yield* executeExportSearch(prepared.request);
-    case "public-subpath-discovery":
-      return yield* executePublicSubpathDiscovery(prepared.request);
-    case "declaration-inspection":
-      return yield* executeDeclarationInspection(prepared.request);
-    case "member-inspection":
-      return yield* executeMemberInspection(prepared.request);
-    case "inspection-plan":
-      return yield* executeInspectionPlan(prepared.request);
-  }
+    : executeAnalysis(prepared);
 });
 
 const executePublicInterfaceComparison = Effect.fn("executePublicInterfaceComparison")(function* (
   request: NormalizedPublicInterfaceComparisonRequest,
 ) {
-  const [before, after] = yield* Effect.all(
-    [executeInterfaceOverview(request.before), executeInterfaceOverview(request.after)],
+  const [beforeValue, afterValue] = yield* Effect.all(
+    [
+      executeAnalysis({ intent: "interface-overview", request: request.before }),
+      executeAnalysis({ intent: "interface-overview", request: request.after }),
+    ],
     { concurrency: 2 },
   );
+  const before = enforceInspectionOutcome("interface-overview", beforeValue);
+  const after = enforceInspectionOutcome("interface-overview", afterValue);
   if (before.status !== "success") {
     return before;
   }
@@ -210,62 +181,6 @@ const executePublicInterfaceComparison = Effect.fn("executePublicInterfaceCompar
       )
     : after;
 });
-
-const executeExportSearch = Effect.fn("executeExportSearch")(
-  (request: NormalizedExportSearchRequest) =>
-    executeAnalysis({ intent: "export-search", request }).pipe(
-      Effect.map((outcome) => enforceInspectionOutcome("export-search", outcome)),
-    ),
-);
-
-const executePublicSubpathDiscovery = Effect.fn("executePublicSubpathDiscovery")(
-  (request: NormalizedPublicSubpathDiscoveryRequest) =>
-    executeAnalysis({ intent: "public-subpath-discovery", request }).pipe(
-      Effect.map((outcome) => enforceInspectionOutcome("public-subpath-discovery", outcome)),
-    ),
-);
-
-const executeInspectionPlan = Effect.fn("executeInspectionPlan")(
-  (request: NormalizedInspectionPlanRequest) =>
-    executeAnalysis({ intent: "inspection-plan", request }).pipe(
-      Effect.map((outcome) => enforceInspectionPlanOutcome(request, outcome)),
-    ),
-);
-
-const executeInterfaceOverview = Effect.fn("executeInterfaceOverview")(
-  (request: NormalizedInterfaceOverviewRequest) =>
-    executeAnalysis({ intent: "interface-overview", request }).pipe(
-      Effect.map((outcome) => enforceInspectionOutcome("interface-overview", outcome)),
-    ),
-);
-
-const executeExportInspection = Effect.fn("executeExportInspection")(
-  (request: NormalizedExportInspectionRequest) =>
-    executeAnalysis({ intent: "export-inspection", request }).pipe(
-      Effect.map((outcome) => enforceInspectionOutcome("export-inspection", outcome)),
-    ),
-);
-
-const executeSignatureInspection = Effect.fn("executeSignatureInspection")(
-  (request: NormalizedSignatureInspectionRequest) =>
-    executeAnalysis({ intent: "signature-inspection", request }).pipe(
-      Effect.map((outcome) => enforceInspectionOutcome("signature-inspection", outcome)),
-    ),
-);
-
-const executeDeclarationInspection = Effect.fn("executeDeclarationInspection")(
-  (request: NormalizedDeclarationInspectionRequest) =>
-    executeAnalysis({ intent: "declaration-inspection", request }).pipe(
-      Effect.map((outcome) => enforceDeclarationInspectionOutcome(request, outcome)),
-    ),
-);
-
-const executeMemberInspection = Effect.fn("executeMemberInspection")(
-  (request: NormalizedMemberInspectionRequest) =>
-    executeAnalysis({ intent: "member-inspection", request }).pipe(
-      Effect.map((outcome) => enforceMemberInspectionOutcome(request, outcome)),
-    ),
-);
 
 const executeAnalysis = Effect.fn("executeAnalysis")((request: AnalysisRequest) =>
   Effect.promise(() => runBoundedAnalysis(request)),

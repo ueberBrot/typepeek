@@ -1,10 +1,9 @@
 import { invokeInspectionCoreWithReceipt } from "#typepeek/inspection/core";
 import type {
-  InspectionFailure,
-  InspectionOutcome,
   InspectionProtocolResponse,
   SignatureEvidenceKind,
-} from "#typepeek/inspection/protocol";
+} from "#typepeek/inspection/inspection-protocol-types";
+import type { InspectionFailure, InspectionOutcome } from "#typepeek/inspection/protocol";
 import { protocolRecoveryGuidance } from "#typepeek/inspection/protocol-recovery";
 import {
   INSPECTION_INTENTS,
@@ -21,7 +20,7 @@ import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 const PROTOCOL_ENVELOPE_FIELDS = ["protocolVersion", "intent", "request", "response"] as const;
 const PROTOCOL_RESPONSE_OPTION_FIELDS = ["signatureEvidence"] as const;
 
-/** Validates and dispatches one versioned request through the Inspection Core. */
+/** Validates and dispatches one Inspection Protocol request through the Inspection Core. */
 export async function invokeInspectionProtocol(
   value: unknown,
 ): Promise<InspectionProtocolResponse> {
@@ -72,7 +71,7 @@ function invalidProtocolRequest(): InspectionFailure {
   return {
     status: "unsupported",
     reason: "invalid-request",
-    message: "Inspection received an invalid versioned protocol request.",
+    message: "Inspection received an invalid protocol request.",
   };
 }
 

@@ -1,13 +1,15 @@
 import type {
-  InspectedSignature,
-  InspectionOutcome,
-  InspectionResult,
   ProtocolInspectedSignature,
   ProtocolInspectionOutcome,
   ProtocolInspectionResult,
   ProtocolSignatureInspection,
   SignatureEvidenceKind,
   SignatureEvidenceProjection,
+} from "#typepeek/inspection/inspection-protocol-types";
+import type {
+  InspectedSignature,
+  InspectionOutcome,
+  InspectionResult,
   SignatureInspection,
 } from "#typepeek/inspection/protocol";
 

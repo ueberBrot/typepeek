@@ -4,10 +4,8 @@ import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection
 import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import {
   INSPECTION_BUDGET_DIMENSIONS,
-  INSPECTION_PROTOCOL_VERSION,
   NOT_FOUND_FAILURE_REASONS,
   UNSUPPORTED_FAILURE_REASONS,
-  type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
 
 const MAX_PROTOCOL_GRAPH_OBJECTS = 4_096;
@@ -457,48 +455,6 @@ export type InspectionOutcome<Result extends InspectionResult = InspectionResult
     }
   | InspectionFailure;
 
-export type SignatureEvidenceKind = "structured" | "exact" | "both";
-export type StructuredInspectedSignature = Omit<InspectedSignature, "text">;
-export type ExactInspectedSignature = Pick<InspectedSignature, "kind" | "text">;
-export type ProtocolInspectedSignature<Evidence extends SignatureEvidenceKind> =
-  Evidence extends "structured"
-    ? StructuredInspectedSignature
-    : Evidence extends "exact"
-      ? ExactInspectedSignature
-      : InspectedSignature;
-export type ProtocolSignatureInspection<Evidence extends SignatureEvidenceKind> = Omit<
-  SignatureInspection,
-  "moduleExport"
-> & {
-  readonly moduleExport: Omit<SignatureInspection["moduleExport"], "signatures"> & {
-    readonly signatures: readonly ProtocolInspectedSignature<Evidence>[];
-  };
-};
-export type ProtocolInspectionPlan<Evidence extends SignatureEvidenceKind> = Omit<
-  InspectionPlan,
-  "inspections"
-> & {
-  readonly inspections: readonly (
-    | Exclude<AtomicInspectionResult, SignatureInspection>
-    | ProtocolSignatureInspection<Evidence>
-  )[];
-};
-export type ProtocolInspectionResult<Evidence extends SignatureEvidenceKind> =
-  | Exclude<InspectionResult, SignatureInspection | InspectionPlan>
-  | ProtocolSignatureInspection<Evidence>
-  | ProtocolInspectionPlan<Evidence>;
-export type ProtocolInspectionOutcome<Evidence extends SignatureEvidenceKind> =
-  | {
-      readonly status: "success";
-      readonly result: ProtocolInspectionResult<Evidence>;
-    }
-  | InspectionFailure;
-
-export interface SignatureEvidenceProjection {
-  readonly signatureEvidence: SignatureEvidenceKind;
-  readonly omittedEvidence: readonly ("exact-signature-text" | "structured-signature-fields")[];
-}
-
 export interface InspectionRequestByIntent {
   readonly "interface-overview": InterfaceOverviewRequest;
   readonly "export-inspection": ExportInspectionRequest;
@@ -509,48 +465,6 @@ export interface InspectionRequestByIntent {
   readonly "member-inspection": MemberInspectionRequest;
   readonly "inspection-plan": InspectionPlanRequest;
   readonly "public-interface-comparison": PublicInterfaceComparisonRequest;
-}
-
-export interface InspectionProtocolResponseOptions<
-  Evidence extends SignatureEvidenceKind = SignatureEvidenceKind,
-> {
-  readonly signatureEvidence: Evidence;
-}
-
-export type InspectionProtocolEnvelope<
-  Intent extends InspectionIntent,
-  Evidence extends SignatureEvidenceKind,
-> = {
-  readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
-  readonly intent: Intent;
-  readonly request: InspectionRequestByIntent[Intent];
-} & (Intent extends "signature-inspection" | "inspection-plan"
-  ? { readonly response?: InspectionProtocolResponseOptions<Evidence> }
-  : { readonly response?: never });
-
-export type InspectionProtocolRequest<
-  Evidence extends SignatureEvidenceKind = SignatureEvidenceKind,
-> = {
-  readonly [Intent in InspectionIntent]: InspectionProtocolEnvelope<Intent, Evidence>;
-}[InspectionIntent];
-
-export type ProtocolRecoveryReason =
-  | "inspect-declarations-without-supporting-types"
-  | "inspect-signatures-without-supporting-types"
-  | "search-related-export-names";
-
-export interface ProtocolRecoveryGuidance {
-  readonly reason: ProtocolRecoveryReason;
-  readonly request: InspectionProtocolRequest;
-}
-
-export interface InspectionProtocolResponse<
-  Evidence extends SignatureEvidenceKind = SignatureEvidenceKind,
-> {
-  readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
-  readonly outcome: ProtocolInspectionOutcome<Evidence>;
-  readonly projection?: SignatureEvidenceProjection;
-  readonly recovery?: readonly ProtocolRecoveryGuidance[];
 }
 
 export type InspectionRequestReading<Request> =

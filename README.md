@@ -126,7 +126,7 @@ Discover the adapter contract without inspecting a package:
 typepeek capabilities
 ```
 
-The result declares protocol version 1, supported intents, stable Failure
+The result declares its protocol version, supported intents, stable Failure
 Reasons, Budget Dimensions, request fields and examples, and response options.
 
 Agents can invoke that protocol directly with one bounded JSON request on stdin:
@@ -161,7 +161,7 @@ also include bounded `recovery` entries containing complete protocol requests
 that an agent can execute without inventing parameters. Recovery is guidance,
 not part of the authoritative Inspection Outcome.
 
-CLI `--json` is an adapter rendering, not the versioned Inspection Protocol. It
+CLI `--json` is an adapter rendering, not the Inspection Protocol. It
 emits one complete, newline-terminated Inspection Outcome on stdout,
 including the selected Access Style. Successful inspections exit with status 0;
 typed inspection failures exit with status 1 and are also emitted as JSON on
@@ -274,7 +274,7 @@ import {
 
 The focused functions accept a `resolutionContext` and `specifier`, plus their
 focused selector. `inspectPlan` accepts the bounded ordered query list.
-`invokeInspectionProtocol` is the canonical versioned adapter seam, and
+`invokeInspectionProtocol` is the Inspection Protocol adapter seam, and
 `inspectCapabilities` describes it without reading Installed Evidence. Protocol
 responses can project signature evidence and can attach bounded executable
 recovery requests without changing Inspection Core's canonical outcomes.
