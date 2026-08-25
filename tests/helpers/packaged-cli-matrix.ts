@@ -268,7 +268,7 @@ async function verifyBunWindowsExecutable(
   resolutionContext: string,
 ): Promise<void> {
   await lstat(executablePath);
-  // Bun 1.3.14 stores its UTF-16LE target and format version in paired metadata.
+  // Bun stores its UTF-16LE target and format version in paired metadata.
   const metadataPath = executablePath.replace(/\.exe$/u, ".bunx");
   const metadata = await readFile(metadataPath);
   if (metadata.length < 10) {

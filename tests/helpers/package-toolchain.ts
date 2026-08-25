@@ -5,7 +5,7 @@ import { join, sep } from "node:path";
 export const PACKAGE_MANAGER_PINS = [
   { command: "npm", manager: "npm", version: "11.16.0" },
   { command: "pnpm", manager: "pnpm", version: "11.20.0" },
-  { command: "bun", manager: "bun", version: "1.3.14" },
+  { command: "bun", manager: "bun", version: "1.4.0" },
 ] as const;
 
 export type PackageManagerPin = (typeof PACKAGE_MANAGER_PINS)[number];
