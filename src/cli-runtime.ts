@@ -286,7 +286,7 @@ const signaturesCommand = buildCommand<
   docs: {
     brief: "Inspect only the public call and construct signatures of one Module Export.",
     fullDescription:
-      "Example: typepeek signatures arktype type --context . --json emits structured type parameters, parameters, and return semantics.",
+      "Example: typepeek signatures execa execa --context . --json emits structured type parameters, parameters, and return semantics.",
   },
 });
 

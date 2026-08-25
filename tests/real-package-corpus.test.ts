@@ -44,19 +44,19 @@ const QUESTIONS: readonly CorpusQuestion[] = [
     probe: 'import type { JSONType } from "ajv"; const kind: JSONType = "string"; void kind;',
   },
   {
-    specifier: "arktype",
-    expectedExport: "type",
-    expectedPackage: "arktype",
-    probe: 'import { type } from "arktype"; type({ name: "string" });',
+    specifier: "execa",
+    expectedExport: "execa",
+    expectedPackage: "execa",
+    probe: 'import { execa } from "execa"; execa("node", ["--version"]);',
   },
   {
-    specifier: "arktype",
-    exportName: "ParseError",
-    expectedPackage: "arktype",
-    expectedSurface: /class ParseError/u,
+    specifier: "execa",
+    exportName: "getCancelSignal",
+    expectedPackage: "execa",
+    expectedSurface: /getCancelSignal/u,
     probeSignatures: true,
     probe:
-      'import { ParseError } from "arktype"; const error: Error = new ParseError("bad"); void error;',
+      'import { getCancelSignal } from "execa"; const signal: Promise<AbortSignal> = getCancelSignal(); void signal;',
   },
   {
     specifier: "chalk",
@@ -208,10 +208,10 @@ const QUESTIONS: readonly CorpusQuestion[] = [
 
 const SIGNATURE_QUESTIONS = [
   {
-    expectedParameters: ["def:", "params:", "_0:"],
-    exportName: "type",
-    probe: 'import { type } from "arktype"; type({ name: "string" });',
-    specifier: "arktype",
+    expectedParameters: ["command:"],
+    exportName: "parseCommandString",
+    probe: 'import { parseCommandString } from "execa"; parseCommandString("node --version");',
+    specifier: "execa",
   },
   {
     expectedParameters: ["file:", "templateString_0:"],
@@ -242,7 +242,7 @@ describe("pinned real-package corpus", () => {
     const runtimePackages = corpus.packageNames.filter(
       (packageName) => !packageName.startsWith("@types/"),
     );
-    expect(runtimePackages).toHaveLength(13);
+    expect(runtimePackages).toHaveLength(12);
     const identities = await Promise.all(
       corpus.packageNames.map((packageName) => corpus.packageIdentity(packageName)),
     );

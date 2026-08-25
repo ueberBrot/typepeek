@@ -77,5 +77,6 @@ export const INSPECTION_BUDGET_DIMENSIONS = Object.freeze([
 ] as const);
 
 export type InspectionIntent = (typeof INSPECTION_INTENTS)[number];
+export type AnalysisIntent = (typeof ANALYSIS_INTENTS)[number];
 export type InspectionFailureReason = (typeof INSPECTION_FAILURE_REASONS)[number];
 export type InspectionBudgetDimension = (typeof INSPECTION_BUDGET_DIMENSIONS)[number];

@@ -73,7 +73,7 @@ adds structured type parameters, an explicit `this` parameter, ordinary
 parameters, and return semantics. It also keeps the exact signature text:
 
 ```bash
-typepeek signatures arktype type --context . --json
+typepeek signatures execa execa --context . --json
 ```
 
 Use Export Inspection when you also need declarations, Package Documentation,
@@ -132,7 +132,7 @@ Reasons, Budget Dimensions, request fields and examples, and response options.
 Agents can invoke that protocol directly with one bounded JSON request on stdin:
 
 ```bash
-node -e 'process.stdout.write(JSON.stringify({protocolVersion:"1",intent:"signature-inspection",request:{resolutionContext:process.cwd(),specifier:"arktype",exportName:"type"}}))' \
+node -e 'process.stdout.write(JSON.stringify({protocolVersion:"1",intent:"signature-inspection",request:{resolutionContext:process.cwd(),specifier:"execa",exportName:"execa"}}))' \
   | typepeek protocol
 ```
 
@@ -148,9 +148,9 @@ signature text. Request exact text or both representations when needed:
   "protocolVersion": "1",
   "intent": "signature-inspection",
   "request": {
-    "resolutionContext": ".",
-    "specifier": "arktype",
-    "exportName": "type"
+    "resolutionContext": "/absolute/path/to/consumer",
+    "specifier": "execa",
+    "exportName": "execa"
   },
   "response": { "signatureEvidence": "both" }
 }
@@ -195,7 +195,7 @@ result.
 
 ```bash
 vp install --frozen-lockfile
-vp run validate              # check → Fallow → test → build smoke → package smoke
+vp run validate              # check → Effect diagnostics → Fallow → test → build smoke → package smoke
 vp run dependencies          # find eligible dependency updates
 vp run dependencies:update   # select and apply updates
 vp run benchmark:source      # measure source-checkout inspection latency
@@ -214,8 +214,8 @@ bounded Installed Evidence Proof still matches every consumed manifest,
 declaration, resolution choice, and traversed Public Subpath directory. Failed,
 partial, bounded, or terminated analysis is never cached. The cache is an
 internal optimization and never appears in an Inspection Result or the public
-Inspection Core interface. By default it uses a private versioned directory
-under the operating-system temporary directory; set
+Inspection Core interface. By default it uses a private cache directory under
+the operating-system temporary directory, isolated by build identity; set
 `TYPEPEEK_CACHE_DIRECTORY` to an absolute private directory when an isolated or
 longer-lived cache is desired. Direct source execution caches only with this
 explicit setting because it has no stable packaged-build identity. Persistent

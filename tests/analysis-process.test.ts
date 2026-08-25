@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,21 +35,27 @@ afterAll(async () => {
   await rm(fixtureRoot, { recursive: true, force: true });
 });
 
-it("accepts exactly one bounded result from a cleanly exited analysis process", async () => {
-  const entry = await materializeProcessEntry(
-    "success",
-    `process.once("message", () => {
-      process.stdout.write(JSON.stringify({status:"not-found", reason:"specifier-not-found", message:"bounded absence"}));
-      process.disconnect();
-    });`,
-  );
+it("accepts exactly one bounded result from a cleanly exited analysis process", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const entry = yield* Effect.promise(() =>
+        materializeProcessEntry(
+          "success",
+          `process.once("message", () => {
+            process.stdout.write(JSON.stringify({status:"not-found", reason:"specifier-not-found", message:"bounded absence"}));
+            process.disconnect();
+          });`,
+        ),
+      );
 
-  await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
-    status: "not-found",
-    reason: "specifier-not-found",
-    message: "bounded absence",
-  });
-});
+      const outcome = yield* runAnalysisFixtureProcess(request, entry, limits);
+      expect(outcome).toEqual({
+        status: "not-found",
+        reason: "specifier-not-found",
+        message: "bounded absence",
+      });
+    }),
+  ));
 
 it.each([
   {
@@ -65,7 +72,7 @@ it.each([
 ])("kills an analysis process that $name", async ({ name, source }) => {
   const entry = await materializeProcessEntry(name, source);
 
-  await expect(runAnalysisFixtureProcess(request, entry, timeoutLimits)).resolves.toEqual({
+  await expect(runFixtureProcess(request, entry, timeoutLimits)).resolves.toEqual({
     status: "limit-exceeded",
     reason: "budget-exceeded",
     exceededBudget: "analysis-deadline",
@@ -79,7 +86,7 @@ it("rejects a terminated analysis process without an authoritative result", asyn
     `process.once("message", () => process.exit(23));`,
   );
 
-  await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
+  await expect(runFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "unsupported",
     reason: "analysis-terminated",
     message: "Inspection analysis terminated before completion.",
@@ -95,7 +102,7 @@ it.each([
 ])("rejects a clean exit with $name", async (_name, source) => {
   const entry = await materializeProcessEntry(_name, source);
 
-  await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
+  await expect(runFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "unsupported",
     reason: "invalid-result",
     message: "Inspection could not validate the analysis process result.",
@@ -112,7 +119,7 @@ it("rejects multiple analysis results instead of choosing a partial result", asy
     });`,
   );
 
-  await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
+  await expect(runFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "unsupported",
     reason: "invalid-result",
     message: "Inspection could not validate the analysis process result.",
@@ -128,7 +135,7 @@ it("rejects analysis transport output beyond its measured budget", async () => {
     });`,
   );
 
-  await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
+  await expect(runFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "limit-exceeded",
     reason: "budget-exceeded",
     exceededBudget: "analysis-output-bytes",
@@ -147,7 +154,7 @@ it("accepts a valid result exactly at the transport byte boundary", async () => 
     });`,
   );
 
-  const outcome = await runAnalysisFixtureProcess(request, entry, limits);
+  const outcome = await runFixtureProcess(request, entry, limits);
 
   expect(outcome).toMatchObject({ status: "not-found" });
   expect(JSON.stringify(outcome)).toHaveLength(1_024);
@@ -159,7 +166,7 @@ it("bounds analysis diagnostics even when no result is produced", async () => {
     `process.once("message", () => { process.stderr.write("x".repeat(2_000)); process.disconnect(); });`,
   );
 
-  await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
+  await expect(runFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "limit-exceeded",
     reason: "budget-exceeded",
     exceededBudget: "analysis-output-bytes",
@@ -173,7 +180,7 @@ it("measures multibyte analysis diagnostics in bytes rather than characters", as
     `process.once("message", () => { process.stderr.write("€".repeat(400)); process.disconnect(); });`,
   );
 
-  await expect(runAnalysisFixtureProcess(request, entry, limits)).resolves.toEqual({
+  await expect(runFixtureProcess(request, entry, limits)).resolves.toEqual({
     status: "limit-exceeded",
     reason: "budget-exceeded",
     exceededBudget: "analysis-output-bytes",
@@ -191,7 +198,7 @@ it("enforces the Node heap ceiling as an explicit memory limit", async () => {
   );
 
   await expect(
-    runAnalysisFixtureProcess(request, entry, {
+    runFixtureProcess(request, entry, {
       ...limits,
       deadlineMilliseconds: 5_000,
       maxHeapMegabytes: 16,
@@ -209,4 +216,12 @@ async function materializeProcessEntry(name: string, source: string): Promise<UR
   const path = join(fixtureRoot, `${name.replaceAll(" ", "-")}.mjs`);
   await writeFile(path, source);
   return pathToFileURL(path);
+}
+
+function runFixtureProcess(
+  analysisRequest: AnalysisRequest,
+  entry: URL,
+  processLimits: typeof limits,
+) {
+  return Effect.runPromise(runAnalysisFixtureProcess(analysisRequest, entry, processLimits));
 }

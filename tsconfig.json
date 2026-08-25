@@ -1,4 +1,5 @@
 {
+  "$schema": "./node_modules/@effect/tsgo/schema.json",
   "compilerOptions": {
     "target": "ES2024",
     "lib": ["ES2024"],
@@ -16,7 +17,12 @@
     "skipLibCheck": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
-    "types": ["node"]
+    "types": ["node"],
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ]
   },
   "include": [
     "benchmarks/**/*.ts",

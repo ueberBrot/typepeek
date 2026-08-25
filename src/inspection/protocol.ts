@@ -301,7 +301,7 @@ const decodeAtomicInspectionResult = Schema.decodeUnknownResult(
 );
 
 /**
- * Projects ArkType-inferred protocol values into readonly TypeScript shapes.
+ * Projects schema-inferred protocol values into readonly TypeScript shapes.
  * Optional properties stay optional rather than becoming required properties
  * whose values include `undefined`.
  */

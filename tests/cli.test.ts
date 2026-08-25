@@ -1421,7 +1421,7 @@ describe("typepeek CLI", () => {
   });
 
   it("uses the conventional usage exit status for invalid invocations", async () => {
-    const result = await execa(process.execPath, ["src/cli.ts", "signatures", "arktype"], {
+    const result = await execa(process.execPath, ["src/cli.ts", "signatures", "example"], {
       reject: false,
     });
 
@@ -1432,7 +1432,7 @@ describe("typepeek CLI", () => {
   it("emits invalid invocations as structured diagnostics in machine mode", async () => {
     const result = await execa(
       process.execPath,
-      ["src/cli.ts", "signatures", "arktype", "--json"],
+      ["src/cli.ts", "signatures", "example", "--json"],
       { reject: false },
     );
 

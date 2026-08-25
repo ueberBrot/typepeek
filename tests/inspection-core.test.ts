@@ -89,6 +89,46 @@ it("fails a comparison without returning a partial side", async () => {
   });
 });
 
+it("returns the after failure when only the after comparison target fails", async () => {
+  const outcome = await comparePublicInterfaces({
+    before: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/focused",
+    },
+    after: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/missing-after",
+    },
+  });
+
+  expect(outcome).toEqual({
+    status: "not-found",
+    reason: "specifier-not-found",
+    message:
+      'Specifier "@typepeek-fixture/missing-after" is not installed from this Resolution Context.',
+  });
+});
+
+it("returns the before failure deterministically when both comparison targets fail", async () => {
+  const outcome = await comparePublicInterfaces({
+    before: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/missing-before",
+    },
+    after: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/missing-after",
+    },
+  });
+
+  expect(outcome).toEqual({
+    status: "not-found",
+    reason: "specifier-not-found",
+    message:
+      'Specifier "@typepeek-fixture/missing-before" is not installed from this Resolution Context.',
+  });
+});
+
 it("executes one atomic inspection plan over shared Installed Evidence", async () => {
   const outcome = await inspectPlan({
     resolutionContext: fixture.resolutionContext,

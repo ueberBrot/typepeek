@@ -7,12 +7,6 @@ import {
   assertRepositoryProfilingExcluded,
 } from "./artifact-boundary.ts";
 
-const workerSource = await readFile("dist/inspection/analysis-process-entry.js", "utf8");
-assert.doesNotMatch(
-  workerSource,
-  /from ["']arktype["']/u,
-  "The packaged analysis worker must not load the outcome codec dependency.",
-);
 await assertRepositoryProfilingExcluded("dist");
 
 const packageVersion = (
@@ -50,8 +44,8 @@ const protocolCli = spawnSync(process.execPath, ["dist/cli.js", "protocol"], {
     intent: "signature-inspection",
     request: {
       resolutionContext: process.cwd(),
-      specifier: "arktype",
-      exportName: "type",
+      specifier: "execa",
+      exportName: "execa",
     },
   }),
 });

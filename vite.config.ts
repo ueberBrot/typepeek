@@ -116,6 +116,10 @@ export default defineConfig({
         command: "vp check",
         output: [],
       },
+      "effect-check": {
+        command: "effect-tsgo diagnostics --project tsconfig.json --strict",
+        output: [],
+      },
       build: {
         command: "vp build",
         input: [{ auto: true }, "!.vite-plus/build/**"],
@@ -132,7 +136,11 @@ export default defineConfig({
         output: ["dist/**"],
       },
       fallow: {
-        command: "fallow",
+        command: [
+          "fallow dead-code --type-aware --type-aware-project tsconfig.json --type-aware-require complete",
+          "fallow dupes",
+          "fallow health",
+        ],
         cache: false,
       },
       dependencies: {
@@ -173,6 +181,7 @@ export default defineConfig({
       validate: {
         command: [
           "vp run check",
+          "vp run effect-check",
           "vp run fallow",
           "vp run test",
           "vp run build-smoke",

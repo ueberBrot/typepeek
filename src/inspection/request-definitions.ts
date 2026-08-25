@@ -29,7 +29,11 @@ import type {
   NormalizedPublicSubpathDiscoveryRequest,
   NormalizedSignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
-import { ANALYSIS_INTENTS, type InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
+import {
+  ANALYSIS_INTENTS,
+  type AnalysisIntent,
+  type InspectionIntent,
+} from "#typepeek/inspection/protocol-vocabulary";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
 export type RequestFieldName<Intent extends InspectionIntent> = Extract<
@@ -340,6 +344,23 @@ export function readInspectionRequest<Intent extends InspectionIntent>(
     : { accepted: true, request };
 }
 
+/** Validates and correlates one analysis intent with its normalized request. */
+export function readAnalysisRequestForIntent(
+  intent: AnalysisIntent,
+  value: unknown,
+): AnalysisRequestReading {
+  const reading = readInspectionRequest(intent, value);
+  if (!reading.accepted) {
+    return reading;
+  }
+  const request = Result.getOrUndefined(
+    decodeAnalysisRequest({ intent, request: reading.request }),
+  );
+  return request === undefined
+    ? { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME }
+    : { accepted: true, request };
+}
+
 /** Revalidates the structured-cloned request at the isolated analysis-process seam. */
 export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
   try {
@@ -348,16 +369,11 @@ export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
     if (intent === undefined) {
       return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
     }
-    const reading = readInspectionRequest(intent, envelope?.["request"]);
+    const reading = readAnalysisRequestForIntent(intent, envelope?.["request"]);
     if (!reading.accepted) {
       return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
     }
-    const request = Result.getOrUndefined(
-      decodeAnalysisRequest({ intent, request: reading.request }),
-    );
-    return request === undefined
-      ? { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME }
-      : { accepted: true, request };
+    return reading;
   } catch {
     return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
   }

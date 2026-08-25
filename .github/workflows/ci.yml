@@ -32,6 +32,9 @@ jobs:
       - name: Check formatting, lint, and types
         run: vp run check
 
+      - name: Check Effect diagnostics
+        run: vp run effect-check
+
       - name: Analyze with Fallow
         run: vp run fallow
 

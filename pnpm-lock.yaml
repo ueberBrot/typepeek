@@ -21,12 +21,12 @@ importers:
         specifier: ^10.0.0
         version: 10.0.0
     devDependencies:
+      '@effect/tsgo':
+        specifier: 0.36.5
+        version: 0.36.5
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
-      arktype:
-        specifier: ^2.2.3
-        version: 2.2.3
       fallow:
         specifier: ^3.10.0
         version: 3.10.0
@@ -36,6 +36,9 @@ importers:
       taze:
         specifier: ^19.16.0
         version: 19.16.0
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
       unplugin-unused:
         specifier: ^0.6.0
         version: 0.6.0(rolldown@1.1.5)(vite@8.1.5(@types/node@24.13.3)(jiti@2.7.0)(yaml@2.9.0))
@@ -57,12 +60,6 @@ packages:
     resolution: {integrity: sha512-9ytjzGwxjm9Uz7I9avfbt5vlQt6uk9uRRESzJjqrznl6WKvI6dwYTo+vJ3U02Wrq/mR3iql/PzhvHhKdJIAjDQ==}
     engines: {node: '>=20'}
 
-  '@ark/schema@0.56.2':
-    resolution: {integrity: sha512-Qx4D2JFbBWpntiHZaTv7bGG4H/M2rigiknezKg/WVyDSaLdE4YCcWAOoFB7pjjDqHbbV2OqRfntm1nnXvwMexg==}
-
-  '@ark/util@0.56.2':
-    resolution: {integrity: sha512-9kU2sUE38FZEGG7l3hamYMBieLYEJh2L1mrYD2eXpT+78EnQSV1bhjxJhnxGBMSTbtwpBSDNSK+K60WvaI/DTQ==}
-
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
     engines: {node: '>=6.9.0'}
@@ -80,6 +77,45 @@ packages:
 
   '@braidai/lang@1.1.2':
     resolution: {integrity: sha512-qBcknbBufNHlui137Hft8xauQMTZDKdophmLFv05r2eNmdIv/MlPuP4TdUknHG68UdWLgVZwgxVe735HzJNIwA==}
+
+  '@effect/tsgo-darwin-arm64@0.36.5':
+    resolution: {integrity: sha512-+JPS65Ekod5NS41Kg9OIyuUsygNcSw5/4Y+UNbY6Wob6dvP+CkEa51pGBAmHKQp3Z/D3g/A9GNE66ndu9kz8dw==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@effect/tsgo-darwin-x64@0.36.5':
+    resolution: {integrity: sha512-S67mS1GTSvfeN5Tsij7QarJNuv3q7U/PMhjTbGtKO9mqgDTOA2IOlxq7YPIxkWq+AiOIv0H3aHGk7ToRjcPWxg==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@effect/tsgo-linux-arm64@0.36.5':
+    resolution: {integrity: sha512-bNLzLrQ/4Sf0N7NlAqcEpr+g+RW/ERIvmSFQN9Nu+hSFti4Kx9Nrfo1LJ4V0qASry5Rj2DG4Wa9C5ydQAD9qqA==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@effect/tsgo-linux-arm@0.36.5':
+    resolution: {integrity: sha512-UqtTPUgoVMRHAOcHiK7sddxjUEj6kOkXAlu4Y2TL/MhGiu81ZBzZrg8TXf0ApNeEMOD0EIK8hwU2kik8O+buxA==}
+    cpu: [arm]
+    os: [linux]
+
+  '@effect/tsgo-linux-x64@0.36.5':
+    resolution: {integrity: sha512-QWdyuUcAb1kZBeItycHg1ZKloNbVDtlVm1C0bbDVHqZIZ/d2rqhKi6Zajm64GnHtfdwPTn8Oi1iOCH1IYgo0IQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@effect/tsgo-win32-arm64@0.36.5':
+    resolution: {integrity: sha512-5tO5em1DfplFz5GqpQVGRSrAoE+kEgIc7Y0ClbT9jkxaK18IFVq9KIYybt4d6VT4+QnNQGdqWOahMcGE4JAZ8w==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@effect/tsgo-win32-x64@0.36.5':
+    resolution: {integrity: sha512-pmaKwdYAIs9GFpMV9glIUks0UZDHE1/xwP6+GCGhSFxB76cDLMnrHr/IBt5VfGddT65SK+Dyw/vAtcX7fRp4KA==}
+    cpu: [x64]
+    os: [win32]
+
+  '@effect/tsgo@0.36.5':
+    resolution: {integrity: sha512-BHxVjeRK1/XlqYHWXkbT4W9JpOrT3sNA2wrfwQPBTojD5OSyxI2TUIltobYhWudyfuCrn770qP6uOpDjdrmghA==}
+    hasBin: true
 
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
@@ -1034,12 +1070,6 @@ packages:
   aria-query@5.3.0:
     resolution: {integrity: sha512-b0P0sZPKtyu8HkeRAfCq0IfURZK+SuwMjY1UXGBU27wpAiTwQAIlq56IbIO+ytk/JjS1fMR14ee5WBBfKi5J6A==}
 
-  arkregex@0.0.8:
-    resolution: {integrity: sha512-PJcx6G1kQTgLKPUbeYlYecDRaKq15AMSGVajlKFYWlPeJRQL+j3dKE6tyMs40HZ99djS1l9Vhl3ezAHy9JBIqQ==}
-
-  arktype@2.2.3:
-    resolution: {integrity: sha512-7W+0RLTUNJiBFIIZXwOQxSR8Z273IAd6IvqBeG9+gHnQKFsIx2C0iOtGTmMrPnlX4qLXyc5+ll7A0BIj9WrbTg==}
-
   assertion-error@2.0.1:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
@@ -1693,12 +1723,6 @@ snapshots:
       validate-npm-package-name: 5.0.1
     optional: true
 
-  '@ark/schema@0.56.2':
-    dependencies:
-      '@ark/util': 0.56.2
-
-  '@ark/util@0.56.2': {}
-
   '@babel/code-frame@7.29.7':
     dependencies:
       '@babel/helper-validator-identifier': 7.29.7
@@ -1713,6 +1737,37 @@ snapshots:
 
   '@braidai/lang@1.1.2':
     optional: true
+
+  '@effect/tsgo-darwin-arm64@0.36.5':
+    optional: true
+
+  '@effect/tsgo-darwin-x64@0.36.5':
+    optional: true
+
+  '@effect/tsgo-linux-arm64@0.36.5':
+    optional: true
+
+  '@effect/tsgo-linux-arm@0.36.5':
+    optional: true
+
+  '@effect/tsgo-linux-x64@0.36.5':
+    optional: true
+
+  '@effect/tsgo-win32-arm64@0.36.5':
+    optional: true
+
+  '@effect/tsgo-win32-x64@0.36.5':
+    optional: true
+
+  '@effect/tsgo@0.36.5':
+    optionalDependencies:
+      '@effect/tsgo-darwin-arm64': 0.36.5
+      '@effect/tsgo-darwin-x64': 0.36.5
+      '@effect/tsgo-linux-arm': 0.36.5
+      '@effect/tsgo-linux-arm64': 0.36.5
+      '@effect/tsgo-linux-x64': 0.36.5
+      '@effect/tsgo-win32-arm64': 0.36.5
+      '@effect/tsgo-win32-x64': 0.36.5
 
   '@emnapi/core@1.11.1':
     dependencies:
@@ -2301,16 +2356,6 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
-  arkregex@0.0.8:
-    dependencies:
-      '@ark/util': 0.56.2
-
-  arktype@2.2.3:
-    dependencies:
-      '@ark/schema': 0.56.2
-      '@ark/util': 0.56.2
-      arkregex: 0.0.8
-
   assertion-error@2.0.1: {}
 
   cac@7.0.0: {}
@@ -2748,7 +2793,6 @@ snapshots:
       '@typescript/typescript-sunos-x64': 7.0.2
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
-    optional: true
 
   ufo@1.6.4: {}
 

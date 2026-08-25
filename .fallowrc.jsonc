@@ -11,27 +11,17 @@
     "tests/package-output-smoke.ts"
   ],
 
-  // Issue #2 intentionally establishes these parts of the approved runtime
-  // stack before later issues introduce their production call sites. The
-  // remaining tools are invoked through Vite+ config, which Fallow cannot
-  // discover as dependency usage. ArkType remains an installed-evidence test
-  // and benchmark target, so its use is intentionally dynamic. Remove each
-  // runtime exception as soon as a source-level import is introduced.
+  // These tools are invoked through Vite+ or repository task configuration,
+  // which Fallow cannot discover as dependency usage. Remove an exception as
+  // soon as a source-level import makes the dependency visible.
   "ignoreDependencies": [
     "@arethetypeswrong/core",
+    "@effect/tsgo",
     "@typescript/typescript6",
-    "arktype",
     "publint",
     "unplugin-unused"
   ],
 
-  // Type-aware analysis protects the package's exported CLI and transport-neutral
-  // Inspection Core boundaries.
-  "typeAware": {
-    "enabled": true,
-    "projects": ["tsconfig.json"],
-    "require": "complete"
-  },
   "rules": {
     "private-type-leaks": "error"
   }

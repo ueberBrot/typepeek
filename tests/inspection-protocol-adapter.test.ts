@@ -162,8 +162,8 @@ it("types explicit evidence only where the protocol accepts it", () => {
     intent: "signature-inspection",
     request: {
       resolutionContext: process.cwd(),
-      specifier: "arktype",
-      exportName: "type",
+      specifier: "execa",
+      exportName: "execa",
     },
     response: { signatureEvidence: "both" },
   };

@@ -28,7 +28,10 @@ import {
 } from "#typepeek/inspection/protocol";
 import type { InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
 import { compareInterfaceOverviews } from "#typepeek/inspection/public-interface-comparison";
-import { readInspectionRequest } from "#typepeek/inspection/request-definitions";
+import {
+  readAnalysisRequestForIntent,
+  readInspectionRequest,
+} from "#typepeek/inspection/request-definitions";
 
 export type PreparedInspectionCoreRequest =
   | AnalysisRequest
@@ -142,11 +145,11 @@ function prepareInspectionCoreRequest(
       ? { accepted: true, preparedRequest: { intent, request: reading.request } }
       : reading;
   }
-  const reading = readInspectionRequest(intent, request);
+  const reading = readAnalysisRequestForIntent(intent, request);
   return reading.accepted
     ? {
         accepted: true,
-        preparedRequest: { intent, request: reading.request } as AnalysisRequest,
+        preparedRequest: reading.request,
       }
     : reading;
 }
@@ -156,7 +159,7 @@ const invokePreparedInspectionCore = Effect.fn("invokePreparedInspectionCore")(f
 ) {
   return yield* prepared.intent === "public-interface-comparison"
     ? executePublicInterfaceComparison(prepared.request)
-    : executeAnalysis(prepared);
+    : runBoundedAnalysis(prepared);
 });
 
 const executePublicInterfaceComparison = Effect.fn("executePublicInterfaceComparison")(function* (
@@ -164,8 +167,8 @@ const executePublicInterfaceComparison = Effect.fn("executePublicInterfaceCompar
 ) {
   const [beforeValue, afterValue] = yield* Effect.all(
     [
-      executeAnalysis({ intent: "interface-overview", request: request.before }),
-      executeAnalysis({ intent: "interface-overview", request: request.after }),
+      runBoundedAnalysis({ intent: "interface-overview", request: request.before }),
+      runBoundedAnalysis({ intent: "interface-overview", request: request.after }),
     ],
     { concurrency: 2 },
   );
@@ -181,10 +184,6 @@ const executePublicInterfaceComparison = Effect.fn("executePublicInterfaceCompar
       )
     : after;
 });
-
-const executeAnalysis = Effect.fn("executeAnalysis")((request: AnalysisRequest) =>
-  Effect.promise(() => runBoundedAnalysis(request)),
-);
 
 interface InspectionResultByIntent {
   readonly "interface-overview": InterfaceOverview;

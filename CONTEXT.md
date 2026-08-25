@@ -86,11 +86,11 @@ A bounded, deterministic presentation of Installed Evidence for an Interface Ove
 _Avoid_: answer, summary
 
 **Inspection Protocol**:
-The versioned, transport-neutral request and response envelope through which adapters invoke Inspection Core. A response identifies the protocol version and contains one complete Inspection Outcome. It may explicitly project Signature Evidence or attach bounded executable recovery guidance without changing the outcome's authority; adapters may render or transport it but do not reinterpret Inspection Core.
+The transport-neutral request and response envelope through which adapters invoke Inspection Core. A response identifies its protocol revision and contains one complete Inspection Outcome. It may explicitly project Signature Evidence or attach bounded executable recovery guidance without changing the outcome's authority; adapters may render or transport it but do not reinterpret Inspection Core.
 _Avoid_: CLI JSON, MCP protocol, wire format
 
 **Inspection Capability**:
-A deterministic declaration of the Inspection Protocol versions, intents, Failure Reasons, and Budget Dimensions supported by this Typepeek build. It describes available behavior without reading Installed Evidence.
+A deterministic declaration of the Inspection Protocol revision, intents, Failure Reasons, and Budget Dimensions supported by this Typepeek build. It describes available behavior without reading Installed Evidence.
 _Avoid_: feature flag, runtime detection
 
 **Failure Reason**:
