@@ -123,13 +123,14 @@ const runAnalysisProcess = Effect.fn("runAnalysisProcess")(function* (
   allowCacheWrite = false,
   bypassCache = false,
 ): Effect.fn.Return<InspectionOutcome> {
-  const result = yield* Effect.promise(() =>
-    execaNode(entryUrl, [], {
+  const result = yield* Effect.callback<AnalysisProcessResult>((resume, cancelSignal) => {
+    const subprocess = execaNode(entryUrl, [], {
       ipcInput: request,
       ...(bypassCache ? { env: { TYPEPEEK_CACHE_BYPASS: "1" } } : {}),
       serialization: "advanced",
       timeout: limits.deadlineMilliseconds,
       forceKillAfterDelay: 100,
+      cancelSignal,
       nodeOptions: [
         `--max-old-space-size=${limits.maxHeapMegabytes}`,
         `--stack-size=${STACK_SIZE_KIBIBYTES}`,
@@ -141,8 +142,18 @@ const runAnalysisProcess = Effect.fn("runAnalysisProcess")(function* (
       },
       encoding: "buffer",
       reject: false,
-    }),
-  );
+    });
+    void subprocess.then(
+      (result) => resume(Effect.succeed(result)),
+      (error) => resume(Effect.die(error)),
+    );
+    return Effect.promise(() =>
+      subprocess.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+  });
   const processFailure = analysisProcessFailure(result, limits);
   if (processFailure !== undefined) {
     return processFailure;
