@@ -7,9 +7,9 @@ import {
 } from "#typepeek/inspection";
 
 import { type AgentWorkload, AGENT_WORKLOADS } from "./agent-workloads.ts";
+import { type AgentProtocolReport, encodeAgentProtocolReport } from "./regression-policy.ts";
 
 type ProtocolResponse = Awaited<ReturnType<typeof invokeInspectionProtocol>>;
-const MAX_STRUCTURED_TO_BOTH_BYTES_RATIO = 0.85;
 
 const workloads = [];
 for (const workload of AGENT_WORKLOADS) {
@@ -26,14 +26,13 @@ for (const workload of AGENT_WORKLOADS) {
   }
 }
 
-process.stdout.write(
-  `${JSON.stringify({
-    kind: "agent-protocol-benchmark",
-    schemaVersion: 1,
-    protocolVersion: "1",
-    workloads,
-  })}\n`,
-);
+const report: AgentProtocolReport = {
+  kind: "agent-protocol-benchmark",
+  schemaVersion: 1,
+  protocolVersion: "1",
+  workloads,
+};
+process.stdout.write(`${JSON.stringify(encodeAgentProtocolReport(report))}\n`);
 
 async function measureSignatureProjection(
   workload: Extract<AgentWorkload, { kind: "signature-projection" }>,
@@ -50,9 +49,7 @@ async function measureSignatureProjection(
   return {
     id: workload.id,
     question: workload.question,
-    passed:
-      factsMatch(workload.expectedFacts, facts) &&
-      structuredBytes <= bothBytes * MAX_STRUCTURED_TO_BOTH_BYTES_RATIO,
+    passed: factsMatch(workload.expectedFacts, facts),
     facts,
     structuredBytes,
     bothBytes,
@@ -75,7 +72,7 @@ async function measureRecovery(
     passed: factsMatch(workload.expectedFacts, facts),
     facts,
     initialStatus: initial.outcome.status,
-    recoveryReason: signatureRecovery?.reason,
+    recoveryReason: signatureRecovery?.reason ?? "missing",
     recoveredStatus: recovered.outcome.status,
   };
 }

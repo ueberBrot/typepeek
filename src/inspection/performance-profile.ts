@@ -1,18 +1,24 @@
+import { Result, Schema } from "effect";
+
 const PROFILE_SCHEMA_VERSION = 1;
+const nonNegativeFiniteSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
+const inspectionProfilePhaseSchema = Schema.Struct({
+  name: Schema.String,
+  milliseconds: nonNegativeFiniteSchema,
+});
+const inspectionProfileSchema = Schema.Struct({
+  kind: Schema.Literal("inspection-profile"),
+  schemaVersion: Schema.Literal(PROFILE_SCHEMA_VERSION),
+  maxRssBytes: Schema.Finite.check(Schema.isGreaterThan(0)),
+  phases: Schema.Array(inspectionProfilePhaseSchema),
+});
+const decodeProfile = Schema.decodeUnknownResult(inspectionProfileSchema);
 
 /** Build and pack replace this expression with `false`; source diagnostics retain it. */
 export const inspectionProfilingEnabled = process.env["TYPEPEEK_PROFILE"] === "1";
 
-export interface InspectionProfilePhase {
-  readonly name: string;
-  readonly milliseconds: number;
-}
-
-export interface InspectionProfile {
-  readonly kind: "inspection-profile";
-  readonly schemaVersion: 1;
-  readonly phases: readonly InspectionProfilePhase[];
-}
+type InspectionProfilePhase = typeof inspectionProfilePhaseSchema.Type;
+export type InspectionProfile = typeof inspectionProfileSchema.Type;
 
 let phases: InspectionProfilePhase[] | undefined;
 
@@ -43,52 +49,32 @@ export function completeInspectionProfile(): InspectionProfile | undefined {
     : {
         kind: "inspection-profile",
         schemaVersion: PROFILE_SCHEMA_VERSION,
+        maxRssBytes: process.resourceUsage().maxRSS * 1_024,
         phases: completedPhases,
       };
 }
 
 /** Validates and forwards one bounded source-diagnostic profile. */
 export function forwardInspectionProfile(serialized: Uint8Array): void {
-  const profile = parseInspectionProfile(serialized);
+  const profile = decodeInspectionProfile(serialized);
   if (profile !== undefined) {
     process.stderr.write(`${JSON.stringify(profile)}\n`);
   }
 }
 
-function parseInspectionProfile(serialized: Uint8Array): InspectionProfile | undefined {
+/** Decodes one bounded analysis-process profile at a diagnostic transport seam. */
+export function decodeInspectionProfile(
+  serialized: string | Uint8Array,
+): InspectionProfile | undefined {
   try {
-    const value = JSON.parse(
-      new TextDecoder("utf-8", { fatal: true }).decode(serialized),
-    ) as unknown;
-    if (
-      !isRecord(value) ||
-      value["kind"] !== "inspection-profile" ||
-      value["schemaVersion"] !== 1
-    ) {
-      return undefined;
-    }
-    const candidatePhases = value["phases"];
-    if (
-      !Array.isArray(candidatePhases) ||
-      !candidatePhases.every(
-        (phase) =>
-          isRecord(phase) &&
-          typeof phase["name"] === "string" &&
-          typeof phase["milliseconds"] === "number" &&
-          Number.isFinite(phase["milliseconds"]) &&
-          phase["milliseconds"] >= 0,
-      )
-    ) {
-      return undefined;
-    }
-    return value as unknown as InspectionProfile;
+    const text =
+      typeof serialized === "string"
+        ? serialized
+        : new TextDecoder("utf-8", { fatal: true }).decode(serialized);
+    return Result.getOrUndefined(decodeProfile(JSON.parse(text) as unknown));
   } catch {
     return undefined;
   }
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function roundedMilliseconds(milliseconds: number): number {
