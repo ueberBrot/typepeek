@@ -15,6 +15,7 @@ import {
   readBoundedMemberPath,
 } from "#typepeek/inspection/member-path";
 import type {
+  AnalysisRequest,
   AnalysisRequestReading,
   InspectionRequestByIntent,
   InspectionFailure,
@@ -91,6 +92,23 @@ export interface NormalizedInspectionRequestByIntent {
   readonly "inspection-plan": NormalizedInspectionPlanRequest;
   readonly "public-interface-comparison": NormalizedPublicInterfaceComparisonRequest;
 }
+
+export type PreparedInspectionCoreRequest =
+  | AnalysisRequest
+  | {
+      readonly intent: "public-interface-comparison";
+      readonly request: NormalizedPublicInterfaceComparisonRequest;
+    };
+
+export type InspectionCoreRequestReading =
+  | {
+      readonly accepted: true;
+      readonly preparedRequest: PreparedInspectionCoreRequest;
+    }
+  | {
+      readonly accepted: false;
+      readonly outcome: InspectionFailure;
+    };
 
 type InspectionRequestDefinition<Intent extends InspectionIntent> =
   InspectionRequestDescriptor<Intent> & {
@@ -345,7 +363,7 @@ export function readInspectionRequest<Intent extends InspectionIntent>(
 }
 
 /** Validates and correlates one analysis intent with its normalized request. */
-export function readAnalysisRequestForIntent(
+function readAnalysisRequestForIntent(
   intent: AnalysisIntent,
   value: unknown,
 ): AnalysisRequestReading {
@@ -359,6 +377,21 @@ export function readAnalysisRequestForIntent(
   return request === undefined
     ? { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME }
     : { accepted: true, request };
+}
+
+/** Validates and correlates one transport-neutral Inspection Core request. */
+export function readInspectionCoreRequest(
+  intent: InspectionIntent,
+  value: unknown,
+): InspectionCoreRequestReading {
+  if (intent === "public-interface-comparison") {
+    const reading = readInspectionRequest(intent, value);
+    return reading.accepted
+      ? { accepted: true, preparedRequest: { intent, request: reading.request } }
+      : reading;
+  }
+  const reading = readAnalysisRequestForIntent(intent, value);
+  return reading.accepted ? { accepted: true, preparedRequest: reading.request } : reading;
 }
 
 /** Revalidates the structured-cloned request at the isolated analysis-process seam. */

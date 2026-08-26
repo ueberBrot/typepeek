@@ -1,3 +1,5 @@
+import { it as effectIt } from "@effect/vitest";
+import { Effect } from "effect";
 import { execa } from "execa";
 import { access } from "node:fs/promises";
 import { afterAll, beforeAll, expect, it } from "vite-plus/test";
@@ -14,6 +16,7 @@ import {
   inspectPublicSubpaths,
 } from "#typepeek/inspection";
 import { analyzeInspection } from "#typepeek/inspection/analyze";
+import { invokeInspectionCore } from "#typepeek/inspection/core";
 
 import { type CompiledPackageFixture, materializeCompiledPackageFixture } from "./helpers/index.ts";
 
@@ -26,6 +29,98 @@ beforeAll(async () => {
 afterAll(async () => {
   await fixture?.cleanup();
 });
+
+effectIt.effect("defers request reading and returns a rejected invocation receipt", () =>
+  Effect.gen(function* () {
+    let descriptorReads = 0;
+    const request = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor(target, property) {
+          descriptorReads += 1;
+          return Reflect.getOwnPropertyDescriptor(target, property);
+        },
+      },
+    );
+
+    const invocation = invokeInspectionCore("interface-overview", request);
+    expect(descriptorReads).toBe(0);
+
+    const receipt = yield* invocation;
+    expect(descriptorReads).toBeGreaterThan(0);
+    expect(receipt).toEqual({
+      outcome: {
+        status: "unsupported",
+        reason: "invalid-request",
+        message: "Inspection received an invalid Interface Overview request.",
+      },
+    });
+  }),
+);
+
+effectIt.live(
+  "dispatches normalized analysis and comparison requests through the canonical Effect",
+  () =>
+    Effect.gen(function* () {
+      const analysisRequest = {
+        resolutionContext: fixture.resolutionContext,
+        specifier: "@typepeek-fixture/focused",
+      };
+      const analysisReceipt = yield* invokeInspectionCore("interface-overview", analysisRequest);
+      if (analysisReceipt.preparedRequest === undefined) {
+        return yield* Effect.die("Expected an accepted analysis request");
+      }
+      expect(analysisReceipt.preparedRequest).toEqual({
+        intent: "interface-overview",
+        request: { ...analysisRequest, accessStyle: "import" },
+      });
+      expect(analysisReceipt.outcome).toMatchObject({
+        status: "success",
+        result: {
+          intent: "interface-overview",
+          specifier: analysisRequest.specifier,
+          resolutionVariant: { accessStyle: "import" },
+        },
+      });
+
+      const comparisonRequest = {
+        before: {
+          resolutionContext: fixture.resolutionContext,
+          specifier: "@typepeek-fixture/conditional",
+          accessStyle: "import" as const,
+        },
+        after: {
+          resolutionContext: fixture.resolutionContext,
+          specifier: "@typepeek-fixture/conditional",
+          accessStyle: "require" as const,
+        },
+      };
+      const comparisonReceipt = yield* invokeInspectionCore(
+        "public-interface-comparison",
+        comparisonRequest,
+      );
+      if (comparisonReceipt.preparedRequest === undefined) {
+        return yield* Effect.die("Expected an accepted comparison request");
+      }
+      expect(comparisonReceipt.preparedRequest).toEqual({
+        intent: "public-interface-comparison",
+        request: comparisonRequest,
+      });
+      expect(comparisonReceipt.outcome).toMatchObject({
+        status: "success",
+        result: {
+          intent: "public-interface-comparison",
+          before: { resolutionVariant: { accessStyle: "import" } },
+          after: { resolutionVariant: { accessStyle: "require" } },
+          moduleExports: {
+            added: [{ name: "requireExport" }],
+            removed: [{ name: "importExport" }],
+          },
+        },
+      });
+    }),
+  120_000,
+);
 
 it("compares complete Interface Overview indexes without merging Resolution Variants", async () => {
   const outcome = await comparePublicInterfaces({
