@@ -15,7 +15,6 @@ import {
   inspectPlan,
   inspectPublicSubpaths,
 } from "#typepeek/inspection";
-import { analyzeInspection } from "#typepeek/inspection/analyze";
 import { invokeInspectionCore } from "#typepeek/inspection/core";
 
 import { type CompiledPackageFixture, materializeCompiledPackageFixture } from "./helpers/index.ts";
@@ -286,7 +285,6 @@ it("applies one aggregate result-construction budget to an inspection plan", asy
     message: "Inspection exceeded its output limit.",
   } as const;
 
-  expect(analyzeInspection({ intent: "inspection-plan", request })).toEqual(expected);
   await expect(inspectPlan(request)).resolves.toEqual(expected);
 });
 
@@ -2136,15 +2134,6 @@ it("fails explicitly when an anonymous Public Interface type exceeds traversal d
 });
 
 it("fails explicitly before bounded result parts multiply into oversized aggregate output", async () => {
-  const analysisOutcome = analyzeInspection({
-    intent: "export-inspection",
-    request: {
-      resolutionContext: fixture.resolutionContext,
-      specifier: "@typepeek-fixture/aggregate-output",
-      exportName: "inspect",
-      accessStyle: "import",
-    },
-  });
   const outcome = await inspectExport({
     resolutionContext: fixture.resolutionContext,
     specifier: "@typepeek-fixture/aggregate-output",
@@ -2157,7 +2146,6 @@ it("fails explicitly before bounded result parts multiply into oversized aggrega
     exceededBudget: "result-construction",
     message: "Inspection exceeded its output limit.",
   } as const;
-  expect(analysisOutcome).toEqual(expected);
   expect(outcome).toEqual(expected);
 });
 
@@ -2175,7 +2163,6 @@ it("accounts for namespace containers before aggregate output crosses its constr
     message: "Inspection exceeded its output limit.",
   } as const;
 
-  expect(analyzeInspection({ intent: "export-inspection", request })).toEqual(expected);
   await expect(inspectExport(request)).resolves.toEqual(expected);
 });
 

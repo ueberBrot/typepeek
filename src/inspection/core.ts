@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 
 import { runBoundedAnalysis } from "#typepeek/inspection/analysis-process";
+import { enforceInspectionOutcome } from "#typepeek/inspection/inspection-outcome-authority";
 import {
-  enforceInspectionOutcome,
   type DeclarationInspection,
   type DeclarationInspectionRequest,
   type ExportInspection,
@@ -12,7 +12,7 @@ import {
   type InspectionFailure,
   type InspectionOutcome,
   type InspectionRequestByIntent,
-  type InspectionResult,
+  type InspectionResultByIntent,
   type InspectionPlan,
   type InspectionPlanRequest,
   type InterfaceOverview,
@@ -34,18 +34,18 @@ import {
   readInspectionCoreRequest,
 } from "#typepeek/inspection/request-definitions";
 
-type InspectionCoreInvocationReceipt =
+export type InspectionCoreInvocationReceipt<Intent extends InspectionIntent = InspectionIntent> =
   | {
       readonly outcome: InspectionFailure;
       readonly preparedRequest?: never;
     }
   | {
-      readonly outcome: InspectionOutcome;
-      readonly preparedRequest: PreparedInspectionCoreRequest;
+      readonly outcome: InspectionOutcome<InspectionResultByIntent[Intent]>;
+      readonly preparedRequest: Extract<PreparedInspectionCoreRequest, { readonly intent: Intent }>;
     };
 
 /** Lazily validates one request and retains the trusted normalization for adapters. */
-export const invokeInspectionCore = Effect.fn("invokeInspectionCore")(function* (
+const invokeInspectionCoreEffect = Effect.fn("invokeInspectionCore")(function* (
   intent: InspectionIntent,
   request: unknown,
 ): Effect.fn.Return<InspectionCoreInvocationReceipt> {
@@ -58,6 +58,17 @@ export const invokeInspectionCore = Effect.fn("invokeInspectionCore")(function* 
     outcome: yield* invokePreparedInspectionCore(reading.preparedRequest),
   };
 });
+
+export function invokeInspectionCore<Intent extends InspectionIntent>(
+  intent: Intent,
+  request: unknown,
+): Effect.Effect<InspectionCoreInvocationReceipt<Intent>>;
+export function invokeInspectionCore(
+  intent: InspectionIntent,
+  request: unknown,
+): Effect.Effect<InspectionCoreInvocationReceipt> {
+  return invokeInspectionCoreEffect(intent, request);
+}
 
 /** Compares complete Interface Overview indexes without merging Resolution Variants. */
 export function comparePublicInterfaces(
@@ -133,15 +144,13 @@ const invokePreparedInspectionCore = Effect.fn("invokePreparedInspectionCore")(f
 const executePublicInterfaceComparison = Effect.fn("executePublicInterfaceComparison")(function* (
   request: NormalizedPublicInterfaceComparisonRequest,
 ) {
-  const [beforeValue, afterValue] = yield* Effect.all(
+  const [before, after] = yield* Effect.all(
     [
       runBoundedAnalysis({ intent: "interface-overview", request: request.before }),
       runBoundedAnalysis({ intent: "interface-overview", request: request.after }),
     ],
     { concurrency: 2 },
   );
-  const before = enforceInspectionOutcome("interface-overview", beforeValue);
-  const after = enforceInspectionOutcome("interface-overview", afterValue);
   if (before.status !== "success") {
     return before;
   }
@@ -153,15 +162,9 @@ const executePublicInterfaceComparison = Effect.fn("executePublicInterfaceCompar
     : after;
 });
 
-type InspectionResultByIntent = {
-  readonly [Intent in InspectionIntent]: Extract<InspectionResult, { readonly intent: Intent }>;
-};
-
 function invokeTypedInspection<Intent extends InspectionIntent>(
   intent: Intent,
   request: InspectionRequestByIntent[Intent],
 ): Promise<InspectionOutcome<InspectionResultByIntent[Intent]>> {
-  return Effect.runPromise(invokeInspectionCore(intent, request)).then(
-    ({ outcome }) => outcome as InspectionOutcome<InspectionResultByIntent[Intent]>,
-  );
+  return Effect.runPromise(invokeInspectionCore(intent, request)).then(({ outcome }) => outcome);
 }

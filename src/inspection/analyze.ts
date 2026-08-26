@@ -45,30 +45,19 @@ const MAX_MODULE_EXPORTS = 320;
 const MAX_EXPORT_SEARCH_CANDIDATES = 4_096;
 const MAX_EXPORT_SEARCH_MATCHES = 320;
 
-/**
- * Runs one already-normalized request inside the analysis subprocess. Expected
- * inspection limits and unsupported cases retain their category; unexpected
- * analyzer failures are deliberately collapsed to a generic unsupported result.
- */
-export function analyzeInspection(analysisRequest: AnalysisRequest): InspectionOutcome {
-  try {
-    return inspectInstalledPackage(analysisRequest);
-  } catch (error) {
-    return errorOutcome(error);
-  }
-}
-
-export interface CachedAnalysisExecution {
-  readonly cacheHit?: InspectionCacheHitNotice;
-  readonly cacheWrite?: InspectionCacheWriteReceipt;
+export interface AnalysisExecution {
+  readonly cacheMessage?: InspectionCacheHitNotice | InspectionCacheWriteReceipt;
   readonly outcome: InspectionOutcome;
 }
 
-/** Uses only a previously validated complete outcome whose Installed Evidence still matches. */
-export function analyzeInspectionWithCache(
+/**
+ * Runs one normalized request inside the analysis subprocess, using only a
+ * previously validated outcome whose Installed Evidence still matches.
+ */
+export function analyzeInspection(
   analysisRequest: AnalysisRequest,
   readCache = true,
-): CachedAnalysisExecution {
+): AnalysisExecution {
   const recorder = createInstalledEvidenceFingerprintRecorder();
   try {
     const selection = selectInspectableModule(analysisRequest.request, recorder);
@@ -92,7 +81,7 @@ function readCachedAnalysis(
   identity: InspectionCacheIdentity | undefined,
   proof: InstalledEvidenceProof | undefined,
   readCache: boolean,
-): CachedAnalysisExecution | undefined {
+): AnalysisExecution | undefined {
   if (!readCache || identity === undefined || proof === undefined) {
     return undefined;
   }
@@ -101,27 +90,20 @@ function readCachedAnalysis(
     return undefined;
   }
   const outcome = profileInspectionPhase("inspection-cache-hit", () => cachedOutcome);
-  const cacheHit = createInspectionCacheHitNotice(identity);
-  return cacheHit === undefined ? { outcome } : { cacheHit, outcome };
+  const cacheMessage = createInspectionCacheHitNotice(identity);
+  return cacheMessage === undefined ? { outcome } : { cacheMessage, outcome };
 }
 
 function prepareAnalyzedCacheWrite(
   identity: InspectionCacheIdentity | undefined,
   proof: InstalledEvidenceProof | undefined,
   outcome: InspectionOutcome,
-): CachedAnalysisExecution {
-  const cacheWrite =
+): AnalysisExecution {
+  const cacheMessage =
     outcome.status === "success" && identity !== undefined
       ? createInspectionCacheWriteReceipt(identity, proof)
       : undefined;
-  return cacheWrite === undefined ? { outcome } : { cacheWrite, outcome };
-}
-
-function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOutcome {
-  const selection = selectInspectableModule(analysisRequest.request);
-  return selection === undefined
-    ? missingSpecifierOutcome(analysisRequest.request.specifier)
-    : inspectSelectedPackage(analysisRequest, selection);
+  return cacheMessage === undefined ? { outcome } : { cacheMessage, outcome };
 }
 
 function inspectSelectedPackage(

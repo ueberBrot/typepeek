@@ -7,14 +7,16 @@ import {
   removeInspectionCacheEntry,
   writeValidatedInspectionCacheOutcome,
 } from "#typepeek/inspection/inspection-cache";
+import { enforceAnalysisRequestOutcome } from "#typepeek/inspection/inspection-outcome-authority";
 import {
   forwardInspectionProfile,
   inspectionProfilingEnabled,
 } from "#typepeek/inspection/performance-profile";
-import {
-  enforceAnalysisRequestOutcome,
-  type AnalysisRequest,
-  type InspectionOutcome,
+import type {
+  AnalysisRequest,
+  InspectionFailure,
+  InspectionOutcome,
+  InspectionResultByIntent,
 } from "#typepeek/inspection/protocol";
 
 interface AnalysisProcessLimits {
@@ -48,39 +50,41 @@ const PRODUCTION_LIMITS: AnalysisProcessLimits = {
 const MAX_REQUEST_BYTES = 16 * 1_024;
 const STACK_SIZE_KIBIBYTES = 4_096;
 
-const DEADLINE_OUTCOME: InspectionOutcome = {
+const DEADLINE_OUTCOME: InspectionFailure = {
   status: "limit-exceeded",
   reason: "budget-exceeded",
   exceededBudget: "analysis-deadline",
   message: "Inspection exceeded its analysis deadline.",
 };
-const MEMORY_OUTCOME: InspectionOutcome = {
+const MEMORY_OUTCOME: InspectionFailure = {
   status: "limit-exceeded",
   reason: "budget-exceeded",
   exceededBudget: "analysis-memory",
   message: "Inspection exceeded its analysis memory limit.",
 };
-const OUTPUT_OUTCOME: InspectionOutcome = {
+const OUTPUT_OUTCOME: InspectionFailure = {
   status: "limit-exceeded",
   reason: "budget-exceeded",
   exceededBudget: "analysis-output-bytes",
   message: "Inspection exceeded its analysis process output limit.",
 };
-const TERMINATED_OUTCOME: InspectionOutcome = {
+const TERMINATED_OUTCOME: InspectionFailure = {
   status: "unsupported",
   reason: "analysis-terminated",
   message: "Inspection analysis terminated before completion.",
 };
-const INVALID_PROCESS_RESULT_OUTCOME: InspectionOutcome = {
+const INVALID_PROCESS_RESULT_OUTCOME: InspectionFailure = {
   status: "unsupported",
   reason: "invalid-result",
   message: "Inspection could not validate the analysis process result.",
 };
 
 /** Runs one production analysis behind this module's complete isolation policy. */
-export const runBoundedAnalysis = Effect.fn("runBoundedAnalysis")(function* (
-  request: AnalysisRequest,
-) {
+export const runBoundedAnalysis = Effect.fn("runBoundedAnalysis")(function* <
+  Request extends AnalysisRequest,
+>(
+  request: Request,
+): Effect.fn.Return<InspectionOutcome<InspectionResultByIntent[Request["intent"]]>> {
   if (Buffer.byteLength(JSON.stringify(request)) > MAX_REQUEST_BYTES) {
     return {
       status: "limit-exceeded",
@@ -120,14 +124,16 @@ export const runAnalysisFixtureProcess = Effect.fn("runAnalysisFixtureProcess")(
  * Requires a clean exit behind wall-clock, heap, diagnostics, and byte-framed
  * result limits before allowing one result to cross the process seam.
  */
-const runAnalysisProcess = Effect.fn("runAnalysisProcess")(function* (
-  request: AnalysisRequest,
+const runAnalysisProcess = Effect.fn("runAnalysisProcess")(function* <
+  Request extends AnalysisRequest,
+>(
+  request: Request,
   entryUrl: URL,
   limits: AnalysisProcessLimits,
   forwardProfile: boolean,
   allowCacheWrite = false,
   bypassCache = false,
-): Effect.fn.Return<InspectionOutcome> {
+): Effect.fn.Return<InspectionOutcome<InspectionResultByIntent[Request["intent"]]>> {
   const result = yield* executeAnalysisProcess(request, entryUrl, limits, bypassCache).pipe(
     Effect.catchTag("AnalysisProcessExecutionError", () => Effect.void),
   );
@@ -204,7 +210,7 @@ function executeAnalysisProcess(
 function analysisProcessFailure(
   result: AnalysisProcessResult,
   limits: AnalysisProcessLimits,
-): InspectionOutcome | undefined {
+): InspectionFailure | undefined {
   if (result.timedOut) return DEADLINE_OUTCOME;
   if (result.isMaxBuffer || result.stdout.byteLength > limits.maxResultBytes) {
     return OUTPUT_OUTCOME;
@@ -213,18 +219,20 @@ function analysisProcessFailure(
   return result.failed || result.exitCode !== 0 ? TERMINATED_OUTCOME : undefined;
 }
 
-interface AnalysisProcessCompletion {
+interface AnalysisProcessCompletion<Request extends AnalysisRequest> {
   readonly allowCacheWrite: boolean;
   readonly bypassCache: boolean;
   readonly entryUrl: URL;
   readonly forwardProfile: boolean;
   readonly limits: AnalysisProcessLimits;
-  readonly outcome: InspectionOutcome;
-  readonly request: AnalysisRequest;
+  readonly outcome: InspectionOutcome<InspectionResultByIntent[Request["intent"]]>;
+  readonly request: Request;
   readonly result: AnalysisProcessResult;
 }
 
-const finalizeAnalysisProcessOutcome = Effect.fn("finalizeAnalysisProcessOutcome")(function* ({
+const finalizeAnalysisProcessOutcome = Effect.fn("finalizeAnalysisProcessOutcome")(function* <
+  Request extends AnalysisRequest,
+>({
   allowCacheWrite,
   bypassCache,
   entryUrl,
@@ -233,7 +241,9 @@ const finalizeAnalysisProcessOutcome = Effect.fn("finalizeAnalysisProcessOutcome
   outcome,
   request,
   result,
-}: AnalysisProcessCompletion): Effect.fn.Return<InspectionOutcome> {
+}: AnalysisProcessCompletion<Request>): Effect.fn.Return<
+  InspectionOutcome<InspectionResultByIntent[Request["intent"]]>
+> {
   const cacheHit = readInspectionCacheHitNotice(result.ipcOutput[0]);
   if (shouldRetryInvalidCacheOutcome(allowCacheWrite, bypassCache, cacheHit, outcome)) {
     removeInspectionCacheEntry(cacheHit.key);

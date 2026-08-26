@@ -139,7 +139,7 @@ export default defineConfig({
         command: [
           "fallow dead-code --type-aware --type-aware-project tsconfig.json --type-aware-require complete",
           "fallow dupes",
-          "fallow health",
+          "fallow health --min-score 75",
         ],
         cache: false,
       },

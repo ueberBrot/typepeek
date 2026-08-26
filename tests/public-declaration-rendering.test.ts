@@ -4,8 +4,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   projectPublicDeclaration,
   publicDeclarations,
+  renderPublicDeclaration,
 } from "#typepeek/inspection/public-declaration-projection";
-import { renderPublicDeclaration } from "#typepeek/inspection/public-declaration-rendering";
 
 describe("Public Interface declaration rendering", () => {
   it("recovers inferred types while removing source implementation", () => {

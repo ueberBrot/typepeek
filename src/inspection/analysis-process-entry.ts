@@ -1,6 +1,6 @@
 import { getOneMessage, sendMessage } from "execa";
 
-import { analyzeInspectionWithCache } from "#typepeek/inspection/analyze";
+import { analyzeInspection } from "#typepeek/inspection/analyze";
 import {
   beginInspectionProfile,
   completeInspectionProfile,
@@ -17,13 +17,10 @@ const requestReading = profileInspectionPhase("request-validation", () =>
 );
 const execution = requestReading.accepted
   ? profileInspectionPhase("analysis", () =>
-      analyzeInspectionWithCache(
-        requestReading.request,
-        process.env["TYPEPEEK_CACHE_BYPASS"] !== "1",
-      ),
+      analyzeInspection(requestReading.request, process.env["TYPEPEEK_CACHE_BYPASS"] !== "1"),
     )
   : { outcome: requestReading.outcome };
-const cacheMessage = execution.cacheWrite ?? execution.cacheHit;
+const { cacheMessage } = execution;
 if (cacheMessage !== undefined) {
   await sendMessage(cacheMessage);
 }

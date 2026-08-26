@@ -40,6 +40,7 @@ import {
   encodeInspectionCachePayload,
   encodeInspectionCacheWriteReceipt,
 } from "#typepeek/inspection/inspection-cache-codec";
+import { enforceAnalysisRequestOutcome } from "#typepeek/inspection/inspection-outcome-authority";
 import type { InspectableModuleSelection } from "#typepeek/inspection/installed-evidence";
 import {
   type InstalledEvidenceDirectoryFingerprint,
@@ -51,7 +52,6 @@ import {
   sha256,
 } from "#typepeek/inspection/installed-evidence-fingerprint";
 import {
-  enforceAnalysisRequestOutcome,
   type AnalysisRequest,
   type AtomicInspectionResult,
   type InspectionOutcome,

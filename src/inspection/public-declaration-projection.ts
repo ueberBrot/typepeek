@@ -5,6 +5,10 @@ import { isTypeScriptStandardLibraryDeclaration } from "#typepeek/inspection/typ
 import { isWellKnownSymbolMemberName } from "#typepeek/inspection/well-known-symbol";
 
 const INFERRED_TYPE_FLAGS = ts.NodeBuilderFlags.NoTruncation;
+const declarationPrinter = ts.createPrinter({
+  newLine: ts.NewLineKind.LineFeed,
+  removeComments: true,
+});
 const MEMBER_TYPE_QUERY_FLAGS =
   INFERRED_TYPE_FLAGS |
   ts.NodeBuilderFlags.UseStructuralFallback |
@@ -67,6 +71,23 @@ export function projectPublicDeclaration(
       return publicDeclarationSyntax(checker, declaration, context);
     },
   };
+}
+
+/** Renders one semantic Public Interface projection as stable declaration text. */
+export function renderPublicDeclaration(
+  checker: ts.TypeChecker,
+  declaration: ts.Declaration,
+  context?: PublicDeclarationProjectionContext,
+): string {
+  const sourceFile = declaration.getSourceFile();
+  return declarationPrinter
+    .printNode(
+      ts.EmitHint.Unspecified,
+      projectPublicDeclaration(checker, declaration, context).syntax,
+      sourceFile,
+    )
+    .trim()
+    .replace(/^(?:export\s+)?(?:declare\s+)?/u, "");
 }
 
 function publicDeclarationSyntax(
