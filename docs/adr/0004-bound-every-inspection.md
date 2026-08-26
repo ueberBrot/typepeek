@@ -32,6 +32,7 @@ A Public Interface Comparison owns exactly two independent normalized Interface 
 | Syntax / inferred / declaration-graph traversal | 20,000 / 4,096 / 250,000 nodes; depth 64 / 64 / 256                    |
 | Aggregate result / Package Documentation        | 4,096 nodes / 16 KiB                                                   |
 | Untrusted protocol graph validation             | 4,096 objects / 16,384 queued values                                   |
+| Untrusted cache IPC graph                       | 4,096 objects / 32,768 serialized values / 4 KiB per string            |
 | Installed Evidence Proof                        | 512 files; 512 directories / 4,096 entries; 1,024 probes; 64 KiB       |
 | Inspection cache                                | 12 MiB reads; 96 KiB IPC receipt; 160 KiB entry; 256 entries           |
 
@@ -46,6 +47,10 @@ Automatic persistent reuse is enabled only for packaged builds with an embedded 
 Each entry also carries an Installed Evidence Proof for every consumed manifest and declaration, every selected module or type-reference resolution, and every traversed Public Subpath directory. Lookup repeats those bounded resolutions, directory fingerprints, and content fingerprints before returning the candidate. Missing wildcard roots are represented by the nearest readable package directory so newly materialized topology also invalidates. A proof that changes, exceeds validation limits, cannot be read, or fails integrity validation is a miss rather than authority.
 
 Cache receipts and entries are byte-limited. The parent writes only after complete outcome validation, publishes by atomic rename inside a private non-symlink directory, and authenticates entries with a per-directory integrity key protected by those directory permissions. Failed, bounded, malformed, partial, timed-out, and terminated analysis is never stored. Cache deletion, corruption, saturation, or write failure can therefore reduce reuse but cannot change an Inspection Outcome.
+
+Strict Effect Schema codecs are the structural authority for cache identities, Installed Evidence Proofs, IPC messages, payloads, and envelopes. Before an IPC value reaches Schema, a bounded own-data snapshot rejects accessors, inherited behavior, custom prototypes, symbols, sparse arrays, cycles, oversized strings, excessive graph work, and excessive exact serialized bytes. A cache read bounds file metadata and bytes, parses and strictly decodes only the outer envelope, authenticates its exact payload string in constant time, and only then parses the payload. The payload codec leaves the outcome unknown while it validates identity and proof. The outcome's serialized bytes are bounded before the canonical request/outcome Schema validates it; identity, result correlation, and Installed Evidence replay follow in that order. Encode failure, decode failure, or any mismatch is a miss or write no-op.
+
+Cache filesystem work remains synchronous and best-effort by design. It has one local adapter, no resource lifetime spanning an Effect scope, and no caller that can act on a typed storage failure; every I/O failure deliberately collapses inside the cache boundary. Introducing Effect services or Context/Layer here would expose optional storage mechanics without adding substitution, lifecycle safety, or domain authority. Reconsider that decision only if another storage adapter, a managed resource lifetime, or an error-consuming caller appears.
 
 ## Stability
 

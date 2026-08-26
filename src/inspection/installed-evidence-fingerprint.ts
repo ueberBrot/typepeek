@@ -1,47 +1,99 @@
+import { Result, Schema } from "effect";
 import { createHash } from "node:crypto";
 import { opendirSync, type Dirent } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 import { canonicalEvidencePath } from "#typepeek/inspection/evidence-boundary";
+import type { ProtocolType } from "#typepeek/inspection/protocol";
+import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted-data";
 
-export const MAX_FINGERPRINTED_FILES = 512;
-export const MAX_FINGERPRINTED_DIRECTORIES = 512;
+const MAX_FINGERPRINTED_FILES = 512;
+const MAX_FINGERPRINTED_DIRECTORIES = 512;
 export const MAX_FINGERPRINTED_DIRECTORY_ENTRIES = 4_096;
-export const MAX_RESOLUTION_PROBES = 1_024;
-const MAX_FINGERPRINT_RECEIPT_BYTES = 64 * 1_024;
+const MAX_RESOLUTION_PROBES = 1_024;
+export const MAX_INSTALLED_EVIDENCE_PROOF_BYTES = 64 * 1_024;
+const MAX_EVIDENCE_STRING_BYTES = 4 * 1_024;
+const MAX_EVIDENCE_PROOF_OBJECTS = 4_096;
+const MAX_EVIDENCE_PROOF_VALUES = 32_768;
 
-export type InstalledEvidenceFileKind = "declaration" | "manifest";
+const SHA256_PATTERN = /^[\da-f]{64}$/u;
+const boundedEvidenceStringSchema = Schema.String.check(
+  Schema.makeFilter((value) => Buffer.byteLength(value) <= MAX_EVIDENCE_STRING_BYTES, {
+    expected: `a string no larger than ${MAX_EVIDENCE_STRING_BYTES} UTF-8 bytes`,
+  }),
+);
+const boundedEvidencePathSchema = boundedEvidenceStringSchema.check(
+  Schema.makeFilter(isAbsolute, { expected: "a bounded absolute path" }),
+);
+const evidenceSha256Schema = Schema.String.check(
+  Schema.makeFilter((value) => SHA256_PATTERN.test(value), {
+    expected: "a lowercase SHA-256 digest",
+  }),
+);
+const installedEvidenceFingerprintSchema = Schema.Struct({
+  kind: Schema.Literals(["declaration", "manifest"]),
+  path: boundedEvidencePathSchema,
+  sha256: evidenceSha256Schema,
+});
+const installedEvidenceDirectoryFingerprintSchema = Schema.Struct({
+  entries: Schema.Natural,
+  path: boundedEvidencePathSchema,
+  sha256: evidenceSha256Schema,
+});
+const installedEvidenceDirectoriesSchema = Schema.Array(
+  installedEvidenceDirectoryFingerprintSchema,
+).check(
+  Schema.isMaxLength(MAX_FINGERPRINTED_DIRECTORIES),
+  Schema.makeFilter(hasBoundedDirectoryEntryTotal, {
+    expected: `at most ${MAX_FINGERPRINTED_DIRECTORY_ENTRIES} aggregate directory entries`,
+  }),
+);
+const installedEvidenceResolutionProbeSchema = Schema.Struct({
+  accessStyle: Schema.optional(Schema.Literals(["import", "require"])),
+  containingFile: boundedEvidencePathSchema,
+  kind: Schema.Literals(["module", "type-reference"]),
+  resolvedPath: Schema.optional(boundedEvidencePathSchema),
+  specifier: boundedEvidenceStringSchema,
+});
+export const installedEvidenceProofSchema = Schema.Struct({
+  directories: installedEvidenceDirectoriesSchema,
+  files: Schema.Array(installedEvidenceFingerprintSchema).check(
+    Schema.isMaxLength(MAX_FINGERPRINTED_FILES),
+  ),
+  resolutions: Schema.Array(installedEvidenceResolutionProbeSchema).check(
+    Schema.isMaxLength(MAX_RESOLUTION_PROBES),
+  ),
+}).check(
+  Schema.makeFilter(hasBoundedProofSize, {
+    expected: `an Installed Evidence proof no larger than ${MAX_INSTALLED_EVIDENCE_PROOF_BYTES} UTF-8 bytes`,
+  }),
+);
 
-export interface InstalledEvidenceFingerprint {
-  readonly kind: InstalledEvidenceFileKind;
-  readonly path: string;
-  readonly sha256: string;
-}
+export type InstalledEvidenceFingerprint = ProtocolType<
+  typeof installedEvidenceFingerprintSchema.Type
+>;
+export type InstalledEvidenceDirectoryFingerprint = ProtocolType<
+  typeof installedEvidenceDirectoryFingerprintSchema.Type
+>;
+export type InstalledEvidenceResolutionProbe = ProtocolType<
+  typeof installedEvidenceResolutionProbeSchema.Type
+>;
+export type InstalledEvidenceProof = ProtocolType<typeof installedEvidenceProofSchema.Type>;
 
-export interface InstalledEvidenceDirectoryFingerprint {
-  readonly entries: number;
-  readonly path: string;
-  readonly sha256: string;
-}
+const decodeInstalledEvidenceProof = Schema.decodeUnknownResult(installedEvidenceProofSchema, {
+  onExcessProperty: "error",
+});
 
-export interface InstalledEvidenceResolutionProbe {
-  readonly accessStyle?: "import" | "require";
-  readonly containingFile: string;
-  readonly kind: "module" | "type-reference";
-  readonly resolvedPath?: string;
-  readonly specifier: string;
-}
-
-export interface InstalledEvidenceProof {
-  readonly directories: readonly InstalledEvidenceDirectoryFingerprint[];
-  readonly files: readonly InstalledEvidenceFingerprint[];
-  readonly resolutions: readonly InstalledEvidenceResolutionProbe[];
+function readInstalledEvidenceProof(value: unknown): InstalledEvidenceProof | undefined {
+  return Result.getOrUndefined(decodeInstalledEvidenceProof(value)) as
+    | InstalledEvidenceProof
+    | undefined;
 }
 
 export type ObserveInstalledEvidenceFile = (
   fileName: string,
   contents: string,
-  kind: InstalledEvidenceFileKind,
+  kind: InstalledEvidenceFingerprint["kind"],
 ) => void;
 
 export type ObserveInstalledEvidenceDirectory = (
@@ -151,9 +203,7 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
           JSON.stringify(left).localeCompare(JSON.stringify(right)),
         ),
       };
-      return Buffer.byteLength(JSON.stringify(proof)) <= MAX_FINGERPRINT_RECEIPT_BYTES
-        ? proof
-        : undefined;
+      return readInstalledEvidenceProof(proof);
     },
   };
 }
@@ -239,4 +289,28 @@ function directoryEntryKind(entry: Dirent): string {
 
 export function sha256(contents: string): string {
   return createHash("sha256").update(contents).digest("hex");
+}
+
+function hasBoundedDirectoryEntryTotal(
+  directories: readonly (typeof installedEvidenceDirectoryFingerprintSchema.Type)[],
+): boolean {
+  let remaining = MAX_FINGERPRINTED_DIRECTORY_ENTRIES;
+  for (const directory of directories) {
+    if (directory.entries > remaining) {
+      return false;
+    }
+    remaining -= directory.entries;
+  }
+  return true;
+}
+
+function hasBoundedProofSize(proof: typeof installedEvidenceProofSchema.Type): boolean {
+  return (
+    snapshotBoundedDataPropertyGraph(proof, {
+      maximumObjects: MAX_EVIDENCE_PROOF_OBJECTS,
+      maximumSerializedBytes: MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
+      maximumStringBytes: MAX_EVIDENCE_STRING_BYTES,
+      maximumValues: MAX_EVIDENCE_PROOF_VALUES,
+    }) !== undefined
+  );
 }
