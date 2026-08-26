@@ -1,18 +1,20 @@
 import type { InspectionProtocolRequest } from "#typepeek/inspection";
 
-export interface AgentWorkloadBase {
-  readonly id: string;
+import type { BenchmarkWorkloadId } from "./regression-policy.ts";
+
+export interface AgentWorkloadBase<Id extends BenchmarkWorkloadId> {
+  readonly id: Id;
   readonly question: string;
   readonly initialRequest: InspectionProtocolRequest;
   readonly expectedFacts: readonly string[];
 }
 
-export type AgentWorkload = AgentWorkloadBase &
-  (
-    | { readonly kind: "export-discovery" }
-    | { readonly kind: "signature-projection" }
-    | { readonly kind: "supporting-type-recovery" }
-  );
+export type AgentWorkload =
+  | (AgentWorkloadBase<"execa-export-discovery"> & { readonly kind: "export-discovery" })
+  | (AgentWorkloadBase<"execa-invocation"> & { readonly kind: "signature-projection" })
+  | (AgentWorkloadBase<"execa-export-recovery"> & {
+      readonly kind: "supporting-type-recovery";
+    });
 
 export const AGENT_WORKLOADS = Object.freeze([
   {

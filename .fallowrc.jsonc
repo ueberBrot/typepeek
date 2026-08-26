@@ -5,6 +5,7 @@
   // roots cover repository-only executables that are not published.
   "entry": [
     "benchmarks/agent-protocol.ts",
+    "benchmarks/regression-gates.ts",
     "src/inspection/analysis-process-entry.ts",
     "src/inspection/performance-profile-disabled.ts",
     "taze.config.ts",

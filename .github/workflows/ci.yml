@@ -75,6 +75,9 @@ jobs:
       - name: Smoke-test package
         run: vp run package-smoke
 
+      - name: Check performance regressions
+        run: vp run benchmark:gate
+
   consumer-compatibility:
     name: Consumer compatibility (${{ matrix.os }})
     needs:

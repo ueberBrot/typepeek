@@ -4,37 +4,24 @@ import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { parseArgs } from "node:util";
 
+import {
+  decodeInspectionProfile,
+  type InspectionProfile,
+} from "#typepeek/inspection/performance-profile";
+
+import {
+  type BenchmarkLatencyCaseName,
+  encodeInspectionLatencyReport,
+  type InspectionLatencyReport,
+} from "./regression-policy.ts";
+
 interface BenchmarkCase {
-  readonly name: string;
+  readonly name: BenchmarkLatencyCaseName;
   readonly arguments_: readonly string[];
 }
 
-interface ProfilePhase {
-  readonly name: string;
-  readonly milliseconds: number;
-}
-
-interface DurationSummary {
-  readonly min: number;
-  readonly mean: number;
-  readonly max: number;
-}
-
-interface BenchmarkReport {
-  readonly kind: "inspection-latency-benchmark";
-  readonly schemaVersion: 1;
-  readonly adapter: "build" | "package" | "source";
-  readonly iterations: number;
-  readonly cases: readonly {
-    readonly name: string;
-    readonly statuses: readonly string[];
-    readonly wallMilliseconds: DurationSummary;
-    readonly phases: readonly {
-      readonly name: string;
-      readonly milliseconds: DurationSummary;
-    }[];
-  }[];
-}
+type DurationSummary = InspectionLatencyReport["cases"][number]["wallMilliseconds"];
+type LatencyCaseReport = InspectionLatencyReport["cases"][number];
 
 const benchmarkCases: readonly BenchmarkCase[] = [
   { name: "interface-overview", arguments_: ["overview", "execa", "--json"] },
@@ -44,13 +31,14 @@ const benchmarkCases: readonly BenchmarkCase[] = [
   },
   { name: "export-search", arguments_: ["search", "execa", "error", "--json"] },
   { name: "public-subpath-discovery", arguments_: ["subpaths", "execa", "--json"] },
-];
+] satisfies readonly BenchmarkCase[];
 
 const options = readOptions(process.argv.slice(2));
 const executable = adapterEntrypoint(options.adapter);
-const cases = [];
+const cases: LatencyCaseReport[] = [];
 
 for (const benchmarkCase of benchmarkCases) {
+  const analysisMaxRssBytes: number[] = [];
   const durations: number[] = [];
   const statuses: string[] = [];
   const phaseDurations = new Map<string, number[]>();
@@ -67,7 +55,11 @@ for (const benchmarkCase of benchmarkCases) {
     durations.push(roundedMilliseconds(performance.now() - startedAt));
     const outcome = JSON.parse(result.stdout) as { readonly status?: unknown };
     statuses.push(typeof outcome.status === "string" ? outcome.status : "invalid");
-    for (const phase of readProfile(result.stderr, options.adapter).phases) {
+    const profile = readProfile(result.stderr, options.adapter);
+    if (profile.maxRssBytes !== undefined) {
+      analysisMaxRssBytes.push(profile.maxRssBytes);
+    }
+    for (const phase of profile.phases) {
       const values = phaseDurations.get(phase.name) ?? [];
       values.push(phase.milliseconds);
       phaseDurations.set(phase.name, values);
@@ -76,6 +68,9 @@ for (const benchmarkCase of benchmarkCases) {
   cases.push({
     name: benchmarkCase.name,
     statuses,
+    ...(analysisMaxRssBytes.length > 0
+      ? { analysisMaxRssBytes: summarize(analysisMaxRssBytes) }
+      : {}),
     wallMilliseconds: summarize(durations),
     phases: [...phaseDurations].map(([name, durations_]) => ({
       name,
@@ -84,7 +79,7 @@ for (const benchmarkCase of benchmarkCases) {
   });
 }
 
-const report: BenchmarkReport = {
+const report: InspectionLatencyReport = {
   kind: "inspection-latency-benchmark",
   schemaVersion: 1,
   adapter: options.adapter,
@@ -92,7 +87,9 @@ const report: BenchmarkReport = {
   cases,
 };
 process.stdout.write(
-  options.json ? `${JSON.stringify(report)}\n` : `${renderHumanReport(report)}\n`,
+  options.json
+    ? `${JSON.stringify(encodeInspectionLatencyReport(report))}\n`
+    : `${renderHumanReport(report)}\n`,
 );
 
 function readOptions(arguments_: readonly string[]): {
@@ -145,31 +142,18 @@ function adapterEntrypoint(adapter: "build" | "package" | "source"): string {
 function readProfile(
   serialized: string,
   adapter: "build" | "package" | "source",
-): { readonly phases: readonly ProfilePhase[] } {
+): {
+  readonly maxRssBytes: number | undefined;
+  readonly phases: InspectionProfile["phases"];
+} {
   if (adapter !== "source" && serialized === "") {
-    return { phases: [] };
+    return { maxRssBytes: undefined, phases: [] };
   }
-  const profile: unknown = JSON.parse(serialized);
-  if (!isPerformanceProfile(profile)) {
+  const profile = decodeInspectionProfile(serialized);
+  if (profile === undefined) {
     throw new TypeError("Inspection did not emit a valid performance profile.");
   }
-  return profile;
-}
-
-function isPerformanceProfile(
-  value: unknown,
-): value is { readonly phases: readonly ProfilePhase[] } {
-  if (typeof value !== "object") {
-    return false;
-  }
-  if (value === null) {
-    return false;
-  }
-  const candidate = value as { readonly kind?: unknown; readonly phases?: unknown };
-  if (candidate.kind !== "inspection-profile") {
-    return false;
-  }
-  return Array.isArray(candidate.phases);
+  return { maxRssBytes: profile.maxRssBytes, phases: profile.phases };
 }
 
 function summarize(values: readonly number[]): DurationSummary {
@@ -184,7 +168,7 @@ function roundedMilliseconds(milliseconds: number): number {
   return Math.round(milliseconds * 1_000) / 1_000;
 }
 
-function renderHumanReport(report: BenchmarkReport): string {
+function renderHumanReport(report: InspectionLatencyReport): string {
   return [
     `Inspection latency benchmark (${report.adapter}; ${report.iterations} iterations)`,
     ...report.cases.flatMap((benchmarkCase) => [

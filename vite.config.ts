@@ -174,6 +174,11 @@ export default defineConfig({
         command: "node benchmarks/agent-protocol.ts",
         output: [],
       },
+      "benchmark:gate": {
+        command: "node benchmarks/regression-gates.ts",
+        dependsOn: ["pack"],
+        cache: false,
+      },
       test: {
         command: "vp test",
         output: [],
@@ -186,6 +191,7 @@ export default defineConfig({
           "vp run test",
           "vp run build-smoke",
           "vp run package-smoke",
+          "vp run benchmark:gate",
         ],
       },
     },
