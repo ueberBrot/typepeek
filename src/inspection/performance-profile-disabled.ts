@@ -1,5 +1,3 @@
-// fallow-ignore-file unused-file -- release-only adapter selected by Vite+ configuration
-
 /** Release artifacts intentionally exclude repository profiling diagnostics. */
 export const inspectionProfilingEnabled = false;
 
