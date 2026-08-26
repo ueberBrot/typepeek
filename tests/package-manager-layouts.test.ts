@@ -108,8 +108,8 @@ describe("Supported Installation package-manager layouts", () => {
         { moduleExport: { name: "subjectValue" } },
       ],
     });
-    expect(JSON.stringify(publicInterfaces[0])).toContain("nested-v1");
-    expect(JSON.stringify(publicInterfaces[0])).not.toContain("nested-v2");
+    expect(JSON.stringify(publicInterfaces[0])).toContain("subject-nested");
+    expect(JSON.stringify(publicInterfaces[0])).not.toContain("repository-nested");
   }, 30_000);
 
   it("keeps package-manager activity in setup and never executes package scripts", async () => {

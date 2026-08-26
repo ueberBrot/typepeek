@@ -31,7 +31,7 @@ export interface PackageManagerMatrix {
 }
 
 interface PackedFixturePackages {
-  readonly nestedVersionTwo: string;
+  readonly repositoryNested: string;
   readonly subject: string;
 }
 
@@ -92,37 +92,37 @@ async function packFixturePackages(
 ): Promise<PackedFixturePackages> {
   const sourcesRoot = join(fixtureRoot, "sources");
   const tarballsRoot = join(fixtureRoot, "tarballs");
-  const nestedVersionOneRoot = join(sourcesRoot, "nested-v1");
-  const nestedVersionTwoRoot = join(sourcesRoot, "nested-v2");
+  const subjectNestedRoot = join(sourcesRoot, "subject-nested");
+  const repositoryNestedRoot = join(sourcesRoot, "repository-nested");
   const subjectRoot = join(sourcesRoot, "layout-subject");
   await mkdir(tarballsRoot, { recursive: true });
 
   await Promise.all([
-    writeFixturePackage(nestedVersionOneRoot, {
+    writeFixturePackage(subjectNestedRoot, {
       name: "@typepeek-fixture/nested",
       version: "1.0.0",
-      declaration: 'export declare const nestedValue: "nested-v1";\n',
+      declaration: 'export declare const nestedValue: "subject-nested";\n',
     }),
-    writeFixturePackage(nestedVersionTwoRoot, {
+    writeFixturePackage(repositoryNestedRoot, {
       name: "@typepeek-fixture/nested",
       version: "2.0.0",
-      declaration: 'export declare const nestedValue: "nested-v2";\n',
+      declaration: 'export declare const nestedValue: "repository-nested";\n',
     }),
   ]);
 
-  const nestedVersionOne = await packPackage({
-    diagnosticContext: "nested v1 Package Module fixture",
+  const subjectNested = await packPackage({
+    diagnosticContext: "subject nested Package Module fixture",
     npmCacheRoot,
-    packageRoot: nestedVersionOneRoot,
+    packageRoot: subjectNestedRoot,
     tarballsRoot,
   });
-  const nestedVersionTwo = await packPackage({
-    diagnosticContext: "nested v2 Package Module fixture",
+  const repositoryNested = await packPackage({
+    diagnosticContext: "repository nested Package Module fixture",
     npmCacheRoot,
-    packageRoot: nestedVersionTwoRoot,
+    packageRoot: repositoryNestedRoot,
     tarballsRoot,
   });
-  // The root installs v2; the subject must resolve its nested v1.
+  // The repository installs another version; the subject must resolve its own declared dependency.
   await writeFixturePackage(subjectRoot, {
     name: "@typepeek-fixture/layout-subject",
     version: "1.0.0",
@@ -132,7 +132,7 @@ async function packFixturePackages(
       "",
     ].join("\n"),
     dependencies: {
-      "@typepeek-fixture/nested": localPackageSpecifier(nestedVersionOne),
+      "@typepeek-fixture/nested": localPackageSpecifier(subjectNested),
     },
     scripts: {
       postinstall:
@@ -141,7 +141,7 @@ async function packFixturePackages(
   });
 
   return {
-    nestedVersionTwo,
+    repositoryNested,
     subject: await packPackage({
       diagnosticContext: "layout subject Package Module fixture",
       npmCacheRoot,
@@ -202,7 +202,7 @@ async function materializeInstallation(
       private: true,
       dependencies: {
         "@typepeek-fixture/layout-subject": localPackageSpecifier(packages.subject),
-        "@typepeek-fixture/nested": localPackageSpecifier(packages.nestedVersionTwo),
+        "@typepeek-fixture/nested": localPackageSpecifier(packages.repositoryNested),
       },
     }),
   );

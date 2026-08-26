@@ -31,8 +31,8 @@ export interface WorkspacePackageMatrix {
 }
 
 interface ContextualPackages {
-  readonly versionOne: string;
-  readonly versionTwo: string;
+  readonly consumerOne: string;
+  readonly consumerTwo: string;
 }
 
 export async function materializeWorkspacePackageMatrix(): Promise<WorkspacePackageMatrix> {
@@ -60,23 +60,23 @@ async function packContextualPackages(fixtureRoot: string): Promise<ContextualPa
   const sourcesRoot = join(fixtureRoot, "sources");
   const tarballsRoot = join(fixtureRoot, "tarballs");
   const npmCacheRoot = join(fixtureRoot, "npm-cache");
-  const versionOneRoot = join(sourcesRoot, "contextual-v1");
-  const versionTwoRoot = join(sourcesRoot, "contextual-v2");
+  const consumerOneRoot = join(sourcesRoot, "consumer-one-contextual");
+  const consumerTwoRoot = join(sourcesRoot, "consumer-two-contextual");
   await Promise.all([
-    writeDeclarationPackage(versionOneRoot, "1.0.0", "context-one"),
-    writeDeclarationPackage(versionTwoRoot, "2.0.0", "context-two"),
+    writeDeclarationPackage(consumerOneRoot, "1.0.0", "context-one"),
+    writeDeclarationPackage(consumerTwoRoot, "2.0.0", "context-two"),
   ]);
   return {
-    versionOne: await packPackage({
-      diagnosticContext: "contextual v1 Package Module fixture",
+    consumerOne: await packPackage({
+      diagnosticContext: "consumer one contextual Package Module fixture",
       npmCacheRoot,
-      packageRoot: versionOneRoot,
+      packageRoot: consumerOneRoot,
       tarballsRoot,
     }),
-    versionTwo: await packPackage({
-      diagnosticContext: "contextual v2 Package Module fixture",
+    consumerTwo: await packPackage({
+      diagnosticContext: "consumer two contextual Package Module fixture",
       npmCacheRoot,
-      packageRoot: versionTwoRoot,
+      packageRoot: consumerTwoRoot,
       tarballsRoot,
     }),
   };
@@ -133,8 +133,8 @@ async function materializeWorkspaceInstallation(
       ...(packageManager.manager === "pnpm" ? {} : { workspaces: ["packages/*"] }),
     }),
     writeFile(join(repositoryRoot, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n"),
-    writeConsumerManifest(consumerOneContext, packages.versionOne, false, true),
-    writeConsumerManifest(consumerTwoContext, packages.versionTwo, true, true),
+    writeConsumerManifest(consumerOneContext, packages.consumerOne, false, true),
+    writeConsumerManifest(consumerTwoContext, packages.consumerTwo, true, true),
     writeJson(join(sourceWorkspaceRoot, "package.json"), {
       name: SOURCE_WORKSPACE_PACKAGE,
       type: "module",
@@ -249,7 +249,7 @@ async function materializeWorkspaceInstallation(
   });
   // A Resolution Context manifest may legitimately declare dependencies without
   // declaring its own Package Identity.
-  await writeConsumerManifest(consumerOneContext, packages.versionOne, false, false);
+  await writeConsumerManifest(consumerOneContext, packages.consumerOne, false, false);
   return {
     consumerOneContext,
     consumerTwoContext,

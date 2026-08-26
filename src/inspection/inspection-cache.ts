@@ -1,4 +1,5 @@
 import ts from "@typescript/typescript6";
+import { Predicate } from "effect";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   existsSync,
@@ -667,7 +668,7 @@ function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonicalValue);
   }
-  if (isRecord(value)) {
+  if (Predicate.isReadonlyObject(value)) {
     return Object.fromEntries(
       Object.keys(value)
         .sort()
@@ -679,8 +680,4 @@ function canonicalValue(value: unknown): unknown {
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

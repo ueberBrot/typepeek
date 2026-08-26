@@ -1,4 +1,5 @@
 import ts from "@typescript/typescript6";
+import { Predicate } from "effect";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -127,7 +128,7 @@ async function lockedPackageIdentity(
   context: "legacy" | "root",
 ): Promise<string> {
   const packages = (await readManifest(CORPUS_LOCKFILE))["packages"];
-  if (!isRecord(packages)) {
+  if (!Predicate.isReadonlyObject(packages)) {
     throw new Error(`Corpus lockfile ${CORPUS_LOCKFILE} has no packages index.`);
   }
   const packagePath =
@@ -259,18 +260,14 @@ function moduleSpecifierLiteral(node: ts.Node): ts.StringLiteralLike | undefined
 
 async function corpusDependencyNames(): Promise<readonly string[]> {
   const dependencies = (await readManifest(CORPUS_MANIFEST))["dependencies"];
-  if (!isRecord(dependencies)) {
+  if (!Predicate.isReadonlyObject(dependencies)) {
     throw new Error(`Corpus manifest ${CORPUS_MANIFEST} has no dependencies.`);
   }
   return Object.keys(dependencies).sort();
 }
 
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function packageVersion(manifest: unknown, manifestPath: string): string {
-  const version = isRecord(manifest) ? manifest["version"] : undefined;
+  const version = Predicate.isReadonlyObject(manifest) ? manifest["version"] : undefined;
   if (typeof version !== "string") {
     throw new Error(`Package manifest ${manifestPath} has no version.`);
   }

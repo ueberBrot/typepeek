@@ -1,10 +1,11 @@
-import { Result, Schema } from "effect";
+import { Predicate, Result, Schema } from "effect";
 
 import {
   inspectionPlanQueriesForRequest,
   MAX_INSPECTION_PLAN_QUERIES,
 } from "#typepeek/inspection/inspection-plan-query";
 import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
+import { type PackageIdentity, packageIdentitySchema } from "#typepeek/inspection/package-identity";
 import {
   INSPECTION_BUDGET_DIMENSIONS,
   NOT_FOUND_FAILURE_REASONS,
@@ -30,10 +31,6 @@ const optionalUndefined = Schema.optional(Schema.Never);
 
 const moduleExportIndexEntrySchema = Schema.Struct({ name: Schema.String });
 const publicSubpathSchema = Schema.Struct({ specifier: Schema.String });
-const packageIdentitySchema = Schema.Struct({
-  name: Schema.String,
-  version: Schema.optional(Schema.String),
-});
 export const packageInspectionResultIdentitySchema = Schema.Struct({
   packageIdentity: packageIdentitySchema,
   declarationProvider: Schema.optional(packageIdentitySchema),
@@ -408,7 +405,7 @@ export interface NormalizedPublicInterfaceComparisonRequest {
 }
 export type ModuleExportIndexEntry = ProtocolType<typeof moduleExportIndexEntrySchema.Type>;
 export type PublicSubpath = ProtocolType<typeof publicSubpathSchema.Type>;
-export type PackageIdentity = ProtocolType<typeof packageIdentitySchema.Type>;
+export type { PackageIdentity } from "#typepeek/inspection/package-identity";
 export type ResolutionVariant = ProtocolType<typeof resolutionVariantSchema.Type>;
 export type InspectionResultIdentity = ProtocolType<typeof inspectionResultIdentitySchema.Type>;
 export type InterfaceOverview = ProtocolType<typeof interfaceOverviewSchema.Type>;
@@ -795,11 +792,11 @@ function readInspectionOutcome(value: unknown): InspectionOutcome | undefined {
 function hasBoundedNamespaceGraph(value: unknown): boolean {
   // Namespace members are the protocol's recursive shape. Keep this transport
   // guard aligned with the analyzer depth budget and reject object cycles.
-  if (!isRecord(value) || value["status"] !== "success") {
+  if (!Predicate.isReadonlyObject(value) || value["status"] !== "success") {
     return true;
   }
   const result = value["result"];
-  if (!isRecord(result)) {
+  if (!Predicate.isReadonlyObject(result)) {
     return true;
   }
   const inspections =
@@ -810,16 +807,20 @@ function hasBoundedNamespaceGraph(value: unknown): boolean {
 }
 
 function hasBoundedInspectionNamespaceGraph(result: unknown): boolean {
-  if (!isRecord(result) || result["intent"] !== "export-inspection") {
+  if (!Predicate.isReadonlyObject(result) || result["intent"] !== "export-inspection") {
     return true;
   }
   const moduleExport = result["moduleExport"];
-  if (!isRecord(moduleExport) || !Array.isArray(moduleExport["spaces"])) {
+  if (!Predicate.isReadonlyObject(moduleExport) || !Array.isArray(moduleExport["spaces"])) {
     return true;
   }
 
   return everyArrayItem(moduleExport["spaces"], (space) => {
-    if (!isRecord(space) || space["space"] !== "namespace" || !Array.isArray(space["members"])) {
+    if (
+      !Predicate.isReadonlyObject(space) ||
+      space["space"] !== "namespace" ||
+      !Array.isArray(space["members"])
+    ) {
       return true;
     }
     return everyArrayItem(space["members"], (member) =>
@@ -829,10 +830,10 @@ function hasBoundedInspectionNamespaceGraph(result: unknown): boolean {
 }
 
 function hasBoundedNamespaceMember(value: unknown, ancestors: Set<object>, depth: number): boolean {
-  if (depth > 8 || (isRecord(value) && ancestors.has(value))) {
+  if (depth > 8 || (Predicate.isReadonlyObject(value) && ancestors.has(value))) {
     return false;
   }
-  if (!isRecord(value) || !Array.isArray(value["members"])) {
+  if (!Predicate.isReadonlyObject(value) || !Array.isArray(value["members"])) {
     return true;
   }
 
@@ -866,8 +867,4 @@ function isPortableRelativePath(value: unknown): value is string {
     !/^[A-Za-z]:/u.test(value) &&
     segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..")
   );
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
