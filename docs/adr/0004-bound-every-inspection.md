@@ -4,7 +4,7 @@ Every inspection is bounded in work, memory, traversal, and output. Exceeding a 
 
 ## Isolation
 
-Inspection Core starts one execa-managed Node subprocess per normalized request. It accepts one JSON result over byte-limited stdout only after exit code zero. The parent enforces a 10-second deadline, 100-millisecond kill escalation, 128 MiB old-generation heap, and 4 MiB stack. A process, rather than a worker thread, provides independent termination and startup-time memory enforcement.
+Inspection Core starts one execa-managed Node subprocess per normalized request. It accepts one JSON result over byte-limited stdout only after exit code zero. The parent enforces a 10-second deadline, 100-millisecond kill escalation, 128 MiB old-generation heap, and 4 MiB stack. Caller Fiber interruption aborts the execa-managed subprocess and waits for its exit under the same kill escalation before interruption completes. A process, rather than a worker thread, provides independent termination and startup-time memory enforcement.
 
 An Inspection Plan is still one normalized request and one subprocess. It contains at most 16 ordered queries for one Specifier and Access Style. The subprocess selects one Declaration Provider and evaluates every query against that shared Installed Evidence. It materializes one bounded TypeScript program when any query needs declaration evidence; a plan containing only Public Subpath Discovery queries remains manifest-only. Compiler, traversal, result-construction, protocol, and transport limits are aggregate plan budgets. Any query failure or aggregate exhaustion fails the complete plan; partial results never cross the process boundary.
 

@@ -1,7 +1,10 @@
-import { Effect } from "effect";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { it as effectIt } from "@effect/vitest";
+import { Effect, Exit, Fiber } from "effect";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
@@ -24,6 +27,7 @@ const limits = {
   maxDiagnosticBytes: 1_024,
 };
 const timeoutLimits = { ...limits, deadlineMilliseconds: 500 };
+const LIFECYCLE_ASSERTION_TIMEOUT_MILLISECONDS = 5_000;
 
 let fixtureRoot: string;
 
@@ -56,6 +60,45 @@ it("accepts exactly one bounded result from a cleanly exited analysis process", 
       });
     }),
   ));
+
+effectIt.live(
+  "reaps the analysis process before caller Fiber interruption completes",
+  () => {
+    const readyPath = join(fixtureRoot, "interruption-ready");
+    const terminationPath = join(fixtureRoot, "interruption-sigterm");
+
+    return Effect.gen(function* () {
+      const entry = yield* Effect.promise(() =>
+        materializeProcessEntry(
+          "caller-interruption",
+          lifecycleFixtureSource(readyPath, terminationPath),
+        ),
+      );
+      const fiber = yield* Effect.forkChild(
+        runAnalysisFixtureProcess(request, entry, {
+          ...limits,
+          deadlineMilliseconds: 20_000,
+        }),
+      );
+      const pid = yield* Effect.promise(() =>
+        waitForProcessId(readyPath, LIFECYCLE_ASSERTION_TIMEOUT_MILLISECONDS),
+      );
+      expect(processIsAlive(pid)).toBe(true);
+
+      yield* Fiber.interrupt(fiber).pipe(Effect.timeout(LIFECYCLE_ASSERTION_TIMEOUT_MILLISECONDS));
+      const exit = yield* Fiber.await(fiber);
+      expect(Exit.hasInterrupts(exit)).toBe(true);
+
+      if (process.platform !== "win32") {
+        yield* Effect.promise(() =>
+          waitForFile(terminationPath, LIFECYCLE_ASSERTION_TIMEOUT_MILLISECONDS),
+        );
+      }
+      expect(processIsAlive(pid)).toBe(false);
+    }).pipe(Effect.ensuring(Effect.promise(() => forceTerminateProcessFromReadyFile(readyPath))));
+  },
+  10_000,
+);
 
 it.each([
   {
@@ -216,6 +259,95 @@ async function materializeProcessEntry(name: string, source: string): Promise<UR
   const path = join(fixtureRoot, `${name.replaceAll(" ", "-")}.mjs`);
   await writeFile(path, source);
   return pathToFileURL(path);
+}
+
+function lifecycleFixtureSource(readyPath: string, terminationPath: string): string {
+  const terminationHandler =
+    process.platform === "win32"
+      ? ""
+      : `process.on("SIGTERM", () => {
+  writeFileSync(${JSON.stringify(terminationPath)}, "SIGTERM");
+  setInterval(() => {}, 1_000);
+});`;
+
+  return `import { writeFileSync } from "node:fs";
+${terminationHandler}
+writeFileSync(${JSON.stringify(readyPath)}, String(process.pid));
+process.once("message", () => setInterval(() => {}, 1_000));`;
+}
+
+async function waitForProcessId(path: string, timeoutMilliseconds: number): Promise<number> {
+  const serialized = await waitForFile(path, timeoutMilliseconds);
+  return parseProcessId(serialized);
+}
+
+function parseProcessId(serialized: string): number {
+  const pid = Number(serialized);
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    throw new Error(`Analysis fixture wrote invalid process ID ${JSON.stringify(serialized)}.`);
+  }
+  return pid;
+}
+
+async function waitForFile(path: string, timeoutMilliseconds: number): Promise<string> {
+  const deadline = performance.now() + timeoutMilliseconds;
+  while (performance.now() < deadline) {
+    try {
+      return await readFile(path, "utf8");
+    } catch {
+      await delay(10);
+    }
+  }
+  throw new Error(`Timed out waiting for analysis fixture file ${path}.`);
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    if (code === "EPERM") return true;
+    throw error;
+  }
+}
+
+async function forceTerminateProcessFromReadyFile(readyPath: string): Promise<void> {
+  const pid = await readProcessIdIfPresent(readyPath);
+  if (pid === undefined || !processIsAlive(pid)) return;
+
+  forceKillProcess(pid);
+  await waitForProcessExit(pid);
+}
+
+async function readProcessIdIfPresent(path: string): Promise<number | undefined> {
+  let serialized: string;
+  try {
+    serialized = await readFile(path, "utf8");
+  } catch {
+    return;
+  }
+  return parseProcessId(serialized);
+}
+
+function forceKillProcess(pid: number): void {
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+    throw error;
+  }
+}
+
+async function waitForProcessExit(pid: number): Promise<void> {
+  const deadline = performance.now() + LIFECYCLE_ASSERTION_TIMEOUT_MILLISECONDS;
+  while (processIsAlive(pid) && performance.now() < deadline) {
+    await delay(10);
+  }
+  if (processIsAlive(pid)) {
+    throw new Error(`Could not reap analysis fixture process ${pid}.`);
+  }
 }
 
 function runFixtureProcess(
