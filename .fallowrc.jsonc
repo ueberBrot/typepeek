@@ -6,6 +6,7 @@
   "entry": [
     "benchmarks/agent-protocol.ts",
     "src/inspection/analysis-process-entry.ts",
+    "src/inspection/performance-profile-disabled.ts",
     "taze.config.ts",
     "tests/build-output-smoke.ts",
     "tests/package-output-smoke.ts"

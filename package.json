@@ -32,13 +32,16 @@
   },
   "devDependencies": {
     "@effect/tsgo": "0.36.5",
+    "@effect/vitest": "4.0.0-rc.110",
     "@types/node": "^24.13.3",
     "fallow": "^3.10.0",
     "publint": "^0.3.22",
     "taze": "^19.16.0",
     "typescript": "7.0.2",
     "unplugin-unused": "^0.6.0",
-    "vite-plus": "^0.2.6"
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.6",
+    "vite-plus": "0.2.6",
+    "vitest": "4.1.10"
   },
   "engines": {
     "node": ">=24.18.0 <25"
