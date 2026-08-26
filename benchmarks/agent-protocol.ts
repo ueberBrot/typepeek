@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { resolve } from "node:path";
 
 import {
@@ -154,22 +155,18 @@ function recoveredResultFacts(response: InspectionProtocolResponse): readonly st
 
 function hasStructuredParameters(signature: unknown): boolean {
   return (
-    isRecord(signature) &&
+    Predicate.isReadonlyObject(signature) &&
     Array.isArray(signature["parameters"]) &&
     signature["parameters"].length > 0
   );
 }
 
 function hasStructuredReturns(signature: unknown): boolean {
-  return isRecord(signature) && isRecord(signature["returns"]);
+  return Predicate.isReadonlyObject(signature) && Predicate.isReadonlyObject(signature["returns"]);
 }
 
 function factWhen(condition: boolean, fact: string): readonly string[] {
   return condition ? [fact] : [];
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function factsMatch(expected: readonly string[], actual: readonly string[]): boolean {

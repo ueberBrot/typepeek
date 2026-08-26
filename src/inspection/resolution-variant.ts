@@ -1,4 +1,5 @@
 import ts from "@typescript/typescript6";
+import { Predicate } from "effect";
 import { opendirSync, type Dirent } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 
@@ -293,7 +294,7 @@ function exportTargetChildren(
   if (Array.isArray(target)) {
     return reachableFallbackTargets(target, conditions, traversal);
   }
-  if (!isRecord(target)) {
+  if (!Predicate.isReadonlyObject(target)) {
     return [];
   }
   const applicableTargets = Object.entries(target).flatMap(([condition, child]) =>
@@ -337,7 +338,7 @@ function definitelyBlocksFallback(
 }
 
 function isExportTargetContainer(target: unknown): target is readonly unknown[] | object {
-  return Array.isArray(target) || isRecord(target);
+  return Array.isArray(target) || Predicate.isReadonlyObject(target);
 }
 
 function calculateBlockingTarget(
@@ -625,7 +626,7 @@ function publicSubpathKeys(exports: unknown): readonly string[] {
 function publicSubpathEntries(
   exports: unknown,
 ): readonly (readonly [subpathKey: string, target: unknown])[] {
-  return isRecord(exports)
+  return Predicate.isReadonlyObject(exports)
     ? Object.entries(exports)
         .filter(([subpathKey, target]) => target !== null && isSafePublicSubpathKey(subpathKey))
         .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
@@ -691,8 +692,4 @@ function canonicalDeclaration(
     throw new UnsupportedInspectionError("The package has no readable declaration entrypoint.");
   }
   return canonicalDeclarationPath;
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

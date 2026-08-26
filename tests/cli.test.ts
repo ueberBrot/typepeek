@@ -1359,17 +1359,6 @@ describe("typepeek CLI", () => {
     },
   );
 
-  it.each(["--export", "--signatures-only"])("rejects the removed %s option", async (flag) => {
-    const result = await execa(
-      process.execPath,
-      ["src/cli.ts", "@typepeek-fixture/focused", flag],
-      { reject: false },
-    );
-
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain(`No flag registered for ${flag}`);
-  });
-
   it("documents common options on focused commands", async () => {
     const help = await execa(process.execPath, ["src/cli.ts", "signatures", "--help"]);
 

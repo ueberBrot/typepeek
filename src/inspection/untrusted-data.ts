@@ -1,9 +1,11 @@
+import { Predicate } from "effect";
+
 /** Snapshots only named own data properties without enumeration or accessor evaluation. */
 export function snapshotDataProperties(
   value: unknown,
   fields: readonly string[],
 ): Readonly<Record<string, unknown>> | undefined {
-  if (!isNonArrayRecord(value)) {
+  if (!Predicate.isReadonlyObject(value)) {
     return undefined;
   }
   const snapshot: Record<string, unknown> = Object.create(null);
@@ -319,8 +321,4 @@ function measureJsonContainer(
     work.push({ kind: "value", value: child });
   }
   return true;
-}
-
-function isNonArrayRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -179,8 +179,8 @@ ordinary single-target command. Comparison uses explicit `--before-*` and
 Overview rendering and cannot be combined with `--json`, whose complete result
 already contains every Public Subpath and Module Export. Put `--` before a
 Module Export name that begins with a hyphen. The `export` and `signatures`
-commands replace the old `--export` and `--signatures-only` options. Invoking
-`typepeek` without arguments prints root help.
+commands perform focused inspection. Invoking `typepeek` without arguments
+prints root help.
 
 Typepeek supports installed Package Modules backed by declarations or
 package-exposed TypeScript source, manifest-declared Public Subpaths, separate
@@ -195,14 +195,23 @@ result.
 
 ```bash
 vp install --frozen-lockfile
-vp run validate              # check → Effect diagnostics → Fallow → test → build smoke → package smoke
+vp run validate              # check → Effect diagnostics → Fallow → test → build smoke → package smoke → benchmark gate
 vp run dependencies          # find eligible dependency updates
 vp run dependencies:update   # select and apply updates
 vp run benchmark:source      # measure source-checkout inspection latency
 vp run benchmark:build       # measure the application bundle
 vp run benchmark:package     # measure the publishable artifact
 vp run benchmark:agent-protocol # compare protocol evidence bytes and recovery workloads
+vp run benchmark:gate        # check semantics, cache reuse, agent payloads, latency, memory, and package size
 ```
+
+Vite+ is the development command surface for formatting, Oxlint, TypeScript,
+Vitest, builds, and packaging. The explicit Vite and Vitest development
+dependencies pin the single peer/runtime identity shared by Vite+ and
+`@effect/vitest`; Oxfmt and Oxlint are supplied by Vite+ rather than installed
+directly. Tests of Effect-returning APIs use `it.effect` with test services or
+`it.live` when they intentionally exercise the operating system and real time.
+Promise adapter tests remain ordinary Vitest tests.
 
 Set `TYPEPEEK_PROFILE=1` on a source-checkout invocation to emit bounded,
 non-authoritative phase timings as JSON on stderr. Profiling never changes the

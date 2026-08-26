@@ -1,13 +1,18 @@
+import { Predicate, Result, Schema } from "effect";
 import { realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import { isPathWithin, readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
 import type { ObserveInstalledEvidenceFile } from "#typepeek/inspection/installed-evidence-fingerprint";
-import type { PackageIdentity } from "#typepeek/inspection/protocol";
+import {
+  type PackageIdentity,
+  readJsonPackageIdentity,
+} from "#typepeek/inspection/package-identity";
 
 const MAX_PACKAGE_SEARCH_DEPTH = 64;
 const MAX_MANIFEST_BYTES = 256 * 1_024;
+const decodeManifest = Schema.decodeUnknownResult(Schema.Record(Schema.String, Schema.Unknown));
 export interface VisiblePackageLocation {
   readonly contextDirectory: string;
   readonly packageRoot: string;
@@ -225,7 +230,7 @@ function findContextManifest(
   return findAncestorManifest(
     contextDirectory,
     (_directory, manifest) =>
-      !requirePackageIdentity || readPackageIdentity(manifest) !== undefined,
+      !requirePackageIdentity || readJsonPackageIdentity(manifest) !== undefined,
     observer,
   )?.manifest;
 }
@@ -280,11 +285,15 @@ function matchingAncestorManifest(
 
 function hasWorkspaceDeclaration(manifest: Readonly<Record<string, unknown>>): boolean {
   const workspaces = manifest["workspaces"];
-  return Array.isArray(workspaces) || isRecord(workspaces);
+  return Array.isArray(workspaces) || Predicate.isReadonlyObject(workspaces);
 }
 
 function hasOwnStringProperty(value: unknown, property: string): boolean {
-  return isRecord(value) && Object.hasOwn(value, property) && typeof value[property] === "string";
+  return (
+    Predicate.isReadonlyObject(value) &&
+    Object.hasOwn(value, property) &&
+    typeof value[property] === "string"
+  );
 }
 
 function rejectPlugAndPlayInstallation(directory: string, observer: PackageBoundaryObserver): void {
@@ -324,7 +333,7 @@ export function readInstalledManifest(
   observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
 ): InstalledManifest {
   const manifest = readManifestRecord(packageRoot, observer);
-  const packageIdentity = readPackageIdentity(manifest);
+  const packageIdentity = readJsonPackageIdentity(manifest);
   if (packageIdentity === undefined) {
     return invalidPackageIdentity();
   }
@@ -360,38 +369,23 @@ function readManifestRecord(
   observer.reserveBytes(Buffer.byteLength(manifestText));
   observer.observeEvidenceFile?.(manifestPath, manifestText, "manifest");
   const manifest = parseManifest(manifestText);
-  if (!isRecord(manifest)) {
+  if (manifest === undefined) {
     return invalidPackageIdentity();
   }
   observer.manifestCache?.set(manifestPath, manifest);
   return manifest;
 }
 
-function readPackageIdentity(value: unknown): PackageIdentity | undefined {
-  if (!isRecord(value) || typeof value["name"] !== "string") {
-    return undefined;
-  }
-  const version = value["version"];
-  if (version !== undefined && typeof version !== "string") {
-    return undefined;
-  }
-  return version === undefined ? { name: value["name"] } : { name: value["name"], version };
-}
-
-function parseManifest(manifestText: string): unknown {
+function parseManifest(manifestText: string): Readonly<Record<string, unknown>> | undefined {
   try {
-    return JSON.parse(manifestText);
+    return Result.getOrUndefined(decodeManifest(JSON.parse(manifestText) as unknown));
   } catch {
-    return invalidPackageIdentity();
+    return undefined;
   }
 }
 
 function invalidPackageIdentity(): never {
   throw new UnsupportedInspectionError("The installed package has no valid Package Identity.");
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function canonicalPackageBoundary(
