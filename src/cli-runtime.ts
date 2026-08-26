@@ -286,7 +286,7 @@ const signaturesCommand = buildCommand<
   docs: {
     brief: "Inspect only the public call and construct signatures of one Module Export.",
     fullDescription:
-      "Example: typepeek signatures arktype type --context . --json emits structured type parameters, parameters, and return semantics.",
+      "Example: typepeek signatures execa execa --context . --json emits structured type parameters, parameters, and return semantics.",
   },
 });
 
@@ -425,7 +425,7 @@ const capabilitiesCommand = buildCommand<CliOutputOptions, [], ApplicationContex
     },
   },
   docs: {
-    brief: "Print the versioned Inspection Core capabilities as JSON.",
+    brief: "Print the Inspection Core capabilities as JSON.",
   },
 });
 
@@ -441,7 +441,7 @@ const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], Applica
     },
   },
   docs: {
-    brief: "Invoke protocol version 1 with one bounded JSON request on stdin.",
+    brief: "Invoke the Inspection Protocol with one bounded JSON request on stdin.",
   },
 });
 

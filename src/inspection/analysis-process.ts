@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { execaNode } from "execa";
 
 import { MAX_ANALYSIS_RESULT_BYTES } from "#typepeek/inspection/budget-policy";
@@ -16,7 +17,7 @@ import {
   type InspectionOutcome,
 } from "#typepeek/inspection/protocol";
 
-export interface AnalysisProcessLimits {
+interface AnalysisProcessLimits {
   readonly deadlineMilliseconds: number;
   readonly maxHeapMegabytes: number;
   readonly maxResultBytes: number;
@@ -72,23 +73,25 @@ const INVALID_PROCESS_RESULT_OUTCOME: InspectionOutcome = {
 };
 
 /** Runs one production analysis behind this module's complete isolation policy. */
-export async function runBoundedAnalysis(request: AnalysisRequest): Promise<InspectionOutcome> {
+export const runBoundedAnalysis = Effect.fn("runBoundedAnalysis")(function* (
+  request: AnalysisRequest,
+) {
   if (Buffer.byteLength(JSON.stringify(request)) > MAX_REQUEST_BYTES) {
     return {
       status: "limit-exceeded",
       reason: "budget-exceeded",
       exceededBudget: "request-bytes",
       message: "Inspection exceeded its request input limit.",
-    };
+    } satisfies InspectionOutcome;
   }
-  return runProcess(
+  return yield* runAnalysisProcess(
     request,
     analysisProcessEntryUrl(),
     PRODUCTION_LIMITS,
     inspectionProfilingEnabled,
     true,
   );
-}
+});
 
 /** Exact trusted Node arguments shared with static-inspection adapters. */
 export function analysisProcessNodeArguments(entrypoint: string): readonly string[] {
@@ -99,45 +102,47 @@ export function analysisProcessNodeArguments(entrypoint: string): readonly strin
   ];
 }
 
-/** Injectable adapter for hostile process-protocol fixtures only. */
-export async function runAnalysisFixtureProcess(
+/** Runs hostile process-protocol fixtures through the production isolation implementation. */
+export const runAnalysisFixtureProcess = Effect.fn("runAnalysisFixtureProcess")(function* (
   request: AnalysisRequest,
   entryUrl: URL,
   limits: AnalysisProcessLimits,
-): Promise<InspectionOutcome> {
-  return runProcess(request, entryUrl, limits, false);
-}
+) {
+  return yield* runAnalysisProcess(request, entryUrl, limits, false);
+});
 
 /**
  * Requires a clean exit behind wall-clock, heap, diagnostics, and byte-framed
  * result limits before allowing one result to cross the process seam.
  */
-async function runProcess(
+const runAnalysisProcess = Effect.fn("runAnalysisProcess")(function* (
   request: AnalysisRequest,
   entryUrl: URL,
   limits: AnalysisProcessLimits,
   forwardProfile: boolean,
   allowCacheWrite = false,
   bypassCache = false,
-): Promise<InspectionOutcome> {
-  const result = await execaNode(entryUrl, [], {
-    ipcInput: request,
-    ...(bypassCache ? { env: { TYPEPEEK_CACHE_BYPASS: "1" } } : {}),
-    serialization: "advanced",
-    timeout: limits.deadlineMilliseconds,
-    forceKillAfterDelay: 100,
-    nodeOptions: [
-      `--max-old-space-size=${limits.maxHeapMegabytes}`,
-      `--stack-size=${STACK_SIZE_KIBIBYTES}`,
-    ],
-    maxBuffer: {
-      ipc: 1,
-      stdout: limits.maxResultBytes,
-      stderr: limits.maxDiagnosticBytes,
-    },
-    encoding: "buffer",
-    reject: false,
-  });
+): Effect.fn.Return<InspectionOutcome> {
+  const result = yield* Effect.promise(() =>
+    execaNode(entryUrl, [], {
+      ipcInput: request,
+      ...(bypassCache ? { env: { TYPEPEEK_CACHE_BYPASS: "1" } } : {}),
+      serialization: "advanced",
+      timeout: limits.deadlineMilliseconds,
+      forceKillAfterDelay: 100,
+      nodeOptions: [
+        `--max-old-space-size=${limits.maxHeapMegabytes}`,
+        `--stack-size=${STACK_SIZE_KIBIBYTES}`,
+      ],
+      maxBuffer: {
+        ipc: 1,
+        stdout: limits.maxResultBytes,
+        stderr: limits.maxDiagnosticBytes,
+      },
+      encoding: "buffer",
+      reject: false,
+    }),
+  );
   const processFailure = analysisProcessFailure(result, limits);
   if (processFailure !== undefined) {
     return processFailure;
@@ -147,7 +152,7 @@ async function runProcess(
     return INVALID_PROCESS_RESULT_OUTCOME;
   }
   const outcome = enforceAnalysisRequestOutcome(request, value);
-  return finalizeAnalysisProcessOutcome({
+  return yield* finalizeAnalysisProcessOutcome({
     allowCacheWrite,
     bypassCache,
     entryUrl,
@@ -157,7 +162,7 @@ async function runProcess(
     request,
     result,
   });
-}
+});
 
 function analysisProcessFailure(
   result: AnalysisProcessResult,
@@ -182,7 +187,7 @@ interface AnalysisProcessCompletion {
   readonly result: AnalysisProcessResult;
 }
 
-async function finalizeAnalysisProcessOutcome({
+const finalizeAnalysisProcessOutcome = Effect.fn("finalizeAnalysisProcessOutcome")(function* ({
   allowCacheWrite,
   bypassCache,
   entryUrl,
@@ -191,11 +196,18 @@ async function finalizeAnalysisProcessOutcome({
   outcome,
   request,
   result,
-}: AnalysisProcessCompletion): Promise<InspectionOutcome> {
+}: AnalysisProcessCompletion): Effect.fn.Return<InspectionOutcome> {
   const cacheHit = readInspectionCacheHitNotice(result.ipcOutput[0]);
   if (shouldRetryInvalidCacheOutcome(allowCacheWrite, bypassCache, cacheHit, outcome)) {
     removeInspectionCacheEntry(cacheHit.key);
-    return runProcess(request, entryUrl, limits, forwardProfile, allowCacheWrite, true);
+    return yield* runAnalysisProcess(
+      request,
+      entryUrl,
+      limits,
+      forwardProfile,
+      allowCacheWrite,
+      true,
+    );
   }
   if (forwardProfile) {
     forwardInspectionProfile(result.stderr);
@@ -204,7 +216,7 @@ async function finalizeAnalysisProcessOutcome({
     writeValidatedInspectionCacheOutcome(request, outcome, result.ipcOutput[0]);
   }
   return outcome;
-}
+});
 
 function shouldRetryInvalidCacheOutcome(
   allowCacheWrite: boolean,

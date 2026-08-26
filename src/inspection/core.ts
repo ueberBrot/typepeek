@@ -1,9 +1,8 @@
+import { Effect } from "effect";
+
 import { runBoundedAnalysis } from "#typepeek/inspection/analysis-process";
 import {
-  enforceDeclarationInspectionOutcome,
   enforceInspectionOutcome,
-  enforceInspectionPlanOutcome,
-  enforceMemberInspectionOutcome,
   type AnalysisRequest,
   type DeclarationInspection,
   type DeclarationInspectionRequest,
@@ -19,15 +18,7 @@ import {
   type InterfaceOverviewRequest,
   type MemberInspection,
   type MemberInspectionRequest,
-  type NormalizedDeclarationInspectionRequest,
-  type NormalizedExportInspectionRequest,
-  type NormalizedExportSearchRequest,
-  type NormalizedInspectionPlanRequest,
-  type NormalizedInterfaceOverviewRequest,
-  type NormalizedMemberInspectionRequest,
   type NormalizedPublicInterfaceComparisonRequest,
-  type NormalizedPublicSubpathDiscoveryRequest,
-  type NormalizedSignatureInspectionRequest,
   type PublicInterfaceComparison,
   type PublicInterfaceComparisonRequest,
   type PublicSubpathDiscovery,
@@ -37,7 +28,10 @@ import {
 } from "#typepeek/inspection/protocol";
 import type { InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
 import { compareInterfaceOverviews } from "#typepeek/inspection/public-interface-comparison";
-import { readInspectionRequest } from "#typepeek/inspection/request-codec";
+import {
+  readAnalysisRequestForIntent,
+  readInspectionRequest,
+} from "#typepeek/inspection/request-definitions";
 
 export type PreparedInspectionCoreRequest =
   | AnalysisRequest
@@ -66,7 +60,7 @@ export async function invokeInspectionCoreWithReceipt(
   }
   return {
     preparedRequest: preparation.preparedRequest,
-    outcome: await invokePreparedInspectionCore(preparation.preparedRequest),
+    outcome: await Effect.runPromise(invokePreparedInspectionCore(preparation.preparedRequest)),
   };
 }
 
@@ -151,51 +145,35 @@ function prepareInspectionCoreRequest(
       ? { accepted: true, preparedRequest: { intent, request: reading.request } }
       : reading;
   }
-  const reading = readInspectionRequest(intent, request);
+  const reading = readAnalysisRequestForIntent(intent, request);
   return reading.accepted
     ? {
         accepted: true,
-        preparedRequest: { intent, request: reading.request } as AnalysisRequest,
+        preparedRequest: reading.request,
       }
     : reading;
 }
 
-async function invokePreparedInspectionCore(
+const invokePreparedInspectionCore = Effect.fn("invokePreparedInspectionCore")(function* (
   prepared: PreparedInspectionCoreRequest,
-): Promise<InspectionOutcome> {
-  return prepared.intent === "public-interface-comparison"
+) {
+  return yield* prepared.intent === "public-interface-comparison"
     ? executePublicInterfaceComparison(prepared.request)
-    : invokePreparedAnalysis(prepared);
-}
+    : runBoundedAnalysis(prepared);
+});
 
-async function invokePreparedAnalysis(prepared: AnalysisRequest): Promise<InspectionOutcome> {
-  switch (prepared.intent) {
-    case "interface-overview":
-      return executeInterfaceOverview(prepared.request);
-    case "export-inspection":
-      return executeExportInspection(prepared.request);
-    case "signature-inspection":
-      return executeSignatureInspection(prepared.request);
-    case "export-search":
-      return executeExportSearch(prepared.request);
-    case "public-subpath-discovery":
-      return executePublicSubpathDiscovery(prepared.request);
-    case "declaration-inspection":
-      return executeDeclarationInspection(prepared.request);
-    case "member-inspection":
-      return executeMemberInspection(prepared.request);
-    case "inspection-plan":
-      return executeInspectionPlan(prepared.request);
-  }
-}
-
-async function executePublicInterfaceComparison(
+const executePublicInterfaceComparison = Effect.fn("executePublicInterfaceComparison")(function* (
   request: NormalizedPublicInterfaceComparisonRequest,
-): Promise<InspectionOutcome<PublicInterfaceComparison>> {
-  const [before, after] = await Promise.all([
-    executeInterfaceOverview(request.before),
-    executeInterfaceOverview(request.after),
-  ]);
+) {
+  const [beforeValue, afterValue] = yield* Effect.all(
+    [
+      runBoundedAnalysis({ intent: "interface-overview", request: request.before }),
+      runBoundedAnalysis({ intent: "interface-overview", request: request.after }),
+    ],
+    { concurrency: 2 },
+  );
+  const before = enforceInspectionOutcome("interface-overview", beforeValue);
+  const after = enforceInspectionOutcome("interface-overview", afterValue);
   if (before.status !== "success") {
     return before;
   }
@@ -205,79 +183,7 @@ async function executePublicInterfaceComparison(
         compareInterfaceOverviews(before.result, after.result),
       )
     : after;
-}
-
-async function executeExportSearch(
-  request: NormalizedExportSearchRequest,
-): Promise<InspectionOutcome<ExportSearch>> {
-  return enforceInspectionOutcome(
-    "export-search",
-    await runBoundedAnalysis({ intent: "export-search", request }),
-  );
-}
-
-async function executePublicSubpathDiscovery(
-  request: NormalizedPublicSubpathDiscoveryRequest,
-): Promise<InspectionOutcome<PublicSubpathDiscovery>> {
-  return enforceInspectionOutcome(
-    "public-subpath-discovery",
-    await runBoundedAnalysis({ intent: "public-subpath-discovery", request }),
-  );
-}
-
-async function executeInspectionPlan(
-  request: NormalizedInspectionPlanRequest,
-): Promise<InspectionOutcome<InspectionPlan>> {
-  return enforceInspectionPlanOutcome(
-    request,
-    await runBoundedAnalysis({ intent: "inspection-plan", request }),
-  );
-}
-
-async function executeInterfaceOverview(
-  request: NormalizedInterfaceOverviewRequest,
-): Promise<InspectionOutcome<InterfaceOverview>> {
-  return enforceInspectionOutcome(
-    "interface-overview",
-    await runBoundedAnalysis({ intent: "interface-overview", request }),
-  );
-}
-
-async function executeExportInspection(
-  request: NormalizedExportInspectionRequest,
-): Promise<InspectionOutcome<ExportInspection>> {
-  return enforceInspectionOutcome(
-    "export-inspection",
-    await runBoundedAnalysis({ intent: "export-inspection", request }),
-  );
-}
-
-async function executeSignatureInspection(
-  request: NormalizedSignatureInspectionRequest,
-): Promise<InspectionOutcome<SignatureInspection>> {
-  return enforceInspectionOutcome(
-    "signature-inspection",
-    await runBoundedAnalysis({ intent: "signature-inspection", request }),
-  );
-}
-
-async function executeDeclarationInspection(
-  request: NormalizedDeclarationInspectionRequest,
-): Promise<InspectionOutcome<DeclarationInspection>> {
-  return enforceDeclarationInspectionOutcome(
-    request,
-    await runBoundedAnalysis({ intent: "declaration-inspection", request }),
-  );
-}
-
-async function executeMemberInspection(
-  request: NormalizedMemberInspectionRequest,
-): Promise<InspectionOutcome<MemberInspection>> {
-  return enforceMemberInspectionOutcome(
-    request,
-    await runBoundedAnalysis({ intent: "member-inspection", request }),
-  );
-}
+});
 
 interface InspectionResultByIntent {
   readonly "interface-overview": InterfaceOverview;

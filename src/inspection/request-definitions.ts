@@ -1,19 +1,24 @@
+import { Effect, Result, Schema } from "effect";
 import { isAbsolute } from "node:path";
 
 import {
+  inspectionPlanQueriesSchema,
   isBoundedExportSearchQuery,
   MAX_EXPORT_SEARCH_QUERY_BYTES,
   MAX_INSPECTION_PLAN_QUERIES,
   readInspectionPlanQueries,
 } from "#typepeek/inspection/inspection-plan-query";
 import {
+  memberPathSchema,
   MAX_MEMBER_PATH_SEGMENTS,
   MAX_MEMBER_PATH_SEGMENT_BYTES,
   readBoundedMemberPath,
 } from "#typepeek/inspection/member-path";
 import type {
-  AccessStyle,
+  AnalysisRequestReading,
   InspectionRequestByIntent,
+  InspectionFailure,
+  InspectionRequestReading,
   NormalizedDeclarationInspectionRequest,
   NormalizedExportInspectionRequest,
   NormalizedExportSearchRequest,
@@ -24,7 +29,11 @@ import type {
   NormalizedPublicSubpathDiscoveryRequest,
   NormalizedSignatureInspectionRequest,
 } from "#typepeek/inspection/protocol";
-import type { InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
+import {
+  ANALYSIS_INTENTS,
+  type AnalysisIntent,
+  type InspectionIntent,
+} from "#typepeek/inspection/protocol-vocabulary";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
 export type RequestFieldName<Intent extends InspectionIntent> = Extract<
@@ -105,6 +114,85 @@ const TARGET_FIELDS = [
   },
 ] as const;
 const EXPORT_NAME_FIELD = { name: "exportName", kind: "string", required: true } as const;
+
+const accessStyleSchema = Schema.Literals(["import", "require"]);
+const normalizedTargetFields = {
+  resolutionContext: Schema.String.check(
+    Schema.makeFilter(isAbsolute, { expected: "an absolute path" }),
+  ),
+  specifier: Schema.String,
+  accessStyle: accessStyleSchema.pipe(Schema.withDecodingDefault(Effect.succeed("import"))),
+} as const;
+const normalizedTargetSchema = Schema.Struct(normalizedTargetFields);
+const normalizedExportSchema = Schema.Struct({
+  ...normalizedTargetFields,
+  exportName: Schema.String,
+});
+const normalizedExportSearchSchema = Schema.Struct({
+  ...normalizedTargetFields,
+  query: Schema.String.check(
+    Schema.makeFilter(isBoundedExportSearchQuery, { expected: "a bounded search query" }),
+  ),
+});
+const normalizedMemberSchema = Schema.Struct({
+  ...normalizedTargetFields,
+  exportName: Schema.String,
+  memberPath: memberPathSchema,
+});
+const normalizedPlanSchema = Schema.Struct({
+  ...normalizedTargetFields,
+  queries: inspectionPlanQueriesSchema,
+});
+const normalizedComparisonSchema = Schema.Struct({
+  before: normalizedTargetSchema,
+  after: normalizedTargetSchema,
+});
+const analysisIntentSchema = Schema.Literals(ANALYSIS_INTENTS);
+const analysisRequestSchema = Schema.Union([
+  Schema.Struct({ intent: Schema.Literal("interface-overview"), request: normalizedTargetSchema }),
+  Schema.Struct({ intent: Schema.Literal("export-inspection"), request: normalizedExportSchema }),
+  Schema.Struct({
+    intent: Schema.Literal("signature-inspection"),
+    request: normalizedExportSchema,
+  }),
+  Schema.Struct({ intent: Schema.Literal("export-search"), request: normalizedExportSearchSchema }),
+  Schema.Struct({
+    intent: Schema.Literal("public-subpath-discovery"),
+    request: normalizedTargetSchema,
+  }),
+  Schema.Struct({
+    intent: Schema.Literal("declaration-inspection"),
+    request: normalizedExportSchema,
+  }),
+  Schema.Struct({ intent: Schema.Literal("member-inspection"), request: normalizedMemberSchema }),
+  Schema.Struct({ intent: Schema.Literal("inspection-plan"), request: normalizedPlanSchema }),
+]);
+const decodeTargetCandidate = Schema.decodeUnknownResult(normalizedTargetSchema);
+const decodeExportCandidate = Schema.decodeUnknownResult(normalizedExportSchema);
+const decodeExportSearchCandidate = Schema.decodeUnknownResult(normalizedExportSearchSchema);
+const decodeMemberCandidate = Schema.decodeUnknownResult(normalizedMemberSchema);
+const decodePlanCandidate = Schema.decodeUnknownResult(normalizedPlanSchema);
+const decodeComparisonCandidate = Schema.decodeUnknownResult(normalizedComparisonSchema);
+const decodeAnalysisIntent = Schema.decodeUnknownResult(analysisIntentSchema);
+const decodeAnalysisRequest = Schema.decodeUnknownResult(analysisRequestSchema);
+
+const INVALID_ANALYSIS_REQUEST_OUTCOME: InspectionFailure = {
+  status: "unsupported",
+  reason: "invalid-request",
+  message: "Inspection received an invalid request.",
+};
+const INVALID_REQUEST_OUTCOMES = {
+  "interface-overview": invalidRequest("Interface Overview"),
+  "export-inspection": invalidRequest("Export Inspection"),
+  "signature-inspection": invalidRequest("Signature Inspection"),
+  "inspection-plan": invalidRequest("Inspection Plan"),
+  "export-search": invalidRequest("Export Search"),
+  "public-subpath-discovery": invalidRequest("Public Subpath Discovery"),
+  "declaration-inspection": invalidRequest("Declaration Inspection"),
+  "member-inspection": invalidRequest("Member Inspection"),
+  "public-interface-comparison": invalidRequest("Public Interface Comparison"),
+} as const satisfies Readonly<Record<InspectionIntent, InspectionFailure>>;
+const ANALYSIS_REQUEST_FIELDS = ["intent", "request"] as const;
 
 const REQUEST_DEFINITIONS = deepFreeze({
   "interface-overview": defineRequest(
@@ -243,14 +331,52 @@ export const INSPECTION_REQUEST_DESCRIPTORS = deepFreeze(
   })),
 ) as readonly InspectionRequestDescriptor[];
 
-/** Reads one request through the same executable definition published by capabilities. */
-export function readDefinedInspectionRequest<Intent extends InspectionIntent>(
+/** Validates one untrusted caller request through its published executable definition. */
+export function readInspectionRequest<Intent extends InspectionIntent>(
   intent: Intent,
   value: unknown,
-): NormalizedInspectionRequestByIntent[Intent] | undefined {
-  return REQUEST_DEFINITIONS[intent].read(value) as
+): InspectionRequestReading<NormalizedInspectionRequestByIntent[Intent]> {
+  const request = REQUEST_DEFINITIONS[intent].read(value) as
     | NormalizedInspectionRequestByIntent[Intent]
     | undefined;
+  return request === undefined
+    ? { accepted: false, outcome: INVALID_REQUEST_OUTCOMES[intent] }
+    : { accepted: true, request };
+}
+
+/** Validates and correlates one analysis intent with its normalized request. */
+export function readAnalysisRequestForIntent(
+  intent: AnalysisIntent,
+  value: unknown,
+): AnalysisRequestReading {
+  const reading = readInspectionRequest(intent, value);
+  if (!reading.accepted) {
+    return reading;
+  }
+  const request = Result.getOrUndefined(
+    decodeAnalysisRequest({ intent, request: reading.request }),
+  );
+  return request === undefined
+    ? { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME }
+    : { accepted: true, request };
+}
+
+/** Revalidates the structured-cloned request at the isolated analysis-process seam. */
+export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
+  try {
+    const envelope = snapshotDataProperties(value, ANALYSIS_REQUEST_FIELDS);
+    const intent = Result.getOrUndefined(decodeAnalysisIntent(envelope?.["intent"]));
+    if (intent === undefined) {
+      return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
+    }
+    const reading = readAnalysisRequestForIntent(intent, envelope?.["request"]);
+    if (!reading.accepted) {
+      return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
+    }
+    return reading;
+  } catch {
+    return { accepted: false, outcome: INVALID_ANALYSIS_REQUEST_OUTCOME };
+  }
 }
 
 function defineRequest<Intent extends InspectionIntent>(
@@ -280,18 +406,7 @@ function defineRequest<Intent extends InspectionIntent>(
 function readTargetCandidate(
   value: Readonly<Record<string, unknown>>,
 ): NormalizedInterfaceOverviewRequest | undefined {
-  const resolutionContext = value["resolutionContext"];
-  const specifier = value["specifier"];
-  const accessStyle = value["accessStyle"];
-  if (
-    typeof resolutionContext !== "string" ||
-    !isAbsolute(resolutionContext) ||
-    typeof specifier !== "string" ||
-    !isAccessStyle(accessStyle)
-  ) {
-    return undefined;
-  }
-  return { resolutionContext, specifier, accessStyle: accessStyle ?? "import" };
+  return Result.getOrUndefined(decodeTargetCandidate(value));
 }
 
 function readTarget(value: unknown): NormalizedInterfaceOverviewRequest | undefined {
@@ -305,21 +420,13 @@ function readTarget(value: unknown): NormalizedInterfaceOverviewRequest | undefi
 function readExportCandidate(
   value: Readonly<Record<string, unknown>>,
 ): NormalizedExportInspectionRequest | undefined {
-  const target = readTargetCandidate(value);
-  const exportName = value["exportName"];
-  return target === undefined || typeof exportName !== "string"
-    ? undefined
-    : { ...target, exportName };
+  return Result.getOrUndefined(decodeExportCandidate(value));
 }
 
 function readExportSearchCandidate(
   value: Readonly<Record<string, unknown>>,
 ): NormalizedExportSearchRequest | undefined {
-  const target = readTargetCandidate(value);
-  const query = value["query"];
-  return target === undefined || !isBoundedExportSearchQuery(query)
-    ? undefined
-    : { ...target, query };
+  return Result.getOrUndefined(decodeExportSearchCandidate(value));
 }
 
 function readMemberCandidate(
@@ -327,17 +434,19 @@ function readMemberCandidate(
 ): NormalizedMemberInspectionRequest | undefined {
   const request = readExportCandidate(value);
   const memberPath = readBoundedMemberPath(value["memberPath"]);
-  return request === undefined || memberPath === undefined ? undefined : { ...request, memberPath };
+  return request === undefined || memberPath === undefined
+    ? undefined
+    : Result.getOrUndefined(decodeMemberCandidate({ ...request, memberPath }));
 }
 
 function readPlanCandidate(
   value: Readonly<Record<string, unknown>>,
 ): NormalizedInspectionPlanRequest | undefined {
-  const target = readTargetCandidate(value);
+  const request = readTargetCandidate(value);
   const queries = readInspectionPlanQueries(value["queries"]);
-  return target === undefined || !queries.accepted
+  return request === undefined || !queries.accepted
     ? undefined
-    : { ...target, queries: queries.queries };
+    : Result.getOrUndefined(decodePlanCandidate({ ...request, queries: queries.queries }));
 }
 
 function readComparisonCandidate(
@@ -345,11 +454,9 @@ function readComparisonCandidate(
 ): NormalizedPublicInterfaceComparisonRequest | undefined {
   const before = readTarget(value["before"]);
   const after = readTarget(value["after"]);
-  return before === undefined || after === undefined ? undefined : { before, after };
-}
-
-function isAccessStyle(value: unknown): value is AccessStyle | undefined {
-  return value === undefined || value === "import" || value === "require";
+  return before === undefined || after === undefined
+    ? undefined
+    : Result.getOrUndefined(decodeComparisonCandidate({ before, after }));
 }
 
 function deepFreeze<Value>(value: Value): Readonly<Value> {
@@ -360,4 +467,12 @@ function deepFreeze<Value>(value: Value): Readonly<Value> {
     deepFreeze(child);
   }
   return Object.freeze(value);
+}
+
+function invalidRequest(name: string): InspectionFailure {
+  return {
+    status: "unsupported",
+    reason: "invalid-request",
+    message: `Inspection received an invalid ${name} request.`,
+  };
 }

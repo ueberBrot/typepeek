@@ -15,7 +15,10 @@ import {
   type PublicSubpath,
 } from "#typepeek/inspection/protocol";
 import { compareInterfaceOverviews } from "#typepeek/inspection/public-interface-comparison";
-import { readAnalysisRequest, readInspectionRequest } from "#typepeek/inspection/request-codec";
+import {
+  readAnalysisRequest,
+  readInspectionRequest,
+} from "#typepeek/inspection/request-definitions";
 
 it("normalizes the default Access Style at the process-entry protocol seam", () => {
   expect(

@@ -37,13 +37,13 @@ interface BenchmarkReport {
 }
 
 const benchmarkCases: readonly BenchmarkCase[] = [
-  { name: "interface-overview", arguments_: ["overview", "arktype", "--json"] },
+  { name: "interface-overview", arguments_: ["overview", "execa", "--json"] },
   {
     name: "signature-inspection",
-    arguments_: ["signatures", "arktype", "type", "--json"],
+    arguments_: ["signatures", "execa", "execa", "--json"],
   },
-  { name: "export-search", arguments_: ["search", "arktype", "type", "--json"] },
-  { name: "public-subpath-discovery", arguments_: ["subpaths", "arktype", "--json"] },
+  { name: "export-search", arguments_: ["search", "execa", "error", "--json"] },
+  { name: "public-subpath-discovery", arguments_: ["subpaths", "execa", "--json"] },
 ];
 
 const options = readOptions(process.argv.slice(2));

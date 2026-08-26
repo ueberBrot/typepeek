@@ -36,12 +36,12 @@ it("measures agent protocol projection and recovery workloads", async () => {
     protocolVersion: "1",
     workloads: [
       {
-        id: "arktype-type-invocation",
+        id: "execa-invocation",
         passed: true,
         reductionRatio: expect.any(Number),
       },
       {
-        id: "arktype-export-recovery",
+        id: "execa-export-recovery",
         passed: true,
         recoveredStatus: "success",
       },

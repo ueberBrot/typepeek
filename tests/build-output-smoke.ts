@@ -15,15 +15,6 @@ assert.equal(
   false,
   "The built analysis process entry must not be a symlink.",
 );
-const workerSource = await readFile(
-  ".vite-plus/build/inspection/analysis-process-entry.js",
-  "utf8",
-);
-assert.doesNotMatch(
-  workerSource,
-  /from ["']arktype["']/u,
-  "The built analysis worker must not load the outcome codec dependency.",
-);
 await assertRepositoryProfilingExcluded(".vite-plus/build");
 
 const packageVersion = (
@@ -37,7 +28,7 @@ assert.equal(versionCli.stdout, `${packageVersion}\n`);
 
 const cli = spawnSync(
   process.execPath,
-  [".vite-plus/build/cli.js", "signatures", "arktype", "type", "--context", ".", "--json"],
+  [".vite-plus/build/cli.js", "signatures", "execa", "execa", "--context", ".", "--json"],
   { encoding: "utf8" },
 );
 assert.equal(cli.status, 0, cli.stderr || cli.stdout);
@@ -54,9 +45,9 @@ const cliOutcome = JSON.parse(cli.stdout) as {
 };
 assert.equal(cliOutcome.status, "success");
 assert.equal(cliOutcome.result.intent, "signature-inspection");
-assert.equal(cliOutcome.result.moduleExport.name, "type");
-assert.equal(cliOutcome.result.moduleExport.signatures.length, 3);
-assert.match(cliOutcome.result.moduleExport.signatures[0]?.text ?? "", /^<const def/u);
+assert.equal(cliOutcome.result.moduleExport.name, "execa");
+assert.equal(cliOutcome.result.moduleExport.signatures.length, 4);
+assert.match(cliOutcome.result.moduleExport.signatures[0]?.text ?? "", /^<NewOptionsType/u);
 
 const protocolCli = spawnSync(process.execPath, [".vite-plus/build/cli.js", "protocol"], {
   encoding: "utf8",
@@ -65,8 +56,8 @@ const protocolCli = spawnSync(process.execPath, [".vite-plus/build/cli.js", "pro
     intent: "signature-inspection",
     request: {
       resolutionContext: resolve("."),
-      specifier: "arktype",
-      exportName: "type",
+      specifier: "execa",
+      exportName: "execa",
     },
   }),
 });
@@ -102,13 +93,13 @@ const inspectionApi = (await import(inspectionApiPath)) as {
 };
 const outcome = await inspectionApi.inspectExportSignatures({
   resolutionContext: resolve("."),
-  specifier: "arktype",
-  exportName: "type",
+  specifier: "execa",
+  exportName: "execa",
 });
 assert.deepEqual(outcome, cliOutcome);
 const planOutcome = await inspectionApi.inspectPlan({
   resolutionContext: resolve("."),
-  specifier: "arktype",
+  specifier: "execa",
   queries: [{ intent: "interface-overview" }],
 });
 assert.equal(

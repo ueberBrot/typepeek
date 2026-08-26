@@ -1,13 +1,15 @@
 import type {
-  InspectedSignature,
-  InspectionOutcome,
-  InspectionResult,
   ProtocolInspectedSignature,
   ProtocolInspectionOutcome,
   ProtocolInspectionResult,
   ProtocolSignatureInspection,
   SignatureEvidenceKind,
   SignatureEvidenceProjection,
+} from "#typepeek/inspection/inspection-protocol-types";
+import type {
+  InspectedSignature,
+  InspectionOutcome,
+  InspectionResult,
   SignatureInspection,
 } from "#typepeek/inspection/protocol";
 
@@ -38,12 +40,6 @@ export function signatureEvidenceProjection(
           ? ["structured-signature-fields"]
           : [],
   };
-}
-
-export function isSignatureEvidenceKind(value: unknown): value is SignatureEvidenceKind {
-  return (
-    typeof value === "string" && (SIGNATURE_EVIDENCE_KINDS as readonly string[]).includes(value)
-  );
 }
 
 function projectInspectionResult<Evidence extends SignatureEvidenceKind>(

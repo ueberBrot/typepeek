@@ -142,7 +142,7 @@ it("publishes deterministic adapter capabilities without TypeScript enums", () =
   });
 });
 
-it("keeps every published request example accepted by the versioned protocol", async () => {
+it("keeps every published request example accepted by the Inspection Protocol", async () => {
   for (const descriptor of inspectCapabilities().requestDescriptors) {
     const response = await invokeInspectionProtocol({
       protocolVersion: INSPECTION_PROTOCOL_VERSION,
@@ -162,8 +162,8 @@ it("types explicit evidence only where the protocol accepts it", () => {
     intent: "signature-inspection",
     request: {
       resolutionContext: process.cwd(),
-      specifier: "arktype",
-      exportName: "type",
+      specifier: "execa",
+      exportName: "execa",
     },
     response: { signatureEvidence: "both" },
   };
@@ -173,7 +173,7 @@ it("types explicit evidence only where the protocol accepts it", () => {
   expect(undefined satisfies OverviewRequest["response"]).toBeUndefined();
 });
 
-it("dispatches Public Interface comparison through the versioned protocol", async () => {
+it("dispatches Public Interface comparison through the Inspection Protocol", async () => {
   const request = {
     before: {
       resolutionContext: fixture.resolutionContext,
@@ -519,7 +519,7 @@ it.each([
     outcome: {
       status: "unsupported",
       reason: "invalid-request",
-      message: "Inspection received an invalid versioned protocol request.",
+      message: "Inspection received an invalid protocol request.",
     },
   });
 });

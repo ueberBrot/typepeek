@@ -66,7 +66,7 @@ describe("typepeek CLI", () => {
   });
 
   it.each([{ flags: [] }, { flags: ["--json"] }])(
-    "prints the versioned adapter capabilities with optional JSON signaling",
+    "prints Inspection Core capabilities with optional JSON signaling",
     async ({ flags }) => {
       const result = await execa(process.execPath, ["src/cli.ts", "capabilities", ...flags]);
 
@@ -82,7 +82,7 @@ describe("typepeek CLI", () => {
     },
   );
 
-  it("invokes protocol version 1 through bounded stdin and stdout", async () => {
+  it("invokes the Inspection Protocol through bounded stdin and stdout", async () => {
     const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
       input: JSON.stringify({
         protocolVersion: "1",
@@ -1421,7 +1421,7 @@ describe("typepeek CLI", () => {
   });
 
   it("uses the conventional usage exit status for invalid invocations", async () => {
-    const result = await execa(process.execPath, ["src/cli.ts", "signatures", "arktype"], {
+    const result = await execa(process.execPath, ["src/cli.ts", "signatures", "example"], {
       reject: false,
     });
 
@@ -1432,7 +1432,7 @@ describe("typepeek CLI", () => {
   it("emits invalid invocations as structured diagnostics in machine mode", async () => {
     const result = await execa(
       process.execPath,
-      ["src/cli.ts", "signatures", "arktype", "--json"],
+      ["src/cli.ts", "signatures", "example", "--json"],
       { reject: false },
     );
 

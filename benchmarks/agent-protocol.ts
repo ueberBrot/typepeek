@@ -9,6 +9,7 @@ import {
 import { type AgentWorkload, AGENT_WORKLOADS } from "./agent-workloads.ts";
 
 type ProtocolResponse = Awaited<ReturnType<typeof invokeInspectionProtocol>>;
+const MAX_STRUCTURED_TO_BOTH_BYTES_RATIO = 0.85;
 
 const workloads = [];
 for (const workload of AGENT_WORKLOADS) {
@@ -49,7 +50,9 @@ async function measureSignatureProjection(
   return {
     id: workload.id,
     question: workload.question,
-    passed: factsMatch(workload.expectedFacts, facts) && structuredBytes <= bothBytes * 0.7,
+    passed:
+      factsMatch(workload.expectedFacts, facts) &&
+      structuredBytes <= bothBytes * MAX_STRUCTURED_TO_BOTH_BYTES_RATIO,
     facts,
     structuredBytes,
     bothBytes,

@@ -1,6 +1,7 @@
 import type { PreparedInspectionCoreRequest } from "#typepeek/inspection/core";
 import { isBoundedExportSearchQuery } from "#typepeek/inspection/inspection-plan-query";
-import type { InspectionOutcome, ProtocolRecoveryGuidance } from "#typepeek/inspection/protocol";
+import type { ProtocolRecoveryGuidance } from "#typepeek/inspection/inspection-protocol-types";
+import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { INSPECTION_PROTOCOL_VERSION } from "#typepeek/inspection/protocol-vocabulary";
 
 const MAX_PROTOCOL_RECOVERY_ENTRIES = 3;

@@ -1,4 +1,6 @@
-import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
+import { Result, Schema } from "effect";
+
+import { memberPathSchema } from "#typepeek/inspection/member-path";
 import type { AnalysisRequest, InspectionPlanQuery } from "#typepeek/inspection/protocol";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
@@ -22,9 +24,42 @@ type InspectionPlanQueryReading =
   | { readonly accepted: true; readonly query: InspectionPlanQuery }
   | { readonly accepted: false; readonly issue: InspectionPlanQueryIssue };
 
-type InspectionPlanQueryReader = (
-  value: Readonly<Record<string, unknown>>,
-) => InspectionPlanQueryReading;
+const exportSearchQuerySchema = Schema.String.check(
+  Schema.makeFilter(isBoundedExportSearchQuery, { expected: "a bounded search query" }),
+);
+const focusedPlanQuerySchemas = [
+  Schema.Struct({ intent: Schema.Literal("export-inspection"), exportName: Schema.String }),
+  Schema.Struct({ intent: Schema.Literal("signature-inspection"), exportName: Schema.String }),
+  Schema.Struct({ intent: Schema.Literal("declaration-inspection"), exportName: Schema.String }),
+] as const;
+const inspectionPlanQuerySchema = Schema.Union([
+  Schema.Struct({ intent: Schema.Literal("interface-overview") }),
+  Schema.Struct({ intent: Schema.Literal("public-subpath-discovery") }),
+  Schema.Struct({ intent: Schema.Literal("export-search"), query: exportSearchQuerySchema }),
+  ...focusedPlanQuerySchemas,
+  Schema.Struct({
+    intent: Schema.Literal("member-inspection"),
+    exportName: Schema.String,
+    memberPath: memberPathSchema,
+  }),
+]);
+export const inspectionPlanQueriesSchema = Schema.Array(inspectionPlanQuerySchema).check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(MAX_INSPECTION_PLAN_QUERIES),
+);
+
+const inspectionPlanQueryIntentSchema = Schema.Literals([
+  "interface-overview",
+  "export-inspection",
+  "signature-inspection",
+  "export-search",
+  "public-subpath-discovery",
+  "declaration-inspection",
+  "member-inspection",
+]);
+const decodeInspectionPlanQueryIntent = Schema.decodeUnknownResult(inspectionPlanQueryIntentSchema);
+const decodeInspectionPlanQuery = Schema.decodeUnknownResult(inspectionPlanQuerySchema);
+const decodeInspectionPlanQueries = Schema.decodeUnknownResult(inspectionPlanQueriesSchema);
 
 /** Reads the one canonical bounded Inspection Plan Query grammar. */
 export function readInspectionPlanQueries(value: unknown): InspectionPlanQueriesReading {
@@ -44,7 +79,10 @@ export function readInspectionPlanQueries(value: unknown): InspectionPlanQueries
       }
       queries.push(reading.query);
     }
-    return { accepted: true, queries };
+    const decoded = Result.getOrUndefined(decodeInspectionPlanQueries(queries));
+    return decoded === undefined
+      ? { accepted: false, issue: "invalid-entry" }
+      : { accepted: true, queries: decoded };
   } catch {
     return { accepted: false, issue: "invalid-entry" };
   }
@@ -92,49 +130,28 @@ function readInspectionPlanQuery(value: unknown): InspectionPlanQueryReading {
   if (query === undefined) {
     return { accepted: false, issue: "invalid-entry" };
   }
-  const intent = query["intent"];
-  return isInspectionPlanQueryIntent(intent)
-    ? INSPECTION_PLAN_QUERY_READERS[intent](query)
-    : { accepted: false, issue: "unsupported-intent" };
+  const intent = Result.getOrUndefined(decodeInspectionPlanQueryIntent(query["intent"]));
+  if (intent === undefined) {
+    return { accepted: false, issue: "unsupported-intent" };
+  }
+  const decoded = Result.getOrUndefined(decodeInspectionPlanQuery(query));
+  return decoded === undefined
+    ? { accepted: false, issue: issueForIntent(intent) }
+    : { accepted: true, query: decoded };
 }
 
-const INSPECTION_PLAN_QUERY_READERS = {
-  "interface-overview": () => acceptedQuery({ intent: "interface-overview" }),
-  "public-subpath-discovery": () => acceptedQuery({ intent: "public-subpath-discovery" }),
-  "export-search": (value) => {
-    const query = value["query"];
-    return isBoundedExportSearchQuery(query)
-      ? acceptedQuery({ intent: "export-search", query })
-      : { accepted: false, issue: "invalid-search" };
-  },
-  "export-inspection": (value) => readFocusedPlanQuery("export-inspection", value),
-  "signature-inspection": (value) => readFocusedPlanQuery("signature-inspection", value),
-  "declaration-inspection": (value) => readFocusedPlanQuery("declaration-inspection", value),
-  "member-inspection": readMemberPlanQuery,
-} as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryReader>>;
-
-function readFocusedPlanQuery(
-  intent: "export-inspection" | "signature-inspection" | "declaration-inspection",
-  value: Readonly<Record<string, unknown>>,
-): InspectionPlanQueryReading {
-  const exportName = value["exportName"];
-  return typeof exportName === "string"
-    ? acceptedQuery({ intent, exportName })
-    : { accepted: false, issue: "invalid-focused" };
-}
-
-function readMemberPlanQuery(value: Readonly<Record<string, unknown>>): InspectionPlanQueryReading {
-  const exportName = value["exportName"];
-  const memberPath = readBoundedMemberPath(value["memberPath"]);
-  return typeof exportName === "string" && memberPath !== undefined
-    ? acceptedQuery({ intent: "member-inspection", exportName, memberPath })
-    : { accepted: false, issue: "invalid-member" };
-}
-
-function acceptedQuery(query: InspectionPlanQuery): InspectionPlanQueryReading {
-  return { accepted: true, query };
-}
-
-function isInspectionPlanQueryIntent(value: unknown): value is InspectionPlanQuery["intent"] {
-  return typeof value === "string" && Object.hasOwn(INSPECTION_PLAN_QUERY_READERS, value);
+function issueForIntent(intent: InspectionPlanQuery["intent"]): InspectionPlanQueryIssue {
+  switch (intent) {
+    case "export-search":
+      return "invalid-search";
+    case "member-inspection":
+      return "invalid-member";
+    case "export-inspection":
+    case "signature-inspection":
+    case "declaration-inspection":
+      return "invalid-focused";
+    case "interface-overview":
+    case "public-subpath-discovery":
+      return "invalid-entry";
+  }
 }

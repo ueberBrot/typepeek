@@ -1,10 +1,11 @@
+import { Result, Schema } from "effect";
+
 import { invokeInspectionCoreWithReceipt } from "#typepeek/inspection/core";
 import type {
-  InspectionFailure,
-  InspectionOutcome,
   InspectionProtocolResponse,
   SignatureEvidenceKind,
-} from "#typepeek/inspection/protocol";
+} from "#typepeek/inspection/inspection-protocol-types";
+import type { InspectionFailure, InspectionOutcome } from "#typepeek/inspection/protocol";
 import { protocolRecoveryGuidance } from "#typepeek/inspection/protocol-recovery";
 import {
   INSPECTION_INTENTS,
@@ -12,16 +13,32 @@ import {
   type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
 import {
-  isSignatureEvidenceKind,
   projectInspectionOutcome,
+  SIGNATURE_EVIDENCE_KINDS,
   signatureEvidenceProjection,
 } from "#typepeek/inspection/signature-evidence-projection";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
 const PROTOCOL_ENVELOPE_FIELDS = ["protocolVersion", "intent", "request", "response"] as const;
 const PROTOCOL_RESPONSE_OPTION_FIELDS = ["signatureEvidence"] as const;
+const protocolEnvelopeSchema = Schema.Struct({
+  protocolVersion: Schema.String.check(
+    Schema.makeFilter((version) => Buffer.byteLength(version) <= 64, {
+      expected: "a bounded protocol version",
+    }),
+  ),
+  intent: Schema.Literals(INSPECTION_INTENTS),
+  request: Schema.Unknown,
+  response: Schema.optional(Schema.Unknown),
+});
+const signatureEvidenceOptionsSchema = Schema.Struct({
+  signatureEvidence: Schema.Literals(SIGNATURE_EVIDENCE_KINDS),
+});
+const decodeProtocolEnvelope = Schema.decodeUnknownResult(protocolEnvelopeSchema);
+const decodeSignatureEvidenceOptions = Schema.decodeUnknownResult(signatureEvidenceOptionsSchema);
+type ProtocolEnvelope = typeof protocolEnvelopeSchema.Type;
 
-/** Validates and dispatches one versioned request through the Inspection Core. */
+/** Validates and dispatches one Inspection Protocol request through the Inspection Core. */
 export async function invokeInspectionProtocol(
   value: unknown,
 ): Promise<InspectionProtocolResponse> {
@@ -40,9 +57,6 @@ export async function invokeInspectionProtocol(
       reason: "unsupported-protocol-version",
       message: `Inspection protocol version "${envelope.protocolVersion}" is not supported.`,
     });
-  }
-  if (!isInspectionIntent(envelope.intent)) {
-    return protocolResponse(invalidProtocolRequest());
   }
   const projection = readSignatureEvidenceProjection(envelope.intent, envelope.response);
   if (projection === null) {
@@ -72,32 +86,13 @@ function invalidProtocolRequest(): InspectionFailure {
   return {
     status: "unsupported",
     reason: "invalid-request",
-    message: "Inspection received an invalid versioned protocol request.",
+    message: "Inspection received an invalid protocol request.",
   };
-}
-
-interface ProtocolEnvelope {
-  readonly protocolVersion: string;
-  readonly intent: unknown;
-  readonly request: unknown;
-  readonly response: unknown;
 }
 
 function readProtocolEnvelope(value: unknown): ProtocolEnvelope | undefined {
   const record = snapshotDataProperties(value, PROTOCOL_ENVELOPE_FIELDS);
-  if (record === undefined) {
-    return undefined;
-  }
-  const version = record["protocolVersion"];
-  if (!isBoundedProtocolVersion(version)) {
-    return undefined;
-  }
-  return {
-    protocolVersion: version,
-    intent: record["intent"],
-    request: record["request"],
-    response: record["response"],
-  };
+  return record === undefined ? undefined : Result.getOrUndefined(decodeProtocolEnvelope(record));
 }
 
 function readSignatureEvidenceProjection(
@@ -112,18 +107,8 @@ function readSignatureEvidenceProjection(
     return "structured";
   }
   const options = snapshotDataProperties(response, PROTOCOL_RESPONSE_OPTION_FIELDS);
-  const signatureEvidence = options?.["signatureEvidence"];
-  return isSignatureEvidenceKind(signatureEvidence) ? signatureEvidence : null;
-}
-
-function isBoundedProtocolVersion(value: unknown): value is string {
-  return typeof value === "string" && Buffer.byteLength(value) <= 64;
-}
-
-function isInspectionIntent(value: unknown): value is InspectionIntent {
-  return (
-    typeof value === "string" &&
-    Buffer.byteLength(value) <= 64 &&
-    (INSPECTION_INTENTS as readonly string[]).includes(value)
-  );
+  if (options === undefined) {
+    return null;
+  }
+  return Result.getOrUndefined(decodeSignatureEvidenceOptions(options))?.signatureEvidence ?? null;
 }

@@ -1,3 +1,5 @@
+allowBuilds:
+  msgpackr-extract: false
 minimumReleaseAge: 10080
 minimumReleaseAgeIgnoreMissingTime: false
 minimumReleaseAgeStrict: true

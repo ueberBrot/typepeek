@@ -16,36 +16,37 @@ export type AgentWorkload = AgentWorkloadBase &
 
 export const AGENT_WORKLOADS = Object.freeze([
   {
-    id: "arktype-type-invocation",
+    id: "execa-invocation",
     kind: "signature-projection",
-    question: "What call signatures can invoke arktype's type export?",
+    question: "What call signatures can invoke Execa's execa export?",
     initialRequest: {
       protocolVersion: "1",
       intent: "signature-inspection",
       request: {
         resolutionContext: "/absolute/path/to/consumer",
-        specifier: "arktype",
-        exportName: "type",
+        specifier: "execa",
+        exportName: "execa",
       },
     },
     expectedFacts: [
       "status:success",
-      "signature-count:3",
+      "signature-count:4",
       "structured-parameters:present",
       "structured-returns:present",
     ],
   },
   {
-    id: "arktype-export-recovery",
+    id: "execa-export-recovery",
     kind: "supporting-type-recovery",
-    question: "Recover a narrower authoritative answer when arktype type is too deep to inspect.",
+    question:
+      "Recover a narrower authoritative answer when Execa's execa export is too deep to inspect.",
     initialRequest: {
       protocolVersion: "1",
       intent: "export-inspection",
       request: {
         resolutionContext: "/absolute/path/to/consumer",
-        specifier: "arktype",
-        exportName: "type",
+        specifier: "execa",
+        exportName: "execa",
       },
     },
     expectedFacts: [
