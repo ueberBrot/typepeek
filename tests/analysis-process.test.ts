@@ -136,6 +136,16 @@ it("rejects a terminated analysis process without an authoritative result", asyn
   });
 });
 
+it("maps an analysis process launch failure to the deterministic terminated outcome", async () => {
+  await expect(
+    runFixtureProcess(request, new URL("https://invalid.typepeek.test/analysis.mjs"), limits),
+  ).resolves.toEqual({
+    status: "unsupported",
+    reason: "analysis-terminated",
+    message: "Inspection analysis terminated before completion.",
+  });
+});
+
 it.each([
   ["no result", `process.once("message", () => process.disconnect());`],
   [
