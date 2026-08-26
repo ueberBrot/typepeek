@@ -491,6 +491,137 @@ it("accepts an atomic Inspection Plan result for its requested intent", () => {
   });
 });
 
+it("enforces the complete bounded Inspection Plan result shape", () => {
+  const overview = {
+    intent: "interface-overview",
+    specifier: "example",
+    resolutionVariant: { accessStyle: "import" },
+    packageIdentity: { name: "example" },
+    publicSubpaths: [],
+    moduleExports: [{ name: "createExample" }],
+  } as const;
+  const plan = (inspections: readonly unknown[], extra: Record<string, unknown> = {}) => ({
+    status: "success",
+    result: { intent: "inspection-plan", inspections, ...extra },
+  });
+  const invalid = {
+    status: "unsupported",
+    reason: "invalid-result",
+    message: "Inspection returned an invalid result.",
+  };
+
+  expect(enforceInspectionOutcome("inspection-plan", plan([]))).toEqual(invalid);
+  expect(enforceInspectionOutcome("inspection-plan", plan([overview]))).toEqual(plan([overview]));
+  expect(enforceInspectionOutcome("inspection-plan", plan(Array(16).fill(overview)))).toEqual(
+    plan(Array(16).fill(overview)),
+  );
+  expect(enforceInspectionOutcome("inspection-plan", plan(Array(17).fill(overview)))).toEqual(
+    invalid,
+  );
+  expect(enforceInspectionOutcome("inspection-plan", plan([overview], { extra: true }))).toEqual(
+    invalid,
+  );
+});
+
+it("rejects inherited Inspection Outcome accessors without evaluating them", () => {
+  let statusRead = false;
+  const outcome = Object.create({
+    get status() {
+      statusRead = true;
+      return "success";
+    },
+  }) as Record<string, unknown>;
+  outcome["result"] = {
+    intent: "inspection-plan",
+    inspections: [],
+  };
+
+  expect(enforceInspectionOutcome("inspection-plan", outcome)).toEqual({
+    status: "unsupported",
+    reason: "invalid-result",
+    message: "Inspection returned an invalid result.",
+  });
+  expect(statusRead).toBe(false);
+});
+
+it("does not read Inspection Outcome fields inherited from Object.prototype", () => {
+  let statusRead = false;
+  let enforced: ReturnType<typeof enforceInspectionOutcome>;
+  Object.defineProperty(Object.prototype, "status", {
+    configurable: true,
+    get() {
+      statusRead = true;
+      return "success";
+    },
+  });
+  try {
+    enforced = enforceInspectionOutcome("inspection-plan", {
+      result: { intent: "inspection-plan", inspections: [] },
+    });
+  } finally {
+    delete (Object.prototype as { status?: unknown }).status;
+  }
+
+  expect(enforced).toEqual({
+    status: "unsupported",
+    reason: "invalid-result",
+    message: "Inspection returned an invalid result.",
+  });
+  expect(statusRead).toBe(false);
+});
+
+it("does not read omitted decoded identity fields from Object.prototype", () => {
+  const request = {
+    resolutionContext: "/repository",
+    specifier: "example",
+    accessStyle: "import",
+    queries: [
+      { intent: "interface-overview" },
+      { intent: "signature-inspection", exportName: "createExample" },
+    ],
+  } as const;
+  const outcome = {
+    status: "success",
+    result: {
+      intent: "inspection-plan",
+      inspections: [
+        {
+          intent: "interface-overview",
+          specifier: "example",
+          resolutionVariant: { accessStyle: "import" },
+          packageIdentity: { name: "example" },
+          publicSubpaths: [],
+          moduleExports: [{ name: "createExample" }],
+        },
+        {
+          intent: "signature-inspection",
+          specifier: "example",
+          resolutionVariant: { accessStyle: "import" },
+          packageIdentity: { name: "example" },
+          moduleExport: { name: "createExample", signatures: [] },
+        },
+      ],
+    },
+  } as const;
+  let versionRead = false;
+  let enforced: ReturnType<typeof enforceInspectionPlanOutcome>;
+  Object.defineProperty(Object.prototype, "version", {
+    configurable: true,
+    get() {
+      versionRead = true;
+      throw new Error("inherited version evaluated");
+    },
+  });
+  try {
+    enforced = enforceInspectionPlanOutcome(request, outcome);
+  } finally {
+    delete (Object.prototype as { version?: unknown }).version;
+  }
+
+  expect(enforced).toEqual(outcome);
+  expect(versionRead).toBe(false);
+});
+
 it("rejects a plan result that omits or reorders requested inspections", () => {
   const overview = {
     intent: "interface-overview",

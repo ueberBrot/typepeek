@@ -1,6 +1,9 @@
 import { Result, Schema } from "effect";
 
-import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection-plan-query";
+import {
+  inspectionPlanQueriesForRequest,
+  MAX_INSPECTION_PLAN_QUERIES,
+} from "#typepeek/inspection/inspection-plan-query";
 import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import {
   INSPECTION_BUDGET_DIMENSIONS,
@@ -253,8 +256,16 @@ const atomicInspectionResultSchema = Schema.Union([
   declarationInspectionSchema,
   memberInspectionSchema,
 ]);
+const inspectionPlanSchema = Schema.Struct({
+  intent: Schema.Literal("inspection-plan"),
+  inspections: Schema.Array(atomicInspectionResultSchema).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(MAX_INSPECTION_PLAN_QUERIES),
+  ),
+});
 const inspectionResultSchema = Schema.Union([
   atomicInspectionResultSchema,
+  inspectionPlanSchema,
   publicInterfaceComparisonSchema,
 ]);
 const notFoundFailureSchema = Schema.Struct({
@@ -293,10 +304,6 @@ const inspectionOutcomeSchema = Schema.Union([inspectionSuccessSchema, inspectio
 const STRICT_PROTOCOL_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
 const decodeInspectionOutcome = Schema.decodeUnknownResult(
   inspectionOutcomeSchema,
-  STRICT_PROTOCOL_PARSE_OPTIONS,
-);
-const decodeAtomicInspectionResult = Schema.decodeUnknownResult(
-  atomicInspectionResultSchema,
   STRICT_PROTOCOL_PARSE_OPTIONS,
 );
 
@@ -432,19 +439,9 @@ export type DeclarationInspection = ProtocolType<typeof declarationInspectionSch
 export type MemberInspection = ProtocolType<typeof memberInspectionSchema.Type>;
 export type PublicInterfaceComparisonTarget = ProtocolType<typeof comparisonTargetSchema.Type>;
 export type PublicInterfaceComparison = ProtocolType<typeof publicInterfaceComparisonSchema.Type>;
-export type AtomicInspectionResult =
-  | InterfaceOverview
-  | ExportInspection
-  | SignatureInspection
-  | ExportSearch
-  | PublicSubpathDiscovery
-  | DeclarationInspection
-  | MemberInspection;
-export interface InspectionPlan {
-  readonly intent: "inspection-plan";
-  readonly inspections: readonly AtomicInspectionResult[];
-}
-export type InspectionResult = AtomicInspectionResult | InspectionPlan | PublicInterfaceComparison;
+export type AtomicInspectionResult = ProtocolType<typeof atomicInspectionResultSchema.Type>;
+export type InspectionPlan = ProtocolType<typeof inspectionPlanSchema.Type>;
+export type InspectionResult = ProtocolType<typeof inspectionResultSchema.Type>;
 export type InspectionFailure = ProtocolType<typeof inspectionFailureSchema.Type>;
 
 /** A complete Inspection Result or an explicit non-authoritative failure. */
@@ -562,11 +559,12 @@ export function enforceInspectionOutcome(
   value: unknown,
 ): InspectionOutcome {
   try {
-    if (!isInspectionOutcome(value)) {
+    const outcome = readInspectionOutcome(value);
+    if (outcome === undefined) {
       return INVALID_RESULT_OUTCOME;
     }
-    return value.status !== "success" || value.result.intent === intent
-      ? value
+    return outcome.status !== "success" || outcome.result.intent === intent
+      ? outcome
       : INVALID_RESULT_OUTCOME;
   } catch {
     return INVALID_RESULT_OUTCOME;
@@ -677,8 +675,14 @@ function inspectionMatchesIdentity(
   expected: AtomicInspectionResult,
 ): boolean {
   return (
-    packageIdentitiesEqual(inspection.packageIdentity, expected.packageIdentity) &&
-    packageIdentitiesEqual(inspection.declarationProvider, expected.declarationProvider)
+    packageIdentitiesEqual(
+      readOwnOptionalProperty(inspection, "packageIdentity"),
+      readOwnOptionalProperty(expected, "packageIdentity"),
+    ) &&
+    packageIdentitiesEqual(
+      readOwnOptionalProperty(inspection, "declarationProvider"),
+      readOwnOptionalProperty(expected, "declarationProvider"),
+    )
   );
 }
 
@@ -691,8 +695,16 @@ function packageIdentitiesEqual(
     (left !== undefined &&
       right !== undefined &&
       left.name === right.name &&
-      left.version === right.version)
+      readOwnOptionalProperty(left, "version") === readOwnOptionalProperty(right, "version"))
   );
+}
+
+function readOwnOptionalProperty<Value extends object, Key extends keyof Value & string>(
+  value: Value,
+  key: Key,
+): Value[Key] | undefined {
+  const entry = readOwnDataProperty(value, key);
+  return entry?.[1] as Value[Key] | undefined;
 }
 
 function inspectionMatchesPlanQuery(
@@ -761,122 +773,191 @@ function memberPathsEqual(left: readonly string[], right: readonly string[]): bo
   return left.length === right.length && left.every((segment, index) => segment === right[index]);
 }
 
-function isInspectionOutcome(value: unknown): value is InspectionOutcome {
-  // Manual graph guards run before Schema so cyclic, sparse, accessor-backed,
-  // or excessively deep values cannot make recursive schema validation unsafe.
-  if (!hasBoundedDataPropertyGraph(value) || !hasBoundedNamespaceGraph(value)) {
-    return false;
-  }
-  return isInspectionPlanSuccess(value)
-    ? isValidInspectionPlanSuccess(value)
-    : Result.isSuccess(decodeInspectionOutcome(value));
-}
-
-function isInspectionPlanSuccess(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    value["status"] === "success" &&
-    isRecord(value["result"]) &&
-    value["result"]["intent"] === "inspection-plan"
-  );
-}
-
-function isValidInspectionPlanSuccess(value: unknown): value is InspectionOutcome<InspectionPlan> {
-  const result = inspectionPlanResult(value);
-  if (result === undefined) {
-    return false;
-  }
-  const inspections = result["inspections"];
-  return (
-    Array.isArray(inspections) &&
-    hasInspectionPlanLength(inspections) &&
-    everyArrayItem(inspections, (inspection) =>
-      Result.isSuccess(decodeAtomicInspectionResult(inspection)),
-    )
-  );
-}
-
-function inspectionPlanResult(value: unknown): Readonly<Record<string, unknown>> | undefined {
-  if (
-    !isRecord(value) ||
-    value["status"] !== "success" ||
-    !hasOnlyKeys(value, ["status", "result"])
-  ) {
+function readInspectionOutcome(value: unknown): InspectionOutcome | undefined {
+  // Snapshot own data before Schema so cyclic, sparse, accessor-backed,
+  // inherited, or excessively deep values cannot make validation unsafe.
+  const snapshot = snapshotBoundedDataPropertyGraph(value);
+  if (snapshot === undefined || !hasBoundedNamespaceGraph(snapshot)) {
     return undefined;
   }
-  const result = value["result"];
-  return isRecord(result) &&
-    result["intent"] === "inspection-plan" &&
-    hasOnlyKeys(result, ["intent", "inspections"])
-    ? result
+  return Result.getOrUndefined(decodeInspectionOutcome(snapshot)) as InspectionOutcome | undefined;
+}
+
+type SnapshotContainer = unknown[] | Record<string, unknown>;
+interface PendingSnapshot {
+  readonly source: object;
+  readonly target: SnapshotContainer;
+}
+interface SnapshotState {
+  readonly pending: PendingSnapshot[];
+  readonly snapshots: Map<object, SnapshotContainer>;
+  values: number;
+}
+
+function snapshotBoundedDataPropertyGraph(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+  const root = createSnapshotContainer(value);
+  if (root === undefined) {
+    return undefined;
+  }
+  const state: SnapshotState = {
+    pending: [{ source: value, target: root }],
+    snapshots: new Map([[value, root]]),
+    values: 1,
+  };
+
+  for (let cursor = 0; cursor < state.pending.length; cursor += 1) {
+    const item = state.pending[cursor] as PendingSnapshot;
+    if (!copySnapshotProperties(state, item)) {
+      return undefined;
+    }
+  }
+  return root;
+}
+
+function copySnapshotProperties(state: SnapshotState, item: PendingSnapshot): boolean {
+  const entries = ownDataPropertyEntries(item.source, MAX_PROTOCOL_GRAPH_VALUES - state.values);
+  if (entries === undefined) {
+    return false;
+  }
+  state.values += entries.length;
+  for (const entry of entries) {
+    if (!copySnapshotProperty(state, item.target, entry)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function copySnapshotProperty(
+  state: SnapshotState,
+  target: SnapshotContainer,
+  [key, child]: readonly [string, unknown],
+): boolean {
+  if (typeof child !== "object" || child === null) {
+    defineSnapshotProperty(target, key, child);
+    return true;
+  }
+  const childSnapshot = findOrCreateSnapshot(state, child);
+  if (childSnapshot === undefined) {
+    return false;
+  }
+  defineSnapshotProperty(target, key, childSnapshot);
+  return true;
+}
+
+function findOrCreateSnapshot(state: SnapshotState, value: object): SnapshotContainer | undefined {
+  const existing = state.snapshots.get(value);
+  if (existing !== undefined) {
+    return existing;
+  }
+  if (state.snapshots.size >= MAX_PROTOCOL_GRAPH_OBJECTS) {
+    return undefined;
+  }
+  const snapshot = createSnapshotContainer(value);
+  if (snapshot === undefined) {
+    return undefined;
+  }
+  state.snapshots.set(value, snapshot);
+  state.pending.push({ source: value, target: snapshot });
+  return snapshot;
+}
+
+function createSnapshotContainer(value: object): SnapshotContainer | undefined {
+  if (Array.isArray(value)) {
+    if (Object.getPrototypeOf(value) !== Array.prototype) {
+      return undefined;
+    }
+    const snapshot: unknown[] = [];
+    Object.setPrototypeOf(snapshot, null);
+    return snapshot;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null ? Object.create(null) : undefined;
+}
+
+function ownDataPropertyEntries(
+  value: object,
+  remainingValues: number,
+): readonly (readonly [string, unknown])[] | undefined {
+  return Array.isArray(value)
+    ? ownArrayDataPropertyEntries(value, remainingValues)
+    : ownRecordDataPropertyEntries(value, remainingValues);
+}
+
+function ownArrayDataPropertyEntries(
+  value: readonly unknown[],
+  remainingValues: number,
+): readonly (readonly [string, unknown])[] | undefined {
+  if (value.length > remainingValues) {
+    return undefined;
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1) {
+    return undefined;
+  }
+  const entries: Array<readonly [string, unknown]> = [];
+  for (const key of keys) {
+    if (key === "length") {
+      continue;
+    }
+    const entry = readOwnDataProperty(value, key);
+    if (entry === undefined || !isArrayIndex(entry[0], value)) {
+      return undefined;
+    }
+    entries.push(entry);
+  }
+  return entries.length === value.length ? entries : undefined;
+}
+
+function ownRecordDataPropertyEntries(
+  value: object,
+  remainingValues: number,
+): readonly (readonly [string, unknown])[] | undefined {
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > remainingValues) {
+    return undefined;
+  }
+  const entries: Array<readonly [string, unknown]> = [];
+  for (const key of keys) {
+    const entry = readOwnDataProperty(value, key);
+    if (entry === undefined) {
+      return undefined;
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+
+function readOwnDataProperty(
+  value: object,
+  key: string | symbol,
+): readonly [string, unknown] | undefined {
+  if (typeof key !== "string") {
+    return undefined;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  return descriptor !== undefined && descriptor.enumerable && "value" in descriptor
+    ? [key, descriptor.value]
     : undefined;
 }
 
-function hasInspectionPlanLength(inspections: readonly unknown[]): boolean {
-  return inspections.length >= 1 && inspections.length <= 16;
+function isArrayIndex(key: string, values: readonly unknown[]): boolean {
+  const index = Number(key);
+  return (
+    Number.isSafeInteger(index) && index >= 0 && index < values.length && key === String(index)
+  );
 }
 
-function hasOnlyKeys(value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean {
-  const actualKeys = Object.keys(value);
-  return actualKeys.length === keys.length && keys.every((key) => actualKeys.includes(key));
-}
-
-function hasBoundedDataPropertyGraph(value: unknown): boolean {
-  const pending = [value];
-  const visited = new Set<object>();
-
-  for (let cursor = 0; cursor < pending.length; cursor += 1) {
-    const candidate = pending[cursor];
-    if (typeof candidate !== "object" || candidate === null || visited.has(candidate)) {
-      continue;
-    }
-    visited.add(candidate);
-    if (visited.size > MAX_PROTOCOL_GRAPH_OBJECTS) {
-      return false;
-    }
-
-    if (!queueProtocolChildren(candidate, pending) || pending.length > MAX_PROTOCOL_GRAPH_VALUES) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function queueProtocolChildren(candidate: object, pending: unknown[]): boolean {
-  const keys = Object.keys(candidate);
-  if (Array.isArray(candidate)) {
-    return queueDenseArrayItems(candidate, keys, pending);
-  }
-  for (const key of keys) {
-    const descriptor = Object.getOwnPropertyDescriptor(candidate, key);
-    if (descriptor === undefined || !("value" in descriptor)) {
-      return false;
-    }
-    pending.push(descriptor.value);
-  }
-  return true;
-}
-
-function queueDenseArrayItems(
-  values: readonly unknown[],
-  keys: readonly string[],
-  pending: unknown[],
-): boolean {
-  if (keys.length !== values.length) {
-    return false;
-  }
-  for (let index = 0; index < keys.length; index += 1) {
-    const key = keys[index];
-    if (key === undefined || key !== String(index)) {
-      return false;
-    }
-    const descriptor = Object.getOwnPropertyDescriptor(values, key);
-    if (descriptor === undefined || !("value" in descriptor)) {
-      return false;
-    }
-    pending.push(descriptor.value);
-  }
-  return true;
+function defineSnapshotProperty(target: SnapshotContainer, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  });
 }
 
 function hasBoundedNamespaceGraph(value: unknown): boolean {
