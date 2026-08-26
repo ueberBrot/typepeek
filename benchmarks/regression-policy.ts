@@ -8,7 +8,7 @@ export const BENCHMARK_LIMITS = Object.freeze({
   maxStructuredPayloadBytes: 4 * 1_024,
   maxStructuredToBothBytesRatio: 0.85,
   maxTotalPackageBytes: 1_500 * 1_024,
-});
+} as const);
 export const REQUIRED_LATENCY_CASES = [
   "interface-overview",
   "signature-inspection",

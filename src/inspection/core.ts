@@ -3,7 +3,6 @@ import { Effect } from "effect";
 import { runBoundedAnalysis } from "#typepeek/inspection/analysis-process";
 import {
   enforceInspectionOutcome,
-  type AnalysisRequest,
   type DeclarationInspection,
   type DeclarationInspectionRequest,
   type ExportInspection,
@@ -12,6 +11,8 @@ import {
   type ExportSearchRequest,
   type InspectionFailure,
   type InspectionOutcome,
+  type InspectionRequestByIntent,
+  type InspectionResult,
   type InspectionPlan,
   type InspectionPlanRequest,
   type InterfaceOverview,
@@ -29,48 +30,34 @@ import {
 import type { InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
 import { compareInterfaceOverviews } from "#typepeek/inspection/public-interface-comparison";
 import {
-  readAnalysisRequestForIntent,
-  readInspectionRequest,
+  type PreparedInspectionCoreRequest,
+  readInspectionCoreRequest,
 } from "#typepeek/inspection/request-definitions";
 
-export type PreparedInspectionCoreRequest =
-  | AnalysisRequest
+type InspectionCoreInvocationReceipt =
   | {
-      readonly intent: "public-interface-comparison";
-      readonly request: NormalizedPublicInterfaceComparisonRequest;
+      readonly outcome: InspectionFailure;
+      readonly preparedRequest?: never;
+    }
+  | {
+      readonly outcome: InspectionOutcome;
+      readonly preparedRequest: PreparedInspectionCoreRequest;
     };
 
-export interface InspectionCoreInvocationReceipt {
-  readonly outcome: InspectionOutcome;
-  readonly preparedRequest?: PreparedInspectionCoreRequest;
-}
-
-type InspectionCorePreparation =
-  | { readonly accepted: true; readonly preparedRequest: PreparedInspectionCoreRequest }
-  | { readonly accepted: false; readonly outcome: InspectionFailure };
-
-/** Validates once, dispatches, and retains the trusted normalized request for adapters. */
-export async function invokeInspectionCoreWithReceipt(
+/** Lazily validates one request and retains the trusted normalization for adapters. */
+export const invokeInspectionCore = Effect.fn("invokeInspectionCore")(function* (
   intent: InspectionIntent,
   request: unknown,
-): Promise<InspectionCoreInvocationReceipt> {
-  const preparation = prepareInspectionCoreRequest(intent, request);
-  if (!preparation.accepted) {
-    return { outcome: preparation.outcome };
+): Effect.fn.Return<InspectionCoreInvocationReceipt> {
+  const reading = readInspectionCoreRequest(intent, request);
+  if (!reading.accepted) {
+    return { outcome: reading.outcome };
   }
   return {
-    preparedRequest: preparation.preparedRequest,
-    outcome: await Effect.runPromise(invokePreparedInspectionCore(preparation.preparedRequest)),
+    preparedRequest: reading.preparedRequest,
+    outcome: yield* invokePreparedInspectionCore(reading.preparedRequest),
   };
-}
-
-/** Owns request validation and dispatch for every transport-neutral Inspection Core intent. */
-async function invokeInspectionCore(
-  intent: InspectionIntent,
-  request: unknown,
-): Promise<InspectionOutcome> {
-  return (await invokeInspectionCoreWithReceipt(intent, request)).outcome;
-}
+});
 
 /** Compares complete Interface Overview indexes without merging Resolution Variants. */
 export function comparePublicInterfaces(
@@ -135,25 +122,6 @@ export function inspectExportMember(
   return invokeTypedInspection("member-inspection", request);
 }
 
-function prepareInspectionCoreRequest(
-  intent: InspectionIntent,
-  request: unknown,
-): InspectionCorePreparation {
-  if (intent === "public-interface-comparison") {
-    const reading = readInspectionRequest(intent, request);
-    return reading.accepted
-      ? { accepted: true, preparedRequest: { intent, request: reading.request } }
-      : reading;
-  }
-  const reading = readAnalysisRequestForIntent(intent, request);
-  return reading.accepted
-    ? {
-        accepted: true,
-        preparedRequest: reading.request,
-      }
-    : reading;
-}
-
 const invokePreparedInspectionCore = Effect.fn("invokePreparedInspectionCore")(function* (
   prepared: PreparedInspectionCoreRequest,
 ) {
@@ -185,23 +153,15 @@ const executePublicInterfaceComparison = Effect.fn("executePublicInterfaceCompar
     : after;
 });
 
-interface InspectionResultByIntent {
-  readonly "interface-overview": InterfaceOverview;
-  readonly "export-inspection": ExportInspection;
-  readonly "signature-inspection": SignatureInspection;
-  readonly "export-search": ExportSearch;
-  readonly "public-subpath-discovery": PublicSubpathDiscovery;
-  readonly "declaration-inspection": DeclarationInspection;
-  readonly "member-inspection": MemberInspection;
-  readonly "inspection-plan": InspectionPlan;
-  readonly "public-interface-comparison": PublicInterfaceComparison;
-}
+type InspectionResultByIntent = {
+  readonly [Intent in InspectionIntent]: Extract<InspectionResult, { readonly intent: Intent }>;
+};
 
-async function invokeTypedInspection<Intent extends InspectionIntent>(
+function invokeTypedInspection<Intent extends InspectionIntent>(
   intent: Intent,
-  request: unknown,
+  request: InspectionRequestByIntent[Intent],
 ): Promise<InspectionOutcome<InspectionResultByIntent[Intent]>> {
-  return invokeInspectionCore(intent, request) as Promise<
-    InspectionOutcome<InspectionResultByIntent[Intent]>
-  >;
+  return Effect.runPromise(invokeInspectionCore(intent, request)).then(
+    ({ outcome }) => outcome as InspectionOutcome<InspectionResultByIntent[Intent]>,
+  );
 }

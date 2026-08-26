@@ -1,6 +1,6 @@
-import { Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 
-import { invokeInspectionCoreWithReceipt } from "#typepeek/inspection/core";
+import { invokeInspectionCore } from "#typepeek/inspection/core";
 import type {
   InspectionProtocolResponse,
   SignatureEvidenceKind,
@@ -62,7 +62,9 @@ export async function invokeInspectionProtocol(
   if (projection === null) {
     return protocolResponse(invalidProtocolRequest());
   }
-  const invocation = await invokeInspectionCoreWithReceipt(envelope.intent, envelope.request);
+  const invocation = await Effect.runPromise(
+    invokeInspectionCore(envelope.intent, envelope.request),
+  );
   const response =
     projection === undefined
       ? protocolResponse(invocation.outcome)
