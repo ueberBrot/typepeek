@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { execaNode } from "execa";
 
 import { MAX_ANALYSIS_RESULT_BYTES } from "#typepeek/inspection/budget-policy";
@@ -33,6 +33,11 @@ interface AnalysisProcessResult {
   readonly stdout: Uint8Array;
   readonly timedOut: boolean;
 }
+
+class AnalysisProcessExecutionError extends Schema.TaggedError<AnalysisProcessExecutionError>()(
+  "AnalysisProcessExecutionError",
+  { cause: Schema.Defect() },
+) {}
 
 const PRODUCTION_LIMITS: AnalysisProcessLimits = {
   deadlineMilliseconds: 10_000,
@@ -123,37 +128,12 @@ const runAnalysisProcess = Effect.fn("runAnalysisProcess")(function* (
   allowCacheWrite = false,
   bypassCache = false,
 ): Effect.fn.Return<InspectionOutcome> {
-  const result = yield* Effect.callback<AnalysisProcessResult>((resume, cancelSignal) => {
-    const subprocess = execaNode(entryUrl, [], {
-      ipcInput: request,
-      ...(bypassCache ? { env: { TYPEPEEK_CACHE_BYPASS: "1" } } : {}),
-      serialization: "advanced",
-      timeout: limits.deadlineMilliseconds,
-      forceKillAfterDelay: 100,
-      cancelSignal,
-      nodeOptions: [
-        `--max-old-space-size=${limits.maxHeapMegabytes}`,
-        `--stack-size=${STACK_SIZE_KIBIBYTES}`,
-      ],
-      maxBuffer: {
-        ipc: 1,
-        stdout: limits.maxResultBytes,
-        stderr: limits.maxDiagnosticBytes,
-      },
-      encoding: "buffer",
-      reject: false,
-    });
-    void subprocess.then(
-      (result) => resume(Effect.succeed(result)),
-      (error) => resume(Effect.die(error)),
-    );
-    return Effect.promise(() =>
-      subprocess.then(
-        () => undefined,
-        () => undefined,
-      ),
-    );
-  });
+  const result = yield* executeAnalysisProcess(request, entryUrl, limits, bypassCache).pipe(
+    Effect.catchTag("AnalysisProcessExecutionError", () => Effect.void),
+  );
+  if (result === undefined) {
+    return TERMINATED_OUTCOME;
+  }
   const processFailure = analysisProcessFailure(result, limits);
   if (processFailure !== undefined) {
     return processFailure;
@@ -174,6 +154,52 @@ const runAnalysisProcess = Effect.fn("runAnalysisProcess")(function* (
     result,
   });
 });
+
+function executeAnalysisProcess(
+  request: AnalysisRequest,
+  entryUrl: URL,
+  limits: AnalysisProcessLimits,
+  bypassCache: boolean,
+): Effect.Effect<AnalysisProcessResult, AnalysisProcessExecutionError> {
+  return Effect.callback<AnalysisProcessResult, AnalysisProcessExecutionError>(
+    (resume, cancelSignal) => {
+      try {
+        const subprocess = execaNode(entryUrl, [], {
+          ipcInput: request,
+          ...(bypassCache ? { env: { TYPEPEEK_CACHE_BYPASS: "1" } } : {}),
+          serialization: "advanced",
+          timeout: limits.deadlineMilliseconds,
+          forceKillAfterDelay: 100,
+          cancelSignal,
+          nodeOptions: [
+            `--max-old-space-size=${limits.maxHeapMegabytes}`,
+            `--stack-size=${STACK_SIZE_KIBIBYTES}`,
+          ],
+          maxBuffer: {
+            ipc: 1,
+            stdout: limits.maxResultBytes,
+            stderr: limits.maxDiagnosticBytes,
+          },
+          encoding: "buffer",
+          reject: false,
+        });
+        void subprocess.then(
+          (result) => resume(Effect.succeed(result)),
+          (cause) => resume(Effect.fail(new AnalysisProcessExecutionError({ cause }))),
+        );
+        return Effect.promise(() =>
+          subprocess.then(
+            () => undefined,
+            () => undefined,
+          ),
+        );
+      } catch (cause) {
+        resume(Effect.fail(new AnalysisProcessExecutionError({ cause })));
+        return Effect.void;
+      }
+    },
+  );
+}
 
 function analysisProcessFailure(
   result: AnalysisProcessResult,
