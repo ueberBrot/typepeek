@@ -16,7 +16,7 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
 
   afterAll(async () => {
     await matrix?.cleanup();
-  });
+  }, 60_000);
 
   it("installs one packed artifact with the pinned npm, pnpm, and Bun installers", () => {
     expect(
