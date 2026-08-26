@@ -10,6 +10,10 @@ import {
   NOT_FOUND_FAILURE_REASONS,
   UNSUPPORTED_FAILURE_REASONS,
 } from "#typepeek/inspection/protocol-vocabulary";
+import {
+  readOwnDataProperty,
+  snapshotBoundedDataPropertyGraph,
+} from "#typepeek/inspection/untrusted-data";
 
 const MAX_PROTOCOL_GRAPH_OBJECTS = 4_096;
 const MAX_PROTOCOL_GRAPH_VALUES = 16_384;
@@ -30,6 +34,18 @@ const packageIdentitySchema = Schema.Struct({
   name: Schema.String,
   version: Schema.optional(Schema.String),
 });
+export const packageInspectionResultIdentitySchema = Schema.Struct({
+  packageIdentity: packageIdentitySchema,
+  declarationProvider: Schema.optional(packageIdentitySchema),
+});
+export const platformInspectionResultIdentitySchema = Schema.Struct({
+  packageIdentity: optionalUndefined,
+  declarationProvider: packageIdentitySchema,
+});
+const inspectionResultIdentitySchema = Schema.Union([
+  packageInspectionResultIdentitySchema,
+  platformInspectionResultIdentitySchema,
+]);
 const resolutionVariantSchema = Schema.Struct({ accessStyle: accessStyleSchema });
 const declarationSpaceSchema = Schema.Literals(["type", "value", "namespace"]);
 const declarationKindSchema = Schema.Literals([
@@ -181,14 +197,12 @@ const packageDocumentationSchema = Schema.Struct({
 const packageIdentityFields = {
   specifier: Schema.String,
   resolutionVariant: resolutionVariantSchema,
-  packageIdentity: packageIdentitySchema,
-  declarationProvider: Schema.optional(packageIdentitySchema),
+  ...packageInspectionResultIdentitySchema.fields,
 } as const;
 const platformIdentityFields = {
   specifier: Schema.String,
   resolutionVariant: resolutionVariantSchema,
-  packageIdentity: optionalUndefined,
-  declarationProvider: packageIdentitySchema,
+  ...platformInspectionResultIdentitySchema.fields,
 } as const;
 const withInspectionResultIdentity = <const Fields extends Schema.Struct.Fields>(fields: Fields) =>
   Schema.Union([
@@ -396,15 +410,7 @@ export type ModuleExportIndexEntry = ProtocolType<typeof moduleExportIndexEntryS
 export type PublicSubpath = ProtocolType<typeof publicSubpathSchema.Type>;
 export type PackageIdentity = ProtocolType<typeof packageIdentitySchema.Type>;
 export type ResolutionVariant = ProtocolType<typeof resolutionVariantSchema.Type>;
-export type InspectionResultIdentity =
-  | {
-      readonly packageIdentity: PackageIdentity;
-      readonly declarationProvider?: PackageIdentity;
-    }
-  | {
-      readonly packageIdentity?: never;
-      readonly declarationProvider: PackageIdentity;
-    };
+export type InspectionResultIdentity = ProtocolType<typeof inspectionResultIdentitySchema.Type>;
 export type InterfaceOverview = ProtocolType<typeof interfaceOverviewSchema.Type>;
 export type DeclarationSpace = ProtocolType<typeof declarationSpaceSchema.Type>;
 export type DeclarationKind = ProtocolType<typeof declarationKindSchema.Type>;
@@ -776,188 +782,14 @@ function memberPathsEqual(left: readonly string[], right: readonly string[]): bo
 function readInspectionOutcome(value: unknown): InspectionOutcome | undefined {
   // Snapshot own data before Schema so cyclic, sparse, accessor-backed,
   // inherited, or excessively deep values cannot make validation unsafe.
-  const snapshot = snapshotBoundedDataPropertyGraph(value);
+  const snapshot = snapshotBoundedDataPropertyGraph(value, {
+    maximumObjects: MAX_PROTOCOL_GRAPH_OBJECTS,
+    maximumValues: MAX_PROTOCOL_GRAPH_VALUES,
+  });
   if (snapshot === undefined || !hasBoundedNamespaceGraph(snapshot)) {
     return undefined;
   }
   return Result.getOrUndefined(decodeInspectionOutcome(snapshot)) as InspectionOutcome | undefined;
-}
-
-type SnapshotContainer = unknown[] | Record<string, unknown>;
-interface PendingSnapshot {
-  readonly source: object;
-  readonly target: SnapshotContainer;
-}
-interface SnapshotState {
-  readonly pending: PendingSnapshot[];
-  readonly snapshots: Map<object, SnapshotContainer>;
-  values: number;
-}
-
-function snapshotBoundedDataPropertyGraph(value: unknown): unknown {
-  if (typeof value !== "object" || value === null) {
-    return value;
-  }
-  const root = createSnapshotContainer(value);
-  if (root === undefined) {
-    return undefined;
-  }
-  const state: SnapshotState = {
-    pending: [{ source: value, target: root }],
-    snapshots: new Map([[value, root]]),
-    values: 1,
-  };
-
-  for (let cursor = 0; cursor < state.pending.length; cursor += 1) {
-    const item = state.pending[cursor] as PendingSnapshot;
-    if (!copySnapshotProperties(state, item)) {
-      return undefined;
-    }
-  }
-  return root;
-}
-
-function copySnapshotProperties(state: SnapshotState, item: PendingSnapshot): boolean {
-  const entries = ownDataPropertyEntries(item.source, MAX_PROTOCOL_GRAPH_VALUES - state.values);
-  if (entries === undefined) {
-    return false;
-  }
-  state.values += entries.length;
-  for (const entry of entries) {
-    if (!copySnapshotProperty(state, item.target, entry)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function copySnapshotProperty(
-  state: SnapshotState,
-  target: SnapshotContainer,
-  [key, child]: readonly [string, unknown],
-): boolean {
-  if (typeof child !== "object" || child === null) {
-    defineSnapshotProperty(target, key, child);
-    return true;
-  }
-  const childSnapshot = findOrCreateSnapshot(state, child);
-  if (childSnapshot === undefined) {
-    return false;
-  }
-  defineSnapshotProperty(target, key, childSnapshot);
-  return true;
-}
-
-function findOrCreateSnapshot(state: SnapshotState, value: object): SnapshotContainer | undefined {
-  const existing = state.snapshots.get(value);
-  if (existing !== undefined) {
-    return existing;
-  }
-  if (state.snapshots.size >= MAX_PROTOCOL_GRAPH_OBJECTS) {
-    return undefined;
-  }
-  const snapshot = createSnapshotContainer(value);
-  if (snapshot === undefined) {
-    return undefined;
-  }
-  state.snapshots.set(value, snapshot);
-  state.pending.push({ source: value, target: snapshot });
-  return snapshot;
-}
-
-function createSnapshotContainer(value: object): SnapshotContainer | undefined {
-  if (Array.isArray(value)) {
-    if (Object.getPrototypeOf(value) !== Array.prototype) {
-      return undefined;
-    }
-    const snapshot: unknown[] = [];
-    Object.setPrototypeOf(snapshot, null);
-    return snapshot;
-  }
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null ? Object.create(null) : undefined;
-}
-
-function ownDataPropertyEntries(
-  value: object,
-  remainingValues: number,
-): readonly (readonly [string, unknown])[] | undefined {
-  return Array.isArray(value)
-    ? ownArrayDataPropertyEntries(value, remainingValues)
-    : ownRecordDataPropertyEntries(value, remainingValues);
-}
-
-function ownArrayDataPropertyEntries(
-  value: readonly unknown[],
-  remainingValues: number,
-): readonly (readonly [string, unknown])[] | undefined {
-  if (value.length > remainingValues) {
-    return undefined;
-  }
-  const keys = Reflect.ownKeys(value);
-  if (keys.length !== value.length + 1) {
-    return undefined;
-  }
-  const entries: Array<readonly [string, unknown]> = [];
-  for (const key of keys) {
-    if (key === "length") {
-      continue;
-    }
-    const entry = readOwnDataProperty(value, key);
-    if (entry === undefined || !isArrayIndex(entry[0], value)) {
-      return undefined;
-    }
-    entries.push(entry);
-  }
-  return entries.length === value.length ? entries : undefined;
-}
-
-function ownRecordDataPropertyEntries(
-  value: object,
-  remainingValues: number,
-): readonly (readonly [string, unknown])[] | undefined {
-  const keys = Reflect.ownKeys(value);
-  if (keys.length > remainingValues) {
-    return undefined;
-  }
-  const entries: Array<readonly [string, unknown]> = [];
-  for (const key of keys) {
-    const entry = readOwnDataProperty(value, key);
-    if (entry === undefined) {
-      return undefined;
-    }
-    entries.push(entry);
-  }
-  return entries;
-}
-
-function readOwnDataProperty(
-  value: object,
-  key: string | symbol,
-): readonly [string, unknown] | undefined {
-  if (typeof key !== "string") {
-    return undefined;
-  }
-  const descriptor = Object.getOwnPropertyDescriptor(value, key);
-  return descriptor !== undefined && descriptor.enumerable && "value" in descriptor
-    ? [key, descriptor.value]
-    : undefined;
-}
-
-function isArrayIndex(key: string, values: readonly unknown[]): boolean {
-  const index = Number(key);
-  return (
-    Number.isSafeInteger(index) && index >= 0 && index < values.length && key === String(index)
-  );
-}
-
-function defineSnapshotProperty(target: SnapshotContainer, key: string, value: unknown): void {
-  Object.defineProperty(target, key, {
-    configurable: true,
-    enumerable: true,
-    value,
-    writable: true,
-  });
 }
 
 function hasBoundedNamespaceGraph(value: unknown): boolean {

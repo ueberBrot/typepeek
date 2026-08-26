@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   INSPECTION_BUDGET_POLICY_VERSION,
@@ -19,55 +19,56 @@ import {
 } from "#typepeek/inspection/budget-policy";
 import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
 import { canonicalEvidencePath, readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
+import {
+  CACHE_SCHEMA_VERSION,
+  type InspectionCacheEnvelope,
+  type InspectionCacheHitNotice,
+  type InspectionCacheIdentityValue,
+  type InspectionCacheWriteReceipt,
+  INSPECTION_CACHE_SEMANTICS_VERSION,
+  MAX_CACHE_ENTRY_BYTES,
+  readInspectionCacheEnvelope,
+  readInspectionCacheHitNoticeMessage,
+  readInspectionCacheKey,
+  readInspectionCachePath,
+  readInspectionCachePayload,
+  readInspectionCacheWriteReceiptMessage,
+  encodeInspectionCacheEnvelope,
+  encodeInspectionCacheHitNotice,
+  encodeInspectionCacheIdentityValue,
+  encodeInspectionCachePayload,
+  encodeInspectionCacheWriteReceipt,
+} from "#typepeek/inspection/inspection-cache-codec";
 import type { InspectableModuleSelection } from "#typepeek/inspection/installed-evidence";
 import {
   type InstalledEvidenceDirectoryFingerprint,
   type InstalledEvidenceFingerprint,
   type InstalledEvidenceProof,
   type InstalledEvidenceResolutionProbe,
-  MAX_FINGERPRINTED_DIRECTORIES,
   MAX_FINGERPRINTED_DIRECTORY_ENTRIES,
-  MAX_FINGERPRINTED_FILES,
-  MAX_RESOLUTION_PROBES,
   readInstalledEvidenceDirectoryFingerprint,
   sha256,
 } from "#typepeek/inspection/installed-evidence-fingerprint";
-import type {
-  AnalysisRequest,
-  AtomicInspectionResult,
-  InspectionOutcome,
-  InspectionResult,
-  InspectionResultIdentity,
-  PackageIdentity,
+import {
+  enforceAnalysisRequestOutcome,
+  type AnalysisRequest,
+  type AtomicInspectionResult,
+  type InspectionOutcome,
+  type InspectionResult,
+  type InspectionResultIdentity,
 } from "#typepeek/inspection/protocol";
-import { readAnalysisRequest } from "#typepeek/inspection/request-definitions";
+import { readOwnDataProperty } from "#typepeek/inspection/untrusted-data";
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 import { HAS_EMBEDDED_TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 
-const CACHE_SCHEMA_VERSION = 1;
-const INSPECTION_CACHE_SEMANTICS_VERSION = "2";
 const MAX_CACHE_DIRECTORY_ENTRIES = 256;
-const MAX_CACHE_ENTRY_BYTES = 160 * 1_024;
-const MAX_CACHE_RECEIPT_BYTES = 96 * 1_024;
 const MAX_CACHE_EVIDENCE_BYTES = 12 * 1_024 * 1_024;
-const MAX_CACHE_PATH_BYTES = 4 * 1_024;
-const SHA256_PATTERN = /^[\da-f]{64}$/u;
 
-export interface InspectionCacheIdentityValue {
-  readonly budgetVersion: typeof INSPECTION_BUDGET_POLICY_VERSION;
-  readonly cacheSemanticsVersion: typeof INSPECTION_CACHE_SEMANTICS_VERSION;
-  readonly compilerVersion: string;
-  readonly evidence: {
-    readonly declarationPath: string;
-    readonly declarationRoot: string;
-    readonly kind: InspectableModuleSelection["kind"];
-    readonly repositoryRoot: string;
-    readonly resolutionContextDirectory: string;
-    readonly resultIdentity: InspectionResultIdentity;
-  };
-  readonly request: AnalysisRequest;
-  readonly typepeekVersion: typeof TYPEPEEK_VERSION;
-}
+export type {
+  InspectionCacheHitNotice,
+  InspectionCacheIdentityValue,
+  InspectionCacheWriteReceipt,
+} from "#typepeek/inspection/inspection-cache-codec";
 
 export interface InspectionCacheIdentity {
   readonly key: string;
@@ -75,34 +76,18 @@ export interface InspectionCacheIdentity {
   readonly value: InspectionCacheIdentityValue;
 }
 
-export interface InspectionCacheWriteReceipt {
-  readonly identity: InspectionCacheIdentityValue;
-  readonly kind: "inspection-cache-write";
-  readonly proof: InstalledEvidenceProof;
-}
-
-export interface InspectionCacheHitNotice {
-  readonly key: string;
-  readonly kind: "inspection-cache-hit";
-}
-
-interface InspectionCachePayload {
+interface ValidatedInspectionCachePayload {
   readonly identity: InspectionCacheIdentityValue;
   readonly outcome: InspectionOutcome;
   readonly proof: InstalledEvidenceProof;
-}
-
-interface InspectionCacheEnvelope {
-  readonly integrity: string;
-  readonly payload: string;
 }
 
 /** Creates the complete non-content portion of one cache key after bounded resolution. */
 export function createInspectionCacheIdentity(
   request: AnalysisRequest,
   selection: InspectableModuleSelection,
-): InspectionCacheIdentity {
-  const value: InspectionCacheIdentityValue = {
+): InspectionCacheIdentity | undefined {
+  const candidate = {
     budgetVersion: INSPECTION_BUDGET_POLICY_VERSION,
     cacheSemanticsVersion: INSPECTION_CACHE_SEMANTICS_VERSION,
     compilerVersion: ts.version,
@@ -117,6 +102,10 @@ export function createInspectionCacheIdentity(
     request,
     typepeekVersion: TYPEPEEK_VERSION,
   };
+  const value = encodeInspectionCacheIdentityValue(candidate);
+  if (value === undefined) {
+    return undefined;
+  }
   const serialized = stableJson(value);
   return { key: digest(serialized), serialized, value };
 }
@@ -144,30 +133,27 @@ export function createInspectionCacheWriteReceipt(
   if (proof === undefined) {
     return undefined;
   }
-  const receipt: InspectionCacheWriteReceipt = {
+  const receipt = {
     identity: identity.value,
     kind: "inspection-cache-write",
     proof,
   };
-  return Buffer.byteLength(JSON.stringify(receipt)) <= MAX_CACHE_RECEIPT_BYTES
-    ? receipt
-    : undefined;
+  const validated = encodeInspectionCacheWriteReceipt(receipt);
+  return validated === undefined ? undefined : readInspectionCacheWriteReceiptMessage(validated);
 }
 
 export function createInspectionCacheHitNotice(
   identity: InspectionCacheIdentity,
-): InspectionCacheHitNotice {
-  return { key: identity.key, kind: "inspection-cache-hit" };
+): InspectionCacheHitNotice | undefined {
+  return encodeInspectionCacheHitNotice({ key: identity.key, kind: "inspection-cache-hit" });
 }
 
 export function readInspectionCacheHitNotice(value: unknown): InspectionCacheHitNotice | undefined {
-  return isRecord(value) && value["kind"] === "inspection-cache-hit" && isCacheKey(value["key"])
-    ? { key: value["key"], kind: "inspection-cache-hit" }
-    : undefined;
+  return readInspectionCacheHitNoticeMessage(value);
 }
 
 export function removeInspectionCacheEntry(key: string): void {
-  if (!isCacheKey(key)) {
+  if (readInspectionCacheKey(key) === undefined) {
     return;
   }
   const path = cacheEntryPath(key, false);
@@ -190,19 +176,26 @@ export function writeValidatedInspectionCacheOutcome(
   outcome: InspectionOutcome,
   value: unknown,
 ): void {
-  if (outcome.status !== "success") {
+  const authoritativeOutcome = enforceAnalysisRequestOutcome(request, outcome);
+  if (authoritativeOutcome.status !== "success") {
     return;
   }
   const receipt = readWriteReceipt(value, request);
-  if (receipt === undefined || !outcomeMatchesCacheIdentity(outcome.result, receipt.identity)) {
+  if (
+    receipt === undefined ||
+    !outcomeMatchesCacheIdentity(authoritativeOutcome.result, receipt.identity)
+  ) {
     return;
   }
   const identity = identityFromValue(receipt.identity);
-  const payload: InspectionCachePayload = {
+  const payload = encodeInspectionCachePayload({
     identity: receipt.identity,
-    outcome,
+    outcome: authoritativeOutcome,
     proof: receipt.proof,
-  };
+  });
+  if (payload === undefined) {
+    return;
+  }
   const path = cacheEntryPath(identity.key, true);
   if (path === undefined) {
     return;
@@ -216,11 +209,15 @@ export function writeValidatedInspectionCacheOutcome(
       return;
     }
     const serializedPayload = JSON.stringify(payload);
-    const serialized = JSON.stringify({
+    const envelope = encodeInspectionCacheEnvelope({
       integrity: cacheIntegrity(integrityKey, serializedPayload),
       payload: serializedPayload,
       schemaVersion: CACHE_SCHEMA_VERSION,
     });
+    if (envelope === undefined) {
+      return;
+    }
+    const serialized = JSON.stringify(envelope);
     if (Buffer.byteLength(serialized) > MAX_CACHE_ENTRY_BYTES) {
       return;
     }
@@ -259,29 +256,26 @@ function resultKindMatchesEvidence(
   result: AtomicInspectionResult,
   evidenceKind: InspectableModuleSelection["kind"],
 ): boolean {
-  return evidenceKind === "package"
-    ? result.packageIdentity !== undefined
-    : result.packageIdentity === undefined;
+  const packageIdentity = readOwnOptionalProperty(result, "packageIdentity");
+  return evidenceKind === "package" ? packageIdentity !== undefined : packageIdentity === undefined;
 }
 
 function resultIdentity(result: AtomicInspectionResult): InspectionResultIdentity | undefined {
-  if (result.packageIdentity === undefined) {
-    return result.declarationProvider === undefined
-      ? undefined
-      : { declarationProvider: result.declarationProvider };
+  const packageIdentity = readOwnOptionalProperty(result, "packageIdentity");
+  const declarationProvider = readOwnOptionalProperty(result, "declarationProvider");
+  if (packageIdentity === undefined) {
+    return declarationProvider === undefined ? undefined : { declarationProvider };
   }
   return {
-    packageIdentity: result.packageIdentity,
-    ...(result.declarationProvider === undefined
-      ? {}
-      : { declarationProvider: result.declarationProvider }),
+    packageIdentity,
+    ...(declarationProvider === undefined ? {} : { declarationProvider }),
   };
 }
 
 function readCacheEntry(
   path: string,
   identity: InspectionCacheIdentity,
-): InspectionCachePayload | undefined {
+): ValidatedInspectionCachePayload | undefined {
   try {
     const envelope = readCacheEnvelope(path);
     const payload =
@@ -305,7 +299,7 @@ function readCacheEnvelope(path: string): InspectionCacheEnvelope | undefined {
       "Inspection cache entry exceeded its byte limit.",
     ),
   ) as unknown;
-  return parseCacheEnvelope(value);
+  return readInspectionCacheEnvelope(value);
 }
 
 function isReadableCacheEntry(metadata: Stats): boolean {
@@ -316,35 +310,12 @@ function isReadableCacheEntry(metadata: Stats): boolean {
   );
 }
 
-function parseCacheEnvelope(value: unknown): InspectionCacheEnvelope | undefined {
-  if (!isRecord(value) || value["schemaVersion"] !== CACHE_SCHEMA_VERSION) {
-    return undefined;
-  }
-  const payload = readBoundedCachePayload(value["payload"]);
-  const integrity = readSha256(value["integrity"]);
-  return payload === undefined || integrity === undefined ? undefined : { integrity, payload };
-}
-
-function readBoundedCachePayload(value: unknown): string | undefined {
-  return typeof value === "string" && Buffer.byteLength(value) <= MAX_CACHE_ENTRY_BYTES
-    ? value
-    : undefined;
-}
-
-function readSha256(value: unknown): string | undefined {
-  return typeof value === "string" && SHA256_PATTERN.test(value) ? value : undefined;
-}
-
-function readAuthenticatedCachePayload(
-  path: string,
-  envelope: InspectionCacheEnvelope,
-): Readonly<Record<string, unknown>> | undefined {
+function readAuthenticatedCachePayload(path: string, envelope: InspectionCacheEnvelope): unknown {
   const integrityKey = readIntegrityKey(dirname(path), false);
   if (integrityKey === undefined || !cacheEnvelopeIntegrityMatches(envelope, integrityKey)) {
     return undefined;
   }
-  const payload = JSON.parse(envelope.payload) as unknown;
-  return isRecord(payload) ? payload : undefined;
+  return JSON.parse(envelope.payload) as unknown;
 }
 
 function cacheEnvelopeIntegrityMatches(
@@ -355,39 +326,29 @@ function cacheEnvelopeIntegrityMatches(
 }
 
 function readCachePayload(
-  payload: Readonly<Record<string, unknown>>,
+  value: unknown,
   identity: InspectionCacheIdentity,
-): InspectionCachePayload | undefined {
-  const candidateIdentity = readIdentity(payload["identity"]);
-  const proof = readProof(payload["proof"]);
-  const outcome = readCachedSuccessOutcome(payload["outcome"]);
-  if (!cacheIdentityMatches(candidateIdentity, identity)) {
+): ValidatedInspectionCachePayload | undefined {
+  const payload = readInspectionCachePayload(value);
+  if (payload === undefined || !cacheIdentityMatches(payload.identity, identity)) {
     return undefined;
   }
+  const serializedOutcome = JSON.stringify(payload.outcome);
+  if (Buffer.byteLength(serializedOutcome) > MAX_ANALYSIS_RESULT_BYTES) {
+    return undefined;
+  }
+  const outcome = enforceAnalysisRequestOutcome(payload.identity.request, payload.outcome);
   if (
-    proof === undefined ||
-    outcome === undefined ||
-    !outcomeMatchesCacheIdentity(outcome.result, candidateIdentity)
+    outcome.status !== "success" ||
+    !outcomeMatchesCacheIdentity(outcome.result, payload.identity)
   ) {
     return undefined;
   }
   return {
-    identity: candidateIdentity,
+    identity: payload.identity,
     outcome,
-    proof,
+    proof: payload.proof,
   };
-}
-
-function readCachedSuccessOutcome(
-  value: unknown,
-): { readonly status: "success"; readonly result: InspectionResult } | undefined {
-  if (!isRecord(value) || value["status"] !== "success" || !isRecord(value["result"])) {
-    return undefined;
-  }
-  const outcome = { status: "success", result: value["result"] as InspectionResult } as const;
-  return Buffer.byteLength(JSON.stringify(outcome)) <= MAX_ANALYSIS_RESULT_BYTES
-    ? outcome
-    : undefined;
 }
 
 function cacheIdentityMatches(
@@ -398,7 +359,7 @@ function cacheIdentityMatches(
 }
 
 function evidenceStillMatches(
-  entry: InspectionCachePayload,
+  entry: ValidatedInspectionCachePayload,
   currentSelectionProof: InstalledEvidenceProof,
 ): boolean {
   return (
@@ -493,256 +454,35 @@ function readWriteReceipt(
   value: unknown,
   request: AnalysisRequest,
 ): InspectionCacheWriteReceipt | undefined {
-  if (!isRecord(value) || value["kind"] !== "inspection-cache-write") {
-    return undefined;
-  }
-  const identity = readIdentity(value["identity"]);
-  const proof = readProof(value["proof"]);
-  if (
-    identity === undefined ||
-    proof === undefined ||
-    stableJson(identity.request) !== stableJson(request)
-  ) {
-    return undefined;
-  }
-  const receipt: InspectionCacheWriteReceipt = {
-    identity,
-    kind: "inspection-cache-write",
-    proof,
-  };
-  return Buffer.byteLength(JSON.stringify(receipt)) <= MAX_CACHE_RECEIPT_BYTES
+  const receipt = readInspectionCacheWriteReceiptMessage(value);
+  return receipt !== undefined && stableJson(receipt.identity.request) === stableJson(request)
     ? receipt
     : undefined;
-}
-
-function readIdentity(value: unknown): InspectionCacheIdentityValue | undefined {
-  if (!isRecord(value) || !cacheIdentityVersionsMatch(value)) {
-    return undefined;
-  }
-  const evidence = readCacheEvidenceIdentity(value["evidence"]);
-  const requestReading = readAnalysisRequest(value["request"]);
-  if (evidence === undefined || !requestReading.accepted) {
-    return undefined;
-  }
-  return {
-    budgetVersion: INSPECTION_BUDGET_POLICY_VERSION,
-    cacheSemanticsVersion: INSPECTION_CACHE_SEMANTICS_VERSION,
-    compilerVersion: ts.version,
-    evidence,
-    request: requestReading.request,
-    typepeekVersion: TYPEPEEK_VERSION,
-  };
-}
-
-function cacheIdentityVersionsMatch(value: Readonly<Record<string, unknown>>): boolean {
-  return (
-    value["budgetVersion"] === INSPECTION_BUDGET_POLICY_VERSION &&
-    value["cacheSemanticsVersion"] === INSPECTION_CACHE_SEMANTICS_VERSION &&
-    value["compilerVersion"] === ts.version &&
-    value["typepeekVersion"] === TYPEPEEK_VERSION
-  );
-}
-
-function readCacheEvidenceIdentity(
-  value: unknown,
-): InspectionCacheIdentityValue["evidence"] | undefined {
-  if (!isRecord(value) || (value["kind"] !== "package" && value["kind"] !== "platform")) {
-    return undefined;
-  }
-  const declarationPath = readBoundedAbsolutePath(value["declarationPath"]);
-  const declarationRoot = readBoundedAbsolutePath(value["declarationRoot"]);
-  const repositoryRoot = readBoundedAbsolutePath(value["repositoryRoot"]);
-  const resolutionContextDirectory = readBoundedAbsolutePath(value["resolutionContextDirectory"]);
-  const resultIdentity = readResultIdentity(value["resultIdentity"]);
-  if (
-    declarationPath === undefined ||
-    declarationRoot === undefined ||
-    repositoryRoot === undefined ||
-    resolutionContextDirectory === undefined ||
-    resultIdentity === undefined
-  ) {
-    return undefined;
-  }
-  return {
-    declarationPath,
-    declarationRoot,
-    kind: value["kind"],
-    repositoryRoot,
-    resolutionContextDirectory,
-    resultIdentity,
-  };
-}
-
-function readResultIdentity(value: unknown): InspectionResultIdentity | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const packageIdentity = readPackageIdentity(value["packageIdentity"]);
-  const declarationProvider = readPackageIdentity(value["declarationProvider"]);
-  if (packageIdentity === undefined && declarationProvider === undefined) {
-    return undefined;
-  }
-  return packageIdentity === undefined
-    ? { declarationProvider: declarationProvider as PackageIdentity }
-    : {
-        packageIdentity,
-        ...(declarationProvider === undefined ? {} : { declarationProvider }),
-      };
-}
-
-function readPackageIdentity(value: unknown): PackageIdentity | undefined {
-  if (!isRecord(value) || !boundedString(value["name"])) {
-    return undefined;
-  }
-  const version = value["version"];
-  return version === undefined
-    ? { name: value["name"] }
-    : boundedString(version)
-      ? { name: value["name"], version }
-      : undefined;
-}
-
-function readEvidence(value: unknown): readonly InstalledEvidenceFingerprint[] | undefined {
-  return readBoundedArray(value, MAX_FINGERPRINTED_FILES, readEvidenceFingerprint);
-}
-
-function readEvidenceFingerprint(value: unknown): InstalledEvidenceFingerprint | undefined {
-  if (!isRecord(value) || (value["kind"] !== "declaration" && value["kind"] !== "manifest")) {
-    return undefined;
-  }
-  const path = readBoundedAbsolutePath(value["path"]);
-  const fingerprint = readSha256(value["sha256"]);
-  return path === undefined || fingerprint === undefined
-    ? undefined
-    : { kind: value["kind"], path, sha256: fingerprint };
-}
-
-function readProof(value: unknown): InstalledEvidenceProof | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const directories = readDirectoryFingerprints(value["directories"]);
-  const files = readEvidence(value["files"]);
-  const resolutions = readResolutionProbes(value["resolutions"]);
-  return directories === undefined || files === undefined || resolutions === undefined
-    ? undefined
-    : { directories, files, resolutions };
-}
-
-function readDirectoryFingerprints(
-  value: unknown,
-): readonly InstalledEvidenceDirectoryFingerprint[] | undefined {
-  if (!Array.isArray(value) || value.length > MAX_FINGERPRINTED_DIRECTORIES) {
-    return undefined;
-  }
-  const directories: InstalledEvidenceDirectoryFingerprint[] = [];
-  let entryCount = 0;
-  for (const candidate of value) {
-    const directory = readDirectoryFingerprint(candidate);
-    if (directory === undefined) {
-      return undefined;
-    }
-    entryCount += directory.entries;
-    if (entryCount > MAX_FINGERPRINTED_DIRECTORY_ENTRIES) {
-      return undefined;
-    }
-    directories.push(directory);
-  }
-  return directories;
-}
-
-function readDirectoryFingerprint(
-  value: unknown,
-): InstalledEvidenceDirectoryFingerprint | undefined {
-  if (!isRecord(value) || !isNonnegativeInteger(value["entries"])) {
-    return undefined;
-  }
-  const path = readBoundedAbsolutePath(value["path"]);
-  const fingerprint = readSha256(value["sha256"]);
-  return path === undefined || fingerprint === undefined
-    ? undefined
-    : { entries: value["entries"], path, sha256: fingerprint };
-}
-
-function readResolutionProbes(
-  value: unknown,
-): readonly InstalledEvidenceResolutionProbe[] | undefined {
-  return readBoundedArray(value, MAX_RESOLUTION_PROBES, readResolutionProbe);
-}
-
-function readResolutionProbe(value: unknown): InstalledEvidenceResolutionProbe | undefined {
-  const probe = readResolutionProbeRecord(value);
-  if (probe === undefined) {
-    return undefined;
-  }
-  const required = readResolutionProbeRequiredFields(probe.record);
-  const optional = readResolutionProbeOptionalFields(probe.record);
-  if (required === undefined || optional === undefined) {
-    return undefined;
-  }
-  return {
-    kind: probe.kind,
-    ...required,
-    ...optional,
-  };
-}
-
-function readResolutionProbeRecord(value: unknown):
-  | {
-      readonly kind: InstalledEvidenceResolutionProbe["kind"];
-      readonly record: Readonly<Record<string, unknown>>;
-    }
-  | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const kind = readResolutionProbeKind(value["kind"]);
-  return kind === undefined ? undefined : { kind, record: value };
-}
-
-function readResolutionProbeKind(
-  value: unknown,
-): InstalledEvidenceResolutionProbe["kind"] | undefined {
-  switch (value) {
-    case "module":
-    case "type-reference":
-      return value;
-    default:
-      return undefined;
-  }
-}
-
-function readResolutionProbeRequiredFields(
-  value: Readonly<Record<string, unknown>>,
-): Pick<InstalledEvidenceResolutionProbe, "containingFile" | "specifier"> | undefined {
-  const containingFile = readBoundedAbsolutePath(value["containingFile"]);
-  const specifier = readBoundedString(value["specifier"]);
-  return containingFile === undefined || specifier === undefined
-    ? undefined
-    : { containingFile, specifier };
-}
-
-function readResolutionProbeOptionalFields(
-  value: Readonly<Record<string, unknown>>,
-): Pick<InstalledEvidenceResolutionProbe, "accessStyle" | "resolvedPath"> | undefined {
-  const resolvedPath = readOptionalBoundedAbsolutePath(value["resolvedPath"]);
-  const accessStyle = readOptionalAccessStyle(value["accessStyle"]);
-  if (resolvedPath === false || accessStyle === false) {
-    return undefined;
-  }
-  return {
-    ...(resolvedPath === undefined ? {} : { resolvedPath }),
-    ...(accessStyle === undefined ? {} : { accessStyle }),
-  };
 }
 
 function resolutionProbesStillMatch(probes: readonly InstalledEvidenceResolutionProbe[]): boolean {
   try {
     const session = createCompilerWorkSession();
-    return probes.every((probe) => session.resolveEvidenceProbe(probe) === probe.resolvedPath);
+    return probes.every((probe) => {
+      const accessStyle = readOwnOptionalProperty(probe, "accessStyle");
+      const resolvedPath = readOwnOptionalProperty(probe, "resolvedPath");
+      const safeProbe = Object.assign(Object.create(null), probe, {
+        accessStyle,
+        resolvedPath,
+      }) as InstalledEvidenceResolutionProbe;
+      return session.resolveEvidenceProbe(safeProbe) === resolvedPath;
+    });
   } catch {
     return false;
   }
+}
+
+function readOwnOptionalProperty<Value extends object, Key extends keyof Value & string>(
+  value: Value,
+  key: Key,
+): Value[Key] | undefined {
+  const entry = readOwnDataProperty(value, key);
+  return entry?.[1] as Value[Key] | undefined;
 }
 
 function identityFromValue(value: InspectionCacheIdentityValue): InspectionCacheIdentity {
@@ -766,7 +506,7 @@ function configuredCacheDirectory(): string | undefined {
   }
   const explicit = process.env["TYPEPEEK_CACHE_DIRECTORY"];
   if (explicit !== undefined) {
-    return boundedAbsolutePath(explicit) && explicit.length > 0 ? explicit : undefined;
+    return readInspectionCachePath(explicit);
   }
   if (process.env["NODE_ENV"] === "test" || !HAS_EMBEDDED_TYPEPEEK_VERSION) {
     return undefined;
@@ -892,7 +632,7 @@ function readIntegrityKey(directory: string, create: boolean): string | undefine
       "compiler-host-bytes",
       "Inspection cache integrity key exceeded its byte limit.",
     );
-    return SHA256_PATTERN.test(key) ? key : undefined;
+    return readInspectionCacheKey(key);
   } catch {
     return undefined;
   }
@@ -919,60 +659,6 @@ function integritiesEqual(left: string, right: string): boolean {
   return timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"));
 }
 
-function boundedAbsolutePath(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    Buffer.byteLength(value) <= MAX_CACHE_PATH_BYTES &&
-    isAbsolute(value)
-  );
-}
-
-function readBoundedAbsolutePath(value: unknown): string | undefined {
-  return boundedAbsolutePath(value) ? value : undefined;
-}
-
-function readOptionalBoundedAbsolutePath(value: unknown): string | undefined | false {
-  return value === undefined ? undefined : (readBoundedAbsolutePath(value) ?? false);
-}
-
-function boundedString(value: unknown): value is string {
-  return typeof value === "string" && Buffer.byteLength(value) <= MAX_CACHE_PATH_BYTES;
-}
-
-function readBoundedString(value: unknown): string | undefined {
-  return boundedString(value) ? value : undefined;
-}
-
-function isNonnegativeInteger(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 0;
-}
-
-function readOptionalAccessStyle(value: unknown): "import" | "require" | undefined | false {
-  if (value === undefined || value === "import" || value === "require") {
-    return value;
-  }
-  return false;
-}
-
-function readBoundedArray<Value>(
-  value: unknown,
-  maximumItems: number,
-  readItem: (candidate: unknown) => Value | undefined,
-): readonly Value[] | undefined {
-  if (!Array.isArray(value) || value.length > maximumItems) {
-    return undefined;
-  }
-  const items: Value[] = [];
-  for (const candidate of value) {
-    const item = readItem(candidate);
-    if (item === undefined) {
-      return undefined;
-    }
-    items.push(item);
-  }
-  return items;
-}
-
 function stableJson(value: unknown): string {
   return JSON.stringify(canonicalValue(value));
 }
@@ -993,10 +679,6 @@ function canonicalValue(value: unknown): unknown {
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function isCacheKey(value: unknown): value is string {
-  return typeof value === "string" && SHA256_PATTERN.test(value);
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

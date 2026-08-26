@@ -166,7 +166,7 @@ const normalizedComparisonSchema = Schema.Struct({
   after: normalizedTargetSchema,
 });
 const analysisIntentSchema = Schema.Literals(ANALYSIS_INTENTS);
-const analysisRequestSchema = Schema.Union([
+export const analysisRequestSchema = Schema.Union([
   Schema.Struct({ intent: Schema.Literal("interface-overview"), request: normalizedTargetSchema }),
   Schema.Struct({ intent: Schema.Literal("export-inspection"), request: normalizedExportSchema }),
   Schema.Struct({

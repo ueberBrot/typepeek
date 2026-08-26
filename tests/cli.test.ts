@@ -549,6 +549,60 @@ describe("typepeek CLI", () => {
     }
   });
 
+  it("reads the retained authenticated cache wire format through the complete cache-hit path", async () => {
+    const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-cache-wire-format-test-"));
+    const arguments_ = [
+      "src/cli.ts",
+      "export",
+      "@typepeek-fixture/focused",
+      "createWidget",
+      "--context",
+      fixture.resolutionContext,
+      "--json",
+    ];
+    const env = {
+      TYPEPEEK_CACHE_DIRECTORY: cacheDirectory,
+      TYPEPEEK_PROFILE: "1",
+    };
+
+    try {
+      const first = await execa(process.execPath, arguments_, { env });
+      const entryName = (await readdir(cacheDirectory)).find((name) => name.endsWith(".json"));
+      expect(entryName).toBeDefined();
+      const entryPath = join(cacheDirectory, entryName as string);
+      const generatedEnvelope = JSON.parse(await readFile(entryPath, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      const generatedPayload = JSON.parse(generatedEnvelope["payload"] as string) as Record<
+        string,
+        unknown
+      >;
+      const retainedPayload = JSON.stringify({
+        identity: generatedPayload["identity"],
+        outcome: generatedPayload["outcome"],
+        proof: generatedPayload["proof"],
+      });
+      const integrityKey = await readFile(join(cacheDirectory, ".integrity-key"), "utf8");
+      await writeFile(
+        entryPath,
+        JSON.stringify({
+          integrity: createHmac("sha256", integrityKey).update(retainedPayload).digest("hex"),
+          payload: retainedPayload,
+          schemaVersion: 1,
+        }),
+      );
+
+      const repeated = await execa(process.execPath, arguments_, { env });
+
+      expect(repeated.stdout).toBe(first.stdout);
+      expect(profilePhaseNames(repeated.stderr)).toContain("inspection-cache-hit");
+      expect(profilePhaseNames(repeated.stderr)).not.toContain("program-materialization");
+    } finally {
+      await rm(cacheDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("reuses one validated complete atomic Inspection Plan", async () => {
     const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-cache-plan-test-"));
     const arguments_ = [

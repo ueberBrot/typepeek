@@ -12,6 +12,7 @@ import {
   createInspectionCacheIdentity,
   createInspectionCacheHitNotice,
   type InspectionCacheHitNotice,
+  type InspectionCacheIdentity,
   createInspectionCacheWriteReceipt,
   type InspectionCacheWriteReceipt,
   readInspectionCacheOutcome,
@@ -25,7 +26,10 @@ import {
   materializeInspectableModuleEvidence,
   selectInspectableModule,
 } from "#typepeek/inspection/installed-evidence";
-import { createInstalledEvidenceFingerprintRecorder } from "#typepeek/inspection/installed-evidence-fingerprint";
+import {
+  createInstalledEvidenceFingerprintRecorder,
+  type InstalledEvidenceProof,
+} from "#typepeek/inspection/installed-evidence-fingerprint";
 import { profileInspectionPhase } from "#typepeek/inspection/performance-profile";
 import type {
   AnalysisRequest,
@@ -72,27 +76,45 @@ export function analyzeInspectionWithCache(
       return { outcome: missingSpecifierOutcome(analysisRequest.request.specifier) };
     }
     const identity = createInspectionCacheIdentity(analysisRequest, selection);
-    const selectionEvidence = recorder.snapshot();
-    const cachedOutcome =
-      !readCache || selectionEvidence === undefined
-        ? undefined
-        : readInspectionCacheOutcome(identity, selectionEvidence);
-    if (cachedOutcome !== undefined) {
-      return {
-        cacheHit: createInspectionCacheHitNotice(identity),
-        outcome: profileInspectionPhase("inspection-cache-hit", () => cachedOutcome),
-      };
+    const cached = readCachedAnalysis(identity, recorder.snapshot(), readCache);
+    if (cached !== undefined) {
+      return cached;
     }
     profileInspectionPhase("inspection-cache-miss", () => undefined);
     const outcome = inspectSelectedPackage(analysisRequest, selection);
-    const cacheWrite =
-      outcome.status === "success"
-        ? createInspectionCacheWriteReceipt(identity, recorder.snapshot())
-        : undefined;
-    return cacheWrite === undefined ? { outcome } : { cacheWrite, outcome };
+    return prepareAnalyzedCacheWrite(identity, recorder.snapshot(), outcome);
   } catch (error) {
     return { outcome: errorOutcome(error) };
   }
+}
+
+function readCachedAnalysis(
+  identity: InspectionCacheIdentity | undefined,
+  proof: InstalledEvidenceProof | undefined,
+  readCache: boolean,
+): CachedAnalysisExecution | undefined {
+  if (!readCache || identity === undefined || proof === undefined) {
+    return undefined;
+  }
+  const cachedOutcome = readInspectionCacheOutcome(identity, proof);
+  if (cachedOutcome === undefined) {
+    return undefined;
+  }
+  const outcome = profileInspectionPhase("inspection-cache-hit", () => cachedOutcome);
+  const cacheHit = createInspectionCacheHitNotice(identity);
+  return cacheHit === undefined ? { outcome } : { cacheHit, outcome };
+}
+
+function prepareAnalyzedCacheWrite(
+  identity: InspectionCacheIdentity | undefined,
+  proof: InstalledEvidenceProof | undefined,
+  outcome: InspectionOutcome,
+): CachedAnalysisExecution {
+  const cacheWrite =
+    outcome.status === "success" && identity !== undefined
+      ? createInspectionCacheWriteReceipt(identity, proof)
+      : undefined;
+  return cacheWrite === undefined ? { outcome } : { cacheWrite, outcome };
 }
 
 function inspectInstalledPackage(analysisRequest: AnalysisRequest): InspectionOutcome {
