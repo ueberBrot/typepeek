@@ -19,7 +19,7 @@ const decodeLatencyReport = Schema.decodeUnknownResult(inspectionLatencyReportSc
 const decodeAgentProtocolReport = Schema.decodeUnknownResult(agentProtocolReportSchema);
 
 const packageLatency = await runLatencyBenchmark("package", 3);
-const sourceMemory = await runLatencyBenchmark("source", 1);
+const sourceMemory = await runLatencyBenchmark("source", 3, "effect-interface-overview");
 const cache = await measureCacheHit();
 const agentProtocol = await runAgentProtocolBenchmark();
 const packageArtifact = await measurePublishedPackage();
@@ -39,13 +39,18 @@ if (!report.passed) {
   process.exitCode = 1;
 }
 
-async function runLatencyBenchmark(adapter: "package" | "source", iterations: number) {
+async function runLatencyBenchmark(
+  adapter: "package" | "source",
+  iterations: number,
+  caseName?: string,
+) {
   const result = await execa(process.execPath, [
     "benchmarks/inspection-latency.ts",
     "--adapter",
     adapter,
     "--iterations",
     String(iterations),
+    ...(caseName === undefined ? [] : ["--case", caseName]),
     "--json",
   ]);
   return decodeJson(result.stdout, decodeLatencyReport, `${adapter} latency benchmark`);

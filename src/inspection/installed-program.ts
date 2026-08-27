@@ -2,6 +2,7 @@ import ts from "@typescript/typescript6";
 import { opendirSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
+import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
 import type { CompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
 import {
   InspectionLimitError,
@@ -27,7 +28,6 @@ import {
 } from "#typepeek/inspection/typescript-standard-library";
 
 const MAX_SOURCE_FILES = 384;
-const MAX_SOURCE_BYTES = 4 * 1_024 * 1_024;
 const MAX_DECLARATION_GRAPH_DEPTH = 256;
 const MAX_DECLARATION_GRAPH_NODES = 250_000;
 
@@ -1330,7 +1330,7 @@ function readSourceText(
   try {
     const sourceText = readBoundedUtf8File(
       sourcePath,
-      MAX_SOURCE_BYTES - state.sourceByteCount,
+      INSPECTION_BUDGET_POLICY.declarationSourceBytes - state.sourceByteCount,
       "declaration-bytes",
       "Inspection exceeded its declaration byte limit.",
     );

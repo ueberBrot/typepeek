@@ -9,35 +9,20 @@ import {
   type InspectionProfile,
 } from "#typepeek/inspection/performance-profile";
 
+import { readLatencyWorkloadName, selectLatencyWorkloads } from "./latency-workloads.ts";
 import {
-  type BenchmarkLatencyCaseName,
   encodeInspectionLatencyReport,
   type InspectionLatencyReport,
 } from "./regression-policy.ts";
 
-interface BenchmarkCase {
-  readonly name: BenchmarkLatencyCaseName;
-  readonly arguments_: readonly string[];
-}
-
 type DurationSummary = InspectionLatencyReport["cases"][number]["wallMilliseconds"];
 type LatencyCaseReport = InspectionLatencyReport["cases"][number];
-
-const benchmarkCases: readonly BenchmarkCase[] = [
-  { name: "interface-overview", arguments_: ["overview", "execa", "--json"] },
-  {
-    name: "signature-inspection",
-    arguments_: ["signatures", "execa", "execa", "--json"],
-  },
-  { name: "export-search", arguments_: ["search", "execa", "error", "--json"] },
-  { name: "public-subpath-discovery", arguments_: ["subpaths", "execa", "--json"] },
-] satisfies readonly BenchmarkCase[];
 
 const options = readOptions(process.argv.slice(2));
 const executable = adapterEntrypoint(options.adapter);
 const cases: LatencyCaseReport[] = [];
 
-for (const benchmarkCase of benchmarkCases) {
+for (const benchmarkCase of selectLatencyWorkloads(options.caseName)) {
   const analysisMaxRssBytes: number[] = [];
   const durations: number[] = [];
   const statuses: string[] = [];
@@ -48,7 +33,10 @@ for (const benchmarkCase of benchmarkCases) {
       process.execPath,
       [executable, ...benchmarkCase.arguments_, "--context", resolve(".")],
       {
-        ...(options.adapter === "source" ? { env: { TYPEPEEK_PROFILE: "1" } } : {}),
+        env: {
+          TYPEPEEK_CACHE_BYPASS: "1",
+          ...(options.adapter === "source" ? { TYPEPEEK_PROFILE: "1" } : {}),
+        },
         reject: false,
       },
     );
@@ -94,6 +82,7 @@ process.stdout.write(
 
 function readOptions(arguments_: readonly string[]): {
   readonly adapter: "build" | "package" | "source";
+  readonly caseName: ReturnType<typeof readLatencyWorkloadName> | undefined;
   readonly iterations: number;
   readonly json: boolean;
 } {
@@ -101,6 +90,7 @@ function readOptions(arguments_: readonly string[]): {
     args: arguments_,
     options: {
       adapter: { type: "string", default: "source" },
+      case: { type: "string" },
       iterations: { type: "string", default: "5" },
       json: { type: "boolean", default: false },
     },
@@ -108,6 +98,7 @@ function readOptions(arguments_: readonly string[]): {
   });
   return {
     adapter: readAdapter(values.adapter),
+    caseName: values.case === undefined ? undefined : readLatencyWorkloadName(values.case),
     iterations: readIterations(values.iterations),
     json: values.json,
   };

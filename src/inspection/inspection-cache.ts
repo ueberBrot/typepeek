@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
-  INSPECTION_BUDGET_POLICY_VERSION,
+  INSPECTION_BUDGET_POLICY,
   MAX_ANALYSIS_RESULT_BYTES,
 } from "#typepeek/inspection/budget-policy";
 import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
@@ -89,7 +89,7 @@ export function createInspectionCacheIdentity(
   selection: InspectableModuleSelection,
 ): InspectionCacheIdentity | undefined {
   const candidate = {
-    budgetVersion: INSPECTION_BUDGET_POLICY_VERSION,
+    budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
     cacheSemanticsVersion: INSPECTION_CACHE_SEMANTICS_VERSION,
     compilerVersion: ts.version,
     evidence: {

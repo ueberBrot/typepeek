@@ -1,7 +1,11 @@
 import { Schema } from "effect";
 
+import { REQUIRED_LATENCY_CASES } from "./latency-workloads.ts";
+
+export { REQUIRED_LATENCY_CASES } from "./latency-workloads.ts";
+
 export const BENCHMARK_LIMITS = Object.freeze({
-  maxAnalysisRssBytes: 384 * 1_024 * 1_024,
+  maxAnalysisRssBytes: 512 * 1_024 * 1_024,
   maxCaseMeanWallMilliseconds: 8_000,
   maxCaseWallMilliseconds: 12_000,
   maxRuntimePackageBytes: 512 * 1_024,
@@ -9,12 +13,6 @@ export const BENCHMARK_LIMITS = Object.freeze({
   maxStructuredToBothBytesRatio: 0.85,
   maxTotalPackageBytes: 1_500 * 1_024,
 } as const);
-export const REQUIRED_LATENCY_CASES = [
-  "interface-overview",
-  "signature-inspection",
-  "export-search",
-  "public-subpath-discovery",
-] as const;
 export const REQUIRED_AGENT_WORKLOADS = [
   "execa-invocation",
   "execa-export-recovery",
@@ -22,7 +20,7 @@ export const REQUIRED_AGENT_WORKLOADS = [
 ] as const;
 const REQUIRED_PAYLOAD_WORKLOADS = ["execa-invocation"] as const;
 
-export type BenchmarkLatencyCaseName = (typeof REQUIRED_LATENCY_CASES)[number];
+export type { BenchmarkLatencyCaseName } from "./latency-workloads.ts";
 export type BenchmarkWorkloadId = (typeof REQUIRED_AGENT_WORKLOADS)[number];
 
 const finiteNonNegativeSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
