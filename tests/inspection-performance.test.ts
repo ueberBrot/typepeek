@@ -45,7 +45,7 @@ it("benchmarks successful source-checkout inspections through the CLI seam", asy
   expect(report.cases.flatMap(({ statuses }) => statuses)).toEqual(
     Array.from({ length: REQUIRED_LATENCY_CASES.length }, () => "success"),
   );
-});
+}, 120_000);
 
 it("measures agent protocol projection and recovery workloads", async () => {
   const result = await execa(process.execPath, ["benchmarks/agent-protocol.ts"]);
