@@ -24,6 +24,12 @@
     "unplugin-unused"
   ],
 
+  // Health measures the shipped runtime code. Test and benchmark surfaces are
+  // still covered by dead-code, duplication, lint, type, and execution checks.
+  "health": {
+    "ignore": ["benchmarks/**", "tests/**", "vite.config.ts", "taze.config.ts"]
+  },
+
   "rules": {
     "private-type-leaks": "error"
   }
