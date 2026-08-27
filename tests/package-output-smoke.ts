@@ -25,7 +25,7 @@ const cli = spawnSync(process.execPath, ["dist/cli.js", "--help"], {
 assert.equal(cli.status, 0, cli.stderr);
 for (const expected of [
   /typepeek/u,
-  /Use overview to discover exports/u,
+  /Start with overview to discover exports/u,
   /signatures\s+Inspect only the public call and construct signatures/u,
   /plan\s+Execute a bounded query list/u,
   /search\s+Search the bounded Module Export index/u,

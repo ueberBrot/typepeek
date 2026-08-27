@@ -161,13 +161,14 @@ const inspectionTargetFlags = {
     kind: "parsed",
     parse: resolve,
     default: ".",
+    placeholder: "path",
     brief: "Resolution Context from which Installed Evidence is visible.",
   },
   json: {
     kind: "boolean",
     default: false,
     withNegated: false,
-    brief: "Emit one pre-stable structured Inspection Outcome as JSON.",
+    brief: "Emit structured JSON for agents and pipelines.",
   },
   pretty: {
     kind: "boolean",
@@ -181,6 +182,18 @@ const specifierParameter = {
   parse: (input: string) => input,
   brief: "Package root, Public Subpath, or Node Platform Module Specifier to inspect.",
   placeholder: "specifier",
+} as const;
+
+const beforeSpecifierParameter = {
+  ...specifierParameter,
+  brief: "Package root, Public Subpath, or Node Platform Module Specifier for the before side.",
+  placeholder: "before-specifier",
+} as const;
+
+const afterSpecifierParameter = {
+  ...specifierParameter,
+  brief: "Package root, Public Subpath, or Node Platform Module Specifier for the after side.",
+  placeholder: "after-specifier",
 } as const;
 
 const exportNameParameter = {
@@ -229,6 +242,7 @@ const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationConte
         kind: "parsed",
         parse: (input: string) => input,
         optional: true,
+        placeholder: "substring",
         brief: "Match Module Export names case-insensitively in human output.",
       },
       subpaths: {
@@ -436,6 +450,8 @@ const capabilitiesCommand = buildCommand<CliOutputOptions, [], ApplicationContex
   },
   docs: {
     brief: "Print the Inspection Core capabilities as JSON.",
+    fullDescription:
+      "Capability output is always JSON. Pass --json to select machine-mode diagnostics; add --pretty for indented output.",
   },
 });
 
@@ -452,6 +468,8 @@ const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], Applica
   },
   docs: {
     brief: "Invoke the Inspection Protocol with one bounded JSON request on stdin.",
+    fullDescription:
+      "Read one bounded JSON request from stdin and emit one compact JSON response on stdout. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits.",
   },
 });
 
@@ -491,12 +509,14 @@ const compareCommand = buildCommand<ComparisonOptions, [string, string], Applica
         kind: "parsed",
         parse: resolve,
         default: ".",
+        placeholder: "path",
         brief: "Resolution Context for the before Interface Overview.",
       },
       afterContext: {
         kind: "parsed",
         parse: resolve,
         default: ".",
+        placeholder: "path",
         brief: "Resolution Context for the after Interface Overview.",
       },
       json: inspectionTargetFlags.json,
@@ -504,7 +524,7 @@ const compareCommand = buildCommand<ComparisonOptions, [string, string], Applica
     },
     positional: {
       kind: "tuple",
-      parameters: [specifierParameter, specifierParameter],
+      parameters: [beforeSpecifierParameter, afterSpecifierParameter],
     },
   },
   docs: {
@@ -532,7 +552,7 @@ const rootRoute = buildRouteMap({
   docs: {
     brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
     fullDescription:
-      "Use overview to discover exports; use search or subpaths for lighter discovery, declarations or member for narrow declaration questions, signatures for parameters, export for declarations and Supporting Types, plan to share one evidence snapshot, compare to diff two overview indexes, capabilities to discover the adapter protocol, or protocol for bounded stdin/stdout invocation. Common flags may precede or follow an explicit inspection command.",
+      "Start with overview to discover exports. Use search or subpaths for lighter discovery; declarations or member for narrow declaration questions; signatures for parameters; export for declarations and Supporting Types; plan to share one evidence snapshot; and compare to diff two overview indexes. Agents can run capabilities before invoking protocol through bounded stdin/stdout. Common flags may precede or follow an explicit inspection command.",
   },
 });
 
