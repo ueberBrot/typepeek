@@ -1,7 +1,7 @@
 import { Result, Schema } from "effect";
 
 import { memberPathSchema } from "#typepeek/inspection/member-path";
-import type { AnalysisRequest, InspectionPlanQuery } from "#typepeek/inspection/protocol";
+import type { AnalysisRequest } from "#typepeek/inspection/protocol";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
 export const MAX_INSPECTION_PLAN_QUERIES = 16;
@@ -27,28 +27,7 @@ type InspectionPlanQueryReading =
 const exportSearchQuerySchema = Schema.String.check(
   Schema.makeFilter(isBoundedExportSearchQuery, { expected: "a bounded search query" }),
 );
-const focusedPlanQuerySchemas = [
-  Schema.Struct({ intent: Schema.Literal("export-inspection"), exportName: Schema.String }),
-  Schema.Struct({ intent: Schema.Literal("signature-inspection"), exportName: Schema.String }),
-  Schema.Struct({ intent: Schema.Literal("declaration-inspection"), exportName: Schema.String }),
-] as const;
-const inspectionPlanQuerySchema = Schema.Union([
-  Schema.Struct({ intent: Schema.Literal("interface-overview") }),
-  Schema.Struct({ intent: Schema.Literal("public-subpath-discovery") }),
-  Schema.Struct({ intent: Schema.Literal("export-search"), query: exportSearchQuerySchema }),
-  ...focusedPlanQuerySchemas,
-  Schema.Struct({
-    intent: Schema.Literal("member-inspection"),
-    exportName: Schema.String,
-    memberPath: memberPathSchema,
-  }),
-]);
-export const inspectionPlanQueriesSchema = Schema.Array(inspectionPlanQuerySchema).check(
-  Schema.isMinLength(1),
-  Schema.isMaxLength(MAX_INSPECTION_PLAN_QUERIES),
-);
-
-const inspectionPlanQueryIntentSchema = Schema.Literals([
+const INSPECTION_PLAN_QUERY_INTENTS = [
   "interface-overview",
   "export-inspection",
   "signature-inspection",
@@ -56,7 +35,44 @@ const inspectionPlanQueryIntentSchema = Schema.Literals([
   "public-subpath-discovery",
   "declaration-inspection",
   "member-inspection",
-]);
+] as const;
+type InspectionPlanQueryIntent = (typeof INSPECTION_PLAN_QUERY_INTENTS)[number];
+const INSPECTION_PLAN_QUERY_SCHEMAS = {
+  "interface-overview": Schema.Struct({ intent: Schema.Literal("interface-overview") }),
+  "export-inspection": Schema.Struct({
+    intent: Schema.Literal("export-inspection"),
+    exportName: Schema.String,
+  }),
+  "signature-inspection": Schema.Struct({
+    intent: Schema.Literal("signature-inspection"),
+    exportName: Schema.String,
+  }),
+  "export-search": Schema.Struct({
+    intent: Schema.Literal("export-search"),
+    query: exportSearchQuerySchema,
+  }),
+  "public-subpath-discovery": Schema.Struct({
+    intent: Schema.Literal("public-subpath-discovery"),
+  }),
+  "declaration-inspection": Schema.Struct({
+    intent: Schema.Literal("declaration-inspection"),
+    exportName: Schema.String,
+  }),
+  "member-inspection": Schema.Struct({
+    intent: Schema.Literal("member-inspection"),
+    exportName: Schema.String,
+    memberPath: memberPathSchema,
+  }),
+} as const satisfies Readonly<Record<InspectionPlanQueryIntent, Schema.Constraint>>;
+const inspectionPlanQuerySchema = Schema.Union(Object.values(INSPECTION_PLAN_QUERY_SCHEMAS));
+export type InspectionPlanQuery = typeof inspectionPlanQuerySchema.Type;
+
+export const inspectionPlanQueriesSchema = Schema.Array(inspectionPlanQuerySchema).check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(MAX_INSPECTION_PLAN_QUERIES),
+);
+
+const inspectionPlanQueryIntentSchema = Schema.Literals(INSPECTION_PLAN_QUERY_INTENTS);
 const decodeInspectionPlanQueryIntent = Schema.decodeUnknownResult(inspectionPlanQueryIntentSchema);
 const decodeInspectionPlanQuery = Schema.decodeUnknownResult(inspectionPlanQuerySchema);
 const decodeInspectionPlanQueries = Schema.decodeUnknownResult(inspectionPlanQueriesSchema);

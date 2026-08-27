@@ -1,3 +1,5 @@
+import { Schema } from "effect";
+
 export const INSPECTION_PROTOCOL_VERSION = "1" as const;
 
 export const ANALYSIS_INTENTS = Object.freeze([
@@ -16,13 +18,16 @@ export const INSPECTION_INTENTS = Object.freeze([
   "public-interface-comparison",
 ] as const);
 
-export const NOT_FOUND_FAILURE_REASONS = Object.freeze([
+export const analysisIntentSchema = Schema.Literals(ANALYSIS_INTENTS);
+export const inspectionIntentSchema = Schema.Literals(INSPECTION_INTENTS);
+
+const NOT_FOUND_FAILURE_REASONS = Object.freeze([
   "specifier-not-found",
   "export-not-found",
   "member-not-found",
 ] as const);
 
-export const UNSUPPORTED_FAILURE_REASONS = Object.freeze([
+const UNSUPPORTED_FAILURE_REASONS = Object.freeze([
   "invalid-request",
   "invalid-result",
   "unsupported-protocol-version",
@@ -38,6 +43,17 @@ export const INSPECTION_FAILURE_REASONS = Object.freeze([
   "static-boundary",
   "budget-exceeded",
 ] as const);
+
+export const notFoundFailureReasonSchema = Schema.Literals(NOT_FOUND_FAILURE_REASONS);
+export const unsupportedFailureReasonSchema = Schema.Literals(UNSUPPORTED_FAILURE_REASONS);
+const inspectionFailureReasonSchema = Schema.Literals(INSPECTION_FAILURE_REASONS);
+
+export const SIGNATURE_EVIDENCE_KINDS = Object.freeze(["structured", "exact", "both"] as const);
+
+const signatureEvidenceKindSchema = Schema.Literals(SIGNATURE_EVIDENCE_KINDS);
+export const inspectionProtocolResponseOptionsSchema = Schema.Struct({
+  signatureEvidence: signatureEvidenceKindSchema,
+});
 
 export const INSPECTION_BUDGET_DIMENSIONS = Object.freeze([
   "request-bytes",
@@ -76,7 +92,10 @@ export const INSPECTION_BUDGET_DIMENSIONS = Object.freeze([
   "json-output",
 ] as const);
 
-export type InspectionIntent = (typeof INSPECTION_INTENTS)[number];
-export type AnalysisIntent = (typeof ANALYSIS_INTENTS)[number];
-export type InspectionFailureReason = (typeof INSPECTION_FAILURE_REASONS)[number];
-export type InspectionBudgetDimension = (typeof INSPECTION_BUDGET_DIMENSIONS)[number];
+export const inspectionBudgetDimensionSchema = Schema.Literals(INSPECTION_BUDGET_DIMENSIONS);
+
+export type InspectionIntent = typeof inspectionIntentSchema.Type;
+export type AnalysisIntent = typeof analysisIntentSchema.Type;
+export type InspectionFailureReason = typeof inspectionFailureReasonSchema.Type;
+export type InspectionBudgetDimension = typeof inspectionBudgetDimensionSchema.Type;
+export type SignatureEvidenceKind = typeof signatureEvidenceKindSchema.Type;

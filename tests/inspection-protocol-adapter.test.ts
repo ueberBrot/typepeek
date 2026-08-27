@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, expect, expectTypeOf, it } from "vite-plus/test";
 
 import {
   INSPECTION_PROTOCOL_VERSION,
@@ -168,9 +168,30 @@ it("types explicit evidence only where the protocol accepts it", () => {
     response: { signatureEvidence: "both" },
   };
   type OverviewRequest = Extract<InspectionProtocolRequest, { intent: "interface-overview" }>;
+  type SignatureRequest = Extract<InspectionProtocolRequest, { intent: "signature-inspection" }>;
+  type AcceptsExplicitUndefinedResponse = Omit<SignatureRequest, "response"> & {
+    readonly response: undefined;
+  } extends SignatureRequest
+    ? true
+    : false;
 
   expect(request.response?.signatureEvidence).toBe("both");
   expect(undefined satisfies OverviewRequest["response"]).toBeUndefined();
+  expectTypeOf<AcceptsExplicitUndefinedResponse>().toEqualTypeOf<false>();
+});
+
+it("rejects an explicitly undefined response property", async () => {
+  await expect(
+    invokeInspectionProtocol({
+      protocolVersion: INSPECTION_PROTOCOL_VERSION,
+      intent: "interface-overview",
+      request: {
+        resolutionContext: process.cwd(),
+        specifier: "execa",
+      },
+      response: undefined,
+    }),
+  ).resolves.toMatchObject({ outcome: { reason: "invalid-request" } });
 });
 
 it("dispatches Public Interface comparison through the Inspection Protocol", async () => {

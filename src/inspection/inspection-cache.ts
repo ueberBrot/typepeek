@@ -22,6 +22,7 @@ import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-se
 import { canonicalEvidencePath, readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
 import {
   CACHE_SCHEMA_VERSION,
+  type EncodedInspectionCacheIdentityValue,
   type InspectionCacheEnvelope,
   type InspectionCacheHitNotice,
   type InspectionCacheIdentityValue,
@@ -67,14 +68,13 @@ const MAX_CACHE_EVIDENCE_BYTES = 12 * 1_024 * 1_024;
 
 export type {
   InspectionCacheHitNotice,
-  InspectionCacheIdentityValue,
   InspectionCacheWriteReceipt,
 } from "#typepeek/inspection/inspection-cache-codec";
 
 export interface InspectionCacheIdentity {
   readonly key: string;
   readonly serialized: string;
-  readonly value: InspectionCacheIdentityValue;
+  readonly value: EncodedInspectionCacheIdentityValue;
 }
 
 interface ValidatedInspectionCachePayload {

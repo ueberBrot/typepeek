@@ -1014,7 +1014,7 @@ it("rejects non-portable declaration provenance", () => {
   });
 });
 
-it("preserves optional undefined values accepted by the process-entry protocol", () => {
+it("rejects explicit undefined where the process-entry schema requires omission", () => {
   const outcome = {
     status: "success",
     result: {
@@ -1033,7 +1033,11 @@ it("preserves optional undefined values accepted by the process-entry protocol",
     },
   };
 
-  expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual(outcome);
+  expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual({
+    status: "unsupported",
+    reason: "invalid-result",
+    message: "Inspection returned an invalid result.",
+  });
 });
 
 interface MutableNamespaceMember {

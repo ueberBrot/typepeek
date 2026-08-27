@@ -7,7 +7,6 @@ import { installedEvidenceProofSchema } from "#typepeek/inspection/installed-evi
 import {
   packageInspectionResultIdentitySchema,
   platformInspectionResultIdentitySchema,
-  type ProtocolType,
 } from "#typepeek/inspection/protocol";
 import { analysisRequestSchema } from "#typepeek/inspection/request-definitions";
 import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted-data";
@@ -97,15 +96,12 @@ const inspectionCacheEnvelopeSchema = Schema.Struct({
   schemaVersion: Schema.Literal(CACHE_SCHEMA_VERSION),
 });
 
-export type InspectionCacheIdentityValue = ProtocolType<
-  typeof inspectionCacheIdentityValueSchema.Type
->;
-export type InspectionCacheWriteReceipt = ProtocolType<
-  typeof inspectionCacheWriteReceiptSchema.Type
->;
-export type InspectionCacheHitNotice = ProtocolType<typeof inspectionCacheHitNoticeSchema.Type>;
-export type InspectionCachePayload = ProtocolType<typeof inspectionCachePayloadSchema.Type>;
-export type InspectionCacheEnvelope = ProtocolType<typeof inspectionCacheEnvelopeSchema.Type>;
+export type InspectionCacheIdentityValue = typeof inspectionCacheIdentityValueSchema.Type;
+export type EncodedInspectionCacheIdentityValue = typeof inspectionCacheIdentityValueSchema.Encoded;
+export type InspectionCacheWriteReceipt = typeof inspectionCacheWriteReceiptSchema.Type;
+export type InspectionCacheHitNotice = typeof inspectionCacheHitNoticeSchema.Type;
+export type InspectionCachePayload = typeof inspectionCachePayloadSchema.Type;
+export type InspectionCacheEnvelope = typeof inspectionCacheEnvelopeSchema.Type;
 
 const decodeCacheWriteReceipt = Schema.decodeUnknownResult(
   inspectionCacheWriteReceiptSchema,
@@ -156,9 +152,7 @@ export function readInspectionCacheWriteReceiptMessage(
   const snapshot = snapshotCacheIpcValue(value, MAX_CACHE_RECEIPT_BYTES);
   return snapshot === undefined
     ? undefined
-    : (Result.getOrUndefined(decodeCacheWriteReceipt(snapshot)) as
-        | InspectionCacheWriteReceipt
-        | undefined);
+    : Result.getOrUndefined(decodeCacheWriteReceipt(snapshot));
 }
 
 export function readInspectionCacheKey(value: unknown): string | undefined {
@@ -171,18 +165,14 @@ export function readInspectionCachePath(value: unknown): string | undefined {
 
 export function encodeInspectionCacheIdentityValue(
   value: unknown,
-): InspectionCacheIdentityValue | undefined {
-  return decodeThenEncode(value, decodeCacheIdentityValue, encodeCacheIdentityValue) as
-    | InspectionCacheIdentityValue
-    | undefined;
+): EncodedInspectionCacheIdentityValue | undefined {
+  return decodeThenEncode(value, decodeCacheIdentityValue, encodeCacheIdentityValue);
 }
 
 export function encodeInspectionCacheWriteReceipt(
   value: unknown,
-): InspectionCacheWriteReceipt | undefined {
-  return decodeThenEncode(value, decodeCacheWriteReceipt, encodeCacheWriteReceipt) as
-    | InspectionCacheWriteReceipt
-    | undefined;
+): typeof inspectionCacheWriteReceiptSchema.Encoded | undefined {
+  return decodeThenEncode(value, decodeCacheWriteReceipt, encodeCacheWriteReceipt);
 }
 
 export function readInspectionCacheHitNoticeMessage(
@@ -199,13 +189,13 @@ export function encodeInspectionCacheHitNotice(
 }
 
 export function readInspectionCachePayload(value: unknown): InspectionCachePayload | undefined {
-  return Result.getOrUndefined(decodeCachePayload(value)) as InspectionCachePayload | undefined;
+  return Result.getOrUndefined(decodeCachePayload(value));
 }
 
-export function encodeInspectionCachePayload(value: unknown): InspectionCachePayload | undefined {
-  return decodeThenEncode(value, decodeCachePayload, encodeCachePayload) as
-    | InspectionCachePayload
-    | undefined;
+export function encodeInspectionCachePayload(
+  value: unknown,
+): typeof inspectionCachePayloadSchema.Encoded | undefined {
+  return decodeThenEncode(value, decodeCachePayload, encodeCachePayload);
 }
 
 export function readInspectionCacheEnvelope(value: unknown): InspectionCacheEnvelope | undefined {

@@ -4,7 +4,6 @@ import { opendirSync, type Dirent } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 import { canonicalEvidencePath } from "#typepeek/inspection/evidence-boundary";
-import type { ProtocolType } from "#typepeek/inspection/protocol";
 import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted-data";
 
 const MAX_FINGERPRINTED_FILES = 512;
@@ -49,10 +48,10 @@ const installedEvidenceDirectoriesSchema = Schema.Array(
   }),
 );
 const installedEvidenceResolutionProbeSchema = Schema.Struct({
-  accessStyle: Schema.optional(Schema.Literals(["import", "require"])),
+  accessStyle: Schema.optionalKey(Schema.Literals(["import", "require"])),
   containingFile: boundedEvidencePathSchema,
   kind: Schema.Literals(["module", "type-reference"]),
-  resolvedPath: Schema.optional(boundedEvidencePathSchema),
+  resolvedPath: Schema.optionalKey(boundedEvidencePathSchema),
   specifier: boundedEvidenceStringSchema,
 });
 export const installedEvidenceProofSchema = Schema.Struct({
@@ -69,25 +68,18 @@ export const installedEvidenceProofSchema = Schema.Struct({
   }),
 );
 
-export type InstalledEvidenceFingerprint = ProtocolType<
-  typeof installedEvidenceFingerprintSchema.Type
->;
-export type InstalledEvidenceDirectoryFingerprint = ProtocolType<
-  typeof installedEvidenceDirectoryFingerprintSchema.Type
->;
-export type InstalledEvidenceResolutionProbe = ProtocolType<
-  typeof installedEvidenceResolutionProbeSchema.Type
->;
-export type InstalledEvidenceProof = ProtocolType<typeof installedEvidenceProofSchema.Type>;
+export type InstalledEvidenceFingerprint = typeof installedEvidenceFingerprintSchema.Type;
+export type InstalledEvidenceDirectoryFingerprint =
+  typeof installedEvidenceDirectoryFingerprintSchema.Type;
+export type InstalledEvidenceResolutionProbe = typeof installedEvidenceResolutionProbeSchema.Type;
+export type InstalledEvidenceProof = typeof installedEvidenceProofSchema.Type;
 
 const decodeInstalledEvidenceProof = Schema.decodeUnknownResult(installedEvidenceProofSchema, {
   onExcessProperty: "error",
 });
 
 function readInstalledEvidenceProof(value: unknown): InstalledEvidenceProof | undefined {
-  return Result.getOrUndefined(decodeInstalledEvidenceProof(value)) as
-    | InstalledEvidenceProof
-    | undefined;
+  return Result.getOrUndefined(decodeInstalledEvidenceProof(value));
 }
 
 export type ObserveInstalledEvidenceFile = (

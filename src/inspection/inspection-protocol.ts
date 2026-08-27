@@ -1,4 +1,4 @@
-import { Effect, Result, Schema } from "effect";
+import { Effect, Predicate, Result, Schema } from "effect";
 
 import { invokeInspectionCore } from "#typepeek/inspection/core";
 import type {
@@ -8,34 +8,36 @@ import type {
 import type { InspectionFailure, InspectionOutcome } from "#typepeek/inspection/protocol";
 import { protocolRecoveryGuidance } from "#typepeek/inspection/protocol-recovery";
 import {
-  INSPECTION_INTENTS,
+  inspectionIntentSchema,
+  inspectionProtocolResponseOptionsSchema,
   INSPECTION_PROTOCOL_VERSION,
   type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
 import {
   projectInspectionOutcome,
-  SIGNATURE_EVIDENCE_KINDS,
   signatureEvidenceProjection,
 } from "#typepeek/inspection/signature-evidence-projection";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
 const PROTOCOL_ENVELOPE_FIELDS = ["protocolVersion", "intent", "request", "response"] as const;
 const PROTOCOL_RESPONSE_OPTION_FIELDS = ["signatureEvidence"] as const;
+const definedResponseSchema = Schema.Unknown.check(
+  Schema.makeFilter(Predicate.isNotUndefined, { expected: "a defined response" }),
+);
 const protocolEnvelopeSchema = Schema.Struct({
   protocolVersion: Schema.String.check(
     Schema.makeFilter((version) => Buffer.byteLength(version) <= 64, {
       expected: "a bounded protocol version",
     }),
   ),
-  intent: Schema.Literals(INSPECTION_INTENTS),
+  intent: inspectionIntentSchema,
   request: Schema.Unknown,
-  response: Schema.optional(Schema.Unknown),
-});
-const signatureEvidenceOptionsSchema = Schema.Struct({
-  signatureEvidence: Schema.Literals(SIGNATURE_EVIDENCE_KINDS),
+  response: Schema.optionalKey(definedResponseSchema),
 });
 const decodeProtocolEnvelope = Schema.decodeUnknownResult(protocolEnvelopeSchema);
-const decodeSignatureEvidenceOptions = Schema.decodeUnknownResult(signatureEvidenceOptionsSchema);
+const decodeSignatureEvidenceOptions = Schema.decodeUnknownResult(
+  inspectionProtocolResponseOptionsSchema,
+);
 type ProtocolEnvelope = typeof protocolEnvelopeSchema.Type;
 
 /** Validates and dispatches one Inspection Protocol request through the Inspection Core. */
