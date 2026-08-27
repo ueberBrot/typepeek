@@ -37,8 +37,8 @@ import {
   projectPublicDeclaration,
   type PublicDeclarationProjectionContext,
   publicDeclarations,
+  renderPublicDeclaration,
 } from "#typepeek/inspection/public-declaration-projection";
-import { renderPublicDeclaration } from "#typepeek/inspection/public-declaration-rendering";
 import {
   type FocusedInspectionConstruction,
   type InspectionResultConstruction,

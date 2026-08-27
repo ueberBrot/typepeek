@@ -1,42 +1,14 @@
-import { expect, expectTypeOf, it } from "vite-plus/test";
+import { expect, it } from "vite-plus/test";
 
 import {
   enforceAnalysisRequestOutcome,
-  enforceDeclarationInspectionOutcome,
   enforceInspectionOutcome,
-  enforceInspectionPlanOutcome,
-  enforceMemberInspectionOutcome,
-  type ExportDeclarationSpace,
-  type ExportInspection,
-  type ExportNamespaceMember,
-  type InterfaceOverview,
-  type ModuleExportIndexEntry,
-  type PackageIdentity,
-  type PublicSubpath,
-} from "#typepeek/inspection/protocol";
-import { compareInterfaceOverviews } from "#typepeek/inspection/public-interface-comparison";
-import {
-  readAnalysisRequest,
-  readInspectionRequest,
-} from "#typepeek/inspection/request-definitions";
+} from "#typepeek/inspection/inspection-outcome-authority";
+import { type NormalizedInspectionPlanRequest } from "#typepeek/inspection/protocol";
 
-it("normalizes the default Access Style at the process-entry protocol seam", () => {
-  expect(
-    readInspectionRequest("interface-overview", {
-      resolutionContext: "/repository",
-      specifier: "example",
-      accessStyle: undefined,
-      ignoredTransportField: true,
-    }),
-  ).toEqual({
-    accepted: true,
-    request: {
-      resolutionContext: "/repository",
-      specifier: "example",
-      accessStyle: "import",
-    },
-  });
-});
+function enforceInspectionPlanOutcome(request: NormalizedInspectionPlanRequest, value: unknown) {
+  return enforceAnalysisRequestOutcome({ intent: "inspection-plan", request }, value);
+}
 
 it("correlates direct declaration and Member outcomes with their exact requests", () => {
   const declaration = {
@@ -74,16 +46,25 @@ it("correlates direct declaration and Member outcomes with their exact requests"
     accessStyle: "import",
   } as const;
   expect(
-    enforceDeclarationInspectionOutcome({ ...target, exportName: "Example" }, declaration),
+    enforceAnalysisRequestOutcome(
+      { intent: "declaration-inspection", request: { ...target, exportName: "Example" } },
+      declaration,
+    ),
   ).toEqual(declaration);
   expect(
-    enforceDeclarationInspectionOutcome({ ...target, exportName: "Other" }, declaration),
+    enforceAnalysisRequestOutcome(
+      { intent: "declaration-inspection", request: { ...target, exportName: "Other" } },
+      declaration,
+    ),
   ).toMatchObject({
     status: "unsupported",
   });
   expect(
-    enforceDeclarationInspectionOutcome(
-      { ...target, specifier: "other", exportName: "Example" },
+    enforceAnalysisRequestOutcome(
+      {
+        intent: "declaration-inspection",
+        request: { ...target, specifier: "other", exportName: "Example" },
+      },
       declaration,
     ),
   ).toMatchObject({ status: "unsupported" });
@@ -112,29 +93,46 @@ it("correlates direct declaration and Member outcomes with their exact requests"
     },
   } as const;
   expect(
-    enforceMemberInspectionOutcome(
-      { ...target, exportName: "Example", memberPath: ["value"] },
+    enforceAnalysisRequestOutcome(
+      {
+        intent: "member-inspection",
+        request: { ...target, exportName: "Example", memberPath: ["value"] },
+      },
       member,
     ),
   ).toEqual(member);
   expect(
-    enforceMemberInspectionOutcome(
-      { ...target, exportName: "Other", memberPath: ["value"] },
+    enforceAnalysisRequestOutcome(
+      {
+        intent: "member-inspection",
+        request: { ...target, exportName: "Other", memberPath: ["value"] },
+      },
       member,
     ),
   ).toMatchObject({
     status: "unsupported",
   });
   expect(
-    enforceMemberInspectionOutcome(
-      { ...target, accessStyle: "require", exportName: "Example", memberPath: ["value"] },
+    enforceAnalysisRequestOutcome(
+      {
+        intent: "member-inspection",
+        request: {
+          ...target,
+          accessStyle: "require",
+          exportName: "Example",
+          memberPath: ["value"],
+        },
+      },
       member,
     ),
   ).toMatchObject({ status: "unsupported" });
   const overlongPath = Array.from({ length: 17 }, () => "value");
   expect(
-    enforceMemberInspectionOutcome(
-      { ...target, exportName: "Example", memberPath: overlongPath },
+    enforceAnalysisRequestOutcome(
+      {
+        intent: "member-inspection",
+        request: { ...target, exportName: "Example", memberPath: overlongPath },
+      },
       {
         ...member,
         result: { ...member.result, memberPath: overlongPath },
@@ -143,8 +141,11 @@ it("correlates direct declaration and Member outcomes with their exact requests"
   ).toMatchObject({ status: "unsupported" });
   const oversizedPath = ["x".repeat(257)];
   expect(
-    enforceMemberInspectionOutcome(
-      { ...target, exportName: "Example", memberPath: oversizedPath },
+    enforceAnalysisRequestOutcome(
+      {
+        intent: "member-inspection",
+        request: { ...target, exportName: "Example", memberPath: oversizedPath },
+      },
       {
         ...member,
         result: { ...member.result, memberPath: oversizedPath },
@@ -152,205 +153,17 @@ it("correlates direct declaration and Member outcomes with their exact requests"
     ),
   ).toMatchObject({ status: "unsupported" });
   expect(
-    enforceMemberInspectionOutcome(
-      { ...target, exportName: "Example", memberPath: ["value"] },
+    enforceAnalysisRequestOutcome(
+      {
+        intent: "member-inspection",
+        request: { ...target, exportName: "Example", memberPath: ["value"] },
+      },
       {
         ...member,
         result: { ...member.result, declarations: [] },
       },
     ),
   ).toMatchObject({ status: "unsupported" });
-});
-
-it("normalizes a bounded inspection plan at the process-entry protocol seam", () => {
-  expect(
-    readInspectionRequest("inspection-plan", {
-      resolutionContext: "/repository",
-      specifier: "example",
-      queries: [
-        { intent: "interface-overview" },
-        { intent: "signature-inspection", exportName: "createExample" },
-        { intent: "export-search", query: "example" },
-        { intent: "public-subpath-discovery" },
-        { intent: "declaration-inspection", exportName: "createExample" },
-        { intent: "member-inspection", exportName: "Example", memberPath: ["value"] },
-      ],
-    }),
-  ).toEqual({
-    accepted: true,
-    request: {
-      resolutionContext: "/repository",
-      specifier: "example",
-      accessStyle: "import",
-      queries: [
-        { intent: "interface-overview" },
-        { intent: "signature-inspection", exportName: "createExample" },
-        { intent: "export-search", query: "example" },
-        { intent: "public-subpath-discovery" },
-        { intent: "declaration-inspection", exportName: "createExample" },
-        { intent: "member-inspection", exportName: "Example", memberPath: ["value"] },
-      ],
-    },
-  });
-});
-
-it("normalizes declaration and bounded member requests without invoking array accessors", () => {
-  const target = { resolutionContext: "/repository", specifier: "example" };
-  expect(
-    readInspectionRequest("declaration-inspection", {
-      ...target,
-      exportName: "createExample",
-    }),
-  ).toMatchObject({
-    accepted: true,
-    request: { ...target, accessStyle: "import", exportName: "createExample" },
-  });
-  expect(
-    readInspectionRequest("member-inspection", {
-      ...target,
-      exportName: "Example",
-      memberPath: ["nested", "value"],
-    }),
-  ).toMatchObject({
-    accepted: true,
-    request: {
-      ...target,
-      accessStyle: "import",
-      exportName: "Example",
-      memberPath: ["nested", "value"],
-    },
-  });
-
-  let accessorRead = false;
-  const accessorPath = Array.from({ length: 1 }) as string[];
-  Object.defineProperty(accessorPath, "0", {
-    enumerable: true,
-    get() {
-      accessorRead = true;
-      return "value";
-    },
-  });
-  expect(
-    readInspectionRequest("member-inspection", {
-      ...target,
-      exportName: "Example",
-      memberPath: accessorPath,
-    }),
-  ).toMatchObject({ accepted: false });
-  expect(accessorRead).toBe(false);
-  expect(
-    readInspectionRequest("member-inspection", {
-      ...target,
-      exportName: "Example",
-      memberPath: [],
-    }),
-  ).toMatchObject({ accepted: false });
-});
-
-it("rejects empty and oversized inspection plans", () => {
-  const target = { resolutionContext: "/repository", specifier: "example" };
-  expect(readInspectionRequest("inspection-plan", { ...target, queries: [] })).toMatchObject({
-    accepted: false,
-  });
-  expect(
-    readInspectionRequest("inspection-plan", {
-      ...target,
-      queries: Array.from({ length: 17 }, () => ({ intent: "interface-overview" })),
-    }),
-  ).toMatchObject({ accepted: false });
-});
-
-it("rejects Inspection Plan query accessors without evaluating them", () => {
-  const target = { resolutionContext: "/repository", specifier: "example" };
-  let arrayAccessorRead = false;
-  const queries = [{ intent: "interface-overview" }];
-  Object.defineProperty(queries, "0", {
-    enumerable: true,
-    get() {
-      arrayAccessorRead = true;
-      return { intent: "interface-overview" };
-    },
-  });
-
-  expect(readInspectionRequest("inspection-plan", { ...target, queries })).toMatchObject({
-    accepted: false,
-  });
-  expect(arrayAccessorRead).toBe(false);
-
-  let intentAccessorRead = false;
-  const query = {
-    get intent(): string {
-      intentAccessorRead = true;
-      return "interface-overview";
-    },
-  };
-  expect(readInspectionRequest("inspection-plan", { ...target, queries: [query] })).toMatchObject({
-    accepted: false,
-  });
-  expect(intentAccessorRead).toBe(false);
-});
-
-it("normalizes lightweight discovery requests", () => {
-  const target = { resolutionContext: "/repository", specifier: "example" };
-  expect(readInspectionRequest("export-search", { ...target, query: "error" })).toEqual({
-    accepted: true,
-    request: { ...target, query: "error", accessStyle: "import" },
-  });
-  expect(readInspectionRequest("public-subpath-discovery", target)).toEqual({
-    accepted: true,
-    request: { ...target, accessStyle: "import" },
-  });
-  expect(readInspectionRequest("export-search", { ...target, query: "" })).toMatchObject({
-    accepted: false,
-  });
-});
-
-it("rejects an invalid Access Style at the process-entry protocol seam", () => {
-  expect(
-    readInspectionRequest("interface-overview", {
-      resolutionContext: "/repository",
-      specifier: "example",
-      accessStyle: "script",
-    }),
-  ).toEqual({
-    accepted: false,
-    outcome: {
-      status: "unsupported",
-      reason: "invalid-request",
-      message: "Inspection received an invalid Interface Overview request.",
-    },
-  });
-});
-
-it("rejects array-shaped records at the process-entry protocol seam", () => {
-  const request = Object.assign([], {
-    resolutionContext: "/repository",
-    specifier: "example",
-  });
-  expect(readInspectionRequest("interface-overview", request)).toEqual({
-    accepted: false,
-    outcome: {
-      status: "unsupported",
-      reason: "invalid-request",
-      message: "Inspection received an invalid Interface Overview request.",
-    },
-  });
-
-  const envelope = Object.assign([], {
-    intent: "interface-overview",
-    request: {
-      resolutionContext: "/repository",
-      specifier: "example",
-    },
-  });
-  expect(readAnalysisRequest(envelope)).toEqual({
-    accepted: false,
-    outcome: {
-      status: "unsupported",
-      reason: "invalid-request",
-      message: "Inspection received an invalid request.",
-    },
-  });
 });
 
 it("rejects a structurally incomplete successful Inspection Outcome", () => {
@@ -443,26 +256,6 @@ it("correlates every simple successful result with its complete normalized reque
       search,
     ),
   ).toEqual(invalid);
-});
-
-it("applies one aggregate result-construction budget to a comparison delta", () => {
-  const overview = (prefix: string) => ({
-    intent: "interface-overview" as const,
-    specifier: "example",
-    resolutionVariant: { accessStyle: "import" as const },
-    packageIdentity: { name: "example" },
-    publicSubpaths: [],
-    moduleExports: Array.from({ length: 200 }, (_, index) => ({
-      name: `${prefix}-${String(index).padStart(3, "0")}-${"x".repeat(150)}`,
-    })),
-  });
-
-  expect(compareInterfaceOverviews(overview("before"), overview("after"))).toEqual({
-    status: "limit-exceeded",
-    reason: "budget-exceeded",
-    exceededBudget: "result-construction",
-    message: "Inspection exceeded its output limit.",
-  });
 });
 
 it("accepts an atomic Inspection Plan result for its requested intent", () => {
@@ -827,74 +620,6 @@ it.each([
   expect(enforceInspectionOutcome("signature-inspection", outcome)).toEqual(outcome);
 });
 
-it("normalizes an Export Inspection request at the process-entry protocol seam", () => {
-  expect(
-    readInspectionRequest("export-inspection", {
-      resolutionContext: "/repository",
-      specifier: "example",
-      exportName: "createExample",
-    }),
-  ).toEqual({
-    accepted: true,
-    request: {
-      resolutionContext: "/repository",
-      specifier: "example",
-      exportName: "createExample",
-      accessStyle: "import",
-    },
-  });
-});
-
-it("discriminates the Export Inspection analysis intent", () => {
-  expect(
-    readAnalysisRequest({
-      intent: "export-inspection",
-      request: {
-        resolutionContext: "/repository",
-        specifier: "example",
-        exportName: "createExample",
-        accessStyle: "require",
-      },
-    }),
-  ).toEqual({
-    accepted: true,
-    request: {
-      intent: "export-inspection",
-      request: {
-        resolutionContext: "/repository",
-        specifier: "example",
-        exportName: "createExample",
-        accessStyle: "require",
-      },
-    },
-  });
-});
-
-it("normalizes and discriminates a Signature Inspection request", () => {
-  const request = {
-    resolutionContext: "/repository",
-    specifier: "example",
-    exportName: "createExample",
-  };
-
-  expect(readInspectionRequest("signature-inspection", request)).toEqual({
-    accepted: true,
-    request: { ...request, accessStyle: "import" },
-  });
-  expect(
-    readAnalysisRequest({
-      intent: "signature-inspection",
-      request: { ...request, accessStyle: "require" },
-    }),
-  ).toEqual({
-    accepted: true,
-    request: {
-      intent: "signature-inspection",
-      request: { ...request, accessStyle: "require" },
-    },
-  });
-});
-
 it("accepts only the bounded Signature Inspection result shape", () => {
   const outcome = {
     status: "success",
@@ -1065,37 +790,7 @@ it("rejects accessor properties without evaluating them", () => {
   });
 });
 
-it("contains throwing accessors on non-record parser inputs", () => {
-  const request: unknown[] = [];
-  Object.defineProperty(request, "resolutionContext", {
-    get() {
-      throw new Error("request getter was evaluated");
-    },
-  });
-  expect(readInspectionRequest("interface-overview", request)).toEqual({
-    accepted: false,
-    outcome: {
-      status: "unsupported",
-      reason: "invalid-request",
-      message: "Inspection received an invalid Interface Overview request.",
-    },
-  });
-
-  const envelope: unknown[] = [];
-  Object.defineProperty(envelope, "intent", {
-    get() {
-      throw new Error("envelope getter was evaluated");
-    },
-  });
-  expect(readAnalysisRequest(envelope)).toEqual({
-    accepted: false,
-    outcome: {
-      status: "unsupported",
-      reason: "invalid-request",
-      message: "Inspection received an invalid request.",
-    },
-  });
-
+it("contains throwing accessors on non-record outcome inputs", () => {
   const outcome: unknown[] = [];
   Object.defineProperties(outcome, {
     status: { value: "not-found" },
@@ -1109,26 +804,6 @@ it("contains throwing accessors on non-record parser inputs", () => {
     status: "unsupported",
     reason: "invalid-result",
     message: "Inspection returned an invalid result.",
-  });
-});
-
-it("rejects request fields that change after schema validation", () => {
-  let specifierReads = 0;
-  const request = {
-    resolutionContext: "/repository",
-    get specifier() {
-      specifierReads += 1;
-      return specifierReads === 1 ? "example" : 42;
-    },
-  };
-
-  expect(readInspectionRequest("interface-overview", request)).toEqual({
-    accepted: false,
-    outcome: {
-      status: "unsupported",
-      reason: "invalid-request",
-      message: "Inspection received an invalid Interface Overview request.",
-    },
   });
 });
 
@@ -1359,43 +1034,6 @@ it("preserves optional undefined values accepted by the process-entry protocol",
   };
 
   expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual(outcome);
-});
-
-it("derives the existing deeply readonly protocol types", () => {
-  const assertReadonly = (
-    packageIdentity: PackageIdentity,
-    overview: InterfaceOverview,
-    inspection: ExportInspection,
-  ): void => {
-    // @ts-expect-error Protocol fields remain readonly.
-    packageIdentity.name = "changed";
-    // @ts-expect-error Protocol arrays remain readonly.
-    overview.moduleExports.push({ name: "changed" });
-    // @ts-expect-error Public Subpaths remain readonly.
-    overview.publicSubpaths.push({ specifier: "changed" });
-    // @ts-expect-error Nested Protocol arrays remain readonly.
-    inspection.moduleExport.spaces.push({ space: "namespace", members: [] });
-  };
-
-  type AcceptsExplicitUndefined = {
-    readonly name: string;
-    readonly version: undefined;
-  } extends PackageIdentity
-    ? true
-    : false;
-  type PackageIdentityHasStringIndex = string extends keyof PackageIdentity ? true : false;
-
-  expectTypeOf(assertReadonly).toBeFunction();
-  expectTypeOf<AcceptsExplicitUndefined>().toEqualTypeOf<false>();
-  expectTypeOf<PackageIdentityHasStringIndex>().toEqualTypeOf<false>();
-  expectTypeOf<InterfaceOverview["moduleExports"]>().toEqualTypeOf<
-    readonly ModuleExportIndexEntry[]
-  >();
-  expectTypeOf<InterfaceOverview["publicSubpaths"]>().toEqualTypeOf<readonly PublicSubpath[]>();
-  expectTypeOf<ExportInspection["moduleExport"]["spaces"]>().toEqualTypeOf<
-    readonly ExportDeclarationSpace[]
-  >();
-  expectTypeOf<ExportNamespaceMember["members"][number]>().toEqualTypeOf<ExportNamespaceMember>();
 });
 
 interface MutableNamespaceMember {
