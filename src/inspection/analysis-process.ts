@@ -1,7 +1,10 @@
 import { Effect, Schema } from "effect";
 import { execaNode } from "execa";
 
-import { MAX_ANALYSIS_RESULT_BYTES } from "#typepeek/inspection/budget-policy";
+import {
+  INSPECTION_BUDGET_POLICY,
+  MAX_ANALYSIS_RESULT_BYTES,
+} from "#typepeek/inspection/budget-policy";
 import {
   readInspectionCacheHitNotice,
   removeInspectionCacheEntry,
@@ -43,7 +46,7 @@ class AnalysisProcessExecutionError extends Schema.TaggedError<AnalysisProcessEx
 
 const PRODUCTION_LIMITS: AnalysisProcessLimits = {
   deadlineMilliseconds: 10_000,
-  maxHeapMegabytes: 128,
+  maxHeapMegabytes: INSPECTION_BUDGET_POLICY.analysisHeapMegabytes,
   maxResultBytes: MAX_ANALYSIS_RESULT_BYTES,
   maxDiagnosticBytes: 64 * 1_024,
 };

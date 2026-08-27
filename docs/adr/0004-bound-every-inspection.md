@@ -4,7 +4,7 @@ Every inspection is bounded in work, memory, traversal, and output. Exceeding a 
 
 ## Isolation
 
-Inspection Core starts one execa-managed Node subprocess per normalized request. It accepts one JSON result over byte-limited stdout only after exit code zero. The parent enforces a 10-second deadline, 100-millisecond kill escalation, 128 MiB old-generation heap, and 4 MiB stack. Caller Fiber interruption aborts the execa-managed subprocess and waits for its exit under the same kill escalation before interruption completes. Process launch and asynchronous transport failures use a private typed Effect error and become the same deterministic `analysis-terminated` outcome as a non-zero process exit; they never escape the Inspection Core as defects. A process, rather than a worker thread, provides independent termination and startup-time memory enforcement.
+Inspection Core starts one execa-managed Node subprocess per normalized request. It accepts one JSON result over byte-limited stdout only after exit code zero. The parent enforces a 10-second deadline, 100-millisecond kill escalation, 192 MiB old-generation heap, and 4 MiB stack. Caller Fiber interruption aborts the execa-managed subprocess and waits for its exit under the same kill escalation before interruption completes. Process launch and asynchronous transport failures use a private typed Effect error and become the same deterministic `analysis-terminated` outcome as a non-zero process exit; they never escape the Inspection Core as defects. A process, rather than a worker thread, provides independent termination and startup-time memory enforcement.
 
 The subprocess boundary remains a direct Execa adapter rather than a Context/Layer service. There is one production launcher, its fixture variation is already expressed by bounded entrypoint and limit inputs, and lifecycle tests intentionally exercise the real operating-system process seam. A service environment would add provision requirements to the canonical Inspection Core Effect without adding a second runtime implementation or stronger cleanup. Reconsider that choice if another launcher implementation becomes a real application dependency.
 
@@ -22,7 +22,7 @@ A Public Interface Comparison owns exactly two independent normalized Interface 
 | Inspection Plan                                 | 1 through 16 ordered queries; all-or-nothing result                    |
 | Public Interface Comparison                     | exactly 2 bounded Interface Overviews; all-or-nothing delta            |
 | Terminal / JSON adapter output                  | 128 / 128 KiB                                                          |
-| Compiler host                                   | 50,000 operations; 8 MiB resolution reads; 384 files; 4 MiB source     |
+| Compiler host                                   | 50,000 operations; 8 MiB resolution reads; 384 files; 8 MiB source     |
 | Trusted standard-library catalog                | 128 files; 4 MiB source; 20,000 global names                           |
 | Manifests                                       | 256 KiB each                                                           |
 | Package search / export targets                 | depth 64; 1,024 targets at depth 32                                    |
@@ -60,4 +60,4 @@ Cache filesystem work remains synchronous and best-effort by design. It has one 
 
 These defensive thresholds come from adversarial fixtures and supported package matrices; they are not a latency, capacity, or compatibility SLA. Unchanged Installed Evidence must produce the same complete result or the same explicit limit outcome independent of timing. Thresholds may change when supported installations justify it.
 
-`INSPECTION_BUDGET_POLICY_VERSION` is the single cache identity for this complete policy and must be bumped whenever any threshold or accounting rule changes. Storage schema and cache-semantics versions are separate migration identities and change only with their respective implementation contracts.
+`INSPECTION_BUDGET_POLICY.identity` is the single cache identity for this complete policy and must change whenever any threshold or accounting rule changes. Storage schema and cache-semantics versions are separate migration identities and change only with their respective implementation contracts.

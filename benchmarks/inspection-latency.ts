@@ -4,40 +4,28 @@ import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { parseArgs } from "node:util";
 
+import { enforceInspectionOutcome } from "#typepeek/inspection/inspection-outcome-authority";
 import {
   decodeInspectionProfile,
   type InspectionProfile,
 } from "#typepeek/inspection/performance-profile";
+import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 
+import { readLatencyWorkloadName, selectLatencyWorkloads } from "./latency-workloads.ts";
 import {
-  type BenchmarkLatencyCaseName,
   encodeInspectionLatencyReport,
   type InspectionLatencyReport,
 } from "./regression-policy.ts";
 
-interface BenchmarkCase {
-  readonly name: BenchmarkLatencyCaseName;
-  readonly arguments_: readonly string[];
-}
-
 type DurationSummary = InspectionLatencyReport["cases"][number]["wallMilliseconds"];
 type LatencyCaseReport = InspectionLatencyReport["cases"][number];
-
-const benchmarkCases: readonly BenchmarkCase[] = [
-  { name: "interface-overview", arguments_: ["overview", "execa", "--json"] },
-  {
-    name: "signature-inspection",
-    arguments_: ["signatures", "execa", "execa", "--json"],
-  },
-  { name: "export-search", arguments_: ["search", "execa", "error", "--json"] },
-  { name: "public-subpath-discovery", arguments_: ["subpaths", "execa", "--json"] },
-] satisfies readonly BenchmarkCase[];
+type LatencyWorkload = ReturnType<typeof selectLatencyWorkloads>[number];
 
 const options = readOptions(process.argv.slice(2));
 const executable = adapterEntrypoint(options.adapter);
 const cases: LatencyCaseReport[] = [];
 
-for (const benchmarkCase of benchmarkCases) {
+for (const benchmarkCase of selectLatencyWorkloads(options.caseName)) {
   const analysisMaxRssBytes: number[] = [];
   const durations: number[] = [];
   const statuses: string[] = [];
@@ -48,13 +36,21 @@ for (const benchmarkCase of benchmarkCases) {
       process.execPath,
       [executable, ...benchmarkCase.arguments_, "--context", resolve(".")],
       {
-        ...(options.adapter === "source" ? { env: { TYPEPEEK_PROFILE: "1" } } : {}),
+        env: {
+          TYPEPEEK_CACHE_BYPASS: "1",
+          ...(options.adapter === "source" ? { TYPEPEEK_PROFILE: "1" } : {}),
+        },
         reject: false,
       },
     );
     durations.push(roundedMilliseconds(performance.now() - startedAt));
-    const outcome = JSON.parse(result.stdout) as { readonly status?: unknown };
-    statuses.push(typeof outcome.status === "string" ? outcome.status : "invalid");
+    const value: unknown = JSON.parse(result.stdout);
+    const outcome = enforceInspectionOutcome(benchmarkCase.expectation.intent, value);
+    statuses.push(
+      result.exitCode === 0 && matchesSemanticExpectation(benchmarkCase, outcome)
+        ? "success"
+        : "invalid",
+    );
     const profile = readProfile(result.stderr, options.adapter);
     if (profile.maxRssBytes !== undefined) {
       analysisMaxRssBytes.push(profile.maxRssBytes);
@@ -79,6 +75,38 @@ for (const benchmarkCase of benchmarkCases) {
   });
 }
 
+function matchesSemanticExpectation(
+  workload: LatencyWorkload,
+  outcome: InspectionOutcome,
+): boolean {
+  if (outcome.status !== "success") {
+    return false;
+  }
+  const { expectation } = workload;
+  const { result } = outcome;
+  if (result.intent !== expectation.intent || result.specifier !== expectation.specifier) {
+    return false;
+  }
+  switch (expectation.intent) {
+    case "interface-overview":
+      return result.intent === "interface-overview" && result.moduleExports.length > 0;
+    case "public-subpath-discovery":
+      return result.intent === "public-subpath-discovery" && result.publicSubpaths.length > 0;
+    case "export-search":
+      return (
+        result.intent === "export-search" &&
+        result.query === expectation.query &&
+        result.matches.length === expectation.matchCount
+      );
+    case "signature-inspection":
+      return (
+        result.intent === "signature-inspection" &&
+        result.moduleExport.name === expectation.exportName &&
+        result.moduleExport.signatures.length > 0
+      );
+  }
+}
+
 const report: InspectionLatencyReport = {
   kind: "inspection-latency-benchmark",
   schemaVersion: 1,
@@ -94,6 +122,7 @@ process.stdout.write(
 
 function readOptions(arguments_: readonly string[]): {
   readonly adapter: "build" | "package" | "source";
+  readonly caseName: ReturnType<typeof readLatencyWorkloadName> | undefined;
   readonly iterations: number;
   readonly json: boolean;
 } {
@@ -101,6 +130,7 @@ function readOptions(arguments_: readonly string[]): {
     args: arguments_,
     options: {
       adapter: { type: "string", default: "source" },
+      case: { type: "string" },
       iterations: { type: "string", default: "5" },
       json: { type: "boolean", default: false },
     },
@@ -108,6 +138,7 @@ function readOptions(arguments_: readonly string[]): {
   });
   return {
     adapter: readAdapter(values.adapter),
+    caseName: values.case === undefined ? undefined : readLatencyWorkloadName(values.case),
     iterations: readIterations(values.iterations),
     json: values.json,
   };

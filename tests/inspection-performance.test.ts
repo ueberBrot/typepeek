@@ -25,35 +25,27 @@ it("benchmarks successful source-checkout inspections through the CLI seam", asy
   ]);
 
   expect(result.stderr).toBe("");
-  expect(JSON.parse(result.stdout)).toMatchObject({
+  const report = JSON.parse(result.stdout) as {
+    readonly cases: readonly {
+      readonly analysisMaxRssBytes?: { readonly max: number };
+      readonly name: string;
+      readonly statuses: readonly string[];
+    }[];
+  };
+  expect(report).toMatchObject({
     kind: "inspection-latency-benchmark",
     schemaVersion: 1,
     adapter: "source",
     iterations: 1,
-    cases: [
-      {
-        analysisMaxRssBytes: { max: expect.any(Number) },
-        name: "interface-overview",
-        statuses: ["success"],
-      },
-      {
-        analysisMaxRssBytes: { max: expect.any(Number) },
-        name: "signature-inspection",
-        statuses: ["success"],
-      },
-      {
-        analysisMaxRssBytes: { max: expect.any(Number) },
-        name: "export-search",
-        statuses: ["success"],
-      },
-      {
-        analysisMaxRssBytes: { max: expect.any(Number) },
-        name: "public-subpath-discovery",
-        statuses: ["success"],
-      },
-    ],
   });
-});
+  expect(report.cases.map(({ name }) => name)).toEqual(REQUIRED_LATENCY_CASES);
+  expect(report.cases.every(({ analysisMaxRssBytes }) => analysisMaxRssBytes !== undefined)).toBe(
+    true,
+  );
+  expect(report.cases.flatMap(({ statuses }) => statuses)).toEqual(
+    Array.from({ length: REQUIRED_LATENCY_CASES.length }, () => "success"),
+  );
+}, 120_000);
 
 it("measures agent protocol projection and recovery workloads", async () => {
   const result = await execa(process.execPath, ["benchmarks/agent-protocol.ts"]);
@@ -85,7 +77,7 @@ it("measures agent protocol projection and recovery workloads", async () => {
 
 const passingLatencyCases = REQUIRED_LATENCY_CASES.map(passingLatencyCase);
 const passingWorkloads = REQUIRED_AGENT_WORKLOADS.map(passingWorkload);
-const signatureLatencyCase = passingLatencyCase("signature-inspection");
+const signatureLatencyCase = passingLatencyCase("effect-signature-inspection");
 const payloadWorkload = passingWorkload("execa-invocation");
 const passingMeasurements: BenchmarkMeasurements = {
   analysisMaxRssBytes: BENCHMARK_LIMITS.maxAnalysisRssBytes,
@@ -191,7 +183,7 @@ it.each(failingMeasurements)("fails the %s gate when its boundary regresses", (n
 it("rejects omitted or duplicated required latency cases", () => {
   for (const packageLatencyCases of [
     passingLatencyCases.slice(1),
-    [passingLatencyCase("interface-overview"), ...passingLatencyCases],
+    [passingLatencyCase("effect-interface-overview"), ...passingLatencyCases],
   ]) {
     const report = evaluateBenchmarkGates({ ...passingMeasurements, packageLatencyCases });
     expect(report.checks).toEqual(

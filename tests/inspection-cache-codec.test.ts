@@ -2,7 +2,7 @@ import ts from "@typescript/typescript6";
 import { createHash } from "node:crypto";
 import { expect, it } from "vite-plus/test";
 
-import { INSPECTION_BUDGET_POLICY_VERSION } from "#typepeek/inspection/budget-policy";
+import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
 import {
   createInspectionCacheIdentity,
   createInspectionCacheWriteReceipt,
@@ -42,7 +42,7 @@ const selection = {
 it("preserves canonical cache identity serialization and its SHA-256 key", () => {
   const identity = createInspectionCacheIdentity(request, selection);
   const expectedSerialized = JSON.stringify({
-    budgetVersion: INSPECTION_BUDGET_POLICY_VERSION,
+    budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
     cacheSemanticsVersion: "2",
     compilerVersion: ts.version,
     evidence: {
