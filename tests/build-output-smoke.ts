@@ -88,6 +88,7 @@ const inspectionApi = (await import(inspectionApiPath)) as {
   readonly inspectExportSearch: unknown;
   readonly inspectPublicSubpaths: unknown;
   readonly inspectCapabilities: unknown;
+  readonly inspectionCapabilitiesSchema: unknown;
   readonly comparePublicInterfaces: unknown;
   readonly invokeInspectionProtocol: unknown;
 };
@@ -110,5 +111,6 @@ assert.equal(
 assert.equal(typeof inspectionApi.inspectExportSearch, "function");
 assert.equal(typeof inspectionApi.inspectPublicSubpaths, "function");
 assert.equal(typeof inspectionApi.inspectCapabilities, "function");
+assert.equal(typeof inspectionApi.inspectionCapabilitiesSchema, "function");
 assert.equal(typeof inspectionApi.comparePublicInterfaces, "function");
 assert.equal(typeof inspectionApi.invokeInspectionProtocol, "function");

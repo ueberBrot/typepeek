@@ -21,57 +21,21 @@ import {
   type AnalysisIntent,
   type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
+import {
+  deriveInspectionRequestDescriptor,
+  type SchemaDerivedRequestDescriptor,
+  withRequestFieldCapability,
+} from "#typepeek/inspection/request-capability";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
-
-export type RequestFieldName<Intent extends InspectionIntent> = Extract<
-  keyof InspectionRequestByIntent[Intent],
-  string
->;
-
-export type InspectionRequestFieldDescriptor<Name extends string = string> =
-  | {
-      readonly name: Name;
-      readonly kind: "string";
-      readonly required: boolean;
-      readonly format?: "absolute-path";
-      readonly minBytes?: number;
-      readonly maxBytes?: number;
-    }
-  | {
-      readonly name: Name;
-      readonly kind: "enum";
-      readonly required: boolean;
-      readonly values: readonly string[];
-      readonly default?: string;
-    }
-  | {
-      readonly name: Name;
-      readonly kind: "inspection-plan-queries" | "member-path";
-      readonly required: boolean;
-      readonly minItems: number;
-      readonly maxItems: number;
-      readonly maxItemBytes?: number;
-    }
-  | {
-      readonly name: Name;
-      readonly kind: "inspection-target";
-      readonly required: true;
-      readonly resolutionContextFormat: "absolute-path";
-    };
-
-export type InspectionRequestDescriptor<Intent extends InspectionIntent = InspectionIntent> = {
-  readonly [CurrentIntent in Intent]: {
-    readonly intent: CurrentIntent;
-    readonly fields: readonly InspectionRequestFieldDescriptor<RequestFieldName<CurrentIntent>>[];
-    readonly example: InspectionRequestByIntent[CurrentIntent];
-  };
-}[Intent];
 
 type InspectionRequestDefinition<
   Intent extends InspectionIntent,
-  RequestSchema extends Schema.ConstraintDecoder<NormalizedInspectionRequestByIntent[Intent]> =
-    Schema.ConstraintDecoder<NormalizedInspectionRequestByIntent[Intent]>,
-> = InspectionRequestDescriptor<Intent> & {
+  RequestSchema extends Schema.Struct<Schema.Struct.Fields> &
+    Schema.ConstraintDecoder<NormalizedInspectionRequestByIntent[Intent]> =
+    Schema.Struct<Schema.Struct.Fields> &
+      Schema.ConstraintDecoder<NormalizedInspectionRequestByIntent[Intent]>,
+> = {
+  readonly intent: Intent;
   readonly schema: RequestSchema;
   readonly envelopeSchema: Schema.Struct<{
     readonly intent: Schema.Literal<Intent>;
@@ -81,55 +45,137 @@ type InspectionRequestDefinition<
   readonly read: (value: unknown) => NormalizedInspectionRequestByIntent[Intent] | undefined;
 };
 
-const TARGET_FIELDS = [
-  {
-    name: "resolutionContext",
-    kind: "string",
-    required: true,
-    format: "absolute-path",
-  },
-  { name: "specifier", kind: "string", required: true },
-  {
-    name: "accessStyle",
-    kind: "enum",
-    required: false,
-    values: ["import", "require"],
-    default: "import",
-  },
-] as const;
-const EXPORT_NAME_FIELD = { name: "exportName", kind: "string", required: true } as const;
+type RequestFieldEntry = readonly [name: string, schema: Schema.Top];
+type RequestFields<Entries extends readonly RequestFieldEntry[]> = {
+  readonly [Entry in Entries[number] as Entry[0]]: Entry[1];
+};
+type RequestFieldNames<Entries extends readonly RequestFieldEntry[]> = {
+  readonly [Index in keyof Entries]: Entries[Index][0];
+};
+
+function requestFields<const Entries extends readonly RequestFieldEntry[]>(
+  entries: Entries,
+): RequestFields<Entries> {
+  return Object.fromEntries(entries) as RequestFields<Entries>;
+}
+
+function requestFieldNames<const Entries extends readonly RequestFieldEntry[]>(
+  entries: Entries,
+): RequestFieldNames<Entries> {
+  return Object.freeze(entries.map(([name]) => name)) as RequestFieldNames<Entries>;
+}
 
 const accessStyleSchema = Schema.Literals(["import", "require"]);
-const normalizedTargetFields = {
-  resolutionContext: Schema.String.check(
-    Schema.makeFilter(isAbsolute, { expected: "an absolute path" }),
-  ),
-  specifier: Schema.String,
-  accessStyle: accessStyleSchema.pipe(Schema.withDecodingDefault(Effect.succeed("import"))),
-} as const;
-const normalizedTargetSchema = Schema.Struct(normalizedTargetFields);
-const normalizedExportSchema = Schema.Struct({
-  ...normalizedTargetFields,
-  exportName: Schema.String,
-});
-const normalizedExportSearchSchema = Schema.Struct({
-  ...normalizedTargetFields,
-  query: Schema.String.check(
+const resolutionContextSchema = withRequestFieldCapability(
+  Schema.String.check(Schema.makeFilter(isAbsolute, { expected: "an absolute path" })),
+  { kind: "string", format: "absolute-path" },
+);
+const specifierSchema = withRequestFieldCapability(Schema.String, { kind: "string" });
+const requestAccessStyleSchema = withRequestFieldCapability(
+  accessStyleSchema.pipe(Schema.withDecodingDefault(Effect.succeed("import"))),
+  { kind: "enum", values: accessStyleSchema.literals, default: "import" },
+);
+const exportNameSchema = withRequestFieldCapability(Schema.String, { kind: "string" });
+const exportSearchQuerySchema = withRequestFieldCapability(
+  Schema.String.check(
     Schema.makeFilter(isBoundedExportSearchQuery, { expected: "a bounded search query" }),
   ),
+  { kind: "string", minBytes: 1, maxBytes: MAX_EXPORT_SEARCH_QUERY_BYTES },
+);
+const requestMemberPathSchema = withRequestFieldCapability(memberPathSchema, {
+  kind: "member-path",
+  minItems: 1,
+  maxItems: MAX_MEMBER_PATH_SEGMENTS,
+  maxItemBytes: MAX_MEMBER_PATH_SEGMENT_BYTES,
 });
-const normalizedMemberSchema = Schema.Struct({
-  ...normalizedTargetFields,
-  exportName: Schema.String,
-  memberPath: memberPathSchema,
+const requestPlanQueriesSchema = withRequestFieldCapability(inspectionPlanQueriesSchema, {
+  kind: "inspection-plan-queries",
+  minItems: 1,
+  maxItems: MAX_INSPECTION_PLAN_QUERIES,
 });
-const normalizedPlanSchema = Schema.Struct({
-  ...normalizedTargetFields,
-  queries: inspectionPlanQueriesSchema,
+const TARGET_FIELD_ENTRIES = [
+  ["resolutionContext", resolutionContextSchema],
+  ["specifier", specifierSchema],
+  ["accessStyle", requestAccessStyleSchema],
+] as const;
+const EXPORT_FIELD_ENTRIES = [...TARGET_FIELD_ENTRIES, ["exportName", exportNameSchema]] as const;
+const EXPORT_SEARCH_FIELD_ENTRIES = [
+  ...TARGET_FIELD_ENTRIES,
+  ["query", exportSearchQuerySchema],
+] as const;
+const MEMBER_FIELD_ENTRIES = [
+  ...EXPORT_FIELD_ENTRIES,
+  ["memberPath", requestMemberPathSchema],
+] as const;
+const PLAN_FIELD_ENTRIES = [
+  ...TARGET_FIELD_ENTRIES,
+  ["queries", requestPlanQueriesSchema],
+] as const;
+
+const normalizedTargetSchema = Schema.Struct(requestFields(TARGET_FIELD_ENTRIES)).annotate({
+  inspectionRequestExample: {
+    resolutionContext: "/absolute/path/to/consumer",
+    specifier: "zod",
+  },
 });
-const normalizedComparisonSchema = Schema.Struct({
-  before: normalizedTargetSchema,
-  after: normalizedTargetSchema,
+const normalizedExportSchema = Schema.Struct(requestFields(EXPORT_FIELD_ENTRIES)).annotate({
+  inspectionRequestExample: {
+    resolutionContext: "/absolute/path/to/consumer",
+    specifier: "zod",
+    exportName: "ZodError",
+  },
+});
+const normalizedExportSearchSchema = Schema.Struct(
+  requestFields(EXPORT_SEARCH_FIELD_ENTRIES),
+).annotate({
+  inspectionRequestExample: {
+    resolutionContext: "/absolute/path/to/consumer",
+    specifier: "zod",
+    query: "Error",
+  },
+});
+const normalizedMemberSchema = Schema.Struct(requestFields(MEMBER_FIELD_ENTRIES)).annotate({
+  inspectionRequestExample: {
+    resolutionContext: "/absolute/path/to/consumer",
+    specifier: "zod",
+    exportName: "ZodError",
+    memberPath: ["issues"],
+  },
+});
+const normalizedPlanSchema = Schema.Struct(requestFields(PLAN_FIELD_ENTRIES)).annotate({
+  inspectionRequestExample: {
+    resolutionContext: "/absolute/path/to/consumer",
+    specifier: "zod",
+    queries: [{ intent: "interface-overview" }],
+  },
+});
+const COMPARISON_FIELD_ENTRIES = [
+  [
+    "before",
+    withRequestFieldCapability(normalizedTargetSchema, {
+      kind: "inspection-target",
+      resolutionContextFormat: "absolute-path",
+    }),
+  ],
+  [
+    "after",
+    withRequestFieldCapability(normalizedTargetSchema, {
+      kind: "inspection-target",
+      resolutionContextFormat: "absolute-path",
+    }),
+  ],
+] as const;
+const normalizedComparisonSchema = Schema.Struct(requestFields(COMPARISON_FIELD_ENTRIES)).annotate({
+  inspectionRequestExample: {
+    before: {
+      resolutionContext: "/absolute/path/to/before-consumer",
+      specifier: "zod",
+    },
+    after: {
+      resolutionContext: "/absolute/path/to/after-consumer",
+      specifier: "zod",
+    },
+  },
 });
 export const inspectionRequestSchemas = {
   "interface-overview": normalizedTargetSchema,
@@ -142,6 +188,17 @@ export const inspectionRequestSchemas = {
   "inspection-plan": normalizedPlanSchema,
   "public-interface-comparison": normalizedComparisonSchema,
 } as const satisfies Readonly<Record<InspectionIntent, Schema.Constraint>>;
+export const inspectionRequestFieldNames = Object.freeze({
+  "interface-overview": requestFieldNames(TARGET_FIELD_ENTRIES),
+  "export-inspection": requestFieldNames(EXPORT_FIELD_ENTRIES),
+  "signature-inspection": requestFieldNames(EXPORT_FIELD_ENTRIES),
+  "export-search": requestFieldNames(EXPORT_SEARCH_FIELD_ENTRIES),
+  "public-subpath-discovery": requestFieldNames(TARGET_FIELD_ENTRIES),
+  "declaration-inspection": requestFieldNames(EXPORT_FIELD_ENTRIES),
+  "member-inspection": requestFieldNames(MEMBER_FIELD_ENTRIES),
+  "inspection-plan": requestFieldNames(PLAN_FIELD_ENTRIES),
+  "public-interface-comparison": requestFieldNames(COMPARISON_FIELD_ENTRIES),
+} as const satisfies Readonly<Record<InspectionIntent, readonly string[]>>);
 
 export type InspectionRequestByIntent = {
   readonly [Intent in InspectionIntent]: (typeof inspectionRequestSchemas)[Intent]["Encoded"];
@@ -188,136 +245,48 @@ const REQUEST_DEFINITIONS = Object.freeze({
     intent: "interface-overview",
     schema: inspectionRequestSchemas["interface-overview"],
     invalidOutcome: invalidRequest("Interface Overview"),
-    fields: TARGET_FIELDS,
-    example: { resolutionContext: "/absolute/path/to/consumer", specifier: "zod" },
   }),
   "export-inspection": defineRequest({
     intent: "export-inspection",
     schema: inspectionRequestSchemas["export-inspection"],
     invalidOutcome: invalidRequest("Export Inspection"),
-    fields: [...TARGET_FIELDS, EXPORT_NAME_FIELD],
-    example: {
-      resolutionContext: "/absolute/path/to/consumer",
-      specifier: "zod",
-      exportName: "ZodError",
-    },
   }),
   "signature-inspection": defineRequest({
     intent: "signature-inspection",
     schema: inspectionRequestSchemas["signature-inspection"],
     invalidOutcome: invalidRequest("Signature Inspection"),
-    fields: [...TARGET_FIELDS, EXPORT_NAME_FIELD],
-    example: {
-      resolutionContext: "/absolute/path/to/consumer",
-      specifier: "zod",
-      exportName: "ZodError",
-    },
   }),
   "export-search": defineRequest({
     intent: "export-search",
     schema: inspectionRequestSchemas["export-search"],
     invalidOutcome: invalidRequest("Export Search"),
-    fields: [
-      ...TARGET_FIELDS,
-      {
-        name: "query",
-        kind: "string",
-        required: true,
-        minBytes: 1,
-        maxBytes: MAX_EXPORT_SEARCH_QUERY_BYTES,
-      },
-    ],
-    example: {
-      resolutionContext: "/absolute/path/to/consumer",
-      specifier: "zod",
-      query: "Error",
-    },
   }),
   "public-subpath-discovery": defineRequest({
     intent: "public-subpath-discovery",
     schema: inspectionRequestSchemas["public-subpath-discovery"],
     invalidOutcome: invalidRequest("Public Subpath Discovery"),
-    fields: TARGET_FIELDS,
-    example: { resolutionContext: "/absolute/path/to/consumer", specifier: "zod" },
   }),
   "declaration-inspection": defineRequest({
     intent: "declaration-inspection",
     schema: inspectionRequestSchemas["declaration-inspection"],
     invalidOutcome: invalidRequest("Declaration Inspection"),
-    fields: [...TARGET_FIELDS, EXPORT_NAME_FIELD],
-    example: {
-      resolutionContext: "/absolute/path/to/consumer",
-      specifier: "zod",
-      exportName: "ZodError",
-    },
   }),
   "member-inspection": defineRequest({
     intent: "member-inspection",
     schema: inspectionRequestSchemas["member-inspection"],
     invalidOutcome: invalidRequest("Member Inspection"),
-    fields: [
-      ...TARGET_FIELDS,
-      EXPORT_NAME_FIELD,
-      {
-        name: "memberPath",
-        kind: "member-path",
-        required: true,
-        minItems: 1,
-        maxItems: MAX_MEMBER_PATH_SEGMENTS,
-        maxItemBytes: MAX_MEMBER_PATH_SEGMENT_BYTES,
-      },
-    ],
-    example: {
-      resolutionContext: "/absolute/path/to/consumer",
-      specifier: "zod",
-      exportName: "ZodError",
-      memberPath: ["issues"],
-    },
     prepareCandidate: prepareMemberCandidate,
   }),
   "inspection-plan": defineRequest({
     intent: "inspection-plan",
     schema: inspectionRequestSchemas["inspection-plan"],
     invalidOutcome: invalidRequest("Inspection Plan"),
-    fields: [
-      ...TARGET_FIELDS,
-      {
-        name: "queries",
-        kind: "inspection-plan-queries",
-        required: true,
-        minItems: 1,
-        maxItems: MAX_INSPECTION_PLAN_QUERIES,
-      },
-    ],
-    example: {
-      resolutionContext: "/absolute/path/to/consumer",
-      specifier: "zod",
-      queries: [{ intent: "interface-overview" }],
-    },
     prepareCandidate: preparePlanCandidate,
   }),
   "public-interface-comparison": defineRequest({
     intent: "public-interface-comparison",
     schema: inspectionRequestSchemas["public-interface-comparison"],
     invalidOutcome: invalidRequest("Public Interface Comparison"),
-    fields: [
-      {
-        name: "before",
-        kind: "inspection-target",
-        required: true,
-        resolutionContextFormat: "absolute-path",
-      },
-      {
-        name: "after",
-        kind: "inspection-target",
-        required: true,
-        resolutionContextFormat: "absolute-path",
-      },
-    ],
-    example: {
-      before: { resolutionContext: "/absolute/path/to/before-consumer", specifier: "zod" },
-      after: { resolutionContext: "/absolute/path/to/after-consumer", specifier: "zod" },
-    },
     prepareCandidate: prepareComparisonCandidate,
   }),
 } as const satisfies {
@@ -347,13 +316,11 @@ export type InspectionCoreRequestReading =
 const decodeAnalysisIntent = Schema.decodeUnknownResult(analysisIntentSchema);
 const decodeAnalysisRequest = Schema.decodeUnknownResult(analysisRequestSchema);
 
-export const INSPECTION_REQUEST_DESCRIPTORS = deepFreeze(
-  Object.values(REQUEST_DEFINITIONS).map(({ intent, fields, example }) => ({
-    intent,
-    fields,
-    example,
-  })),
-) as readonly InspectionRequestDescriptor[];
+export const INSPECTION_REQUEST_DESCRIPTORS = Object.freeze(
+  Object.values(REQUEST_DEFINITIONS).map(({ intent, schema }) =>
+    deriveInspectionRequestDescriptor(intent, schema),
+  ),
+) satisfies readonly SchemaDerivedRequestDescriptor[];
 
 /** Validates one untrusted caller request through its published executable definition. */
 export function readInspectionRequest<Intent extends InspectionIntent>(
@@ -420,33 +387,28 @@ export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
 
 function defineRequest<
   Intent extends InspectionIntent,
-  RequestSchema extends Schema.ConstraintDecoder<NormalizedInspectionRequestByIntent[Intent]>,
+  RequestSchema extends Schema.Struct<Schema.Struct.Fields> &
+    Schema.ConstraintDecoder<NormalizedInspectionRequestByIntent[Intent]>,
 >(definition: {
   readonly intent: Intent;
   readonly schema: RequestSchema;
   readonly invalidOutcome: InspectionFailure;
-  readonly fields: readonly InspectionRequestFieldDescriptor<RequestFieldName<Intent>>[];
-  readonly example: InspectionRequestByIntent[Intent];
   readonly prepareCandidate?: (
     candidate: Readonly<Record<string, unknown>>,
   ) => Readonly<Record<string, unknown>> | undefined;
 }): InspectionRequestDefinition<Intent, RequestSchema> {
-  const fieldNames = definition.fields.map(({ name }) => name);
+  const fieldNames = Object.keys(definition.schema.fields);
   const decode = Schema.decodeUnknownResult(definition.schema);
   const envelopeSchema = Schema.Struct({
     intent: Schema.Literal(definition.intent),
     request: definition.schema,
   });
-  deepFreeze(definition.invalidOutcome);
-  deepFreeze(definition.fields);
-  deepFreeze(definition.example);
+  const invalidOutcome = Object.freeze(definition.invalidOutcome);
   return Object.freeze({
     intent: definition.intent,
     schema: definition.schema,
     envelopeSchema,
-    invalidOutcome: definition.invalidOutcome,
-    fields: definition.fields,
-    example: definition.example,
+    invalidOutcome,
     read(value: unknown): NormalizedInspectionRequestByIntent[Intent] | undefined {
       try {
         const candidate = snapshotDataProperties(value, fieldNames);
@@ -485,16 +447,6 @@ function prepareComparisonCandidate(
   const before = REQUEST_DEFINITIONS["interface-overview"].read(value["before"]);
   const after = REQUEST_DEFINITIONS["interface-overview"].read(value["after"]);
   return before === undefined || after === undefined ? undefined : { before, after };
-}
-
-function deepFreeze<Value>(value: Value): Readonly<Value> {
-  if (typeof value !== "object" || value === null || Object.isFrozen(value)) {
-    return value;
-  }
-  for (const child of Object.values(value)) {
-    deepFreeze(child);
-  }
-  return Object.freeze(value);
 }
 
 function invalidRequest(name: string): InspectionFailure {

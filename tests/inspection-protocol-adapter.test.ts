@@ -7,6 +7,7 @@ import {
   comparePublicInterfaces,
   inspectCapabilities,
   inspectExport,
+  inspectionCapabilitiesSchema,
   invokeInspectionProtocol,
   type InspectionIntent,
 } from "#typepeek/inspection";
@@ -15,6 +16,7 @@ import {
   inspectionProtocolResponseSchema,
 } from "#typepeek/inspection/inspection-protocol-schema";
 import { protocolRecoveryGuidance } from "#typepeek/inspection/protocol-recovery";
+import { withRequestFieldCapability } from "#typepeek/inspection/request-capability";
 
 import { type CompiledPackageFixture, materializeCompiledPackageFixture } from "./helpers/index.ts";
 
@@ -144,7 +146,52 @@ it("publishes deterministic adapter capabilities without TypeScript enums", () =
         default: "structured",
       },
     ],
+    limits: { maxSerializedBytes: 16_384 },
   });
+});
+
+it("publishes one schema-valid capability catalog within its advertised bound", () => {
+  const capabilities = inspectCapabilities();
+  const reorderedCatalog = {
+    ...capabilities,
+    supportedIntents: capabilities.supportedIntents.toReversed(),
+  };
+
+  expect(Result.isSuccess(Schema.decodeResult(inspectionCapabilitiesSchema)(capabilities))).toBe(
+    true,
+  );
+  expect(Buffer.byteLength(JSON.stringify(capabilities))).toBeLessThanOrEqual(
+    capabilities.limits.maxSerializedBytes,
+  );
+  expect(
+    Result.isFailure(Schema.decodeUnknownResult(inspectionCapabilitiesSchema)(reorderedCatalog)),
+  ).toBe(true);
+  expect(Object.isFrozen(capabilities)).toBe(true);
+  expect(Object.isFrozen(capabilities.requestDescriptors)).toBe(true);
+});
+
+it("rejects contradictory request capability metadata at the schema seam", () => {
+  expect(() =>
+    withRequestFieldCapability(Schema.String, {
+      kind: "string",
+      minBytes: 2,
+      maxBytes: 1,
+    }),
+  ).toThrow();
+  expect(() =>
+    withRequestFieldCapability(Schema.String, {
+      kind: "enum",
+      values: ["import", "require"],
+      default: "unknown",
+    }),
+  ).toThrow();
+  expect(() =>
+    withRequestFieldCapability(Schema.Array(Schema.String), {
+      kind: "member-path",
+      minItems: 2,
+      maxItems: 1,
+    }),
+  ).toThrow();
 });
 
 it("keeps every published request example accepted by the Inspection Protocol", async () => {

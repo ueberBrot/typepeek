@@ -68,5 +68,6 @@ assert.equal(typeof Reflect.get(inspectionApi, "inspectPlan"), "function");
 assert.equal(typeof Reflect.get(inspectionApi, "inspectExportSearch"), "function");
 assert.equal(typeof Reflect.get(inspectionApi, "inspectPublicSubpaths"), "function");
 assert.equal(typeof Reflect.get(inspectionApi, "inspectCapabilities"), "function");
+assert.equal(typeof Reflect.get(inspectionApi, "inspectionCapabilitiesSchema"), "function");
 assert.equal(typeof Reflect.get(inspectionApi, "comparePublicInterfaces"), "function");
 assert.equal(typeof Reflect.get(inspectionApi, "invokeInspectionProtocol"), "function");

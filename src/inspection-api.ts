@@ -16,6 +16,7 @@ export {
   INSPECTION_INTENTS,
   INSPECTION_PROTOCOL_VERSION,
   inspectCapabilities,
+  inspectionCapabilitiesSchema,
 } from "#typepeek/inspection/protocol-metadata";
 export { invokeInspectionProtocol } from "#typepeek/inspection/inspection-protocol";
 export type {
