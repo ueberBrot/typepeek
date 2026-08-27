@@ -1,10 +1,14 @@
 import { Effect, Predicate, Result, Schema } from "effect";
 
 import { invokeInspectionCore } from "#typepeek/inspection/core";
-import type {
-  InspectionProtocolResponse,
-  SignatureEvidenceKind,
-} from "#typepeek/inspection/inspection-protocol-types";
+import {
+  inspectionProtocolRequestSchema,
+  inspectionProtocolResponseSchema,
+  supportsSignatureEvidence,
+  type InspectionProtocolResponse,
+  type NormalizedInspectionProtocolRequest,
+  type SignatureEvidenceKind,
+} from "#typepeek/inspection/inspection-protocol-schema";
 import type { InspectionFailure, InspectionOutcome } from "#typepeek/inspection/protocol";
 import { protocolRecoveryGuidance } from "#typepeek/inspection/protocol-recovery";
 import {
@@ -13,18 +17,18 @@ import {
   INSPECTION_PROTOCOL_VERSION,
   type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
+import { readInspectionRequest } from "#typepeek/inspection/request-definitions";
 import {
   projectInspectionOutcome,
   signatureEvidenceProjection,
 } from "#typepeek/inspection/signature-evidence-projection";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
-const PROTOCOL_ENVELOPE_FIELDS = ["protocolVersion", "intent", "request", "response"] as const;
-const PROTOCOL_RESPONSE_OPTION_FIELDS = ["signatureEvidence"] as const;
+const PROTOCOL_HEADER_FIELDS = ["protocolVersion", "intent", "request", "response"] as const;
 const definedResponseSchema = Schema.Unknown.check(
   Schema.makeFilter(Predicate.isNotUndefined, { expected: "a defined response" }),
 );
-const protocolEnvelopeSchema = Schema.Struct({
+const protocolHeaderSchema = Schema.Struct({
   protocolVersion: Schema.String.check(
     Schema.makeFilter((version) => Buffer.byteLength(version) <= 64, {
       expected: "a bounded protocol version",
@@ -34,56 +38,74 @@ const protocolEnvelopeSchema = Schema.Struct({
   request: Schema.Unknown,
   response: Schema.optionalKey(definedResponseSchema),
 });
-const decodeProtocolEnvelope = Schema.decodeUnknownResult(protocolEnvelopeSchema);
-const decodeSignatureEvidenceOptions = Schema.decodeUnknownResult(
+const decodeProtocolHeader = Schema.decodeUnknownResult(protocolHeaderSchema);
+const decodeInspectionProtocolRequest = Schema.decodeUnknownResult(inspectionProtocolRequestSchema);
+const decodeInspectionProtocolResponse = Schema.decodeUnknownResult(
+  inspectionProtocolResponseSchema,
+);
+const decodeProtocolResponseOptions = Schema.decodeUnknownResult(
   inspectionProtocolResponseOptionsSchema,
 );
-type ProtocolEnvelope = typeof protocolEnvelopeSchema.Type;
+type ProtocolHeader = typeof protocolHeaderSchema.Type;
+const INVALID_PROTOCOL_RESULT_RESPONSE = Schema.decodeSync(inspectionProtocolResponseSchema)({
+  protocolVersion: INSPECTION_PROTOCOL_VERSION,
+  outcome: {
+    status: "unsupported",
+    reason: "invalid-result",
+    message: "Inspection produced an invalid protocol result.",
+  },
+});
 
 /** Validates and dispatches one Inspection Protocol request through the Inspection Core. */
 export async function invokeInspectionProtocol(
   value: unknown,
 ): Promise<InspectionProtocolResponse> {
-  let envelope: ProtocolEnvelope | undefined;
+  let header: ProtocolHeader | undefined;
   try {
-    envelope = readProtocolEnvelope(value);
+    header = readProtocolHeader(value);
   } catch {
     return protocolResponse(invalidProtocolRequest());
   }
-  if (envelope === undefined) {
+  if (header === undefined) {
     return protocolResponse(invalidProtocolRequest());
   }
-  if (envelope.protocolVersion !== INSPECTION_PROTOCOL_VERSION) {
+  if (header.protocolVersion !== INSPECTION_PROTOCOL_VERSION) {
     return protocolResponse({
       status: "unsupported",
       reason: "unsupported-protocol-version",
-      message: `Inspection protocol version "${envelope.protocolVersion}" is not supported.`,
+      message: `Inspection protocol version "${header.protocolVersion}" is not supported.`,
     });
   }
-  const projection = readSignatureEvidenceProjection(envelope.intent, envelope.response);
-  if (projection === null) {
+  const request = readProtocolRequest(header);
+  if (request === undefined) {
     return protocolResponse(invalidProtocolRequest());
   }
-  const invocation = await Effect.runPromise(
-    invokeInspectionCore(envelope.intent, envelope.request),
-  );
-  const response =
+  const projection = readSignatureEvidenceProjection(request);
+  const invocation = await Effect.runPromise(invokeInspectionCore(request.intent, request.request));
+  const candidate =
     projection === undefined
-      ? protocolResponse(invocation.outcome)
+      ? { protocolVersion: INSPECTION_PROTOCOL_VERSION, outcome: invocation.outcome }
       : {
           protocolVersion: INSPECTION_PROTOCOL_VERSION,
           projection: signatureEvidenceProjection(projection),
           outcome: projectInspectionOutcome(invocation.outcome, projection),
         };
   if (invocation.preparedRequest === undefined) {
-    return response;
+    return protocolResponseFrom(candidate);
   }
   const recovery = protocolRecoveryGuidance(invocation.preparedRequest, invocation.outcome);
-  return recovery.length === 0 ? response : { ...response, recovery };
+  return protocolResponseFrom(recovery.length === 0 ? candidate : { ...candidate, recovery });
 }
 
 function protocolResponse(outcome: InspectionOutcome): InspectionProtocolResponse {
-  return { protocolVersion: INSPECTION_PROTOCOL_VERSION, outcome };
+  return protocolResponseFrom({ protocolVersion: INSPECTION_PROTOCOL_VERSION, outcome });
+}
+
+function protocolResponseFrom(value: unknown): InspectionProtocolResponse {
+  return (
+    Result.getOrUndefined(decodeInspectionProtocolResponse(value)) ??
+    INVALID_PROTOCOL_RESULT_RESPONSE
+  );
 }
 
 function invalidProtocolRequest(): InspectionFailure {
@@ -94,25 +116,51 @@ function invalidProtocolRequest(): InspectionFailure {
   };
 }
 
-function readProtocolEnvelope(value: unknown): ProtocolEnvelope | undefined {
-  const record = snapshotDataProperties(value, PROTOCOL_ENVELOPE_FIELDS);
-  return record === undefined ? undefined : Result.getOrUndefined(decodeProtocolEnvelope(record));
+function readProtocolHeader(value: unknown): ProtocolHeader | undefined {
+  const record = snapshotDataProperties(value, PROTOCOL_HEADER_FIELDS);
+  return record === undefined ? undefined : Result.getOrUndefined(decodeProtocolHeader(record));
 }
 
-function readSignatureEvidenceProjection(
+function readProtocolRequest(
+  header: ProtocolHeader,
+): NormalizedInspectionProtocolRequest | undefined {
+  const reading = readInspectionRequest(header.intent, header.request);
+  if (!reading.accepted) {
+    return undefined;
+  }
+  const response = readProtocolResponseOptions(header.intent, header.response);
+  if (response === null) {
+    return undefined;
+  }
+  const candidate = {
+    protocolVersion: header.protocolVersion,
+    intent: header.intent,
+    request: reading.request,
+    ...(response === undefined ? {} : { response }),
+  };
+  return Result.getOrUndefined(decodeInspectionProtocolRequest(candidate));
+}
+
+function readProtocolResponseOptions(
   intent: InspectionIntent,
   response: unknown,
-): SignatureEvidenceKind | null | undefined {
-  const supportsProjection = intent === "signature-inspection" || intent === "inspection-plan";
-  if (!supportsProjection) {
+): { readonly signatureEvidence: SignatureEvidenceKind } | null | undefined {
+  if (!supportsSignatureEvidence(intent)) {
     return response === undefined ? undefined : null;
   }
   if (response === undefined) {
-    return "structured";
+    return undefined;
   }
-  const options = snapshotDataProperties(response, PROTOCOL_RESPONSE_OPTION_FIELDS);
-  if (options === undefined) {
-    return null;
-  }
-  return Result.getOrUndefined(decodeSignatureEvidenceOptions(options))?.signatureEvidence ?? null;
+  const snapshot = snapshotDataProperties(response, ["signatureEvidence"] as const);
+  return snapshot === undefined
+    ? null
+    : (Result.getOrUndefined(decodeProtocolResponseOptions(snapshot)) ?? null);
+}
+
+function readSignatureEvidenceProjection(
+  request: NormalizedInspectionProtocolRequest,
+): SignatureEvidenceKind | undefined {
+  return supportsSignatureEvidence(request.intent)
+    ? (request.response?.signatureEvidence ?? "structured")
+    : undefined;
 }

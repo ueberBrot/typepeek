@@ -131,7 +131,7 @@ const normalizedComparisonSchema = Schema.Struct({
   before: normalizedTargetSchema,
   after: normalizedTargetSchema,
 });
-const INSPECTION_REQUEST_SCHEMAS = {
+export const inspectionRequestSchemas = {
   "interface-overview": normalizedTargetSchema,
   "export-inspection": normalizedExportSchema,
   "signature-inspection": normalizedExportSchema,
@@ -144,11 +144,11 @@ const INSPECTION_REQUEST_SCHEMAS = {
 } as const satisfies Readonly<Record<InspectionIntent, Schema.Constraint>>;
 
 export type InspectionRequestByIntent = {
-  readonly [Intent in InspectionIntent]: (typeof INSPECTION_REQUEST_SCHEMAS)[Intent]["Encoded"];
+  readonly [Intent in InspectionIntent]: (typeof inspectionRequestSchemas)[Intent]["Encoded"];
 };
 
 export type NormalizedInspectionRequestByIntent = {
-  readonly [Intent in InspectionIntent]: (typeof INSPECTION_REQUEST_SCHEMAS)[Intent]["Type"];
+  readonly [Intent in InspectionIntent]: (typeof inspectionRequestSchemas)[Intent]["Type"];
 };
 
 export type AccessStyle = NormalizedInspectionTarget["accessStyle"];
@@ -186,14 +186,14 @@ const ANALYSIS_REQUEST_FIELDS = ["intent", "request"] as const;
 const REQUEST_DEFINITIONS = Object.freeze({
   "interface-overview": defineRequest({
     intent: "interface-overview",
-    schema: INSPECTION_REQUEST_SCHEMAS["interface-overview"],
+    schema: inspectionRequestSchemas["interface-overview"],
     invalidOutcome: invalidRequest("Interface Overview"),
     fields: TARGET_FIELDS,
     example: { resolutionContext: "/absolute/path/to/consumer", specifier: "zod" },
   }),
   "export-inspection": defineRequest({
     intent: "export-inspection",
-    schema: INSPECTION_REQUEST_SCHEMAS["export-inspection"],
+    schema: inspectionRequestSchemas["export-inspection"],
     invalidOutcome: invalidRequest("Export Inspection"),
     fields: [...TARGET_FIELDS, EXPORT_NAME_FIELD],
     example: {
@@ -204,7 +204,7 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "signature-inspection": defineRequest({
     intent: "signature-inspection",
-    schema: INSPECTION_REQUEST_SCHEMAS["signature-inspection"],
+    schema: inspectionRequestSchemas["signature-inspection"],
     invalidOutcome: invalidRequest("Signature Inspection"),
     fields: [...TARGET_FIELDS, EXPORT_NAME_FIELD],
     example: {
@@ -215,7 +215,7 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "export-search": defineRequest({
     intent: "export-search",
-    schema: INSPECTION_REQUEST_SCHEMAS["export-search"],
+    schema: inspectionRequestSchemas["export-search"],
     invalidOutcome: invalidRequest("Export Search"),
     fields: [
       ...TARGET_FIELDS,
@@ -235,14 +235,14 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "public-subpath-discovery": defineRequest({
     intent: "public-subpath-discovery",
-    schema: INSPECTION_REQUEST_SCHEMAS["public-subpath-discovery"],
+    schema: inspectionRequestSchemas["public-subpath-discovery"],
     invalidOutcome: invalidRequest("Public Subpath Discovery"),
     fields: TARGET_FIELDS,
     example: { resolutionContext: "/absolute/path/to/consumer", specifier: "zod" },
   }),
   "declaration-inspection": defineRequest({
     intent: "declaration-inspection",
-    schema: INSPECTION_REQUEST_SCHEMAS["declaration-inspection"],
+    schema: inspectionRequestSchemas["declaration-inspection"],
     invalidOutcome: invalidRequest("Declaration Inspection"),
     fields: [...TARGET_FIELDS, EXPORT_NAME_FIELD],
     example: {
@@ -253,7 +253,7 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "member-inspection": defineRequest({
     intent: "member-inspection",
-    schema: INSPECTION_REQUEST_SCHEMAS["member-inspection"],
+    schema: inspectionRequestSchemas["member-inspection"],
     invalidOutcome: invalidRequest("Member Inspection"),
     fields: [
       ...TARGET_FIELDS,
@@ -277,7 +277,7 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "inspection-plan": defineRequest({
     intent: "inspection-plan",
-    schema: INSPECTION_REQUEST_SCHEMAS["inspection-plan"],
+    schema: inspectionRequestSchemas["inspection-plan"],
     invalidOutcome: invalidRequest("Inspection Plan"),
     fields: [
       ...TARGET_FIELDS,
@@ -298,7 +298,7 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "public-interface-comparison": defineRequest({
     intent: "public-interface-comparison",
-    schema: INSPECTION_REQUEST_SCHEMAS["public-interface-comparison"],
+    schema: inspectionRequestSchemas["public-interface-comparison"],
     invalidOutcome: invalidRequest("Public Interface Comparison"),
     fields: [
       {

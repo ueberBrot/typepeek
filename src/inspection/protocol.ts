@@ -163,6 +163,10 @@ const inspectedModuleExportSignaturesSchema = Schema.Struct({
   aliasTargetName: Schema.optionalKey(Schema.String),
   signatures: Schema.Array(inspectedSignatureSchema),
 });
+export const signatureInspectionSchemaComponents = {
+  signature: inspectedSignatureSchema,
+  moduleExport: inspectedModuleExportSignaturesSchema,
+} as const;
 const inspectedModuleExportDeclarationsSchema = Schema.Struct({
   name: Schema.String,
   alias: Schema.optionalKey(exportAliasSchema),
@@ -188,47 +192,49 @@ const platformIdentityFields = {
   resolutionVariant: resolutionVariantSchema,
   ...platformInspectionResultIdentitySchema.fields,
 } as const;
-const withInspectionResultIdentity = <const Fields extends Schema.Struct.Fields>(fields: Fields) =>
+export const inspectionResultWithIdentity = <const Fields extends Schema.Struct.Fields>(
+  fields: Fields,
+) =>
   Schema.Union([
     Schema.Struct({ ...fields, ...packageIdentityFields }),
     Schema.Struct({ ...fields, ...platformIdentityFields }),
   ]);
-const interfaceOverviewSchema = withInspectionResultIdentity({
+const interfaceOverviewSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("interface-overview"),
   publicSubpaths: Schema.Array(publicSubpathSchema),
   moduleExports: Schema.Array(moduleExportIndexEntrySchema),
 });
-const exportInspectionSchema = withInspectionResultIdentity({
+const exportInspectionSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("export-inspection"),
   moduleExport: inspectedModuleExportSchema,
   supportingTypes: Schema.Array(supportingTypeSchema),
   packageDocumentation: Schema.optionalKey(packageDocumentationSchema),
 });
-const signatureInspectionSchema = withInspectionResultIdentity({
+const signatureInspectionSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("signature-inspection"),
   moduleExport: inspectedModuleExportSignaturesSchema,
 });
-const exportSearchSchema = withInspectionResultIdentity({
+const exportSearchSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("export-search"),
   query: Schema.String,
   totalModuleExports: Schema.Natural,
   matches: Schema.Array(moduleExportIndexEntrySchema),
 });
-const publicSubpathDiscoverySchema = withInspectionResultIdentity({
+const publicSubpathDiscoverySchema = inspectionResultWithIdentity({
   intent: Schema.Literal("public-subpath-discovery"),
   publicSubpaths: Schema.Array(publicSubpathSchema),
 });
-const declarationInspectionSchema = withInspectionResultIdentity({
+const declarationInspectionSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("declaration-inspection"),
   moduleExport: inspectedModuleExportDeclarationsSchema,
 });
-const memberInspectionSchema = withInspectionResultIdentity({
+const memberInspectionSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("member-inspection"),
   moduleExportName: Schema.String,
   memberPath: Schema.Array(Schema.String),
   declarations: Schema.Array(inspectedDeclarationSchema),
 });
-const comparisonTargetSchema = withInspectionResultIdentity({});
+const comparisonTargetSchema = inspectionResultWithIdentity({});
 const moduleExportIndexDeltaSchema = Schema.Struct({
   added: Schema.Array(moduleExportIndexEntrySchema),
   removed: Schema.Array(moduleExportIndexEntrySchema),
@@ -245,14 +251,23 @@ const publicInterfaceComparisonSchema = Schema.Struct({
   moduleExports: moduleExportIndexDeltaSchema,
   publicSubpaths: publicSubpathIndexDeltaSchema,
 });
+export const atomicInspectionResultSchemas = {
+  "interface-overview": interfaceOverviewSchema,
+  "export-inspection": exportInspectionSchema,
+  "signature-inspection": signatureInspectionSchema,
+  "export-search": exportSearchSchema,
+  "public-subpath-discovery": publicSubpathDiscoverySchema,
+  "declaration-inspection": declarationInspectionSchema,
+  "member-inspection": memberInspectionSchema,
+} as const;
 const atomicInspectionResultSchema = Schema.Union([
-  interfaceOverviewSchema,
-  exportInspectionSchema,
-  signatureInspectionSchema,
-  exportSearchSchema,
-  publicSubpathDiscoverySchema,
-  declarationInspectionSchema,
-  memberInspectionSchema,
+  atomicInspectionResultSchemas["interface-overview"],
+  atomicInspectionResultSchemas["export-inspection"],
+  atomicInspectionResultSchemas["signature-inspection"],
+  atomicInspectionResultSchemas["export-search"],
+  atomicInspectionResultSchemas["public-subpath-discovery"],
+  atomicInspectionResultSchemas["declaration-inspection"],
+  atomicInspectionResultSchemas["member-inspection"],
 ]);
 const inspectionPlanSchema = Schema.Struct({
   intent: Schema.Literal("inspection-plan"),
@@ -261,10 +276,21 @@ const inspectionPlanSchema = Schema.Struct({
     Schema.isMaxLength(MAX_INSPECTION_PLAN_QUERIES),
   ),
 });
+export const inspectionResultSchemas = {
+  ...atomicInspectionResultSchemas,
+  "inspection-plan": inspectionPlanSchema,
+  "public-interface-comparison": publicInterfaceComparisonSchema,
+} as const;
 const inspectionResultSchema = Schema.Union([
-  atomicInspectionResultSchema,
-  inspectionPlanSchema,
-  publicInterfaceComparisonSchema,
+  inspectionResultSchemas["interface-overview"],
+  inspectionResultSchemas["export-inspection"],
+  inspectionResultSchemas["signature-inspection"],
+  inspectionResultSchemas["export-search"],
+  inspectionResultSchemas["public-subpath-discovery"],
+  inspectionResultSchemas["declaration-inspection"],
+  inspectionResultSchemas["member-inspection"],
+  inspectionResultSchemas["inspection-plan"],
+  inspectionResultSchemas["public-interface-comparison"],
 ]);
 const notFoundFailureSchema = Schema.Struct({
   status: Schema.Literal("not-found"),
@@ -287,11 +313,17 @@ const limitFailureSchema = Schema.Struct({
   exceededBudget: inspectionBudgetDimensionSchema,
   message: Schema.String,
 });
-const inspectionFailureSchema = Schema.Union([
-  notFoundFailureSchema,
-  unsupportedFailureSchema,
-  staticBoundaryFailureSchema,
-  limitFailureSchema,
+export const inspectionFailureSchemas = {
+  notFound: notFoundFailureSchema,
+  unsupported: unsupportedFailureSchema,
+  staticBoundary: staticBoundaryFailureSchema,
+  limit: limitFailureSchema,
+} as const;
+export const inspectionFailureSchema = Schema.Union([
+  inspectionFailureSchemas.notFound,
+  inspectionFailureSchemas.unsupported,
+  inspectionFailureSchemas.staticBoundary,
+  inspectionFailureSchemas.limit,
 ]);
 const inspectionSuccessSchema = Schema.Struct({
   status: Schema.Literal("success"),
@@ -302,7 +334,6 @@ export const inspectionOutcomeSchema = Schema.Union([
   inspectionFailureSchema,
 ]);
 
-export type ModuleExportIndexEntry = typeof moduleExportIndexEntrySchema.Type;
 export type PublicSubpath = typeof publicSubpathSchema.Type;
 export type { PackageIdentity } from "#typepeek/inspection/package-identity";
 export type ResolutionVariant = typeof resolutionVariantSchema.Type;

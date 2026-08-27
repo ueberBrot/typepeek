@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, expect, expectTypeOf, it } from "vite-plus/test";
+import { Result, Schema } from "effect";
+import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
 import {
   INSPECTION_PROTOCOL_VERSION,
@@ -8,8 +9,12 @@ import {
   inspectExport,
   invokeInspectionProtocol,
   type InspectionIntent,
-  type InspectionProtocolRequest,
 } from "#typepeek/inspection";
+import {
+  inspectionProtocolRequestSchema,
+  inspectionProtocolResponseSchema,
+} from "#typepeek/inspection/inspection-protocol-schema";
+import { protocolRecoveryGuidance } from "#typepeek/inspection/protocol-recovery";
 
 import { type CompiledPackageFixture, materializeCompiledPackageFixture } from "./helpers/index.ts";
 
@@ -156,28 +161,155 @@ it("keeps every published request example accepted by the Inspection Protocol", 
   }
 });
 
-it("types explicit evidence only where the protocol accepts it", () => {
-  const request: InspectionProtocolRequest = {
-    protocolVersion: "1",
+it("uses executable schemas as authority for correlated requests and complete responses", async () => {
+  const request = {
+    protocolVersion: INSPECTION_PROTOCOL_VERSION,
     intent: "signature-inspection",
     request: {
-      resolutionContext: process.cwd(),
-      specifier: "execa",
-      exportName: "execa",
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/focused",
+      exportName: "createWidget",
     },
-    response: { signatureEvidence: "both" },
-  };
-  type OverviewRequest = Extract<InspectionProtocolRequest, { intent: "interface-overview" }>;
-  type SignatureRequest = Extract<InspectionProtocolRequest, { intent: "signature-inspection" }>;
-  type AcceptsExplicitUndefinedResponse = Omit<SignatureRequest, "response"> & {
-    readonly response: undefined;
-  } extends SignatureRequest
-    ? true
-    : false;
+    response: { signatureEvidence: "exact" },
+  } as const;
+  const response = await invokeInspectionProtocol(request);
 
-  expect(request.response?.signatureEvidence).toBe("both");
-  expect(undefined satisfies OverviewRequest["response"]).toBeUndefined();
-  expectTypeOf<AcceptsExplicitUndefinedResponse>().toEqualTypeOf<false>();
+  expect(Result.isSuccess(Schema.decodeResult(inspectionProtocolRequestSchema)(request))).toBe(
+    true,
+  );
+  expect(Result.isSuccess(Schema.decodeResult(inspectionProtocolResponseSchema)(response))).toBe(
+    true,
+  );
+  expect(
+    Result.isFailure(
+      Schema.decodeUnknownResult(inspectionProtocolRequestSchema)({
+        ...request,
+        intent: "interface-overview",
+      }),
+    ),
+  ).toBe(true);
+});
+
+it("rejects protocol response combinations the dispatcher cannot emit", async () => {
+  const signatureResponse = await invokeInspectionProtocol({
+    protocolVersion: INSPECTION_PROTOCOL_VERSION,
+    intent: "signature-inspection",
+    request: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/focused",
+      exportName: "createWidget",
+    },
+    response: { signatureEvidence: "exact" },
+  });
+  const overviewResponse = await invokeInspectionProtocol({
+    protocolVersion: INSPECTION_PROTOCOL_VERSION,
+    intent: "interface-overview",
+    request: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/focused",
+    },
+  });
+  const { projection: _projection, ...unprojectedSignatureResponse } = signatureResponse;
+
+  expect(
+    Result.isFailure(
+      Schema.decodeUnknownResult(inspectionProtocolResponseSchema)(unprojectedSignatureResponse),
+    ),
+  ).toBe(true);
+  expect(
+    Result.isFailure(
+      Schema.decodeUnknownResult(inspectionProtocolResponseSchema)({
+        ...overviewResponse,
+        projection: {
+          signatureEvidence: "exact",
+          omittedEvidence: ["structured-signature-fields"],
+        },
+      }),
+    ),
+  ).toBe(true);
+});
+
+it("correlates and bounds executable recovery guidance", async () => {
+  const successfulResponse = await invokeInspectionProtocol({
+    protocolVersion: INSPECTION_PROTOCOL_VERSION,
+    intent: "interface-overview",
+    request: {
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/focused",
+    },
+  });
+  const guidance = {
+    reason: "search-related-export-names",
+    request: {
+      protocolVersion: INSPECTION_PROTOCOL_VERSION,
+      intent: "export-search",
+      request: {
+        resolutionContext: fixture.resolutionContext,
+        specifier: "@typepeek-fixture/focused",
+        query: "Widget",
+      },
+    },
+  } as const;
+  const searchFailureResponse = {
+    protocolVersion: INSPECTION_PROTOCOL_VERSION,
+    outcome: {
+      status: "not-found",
+      reason: "export-not-found",
+      message: "The requested export was not found.",
+    },
+  } as const;
+  const accepts = (response: unknown) =>
+    Result.isSuccess(Schema.decodeUnknownResult(inspectionProtocolResponseSchema)(response));
+  const rejects = (recovery: readonly unknown[]) =>
+    Result.isFailure(
+      Schema.decodeUnknownResult(inspectionProtocolResponseSchema)({
+        ...searchFailureResponse,
+        recovery,
+      }),
+    );
+
+  expect(accepts({ ...successfulResponse, recovery: [guidance] })).toBe(false);
+  expect(accepts({ ...searchFailureResponse, recovery: [guidance] })).toBe(true);
+  expect(rejects([{ ...guidance, reason: "inspect-declarations-without-supporting-types" }])).toBe(
+    true,
+  );
+  expect(rejects([guidance, guidance, guidance, guidance])).toBe(true);
+  expect(
+    rejects([
+      {
+        ...guidance,
+        request: {
+          ...guidance.request,
+          request: {
+            ...guidance.request.request,
+            resolutionContext: `/${"x".repeat(33 * 1_024)}`,
+          },
+        },
+      },
+    ]),
+  ).toBe(true);
+});
+
+it("omits an over-budget supporting-type recovery pair atomically", () => {
+  const guidance = protocolRecoveryGuidance(
+    {
+      intent: "export-inspection",
+      request: {
+        resolutionContext: fixture.resolutionContext,
+        specifier: "@typepeek-fixture/deep-supporting-types",
+        accessStyle: "import",
+        exportName: "x".repeat(16_160),
+      },
+    },
+    {
+      status: "limit-exceeded",
+      reason: "budget-exceeded",
+      exceededBudget: "supporting-type-depth",
+      message: "Supporting Type traversal exceeded its depth budget.",
+    },
+  );
+
+  expect(guidance).toEqual([]);
 });
 
 it("rejects an explicitly undefined response property", async () => {
