@@ -72,7 +72,7 @@ export type {
   SignatureEvidenceKind,
   SignatureEvidenceProjection,
   StructuredInspectedSignature,
-} from "#typepeek/inspection/inspection-protocol-types";
+} from "#typepeek/inspection/inspection-protocol-schema";
 export type {
   InspectionBudgetDimension,
   InspectionCapabilities,

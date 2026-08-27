@@ -1,16 +1,14 @@
 import { isBoundedExportSearchQuery } from "#typepeek/inspection/inspection-plan-query";
-import type { ProtocolRecoveryGuidance } from "#typepeek/inspection/inspection-protocol-types";
+import {
+  PROTOCOL_RECOVERY_POLICY,
+  SUPPORTING_TYPE_RECOVERY_BUDGETS,
+  type ProtocolRecoveryGuidance,
+} from "#typepeek/inspection/inspection-protocol-schema";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { INSPECTION_PROTOCOL_VERSION } from "#typepeek/inspection/protocol-vocabulary";
 import type { PreparedInspectionCoreRequest } from "#typepeek/inspection/request-definitions";
 
-const MAX_PROTOCOL_RECOVERY_ENTRIES = 3;
-const MAX_PROTOCOL_RECOVERY_BYTES = 32 * 1_024;
-const SUPPORTING_TYPE_BUDGETS = new Set([
-  "supporting-type-depth",
-  "supporting-types",
-  "supporting-type-traversal",
-]);
+const SUPPORTING_TYPE_BUDGETS = new Set<string>(SUPPORTING_TYPE_RECOVERY_BUDGETS);
 
 /** Derives only complete executable requests from one trusted normalized request. */
 export function protocolRecoveryGuidance(
@@ -18,21 +16,13 @@ export function protocolRecoveryGuidance(
   outcome: InspectionOutcome,
 ): readonly ProtocolRecoveryGuidance[] {
   const candidates = recoveryCandidates(prepared, outcome);
-  const retained: ProtocolRecoveryGuidance[] = [];
-  let bytes = Buffer.byteLength("[]");
-  for (const candidate of candidates) {
-    const candidateBytes =
-      Buffer.byteLength(JSON.stringify(candidate)) + (retained.length === 0 ? 0 : 1);
-    if (
-      retained.length >= MAX_PROTOCOL_RECOVERY_ENTRIES ||
-      bytes + candidateBytes > MAX_PROTOCOL_RECOVERY_BYTES
-    ) {
-      break;
-    }
-    retained.push(candidate);
-    bytes += candidateBytes;
-  }
-  return retained;
+  return candidates.length <= PROTOCOL_RECOVERY_POLICY.maximumEntries && hasBoundedBytes(candidates)
+    ? candidates
+    : [];
+}
+
+function hasBoundedBytes(guidance: readonly ProtocolRecoveryGuidance[]): boolean {
+  return Buffer.byteLength(JSON.stringify(guidance)) <= PROTOCOL_RECOVERY_POLICY.maximumBytes;
 }
 
 function recoveryCandidates(

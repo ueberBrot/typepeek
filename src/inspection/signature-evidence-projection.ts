@@ -1,11 +1,14 @@
+import { Result, Schema } from "effect";
+
 import type {
-  ProtocolInspectedSignature,
   ProtocolInspectionOutcome,
-  ProtocolInspectionResult,
-  ProtocolSignatureInspection,
   SignatureEvidenceKind,
   SignatureEvidenceProjection,
-} from "#typepeek/inspection/inspection-protocol-types";
+} from "#typepeek/inspection/inspection-protocol-schema";
+import {
+  protocolInspectionSchemas,
+  signatureEvidenceProjectionSchemas,
+} from "#typepeek/inspection/inspection-protocol-schema";
 import type {
   InspectedSignature,
   InspectionOutcome,
@@ -15,36 +18,54 @@ import type {
 export { SIGNATURE_EVIDENCE_KINDS } from "#typepeek/inspection/protocol-vocabulary";
 
 /** Removes only the Signature Evidence excluded by an explicit transport projection. */
-export function projectInspectionOutcome<Evidence extends SignatureEvidenceKind>(
+export function projectInspectionOutcome(
   outcome: InspectionOutcome,
-  evidence: Evidence,
-): ProtocolInspectionOutcome<Evidence> {
-  return outcome.status === "success"
-    ? {
-        status: "success",
-        result: projectInspectionResult(outcome.result, evidence),
-      }
-    : outcome;
+  evidence: SignatureEvidenceKind,
+): ProtocolInspectionOutcome<SignatureEvidenceKind> | undefined {
+  const candidate =
+    outcome.status === "success"
+      ? {
+          status: "success",
+          result: projectInspectionResult(outcome.result, evidence),
+        }
+      : outcome;
+  return Result.getOrUndefined(
+    Schema.decodeUnknownResult(protocolInspectionSchemas[evidence].outcomeSchema)(candidate),
+  );
 }
 
 export function signatureEvidenceProjection(
   signatureEvidence: SignatureEvidenceKind,
-): SignatureEvidenceProjection {
-  return {
-    signatureEvidence,
-    omittedEvidence:
-      signatureEvidence === "structured"
-        ? ["exact-signature-text"]
-        : signatureEvidence === "exact"
-          ? ["structured-signature-fields"]
-          : [],
-  };
+): SignatureEvidenceProjection | undefined {
+  switch (signatureEvidence) {
+    case "structured":
+      return Result.getOrUndefined(
+        Schema.decodeResult(signatureEvidenceProjectionSchemas.structured)({
+          signatureEvidence,
+          omittedEvidence: ["exact-signature-text"],
+        }),
+      );
+    case "exact":
+      return Result.getOrUndefined(
+        Schema.decodeResult(signatureEvidenceProjectionSchemas.exact)({
+          signatureEvidence,
+          omittedEvidence: ["structured-signature-fields"],
+        }),
+      );
+    case "both":
+      return Result.getOrUndefined(
+        Schema.decodeResult(signatureEvidenceProjectionSchemas.both)({
+          signatureEvidence,
+          omittedEvidence: [],
+        }),
+      );
+  }
 }
 
-function projectInspectionResult<Evidence extends SignatureEvidenceKind>(
+function projectInspectionResult(
   result: InspectionResult,
-  evidence: Evidence,
-): ProtocolInspectionResult<Evidence> {
+  evidence: SignatureEvidenceKind,
+): unknown {
   if (result.intent === "signature-inspection") {
     return projectSignatureInspection(result, evidence);
   }
@@ -56,15 +77,15 @@ function projectInspectionResult<Evidence extends SignatureEvidenceKind>(
           ? projectSignatureInspection(inspection, evidence)
           : inspection,
       ),
-    } as ProtocolInspectionResult<Evidence>;
+    };
   }
-  return result as ProtocolInspectionResult<Evidence>;
+  return result;
 }
 
-function projectSignatureInspection<Evidence extends SignatureEvidenceKind>(
+function projectSignatureInspection(
   inspection: SignatureInspection,
-  evidence: Evidence,
-): ProtocolSignatureInspection<Evidence> {
+  evidence: SignatureEvidenceKind,
+): unknown {
   return {
     ...inspection,
     moduleExport: {
@@ -73,15 +94,15 @@ function projectSignatureInspection<Evidence extends SignatureEvidenceKind>(
         projectInspectedSignature(signature, evidence),
       ),
     },
-  } as ProtocolSignatureInspection<Evidence>;
+  };
 }
 
-function projectInspectedSignature<Evidence extends SignatureEvidenceKind>(
+function projectInspectedSignature(
   signature: InspectedSignature,
-  evidence: Evidence,
-): ProtocolInspectedSignature<Evidence> {
+  evidence: SignatureEvidenceKind,
+): unknown {
   if (evidence === "exact") {
-    return { kind: signature.kind, text: signature.text } as ProtocolInspectedSignature<Evidence>;
+    return { kind: signature.kind, text: signature.text };
   }
   if (evidence === "structured") {
     return {
@@ -90,7 +111,7 @@ function projectInspectedSignature<Evidence extends SignatureEvidenceKind>(
       ...(signature.thisParameter === undefined ? {} : { thisParameter: signature.thisParameter }),
       parameters: signature.parameters,
       returns: signature.returns,
-    } as ProtocolInspectedSignature<Evidence>;
+    };
   }
-  return signature as ProtocolInspectedSignature<Evidence>;
+  return signature;
 }
