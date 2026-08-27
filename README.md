@@ -173,9 +173,16 @@ failure exit statuses; invalid wire input exits with status 2 and unexpected
 failures use status 70. It emits exactly one bounded JSON value on stdout and
 leaves stderr empty.
 
-The common `--access`, `--context`, and `--json` options may precede or follow an
-ordinary single-target command. Comparison uses explicit `--before-*` and
-`--after-*` target options plus the common `--json` option. `--subpaths` and `--match` affect only human Interface
+Add `--pretty` to `--json` for two-space-indented human-readable JSON. Compact
+JSON remains the default for agents and pipelines, and `--pretty` without
+`--json` is an invalid invocation. Pretty formatting permits only its structural
+line feeds; control and bidirectional characters originating in inspected data
+remain escaped. The `protocol` command keeps its compact bounded wire format.
+
+The common `--access`, `--context`, `--json`, and `--pretty` options may precede
+or follow an ordinary single-target command. Comparison uses explicit
+`--before-*` and `--after-*` target options plus the common `--json` and
+`--pretty` options. `--subpaths` and `--match` affect only human Interface
 Overview rendering and cannot be combined with `--json`, whose complete result
 already contains every Public Subpath and Module Export. Put `--` before a
 Module Export name that begins with a hyphen. The `export` and `signatures`

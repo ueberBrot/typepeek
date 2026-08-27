@@ -43,6 +43,7 @@ const INTERNAL_ERROR_EXIT_CODE = 70;
 const MAX_PLAN_QUERY_JSON_BYTES = 16 * 1_024;
 const COMMON_OPTION_WIDTHS = new Map<string, number>([
   ["--json", 1],
+  ["--pretty", 1],
   ["--access", 2],
   ["--context", 2],
 ] as const);
@@ -72,6 +73,7 @@ interface CliDiagnosticSnapshot {
 
 interface CliOutputOptions {
   readonly json: boolean;
+  readonly pretty: boolean;
 }
 
 interface InspectionTargetOptions extends CliOutputOptions {
@@ -166,6 +168,12 @@ const inspectionTargetFlags = {
     default: false,
     withNegated: false,
     brief: "Emit one pre-stable structured Inspection Outcome as JSON.",
+  },
+  pretty: {
+    kind: "boolean",
+    default: false,
+    withNegated: false,
+    brief: "Indent JSON output for human readability; requires --json.",
   },
 } as const;
 
@@ -414,11 +422,13 @@ const subpathsCommand = buildCommand<InspectionTargetOptions, [string], Applicat
 });
 
 const capabilitiesCommand = buildCommand<CliOutputOptions, [], ApplicationContext>({
-  func() {
-    this.process.stdout.write(`${serializeTerminalSafeJson(inspectCapabilities())}\n`);
+  func(options) {
+    this.process.stdout.write(
+      `${serializeTerminalSafeJson(inspectCapabilities(), options.pretty)}\n`,
+    );
   },
   parameters: {
-    flags: { json: inspectionTargetFlags.json },
+    flags: { json: inspectionTargetFlags.json, pretty: inspectionTargetFlags.pretty },
     positional: {
       kind: "tuple",
       parameters: [],
@@ -490,6 +500,7 @@ const compareCommand = buildCommand<ComparisonOptions, [string, string], Applica
         brief: "Resolution Context for the after Interface Overview.",
       },
       json: inspectionTargetFlags.json,
+      pretty: inspectionTargetFlags.pretty,
     },
     positional: {
       kind: "tuple",
@@ -547,6 +558,12 @@ const app = buildApplication(rootRoute, {
 /** Runs the CLI adapter and normalizes all process-facing behavior. */
 export async function runCli(rawInputs: readonly string[]): Promise<void> {
   const session = new CliProcessSession();
+  if (requestsPretty(rawInputs) && !requestsJson(rawInputs)) {
+    session.process.stderr.write("--pretty requires --json.\n");
+    session.process.exitCode = INVALID_INVOCATION_EXIT_CODE;
+    session.complete(rawInputs);
+    return;
+  }
   const inputs = rawInputs.length === 0 ? ["--help"] : normalizeCommonOptionPlacement(rawInputs);
   await run(app, inputs, { process: session.process });
   session.complete(rawInputs);
@@ -654,7 +671,7 @@ function writeCapturedDiagnostic(
   diagnostic: CliDiagnosticSnapshot,
 ): void {
   if (requestsJson(rawInputs)) {
-    process.stdout.write(`${renderCliDiagnostic(diagnostic)}\n`);
+    process.stdout.write(`${renderCliDiagnostic(diagnostic, requestsPretty(rawInputs))}\n`);
     return;
   }
   process.stderr.write(renderHumanCliDiagnostic(diagnostic));
@@ -668,18 +685,21 @@ function readableEnvironment(): Readonly<Record<string, string>> {
   );
 }
 
-function renderCliDiagnostic(snapshot: CliDiagnosticSnapshot): string {
+function renderCliDiagnostic(snapshot: CliDiagnosticSnapshot, pretty: boolean): string {
   const diagnostic: CliDiagnostic = {
     status: cliDiagnosticStatus(snapshot.exitCode),
     message: snapshot.exceeded ? cliDiagnosticLimitMessage() : snapshot.stderr.trimEnd(),
   };
-  const rendered = serializeTerminalSafeJson(diagnostic);
+  const rendered = serializeTerminalSafeJson(diagnostic, pretty);
   return Buffer.byteLength(rendered) <= MAX_CLI_DIAGNOSTIC_BYTES
     ? rendered
-    : serializeTerminalSafeJson({
-        status: diagnostic.status,
-        message: cliDiagnosticLimitMessage(),
-      } satisfies CliDiagnostic);
+    : serializeTerminalSafeJson(
+        {
+          status: diagnostic.status,
+          message: cliDiagnosticLimitMessage(),
+        } satisfies CliDiagnostic,
+        pretty,
+      );
 }
 
 function renderHumanCliDiagnostic(snapshot: CliDiagnosticSnapshot): string {
@@ -701,11 +721,19 @@ function cliDiagnosticLimitMessage(): string {
 }
 
 function requestsJson(inputs: readonly string[]): boolean {
+  return requestsFlag(inputs, "--json");
+}
+
+function requestsPretty(inputs: readonly string[]): boolean {
+  return requestsFlag(inputs, "--pretty");
+}
+
+function requestsFlag(inputs: readonly string[], flag: "--json" | "--pretty"): boolean {
   for (const input of inputs) {
     if (input === "--") {
       return false;
     }
-    if (input === "--json") {
+    if (input === flag) {
       return true;
     }
   }
@@ -757,7 +785,7 @@ function writeCliOutcome(
   renderingOptions: TerminalRenderingOptions = {},
 ): Error | undefined {
   if (options.json) {
-    writeJsonOutcome(context, outcome);
+    writeJsonOutcome(context, outcome, options.pretty);
     return undefined;
   }
   if (outcome.status !== "success") {
@@ -771,8 +799,12 @@ function writeCliOutcome(
   return undefined;
 }
 
-function writeJsonOutcome(context: ApplicationContext, outcome: InspectionOutcome): void {
-  const rendering = renderJsonOutcome(outcome);
+function writeJsonOutcome(
+  context: ApplicationContext,
+  outcome: InspectionOutcome,
+  pretty: boolean,
+): void {
+  const rendering = renderJsonOutcome(outcome, pretty);
   context.process.stdout.write(`${rendering.text}\n`);
   if (rendering.failed) {
     context.process.exitCode = INSPECTION_FAILURE_EXIT_CODE;

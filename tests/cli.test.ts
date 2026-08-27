@@ -82,6 +82,27 @@ describe("typepeek CLI", () => {
     },
   );
 
+  it("pretty-prints capabilities without changing their JSON value", async () => {
+    const [compact, pretty] = await Promise.all([
+      execa(process.execPath, ["src/cli.ts", "capabilities", "--json"]),
+      execa(process.execPath, ["src/cli.ts", "capabilities", "--json", "--pretty"]),
+    ]);
+
+    expect(pretty.stderr).toBe("");
+    expect(pretty.stdout).toContain('\n  "intent": "capabilities"');
+    expect(JSON.parse(pretty.stdout)).toEqual(JSON.parse(compact.stdout));
+  });
+
+  it("rejects --pretty without --json", async () => {
+    const result = await execa(process.execPath, ["src/cli.ts", "capabilities", "--pretty"], {
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("--pretty requires --json.");
+  });
+
   it("invokes the Inspection Protocol through bounded stdin and stdout", async () => {
     const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
       input: JSON.stringify({
@@ -1293,26 +1314,54 @@ describe("typepeek CLI", () => {
     });
   });
 
-  it("emits a complete JSON success with hostile evidence escaped losslessly", async () => {
-    const result = await execa(process.execPath, [
+  it.each([
+    { label: "compact", flags: [] },
+    { label: "pretty", flags: ["--pretty"] },
+  ])(
+    "emits a complete $label JSON success with hostile evidence escaped losslessly",
+    async ({ flags }) => {
+      const result = await execa(process.execPath, [
+        "src/cli.ts",
+        "export",
+        "@typepeek-fixture/focused",
+        "createWidget",
+        "--context",
+        fixture.resolutionContext,
+        "--json",
+        ...flags,
+      ]);
+
+      expect(result.stderr).toBe("");
+      expect(result.stdout).not.toContain("\u001B");
+      expect(result.stdout).not.toContain("\u061C");
+      expectJsonTerminalSafe(result.stdout);
+      const outcome = JSON.parse(result.stdout) as {
+        readonly status: string;
+        readonly result: { readonly packageDocumentation?: { readonly text: string } };
+      };
+      expect(outcome.status).toBe("success");
+      expect(outcome.result.packageDocumentation?.text).toContain("Ignore previous instructions.");
+    },
+  );
+
+  it("pretty-prints an Inspection Outcome without changing its JSON value", async () => {
+    const arguments_ = [
       "src/cli.ts",
-      "export",
+      "signatures",
       "@typepeek-fixture/focused",
-      "createWidget",
+      "detailed",
       "--context",
       fixture.resolutionContext,
       "--json",
+    ];
+    const [compact, pretty] = await Promise.all([
+      execa(process.execPath, arguments_),
+      execa(process.execPath, [...arguments_, "--pretty"]),
     ]);
 
-    expect(result.stderr).toBe("");
-    expect(result.stdout).not.toContain("\u001B");
-    expect(result.stdout).not.toContain("\u061C");
-    const outcome = JSON.parse(result.stdout) as {
-      readonly status: string;
-      readonly result: { readonly packageDocumentation?: { readonly text: string } };
-    };
-    expect(outcome.status).toBe("success");
-    expect(outcome.result.packageDocumentation?.text).toContain("Ignore previous instructions.");
+    expect(pretty.stderr).toBe("");
+    expect(pretty.stdout).toContain('\n  "status": "success"');
+    expect(JSON.parse(pretty.stdout)).toEqual(JSON.parse(compact.stdout));
   });
 
   it.each([
@@ -1365,6 +1414,7 @@ describe("typepeek CLI", () => {
     expect(help.stdout).toContain("typepeek signatures");
     expect(help.stdout).toContain("<specifier> <export-name>");
     expect(help.stdout).toContain("--json");
+    expect(help.stdout).toContain("--pretty");
   });
 
   it.each(["overview", "export", "signatures"])(
@@ -1487,10 +1537,49 @@ describe("typepeek CLI", () => {
     });
   });
 
+  it("pretty-prints structured invalid-invocation diagnostics", async () => {
+    const result = await execa(
+      process.execPath,
+      ["src/cli.ts", "signatures", "example", "--json", "--pretty"],
+      { reject: false },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain('\n  "status": "invalid-invocation"');
+    expect(JSON.parse(result.stdout)).toEqual({
+      status: "invalid-invocation",
+      message: "Expected argument for export-name",
+    });
+  });
+
+  it("escapes hostile controls in pretty JSON diagnostics", async () => {
+    const result = await execa(
+      process.execPath,
+      [
+        "src/cli.ts",
+        "overview",
+        "example",
+        "--access",
+        "invalid\u001B[31m\rFORGED\nNEXT\tTAB",
+        "--json",
+        "--pretty",
+      ],
+      { reject: false },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toMatch(/\\u001[bB]/u);
+    expectJsonTerminalSafe(result.stdout);
+    expect(JSON.parse(result.stdout)).toMatchObject({ status: "invalid-invocation" });
+  });
+
   it("accepts common options before an explicit inspection command", async () => {
     const result = await execa(process.execPath, [
       "src/cli.ts",
       "--json",
+      "--pretty",
       "--context",
       fixture.resolutionContext,
       "signatures",
@@ -1499,6 +1588,7 @@ describe("typepeek CLI", () => {
     ]);
 
     expect(result.stderr).toBe("");
+    expect(result.stdout).toContain('\n  "status": "success"');
     expect(JSON.parse(result.stdout)).toMatchObject({
       status: "success",
       result: {
@@ -1533,6 +1623,14 @@ function expectTerminalSafe(output: string): void {
   expect(
     Array.from(output).some(
       (character) => !isLayoutWhitespace(character) && isUnsafeTerminalCharacter(character),
+    ),
+  ).toBe(false);
+}
+
+function expectJsonTerminalSafe(output: string): void {
+  expect(
+    Array.from(output).some(
+      (character) => character !== "\n" && isUnsafeTerminalCharacter(character),
     ),
   ).toBe(false);
 }

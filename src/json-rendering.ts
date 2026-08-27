@@ -15,10 +15,13 @@ export interface JsonOutcomeRendering {
 }
 
 /** Serializes one complete outcome without allowing terminal control semantics. */
-export function renderJsonOutcome(outcome: InspectionOutcome): JsonOutcomeRendering {
-  const text = serializeTerminalSafeJson(outcome);
+export function renderJsonOutcome(
+  outcome: InspectionOutcome,
+  pretty = false,
+): JsonOutcomeRendering {
+  const text = serializeTerminalSafeJson(outcome, pretty);
   if (Buffer.byteLength(text) > MAX_JSON_OUTPUT_BYTES) {
-    return { failed: true, text: serializeTerminalSafeJson(JSON_OUTPUT_LIMIT_FAILURE) };
+    return { failed: true, text: serializeTerminalSafeJson(JSON_OUTPUT_LIMIT_FAILURE, pretty) };
   }
   return { failed: outcome.status !== "success", text };
 }
