@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 
 import { decodeInspectionProfile } from "#typepeek/inspection/performance-profile";
 
+import type { BenchmarkLatencyCaseName } from "./latency-workloads.ts";
 import {
   agentProtocolReportSchema,
   type BenchmarkMeasurements,
@@ -42,7 +43,7 @@ if (!report.passed) {
 async function runLatencyBenchmark(
   adapter: "package" | "source",
   iterations: number,
-  caseName?: string,
+  caseName?: BenchmarkLatencyCaseName,
 ) {
   const result = await execa(process.execPath, [
     "benchmarks/inspection-latency.ts",

@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
+
 import { installPackedPackagesWithNpm, packPackage } from "./package-toolchain.ts";
 
 interface PackageSource {
@@ -887,7 +889,9 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     directory: "oversized-declaration-source-package",
     name: "@typepeek-fixture/oversized-declaration-source",
     version: "1.0.0",
-    declaration: `export type Oversized = "${"x".repeat(8 * 1_024 * 1_024)}";\n`,
+    declaration: `export type Oversized = "${"x".repeat(
+      INSPECTION_BUDGET_POLICY.declarationSourceBytes,
+    )}";\n`,
     runtime: 'throw new Error("Typepeek executed the oversized declaration runtime");\n',
   },
   {

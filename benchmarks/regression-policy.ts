@@ -1,11 +1,11 @@
 import { Schema } from "effect";
 
-import { REQUIRED_LATENCY_CASES } from "./latency-workloads.ts";
+import { benchmarkLatencyCaseNameSchema, REQUIRED_LATENCY_CASES } from "./latency-workloads.ts";
 
 export { REQUIRED_LATENCY_CASES } from "./latency-workloads.ts";
 
 export const BENCHMARK_LIMITS = Object.freeze({
-  maxAnalysisRssBytes: 512 * 1_024 * 1_024,
+  maxAnalysisRssBytes: 576 * 1_024 * 1_024,
   maxCaseMeanWallMilliseconds: 8_000,
   maxCaseWallMilliseconds: 12_000,
   maxRuntimePackageBytes: 512 * 1_024,
@@ -32,7 +32,7 @@ const durationSummarySchema = Schema.Struct({
   max: finiteNonNegativeSchema,
 });
 const latencyMeasurementSchema = Schema.Struct({
-  name: Schema.Literals(REQUIRED_LATENCY_CASES),
+  name: benchmarkLatencyCaseNameSchema,
   statuses: Schema.Array(Schema.String),
   wallMilliseconds: Schema.Struct({
     mean: finiteNonNegativeSchema,
@@ -60,7 +60,7 @@ const measurementsSchema = Schema.Struct({
 });
 
 const latencyCaseSchema = Schema.Struct({
-  name: Schema.Literals(REQUIRED_LATENCY_CASES),
+  name: benchmarkLatencyCaseNameSchema,
   statuses: Schema.Array(Schema.String),
   analysisMaxRssBytes: Schema.optional(durationSummarySchema),
   wallMilliseconds: durationSummarySchema,

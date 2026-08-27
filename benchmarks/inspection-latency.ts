@@ -4,10 +4,12 @@ import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { parseArgs } from "node:util";
 
+import { enforceInspectionOutcome } from "#typepeek/inspection/inspection-outcome-authority";
 import {
   decodeInspectionProfile,
   type InspectionProfile,
 } from "#typepeek/inspection/performance-profile";
+import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 
 import { readLatencyWorkloadName, selectLatencyWorkloads } from "./latency-workloads.ts";
 import {
@@ -17,6 +19,7 @@ import {
 
 type DurationSummary = InspectionLatencyReport["cases"][number]["wallMilliseconds"];
 type LatencyCaseReport = InspectionLatencyReport["cases"][number];
+type LatencyWorkload = ReturnType<typeof selectLatencyWorkloads>[number];
 
 const options = readOptions(process.argv.slice(2));
 const executable = adapterEntrypoint(options.adapter);
@@ -41,8 +44,13 @@ for (const benchmarkCase of selectLatencyWorkloads(options.caseName)) {
       },
     );
     durations.push(roundedMilliseconds(performance.now() - startedAt));
-    const outcome = JSON.parse(result.stdout) as { readonly status?: unknown };
-    statuses.push(typeof outcome.status === "string" ? outcome.status : "invalid");
+    const value: unknown = JSON.parse(result.stdout);
+    const outcome = enforceInspectionOutcome(benchmarkCase.expectation.intent, value);
+    statuses.push(
+      result.exitCode === 0 && matchesSemanticExpectation(benchmarkCase, outcome)
+        ? "success"
+        : "invalid",
+    );
     const profile = readProfile(result.stderr, options.adapter);
     if (profile.maxRssBytes !== undefined) {
       analysisMaxRssBytes.push(profile.maxRssBytes);
@@ -65,6 +73,38 @@ for (const benchmarkCase of selectLatencyWorkloads(options.caseName)) {
       milliseconds: summarize(durations_),
     })),
   });
+}
+
+function matchesSemanticExpectation(
+  workload: LatencyWorkload,
+  outcome: InspectionOutcome,
+): boolean {
+  if (outcome.status !== "success") {
+    return false;
+  }
+  const { expectation } = workload;
+  const { result } = outcome;
+  if (result.intent !== expectation.intent || result.specifier !== expectation.specifier) {
+    return false;
+  }
+  switch (expectation.intent) {
+    case "interface-overview":
+      return result.intent === "interface-overview" && result.moduleExports.length > 0;
+    case "public-subpath-discovery":
+      return result.intent === "public-subpath-discovery" && result.publicSubpaths.length > 0;
+    case "export-search":
+      return (
+        result.intent === "export-search" &&
+        result.query === expectation.query &&
+        result.matches.length === expectation.matchCount
+      );
+    case "signature-inspection":
+      return (
+        result.intent === "signature-inspection" &&
+        result.moduleExport.name === expectation.exportName &&
+        result.moduleExport.signatures.length > 0
+      );
+  }
 }
 
 const report: InspectionLatencyReport = {
