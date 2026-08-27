@@ -15,6 +15,7 @@ export {
   INSPECTION_FAILURE_REASONS,
   INSPECTION_INTENTS,
   INSPECTION_PROTOCOL_VERSION,
+  PROTOCOL_RECOVERY_REASONS,
   inspectCapabilities,
   inspectionCapabilitiesSchema,
 } from "#typepeek/inspection/protocol-metadata";

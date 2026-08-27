@@ -6,8 +6,11 @@ import {
   INSPECTION_FAILURE_REASONS,
   INSPECTION_INTENTS,
   INSPECTION_PROTOCOL_VERSION,
+  PROTOCOL_RECOVERY_POLICY,
+  PROTOCOL_RECOVERY_REASONS,
   SIGNATURE_EVIDENCE_INTENTS,
   inspectionIntentSchema,
+  protocolRecoveryPolicySchema,
   signatureEvidenceKindSchema,
   type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
@@ -26,6 +29,7 @@ export {
   INSPECTION_FAILURE_REASONS,
   INSPECTION_INTENTS,
   INSPECTION_PROTOCOL_VERSION,
+  PROTOCOL_RECOVERY_REASONS,
 } from "#typepeek/inspection/protocol-vocabulary";
 export type {
   InspectionBudgetDimension,
@@ -156,10 +160,13 @@ const inspectionCapabilitiesBaseSchema = Schema.Struct({
   supportedIntents: literalTupleSchema(inspectionIntentSchema.literals),
   failureReasons: literalTupleSchema(INSPECTION_FAILURE_REASONS),
   budgetDimensions: literalTupleSchema(INSPECTION_BUDGET_DIMENSIONS),
+  recoveryReasons: literalTupleSchema(PROTOCOL_RECOVERY_REASONS),
   requestDescriptors: requestDescriptorsSchema,
   responseOptions: Schema.Tuple([responseOptionSchema]),
   limits: Schema.Struct({
     maxSerializedBytes: Schema.Literal(MAX_INSPECTION_CAPABILITIES_BYTES),
+    maxRecoveryEntries: protocolRecoveryPolicySchema.fields.maximumEntries,
+    maxRecoveryBytes: protocolRecoveryPolicySchema.fields.maximumBytes,
   }),
 });
 
@@ -183,6 +190,7 @@ const CAPABILITIES = deepFreeze(
     supportedIntents: INSPECTION_INTENTS,
     failureReasons: INSPECTION_FAILURE_REASONS,
     budgetDimensions: INSPECTION_BUDGET_DIMENSIONS,
+    recoveryReasons: PROTOCOL_RECOVERY_REASONS,
     requestDescriptors: REQUEST_DESCRIPTORS,
     responseOptions: [
       {
@@ -192,7 +200,11 @@ const CAPABILITIES = deepFreeze(
         default: "structured",
       },
     ],
-    limits: { maxSerializedBytes: MAX_INSPECTION_CAPABILITIES_BYTES },
+    limits: {
+      maxSerializedBytes: MAX_INSPECTION_CAPABILITIES_BYTES,
+      maxRecoveryEntries: PROTOCOL_RECOVERY_POLICY.maximumEntries,
+      maxRecoveryBytes: PROTOCOL_RECOVERY_POLICY.maximumBytes,
+    },
   }),
 );
 

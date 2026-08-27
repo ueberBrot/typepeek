@@ -84,6 +84,11 @@ it("publishes deterministic adapter capabilities without TypeScript enums", () =
       "module-exports",
       "merged-declarations",
     ]),
+    recoveryReasons: [
+      "inspect-declarations-without-supporting-types",
+      "inspect-signatures-without-supporting-types",
+      "search-related-export-names",
+    ],
     requestDescriptors: expect.arrayContaining([
       {
         intent: "signature-inspection",
@@ -146,7 +151,11 @@ it("publishes deterministic adapter capabilities without TypeScript enums", () =
         default: "structured",
       },
     ],
-    limits: { maxSerializedBytes: 16_384 },
+    limits: {
+      maxSerializedBytes: 16_384,
+      maxRecoveryEntries: 2,
+      maxRecoveryBytes: 32 * 1_024,
+    },
   });
 });
 
@@ -155,6 +164,10 @@ it("publishes one schema-valid capability catalog within its advertised bound", 
   const reorderedCatalog = {
     ...capabilities,
     supportedIntents: capabilities.supportedIntents.toReversed(),
+  };
+  const reorderedRecoveryCatalog = {
+    ...capabilities,
+    recoveryReasons: capabilities.recoveryReasons.toReversed(),
   };
 
   expect(Result.isSuccess(Schema.decodeResult(inspectionCapabilitiesSchema)(capabilities))).toBe(
@@ -165,6 +178,11 @@ it("publishes one schema-valid capability catalog within its advertised bound", 
   );
   expect(
     Result.isFailure(Schema.decodeUnknownResult(inspectionCapabilitiesSchema)(reorderedCatalog)),
+  ).toBe(true);
+  expect(
+    Result.isFailure(
+      Schema.decodeUnknownResult(inspectionCapabilitiesSchema)(reorderedRecoveryCatalog),
+    ),
   ).toBe(true);
   expect(Object.isFrozen(capabilities)).toBe(true);
   expect(Object.isFrozen(capabilities.requestDescriptors)).toBe(true);

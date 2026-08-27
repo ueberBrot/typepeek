@@ -18,7 +18,10 @@ import {
 import {
   inspectionProtocolResponseOptionsSchema,
   INSPECTION_PROTOCOL_VERSION,
+  PROTOCOL_RECOVERY_POLICY,
+  protocolRecoveryReasonSchemas,
   signatureEvidenceIntentSchema,
+  supportingTypeRecoveryBudgetSchema,
   type InspectionIntent,
   type SignatureEvidenceKind,
   type SignatureEvidenceIntent,
@@ -224,39 +227,40 @@ const structuredSignatureRecoveryRequestSchema = inspectionProtocolRequestSchema
   response: Schema.Struct({ signatureEvidence: Schema.Literal("structured") }),
 }));
 const declarationRecoveryGuidanceSchema = Schema.Struct({
-  reason: Schema.Literal("inspect-declarations-without-supporting-types"),
+  reason: protocolRecoveryReasonSchemas.declarationsWithoutSupportingTypes,
   request: Schema.toEncoded(inspectionProtocolRequestSchemas["declaration-inspection"]),
 });
 const signatureRecoveryGuidanceSchema = Schema.Struct({
-  reason: Schema.Literal("inspect-signatures-without-supporting-types"),
+  reason: protocolRecoveryReasonSchemas.signaturesWithoutSupportingTypes,
   request: Schema.toEncoded(structuredSignatureRecoveryRequestSchema),
 });
 const searchRecoveryGuidanceSchema = Schema.Struct({
-  reason: Schema.Literal("search-related-export-names"),
+  reason: protocolRecoveryReasonSchemas.relatedExportNames,
   request: Schema.toEncoded(inspectionProtocolRequestSchemas["export-search"]),
 });
-export const SUPPORTING_TYPE_RECOVERY_BUDGETS = [
-  "supporting-type-depth",
-  "supporting-types",
-  "supporting-type-traversal",
-] as const;
-export const PROTOCOL_RECOVERY_POLICY = {
-  maximumEntries: 3,
-  maximumBytes: 32 * 1_024,
-} as const;
-const searchRecoverySchema = Schema.Tuple([searchRecoveryGuidanceSchema]).check(
-  Schema.makeFilter(hasBoundedRecoveryBytes, {
-    expected: `at most ${PROTOCOL_RECOVERY_POLICY.maximumBytes} serialized bytes`,
-  }),
-);
-const supportingTypeRecoverySchema = Schema.Tuple([
+const protocolRecoveryGuidanceSchema = Schema.Union([
   declarationRecoveryGuidanceSchema,
   signatureRecoveryGuidanceSchema,
-]).check(
-  Schema.makeFilter(hasBoundedRecoveryBytes, {
-    expected: `at most ${PROTOCOL_RECOVERY_POLICY.maximumBytes} serialized bytes`,
-  }),
+  searchRecoveryGuidanceSchema,
+]);
+function boundedRecovery<
+  RecoverySchema extends Schema.Top & Schema.ConstraintDecoder<readonly unknown[]>,
+>(schema: RecoverySchema): RecoverySchema["Rebuild"] {
+  return schema.check(
+    Schema.isMaxLength(PROTOCOL_RECOVERY_POLICY.maximumEntries),
+    Schema.makeFilter(hasBoundedRecoveryBytes, {
+      expected: `at most ${PROTOCOL_RECOVERY_POLICY.maximumBytes} serialized bytes`,
+    }),
+  );
+}
+const searchRecoverySchema = boundedRecovery(Schema.Tuple([searchRecoveryGuidanceSchema]));
+const supportingTypeRecoverySchema = boundedRecovery(
+  Schema.Tuple([declarationRecoveryGuidanceSchema, signatureRecoveryGuidanceSchema]),
 );
+export const protocolRecoverySchema = Schema.Union([
+  searchRecoverySchema,
+  supportingTypeRecoverySchema,
+]);
 const structuredProjectionSchema = Schema.Struct({
   signatureEvidence: Schema.Literal("structured"),
   omittedEvidence: Schema.Tuple([Schema.Literal("exact-signature-text")]),
@@ -289,14 +293,18 @@ const nonProjectedInspectionOutcomeSchema = Schema.Union([
   Schema.Struct({ status: Schema.Literal("success"), result: nonProjectedInspectionResultSchema }),
   inspectionFailureSchema,
 ]);
-const exportNotFoundOutcomeSchema = inspectionFailureSchemas.notFound.mapFields((fields) => ({
-  ...fields,
-  reason: Schema.Literal("export-not-found"),
-}));
-const supportingTypeLimitOutcomeSchema = inspectionFailureSchemas.limit.mapFields((fields) => ({
-  ...fields,
-  exceededBudget: Schema.Literals(SUPPORTING_TYPE_RECOVERY_BUDGETS),
-}));
+export const exportNotFoundOutcomeSchema = inspectionFailureSchemas.notFound.mapFields(
+  (fields) => ({
+    ...fields,
+    reason: Schema.Literal("export-not-found"),
+  }),
+);
+export const supportingTypeLimitOutcomeSchema = inspectionFailureSchemas.limit.mapFields(
+  (fields) => ({
+    ...fields,
+    exceededBudget: supportingTypeRecoveryBudgetSchema,
+  }),
+);
 const unprojectedResponseSchema = Schema.Struct({
   protocolVersion: protocolVersionSchema,
   outcome: nonProjectedInspectionOutcomeSchema,
@@ -447,30 +455,11 @@ export type NormalizedInspectionProtocolRequestContract<
   Evidence extends SignatureEvidenceKind = SignatureEvidenceKind,
 > = InspectionProtocolRequestFrom<NormalizedInspectionRequestByIntent, Evidence>;
 
-export type DeclarationRecoveryGuidance = {
-  readonly reason: "inspect-declarations-without-supporting-types";
-  readonly request: Extract<
-    InspectionProtocolRequest,
-    { readonly intent: "declaration-inspection" }
-  >;
-};
-export type SignatureRecoveryRequest = Omit<
-  Extract<InspectionProtocolRequest, { readonly intent: "signature-inspection" }>,
-  "response"
-> & { readonly response: InspectionProtocolResponseOptions<"structured"> };
-export type SignatureRecoveryGuidance = {
-  readonly reason: "inspect-signatures-without-supporting-types";
-  readonly request: SignatureRecoveryRequest;
-};
-export type SearchRecoveryGuidance = {
-  readonly reason: "search-related-export-names";
-  readonly request: Extract<InspectionProtocolRequest, { readonly intent: "export-search" }>;
-};
-export type ProtocolRecoveryGuidance =
-  | DeclarationRecoveryGuidance
-  | SignatureRecoveryGuidance
-  | SearchRecoveryGuidance;
-export type ProtocolRecoveryReason = ProtocolRecoveryGuidance["reason"];
+export type DeclarationRecoveryGuidance = typeof declarationRecoveryGuidanceSchema.Type;
+export type SignatureRecoveryGuidance = typeof signatureRecoveryGuidanceSchema.Type;
+export type SearchRecoveryGuidance = typeof searchRecoveryGuidanceSchema.Type;
+export type ProtocolRecoveryGuidance = typeof protocolRecoveryGuidanceSchema.Type;
+export type ProtocolRecovery = typeof protocolRecoverySchema.Type;
 
 export type SignatureEvidenceProjectionFor<Evidence extends SignatureEvidenceKind> =
   Evidence extends "structured"
@@ -486,13 +475,8 @@ export type SignatureEvidenceProjectionFor<Evidence extends SignatureEvidenceKin
       : { readonly signatureEvidence: Evidence; readonly omittedEvidence: readonly [] };
 export type SignatureEvidenceProjection = SignatureEvidenceProjectionFor<SignatureEvidenceKind>;
 
-export type ExportNotFoundOutcome = Extract<InspectionFailure, { readonly status: "not-found" }> & {
-  readonly reason: "export-not-found";
-};
-export type SupportingTypeLimitOutcome = Extract<
-  InspectionFailure,
-  { readonly status: "limit-exceeded" }
-> & { readonly exceededBudget: (typeof SUPPORTING_TYPE_RECOVERY_BUDGETS)[number] };
+export type ExportNotFoundOutcome = typeof exportNotFoundOutcomeSchema.Type;
+export type SupportingTypeLimitOutcome = typeof supportingTypeLimitOutcomeSchema.Type;
 export type UnprojectedInspectionOutcome =
   | {
       readonly status: "success";
@@ -542,4 +526,7 @@ export type InspectionProtocolRequest = typeof inspectionProtocolRequestSchema.E
 export type NormalizedInspectionProtocolRequest = typeof inspectionProtocolRequestSchema.Type;
 export type InspectionProtocolResponse = typeof inspectionProtocolResponseSchema.Type;
 
-export type { SignatureEvidenceKind } from "#typepeek/inspection/protocol-vocabulary";
+export type {
+  ProtocolRecoveryReason,
+  SignatureEvidenceKind,
+} from "#typepeek/inspection/protocol-vocabulary";

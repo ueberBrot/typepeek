@@ -99,9 +99,45 @@ export const inspectionBudgetDimensionSchema = Schema.Literals([
 ] as const);
 export const INSPECTION_BUDGET_DIMENSIONS = Object.freeze(inspectionBudgetDimensionSchema.literals);
 
+export const protocolRecoveryReasonSchemas = {
+  declarationsWithoutSupportingTypes: Schema.Literal(
+    "inspect-declarations-without-supporting-types",
+  ),
+  signaturesWithoutSupportingTypes: Schema.Literal("inspect-signatures-without-supporting-types"),
+  relatedExportNames: Schema.Literal("search-related-export-names"),
+} as const;
+const protocolRecoveryReasonSchema = Schema.Union([
+  protocolRecoveryReasonSchemas.declarationsWithoutSupportingTypes,
+  protocolRecoveryReasonSchemas.signaturesWithoutSupportingTypes,
+  protocolRecoveryReasonSchemas.relatedExportNames,
+]);
+export const PROTOCOL_RECOVERY_REASONS = Object.freeze([
+  protocolRecoveryReasonSchemas.declarationsWithoutSupportingTypes.literal,
+  protocolRecoveryReasonSchemas.signaturesWithoutSupportingTypes.literal,
+  protocolRecoveryReasonSchemas.relatedExportNames.literal,
+] as const);
+
+export const supportingTypeRecoveryBudgetSchema = Schema.Literals([
+  "supporting-type-depth",
+  "supporting-types",
+  "supporting-type-traversal",
+] as const);
+
+export const protocolRecoveryPolicySchema = Schema.Struct({
+  maximumEntries: Schema.Literal(2),
+  maximumBytes: Schema.Literal(32_768),
+});
+export const PROTOCOL_RECOVERY_POLICY = Object.freeze(
+  Schema.decodeSync(protocolRecoveryPolicySchema)({
+    maximumEntries: 2,
+    maximumBytes: 32_768,
+  }),
+);
+
 export type InspectionIntent = typeof inspectionIntentSchema.Type;
 export type AnalysisIntent = typeof analysisIntentSchema.Type;
 export type InspectionFailureReason = typeof inspectionFailureReasonSchema.Type;
 export type InspectionBudgetDimension = typeof inspectionBudgetDimensionSchema.Type;
 export type SignatureEvidenceKind = typeof signatureEvidenceKindSchema.Type;
 export type SignatureEvidenceIntent = typeof signatureEvidenceIntentSchema.Type;
+export type ProtocolRecoveryReason = typeof protocolRecoveryReasonSchema.Type;
