@@ -18,8 +18,10 @@ import {
 import {
   inspectionProtocolResponseOptionsSchema,
   INSPECTION_PROTOCOL_VERSION,
+  signatureEvidenceIntentSchema,
   type InspectionIntent,
   type SignatureEvidenceKind,
+  type SignatureEvidenceIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
 import {
   inspectionRequestSchemas,
@@ -29,6 +31,7 @@ import {
 
 const protocolVersionSchema = Schema.Literal(INSPECTION_PROTOCOL_VERSION);
 const omittedFieldSchema = Schema.optionalKey(Schema.Never);
+const isSignatureEvidenceIntent = Schema.is(signatureEvidenceIntentSchema);
 
 function authoritativeContract<Type, Encoded>() {
   return <Contract extends Schema.Constraint>(
@@ -125,7 +128,7 @@ export const protocolInspectionSchemas = {
 } as const satisfies Readonly<Record<SignatureEvidenceKind, unknown>>;
 
 function requestEnvelopeWithoutProjection<
-  const Intent extends Exclude<InspectionIntent, "signature-inspection" | "inspection-plan">,
+  const Intent extends Exclude<InspectionIntent, SignatureEvidenceIntent>,
   RequestSchema extends Schema.Constraint,
 >(intent: Intent, request: RequestSchema) {
   return Schema.Struct({
@@ -137,7 +140,7 @@ function requestEnvelopeWithoutProjection<
 }
 
 function requestEnvelopeWithProjection<
-  const Intent extends "signature-inspection" | "inspection-plan",
+  const Intent extends SignatureEvidenceIntent,
   RequestSchema extends Schema.Constraint,
 >(intent: Intent, request: RequestSchema) {
   return Schema.Struct({
@@ -210,8 +213,8 @@ export const inspectionProtocolRequestSchema: Schema.Codec<
 
 export function supportsSignatureEvidence(
   intent: InspectionIntent,
-): intent is "signature-inspection" | "inspection-plan" {
-  return intent === "signature-inspection" || intent === "inspection-plan";
+): intent is SignatureEvidenceIntent {
+  return isSignatureEvidenceIntent(intent);
 }
 
 const structuredSignatureRecoveryRequestSchema = inspectionProtocolRequestSchemas[
@@ -424,7 +427,7 @@ export type InspectionProtocolEnvelope<
   readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
   readonly intent: Intent;
   readonly request: RequestByIntent[Intent];
-} & (Intent extends "signature-inspection" | "inspection-plan"
+} & (Intent extends SignatureEvidenceIntent
   ? { readonly response?: InspectionProtocolResponseOptions<Evidence> }
   : { readonly response?: never });
 export type InspectionProtocolRequestFrom<
