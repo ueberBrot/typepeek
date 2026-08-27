@@ -42,7 +42,7 @@ describe("typepeek CLI", () => {
     const result = await execa(process.execPath, ["src/cli.ts", "--help"]);
 
     expect(result.stdout).toContain("typepeek");
-    expect(result.stdout).toContain("Use overview to discover exports");
+    expect(result.stdout).toContain("Start with overview to discover exports");
     expect(result.stdout).toContain("overview");
     expect(result.stdout).toContain("export");
     expect(result.stdout).toContain("signatures");
@@ -1409,12 +1409,29 @@ describe("typepeek CLI", () => {
   );
 
   it("documents common options on focused commands", async () => {
-    const help = await execa(process.execPath, ["src/cli.ts", "signatures", "--help"]);
+    const [help, compareHelp] = await Promise.all([
+      execa(process.execPath, ["src/cli.ts", "signatures", "--help"]),
+      execa(process.execPath, ["src/cli.ts", "compare", "--help"]),
+    ]);
 
     expect(help.stdout).toContain("typepeek signatures");
     expect(help.stdout).toContain("<specifier> <export-name>");
+    expect(help.stdout).toContain("--context path");
     expect(help.stdout).toContain("--json");
     expect(help.stdout).toContain("--pretty");
+    expect(compareHelp.stdout).toContain("<before-specifier> <after-specifier>");
+  });
+
+  it("explains the capabilities-to-protocol machine workflow", async () => {
+    const [capabilitiesHelp, protocolHelp] = await Promise.all([
+      execa(process.execPath, ["src/cli.ts", "capabilities", "--help"]),
+      execa(process.execPath, ["src/cli.ts", "protocol", "--help"]),
+    ]);
+
+    expect(capabilitiesHelp.stdout).toContain("Capability output is always JSON");
+    expect(capabilitiesHelp.stdout).toContain("machine-mode diagnostics");
+    expect(protocolHelp.stdout).toContain("typepeek capabilities --json");
+    expect(protocolHelp.stdout).toContain("one compact JSON response");
   });
 
   it.each(["overview", "export", "signatures"])(
