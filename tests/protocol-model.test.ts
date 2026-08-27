@@ -1,11 +1,17 @@
 import { expectTypeOf, it } from "vite-plus/test";
 
 import type {
+  AnalysisRequest,
   ExportDeclarationSpace,
   ExportInspection,
   ExportNamespaceMember,
+  InspectionPlanQuery,
+  InspectionRequestByIntent,
   InterfaceOverview,
+  InterfaceOverviewRequest,
+  MemberInspectionRequest,
   ModuleExportIndexEntry,
+  NormalizedInspectionTarget,
   PackageIdentity,
   PublicSubpath,
 } from "#typepeek/inspection/protocol";
@@ -45,4 +51,36 @@ it("derives the existing deeply readonly protocol types", () => {
     readonly ExportDeclarationSpace[]
   >();
   expectTypeOf<ExportNamespaceMember["members"][number]>().toEqualTypeOf<ExportNamespaceMember>();
+});
+
+it("derives request and analysis types from their normalized schemas", () => {
+  type RequestAcceptsExplicitUndefined = {
+    readonly resolutionContext: string;
+    readonly specifier: string;
+    readonly accessStyle: undefined;
+  } extends InterfaceOverviewRequest
+    ? true
+    : false;
+  type OverviewAnalysisRequest = Extract<
+    AnalysisRequest,
+    { readonly intent: "interface-overview" }
+  >;
+  type MemberPlanQuery = Extract<InspectionPlanQuery, { readonly intent: "member-inspection" }>;
+
+  expectTypeOf<InterfaceOverviewRequest>().toEqualTypeOf<{
+    readonly resolutionContext: string;
+    readonly specifier: string;
+    readonly accessStyle?: "import" | "require" | undefined;
+  }>();
+  expectTypeOf<NormalizedInspectionTarget>().toEqualTypeOf<{
+    readonly resolutionContext: string;
+    readonly specifier: string;
+    readonly accessStyle: "import" | "require";
+  }>();
+  expectTypeOf<RequestAcceptsExplicitUndefined>().toEqualTypeOf<true>();
+  expectTypeOf<OverviewAnalysisRequest["request"]>().toEqualTypeOf<NormalizedInspectionTarget>();
+  expectTypeOf<MemberPlanQuery["memberPath"]>().toEqualTypeOf<readonly string[]>();
+  expectTypeOf<
+    InspectionRequestByIntent["member-inspection"]
+  >().toEqualTypeOf<MemberInspectionRequest>();
 });

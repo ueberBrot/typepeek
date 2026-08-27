@@ -14,24 +14,10 @@ import {
   MAX_MEMBER_PATH_SEGMENT_BYTES,
   readBoundedMemberPath,
 } from "#typepeek/inspection/member-path";
-import type {
-  AnalysisRequest,
-  AnalysisRequestReading,
-  InspectionRequestByIntent,
-  InspectionFailure,
-  InspectionRequestReading,
-  NormalizedDeclarationInspectionRequest,
-  NormalizedExportInspectionRequest,
-  NormalizedExportSearchRequest,
-  NormalizedInspectionPlanRequest,
-  NormalizedInterfaceOverviewRequest,
-  NormalizedMemberInspectionRequest,
-  NormalizedPublicInterfaceComparisonRequest,
-  NormalizedPublicSubpathDiscoveryRequest,
-  NormalizedSignatureInspectionRequest,
-} from "#typepeek/inspection/protocol";
+import type { InspectionFailure } from "#typepeek/inspection/protocol";
 import {
   ANALYSIS_INTENTS,
+  analysisIntentSchema,
   type AnalysisIntent,
   type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
@@ -80,35 +66,6 @@ export type InspectionRequestDescriptor<Intent extends InspectionIntent = Inspec
     readonly example: InspectionRequestByIntent[CurrentIntent];
   };
 }[Intent];
-
-export interface NormalizedInspectionRequestByIntent {
-  readonly "interface-overview": NormalizedInterfaceOverviewRequest;
-  readonly "export-inspection": NormalizedExportInspectionRequest;
-  readonly "signature-inspection": NormalizedSignatureInspectionRequest;
-  readonly "export-search": NormalizedExportSearchRequest;
-  readonly "public-subpath-discovery": NormalizedPublicSubpathDiscoveryRequest;
-  readonly "declaration-inspection": NormalizedDeclarationInspectionRequest;
-  readonly "member-inspection": NormalizedMemberInspectionRequest;
-  readonly "inspection-plan": NormalizedInspectionPlanRequest;
-  readonly "public-interface-comparison": NormalizedPublicInterfaceComparisonRequest;
-}
-
-export type PreparedInspectionCoreRequest =
-  | AnalysisRequest
-  | {
-      readonly intent: "public-interface-comparison";
-      readonly request: NormalizedPublicInterfaceComparisonRequest;
-    };
-
-export type InspectionCoreRequestReading =
-  | {
-      readonly accepted: true;
-      readonly preparedRequest: PreparedInspectionCoreRequest;
-    }
-  | {
-      readonly accepted: false;
-      readonly outcome: InspectionFailure;
-    };
 
 type InspectionRequestDefinition<
   Intent extends InspectionIntent,
@@ -174,7 +131,50 @@ const normalizedComparisonSchema = Schema.Struct({
   before: normalizedTargetSchema,
   after: normalizedTargetSchema,
 });
-const analysisIntentSchema = Schema.Literals(ANALYSIS_INTENTS);
+const INSPECTION_REQUEST_SCHEMAS = {
+  "interface-overview": normalizedTargetSchema,
+  "export-inspection": normalizedExportSchema,
+  "signature-inspection": normalizedExportSchema,
+  "export-search": normalizedExportSearchSchema,
+  "public-subpath-discovery": normalizedTargetSchema,
+  "declaration-inspection": normalizedExportSchema,
+  "member-inspection": normalizedMemberSchema,
+  "inspection-plan": normalizedPlanSchema,
+  "public-interface-comparison": normalizedComparisonSchema,
+} as const satisfies Readonly<Record<InspectionIntent, Schema.Constraint>>;
+
+export type InspectionRequestByIntent = {
+  readonly [Intent in InspectionIntent]: (typeof INSPECTION_REQUEST_SCHEMAS)[Intent]["Encoded"];
+};
+
+export type NormalizedInspectionRequestByIntent = {
+  readonly [Intent in InspectionIntent]: (typeof INSPECTION_REQUEST_SCHEMAS)[Intent]["Type"];
+};
+
+export type AccessStyle = NormalizedInspectionTarget["accessStyle"];
+export type InterfaceOverviewRequest = InspectionRequestByIntent["interface-overview"];
+export type NormalizedInspectionTarget = NormalizedInspectionRequestByIntent["interface-overview"];
+export type ExportInspectionRequest = InspectionRequestByIntent["export-inspection"];
+export type SignatureInspectionRequest = InspectionRequestByIntent["signature-inspection"];
+export type ExportSearchRequest = InspectionRequestByIntent["export-search"];
+export type PublicSubpathDiscoveryRequest = InspectionRequestByIntent["public-subpath-discovery"];
+export type DeclarationInspectionRequest = InspectionRequestByIntent["declaration-inspection"];
+export type NormalizedDeclarationInspectionRequest =
+  NormalizedInspectionRequestByIntent["declaration-inspection"];
+export type MemberInspectionRequest = InspectionRequestByIntent["member-inspection"];
+export type NormalizedMemberInspectionRequest =
+  NormalizedInspectionRequestByIntent["member-inspection"];
+export type InspectionPlanRequest = InspectionRequestByIntent["inspection-plan"];
+export type NormalizedInspectionPlanRequest =
+  NormalizedInspectionRequestByIntent["inspection-plan"];
+export type PublicInterfaceComparisonRequest =
+  InspectionRequestByIntent["public-interface-comparison"];
+export type NormalizedPublicInterfaceComparisonRequest =
+  NormalizedInspectionRequestByIntent["public-interface-comparison"];
+
+export type InspectionRequestReading<Request> =
+  | { readonly accepted: true; readonly request: Request }
+  | { readonly accepted: false; readonly outcome: InspectionFailure };
 
 const INVALID_ANALYSIS_REQUEST_OUTCOME: InspectionFailure = {
   status: "unsupported",
@@ -186,14 +186,14 @@ const ANALYSIS_REQUEST_FIELDS = ["intent", "request"] as const;
 const REQUEST_DEFINITIONS = Object.freeze({
   "interface-overview": defineRequest({
     intent: "interface-overview",
-    schema: normalizedTargetSchema,
+    schema: INSPECTION_REQUEST_SCHEMAS["interface-overview"],
     invalidOutcome: invalidRequest("Interface Overview"),
     fields: TARGET_FIELDS,
     example: { resolutionContext: "/absolute/path/to/consumer", specifier: "zod" },
   }),
   "export-inspection": defineRequest({
     intent: "export-inspection",
-    schema: normalizedExportSchema,
+    schema: INSPECTION_REQUEST_SCHEMAS["export-inspection"],
     invalidOutcome: invalidRequest("Export Inspection"),
     fields: [...TARGET_FIELDS, EXPORT_NAME_FIELD],
     example: {
@@ -204,7 +204,7 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "signature-inspection": defineRequest({
     intent: "signature-inspection",
-    schema: normalizedExportSchema,
+    schema: INSPECTION_REQUEST_SCHEMAS["signature-inspection"],
     invalidOutcome: invalidRequest("Signature Inspection"),
     fields: [...TARGET_FIELDS, EXPORT_NAME_FIELD],
     example: {
@@ -215,7 +215,7 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "export-search": defineRequest({
     intent: "export-search",
-    schema: normalizedExportSearchSchema,
+    schema: INSPECTION_REQUEST_SCHEMAS["export-search"],
     invalidOutcome: invalidRequest("Export Search"),
     fields: [
       ...TARGET_FIELDS,
@@ -235,14 +235,14 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "public-subpath-discovery": defineRequest({
     intent: "public-subpath-discovery",
-    schema: normalizedTargetSchema,
+    schema: INSPECTION_REQUEST_SCHEMAS["public-subpath-discovery"],
     invalidOutcome: invalidRequest("Public Subpath Discovery"),
     fields: TARGET_FIELDS,
     example: { resolutionContext: "/absolute/path/to/consumer", specifier: "zod" },
   }),
   "declaration-inspection": defineRequest({
     intent: "declaration-inspection",
-    schema: normalizedExportSchema,
+    schema: INSPECTION_REQUEST_SCHEMAS["declaration-inspection"],
     invalidOutcome: invalidRequest("Declaration Inspection"),
     fields: [...TARGET_FIELDS, EXPORT_NAME_FIELD],
     example: {
@@ -253,7 +253,7 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "member-inspection": defineRequest({
     intent: "member-inspection",
-    schema: normalizedMemberSchema,
+    schema: INSPECTION_REQUEST_SCHEMAS["member-inspection"],
     invalidOutcome: invalidRequest("Member Inspection"),
     fields: [
       ...TARGET_FIELDS,
@@ -277,7 +277,7 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "inspection-plan": defineRequest({
     intent: "inspection-plan",
-    schema: normalizedPlanSchema,
+    schema: INSPECTION_REQUEST_SCHEMAS["inspection-plan"],
     invalidOutcome: invalidRequest("Inspection Plan"),
     fields: [
       ...TARGET_FIELDS,
@@ -298,7 +298,7 @@ const REQUEST_DEFINITIONS = Object.freeze({
   }),
   "public-interface-comparison": defineRequest({
     intent: "public-interface-comparison",
-    schema: normalizedComparisonSchema,
+    schema: INSPECTION_REQUEST_SCHEMAS["public-interface-comparison"],
     invalidOutcome: invalidRequest("Public Interface Comparison"),
     fields: [
       {
@@ -324,16 +324,26 @@ const REQUEST_DEFINITIONS = Object.freeze({
   readonly [Intent in InspectionIntent]: InspectionRequestDefinition<Intent>;
 });
 
-export const analysisRequestSchema = Schema.Union([
-  REQUEST_DEFINITIONS["interface-overview"].envelopeSchema,
-  REQUEST_DEFINITIONS["export-inspection"].envelopeSchema,
-  REQUEST_DEFINITIONS["signature-inspection"].envelopeSchema,
-  REQUEST_DEFINITIONS["export-search"].envelopeSchema,
-  REQUEST_DEFINITIONS["public-subpath-discovery"].envelopeSchema,
-  REQUEST_DEFINITIONS["declaration-inspection"].envelopeSchema,
-  REQUEST_DEFINITIONS["member-inspection"].envelopeSchema,
-  REQUEST_DEFINITIONS["inspection-plan"].envelopeSchema,
-]);
+export const analysisRequestSchema = Schema.Union(
+  ANALYSIS_INTENTS.map((intent) => REQUEST_DEFINITIONS[intent].envelopeSchema),
+);
+export type AnalysisRequest = typeof analysisRequestSchema.Type;
+
+export type AnalysisRequestReading =
+  | { readonly accepted: true; readonly request: AnalysisRequest }
+  | { readonly accepted: false; readonly outcome: InspectionFailure };
+
+export type PreparedInspectionCoreRequest =
+  | AnalysisRequest
+  | {
+      readonly intent: "public-interface-comparison";
+      readonly request: NormalizedPublicInterfaceComparisonRequest;
+    };
+
+export type InspectionCoreRequestReading =
+  | { readonly accepted: true; readonly preparedRequest: PreparedInspectionCoreRequest }
+  | { readonly accepted: false; readonly outcome: InspectionFailure };
+
 const decodeAnalysisIntent = Schema.decodeUnknownResult(analysisIntentSchema);
 const decodeAnalysisRequest = Schema.decodeUnknownResult(analysisRequestSchema);
 

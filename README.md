@@ -213,6 +213,11 @@ directly. Tests of Effect-returning APIs use `it.effect` with test services or
 `it.live` when they intentionally exercise the operating system and real time.
 Promise adapter tests remain ordinary Vitest tests.
 
+Effect Schema definitions are the runtime and compile-time authority for
+Inspection requests, normalized analysis envelopes, Inspection Plan queries,
+Package Identity, protocol outcomes, and cache data. Public input types use a
+schema's encoded view; normalized and output types use its decoded view.
+
 Set `TYPEPEEK_PROFILE=1` on a source-checkout invocation to emit bounded,
 non-authoritative phase timings as JSON on stderr. Profiling never changes the
 Inspection Outcome on stdout and is disabled by default. Build and package

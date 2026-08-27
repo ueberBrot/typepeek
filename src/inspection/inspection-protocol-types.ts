@@ -8,11 +8,13 @@ import type {
   SignatureInspection,
 } from "#typepeek/inspection/protocol";
 import {
+  inspectionProtocolResponseOptionsSchema,
   INSPECTION_PROTOCOL_VERSION,
   type InspectionIntent,
+  type SignatureEvidenceKind,
 } from "#typepeek/inspection/protocol-vocabulary";
 
-export type SignatureEvidenceKind = "structured" | "exact" | "both";
+export type { SignatureEvidenceKind } from "#typepeek/inspection/protocol-vocabulary";
 export type StructuredInspectedSignature = Omit<InspectedSignature, "text">;
 export type ExactInspectedSignature = Pick<InspectedSignature, "kind" | "text">;
 export type ProtocolInspectedSignature<Evidence extends SignatureEvidenceKind> =
@@ -54,11 +56,11 @@ export interface SignatureEvidenceProjection {
   readonly omittedEvidence: readonly ("exact-signature-text" | "structured-signature-fields")[];
 }
 
-export interface InspectionProtocolResponseOptions<
+export type InspectionProtocolResponseOptions<
   Evidence extends SignatureEvidenceKind = SignatureEvidenceKind,
-> {
+> = Omit<typeof inspectionProtocolResponseOptionsSchema.Type, "signatureEvidence"> & {
   readonly signatureEvidence: Evidence;
-}
+};
 
 export type InspectionProtocolEnvelope<
   Intent extends InspectionIntent,

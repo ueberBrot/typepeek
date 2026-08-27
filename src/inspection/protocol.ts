@@ -3,10 +3,10 @@ import { Schema } from "effect";
 import { MAX_INSPECTION_PLAN_QUERIES } from "#typepeek/inspection/inspection-plan-query";
 import { packageIdentitySchema } from "#typepeek/inspection/package-identity";
 import {
-  INSPECTION_BUDGET_DIMENSIONS,
+  inspectionBudgetDimensionSchema,
   type InspectionIntent,
-  NOT_FOUND_FAILURE_REASONS,
-  UNSUPPORTED_FAILURE_REASONS,
+  notFoundFailureReasonSchema,
+  unsupportedFailureReasonSchema,
 } from "#typepeek/inspection/protocol-vocabulary";
 
 const portableRelativePathSchema = Schema.String.check(
@@ -14,19 +14,16 @@ const portableRelativePathSchema = Schema.String.check(
 );
 const positiveIntegerSchema = Schema.Int.check(Schema.isGreaterThan(0));
 const accessStyleSchema = Schema.Literals(["import", "require"]);
-const budgetDimensionSchema = Schema.Literals(INSPECTION_BUDGET_DIMENSIONS);
-const notFoundFailureReasonSchema = Schema.Literals(NOT_FOUND_FAILURE_REASONS);
-const unsupportedFailureReasonSchema = Schema.Literals(UNSUPPORTED_FAILURE_REASONS);
-const optionalUndefined = Schema.optional(Schema.Never);
+const omittedFieldSchema = Schema.optionalKey(Schema.Never);
 
 const moduleExportIndexEntrySchema = Schema.Struct({ name: Schema.String });
 const publicSubpathSchema = Schema.Struct({ specifier: Schema.String });
 export const packageInspectionResultIdentitySchema = Schema.Struct({
   packageIdentity: packageIdentitySchema,
-  declarationProvider: Schema.optional(packageIdentitySchema),
+  declarationProvider: Schema.optionalKey(packageIdentitySchema),
 });
 export const platformInspectionResultIdentitySchema = Schema.Struct({
-  packageIdentity: optionalUndefined,
+  packageIdentity: omittedFieldSchema,
   declarationProvider: packageIdentitySchema,
 });
 const inspectionResultIdentitySchema = Schema.Union([
@@ -70,18 +67,18 @@ const exportTypeOrValueDeclarationSpaceSchema = Schema.Struct({
   space: Schema.Literals(["type", "value"]),
   declarations: Schema.Array(inspectedDeclarationSchema),
 });
-interface ExportNamespaceMemberSchemaType {
+// Schema.suspend needs a named recursive fixed point; the Codec checks its runtime definition
+// against this public shape instead of maintaining an unrelated model.
+export interface ExportNamespaceMember {
   readonly name: string;
   readonly declarations: ReadonlyArray<typeof inspectedDeclarationSchema.Type>;
-  readonly members: ReadonlyArray<ExportNamespaceMemberSchemaType>;
+  readonly members: ReadonlyArray<ExportNamespaceMember>;
 }
-const exportNamespaceMemberSchema: Schema.Codec<ExportNamespaceMemberSchemaType> = Schema.Struct({
+const exportNamespaceMemberSchema: Schema.Codec<ExportNamespaceMember> = Schema.Struct({
   name: Schema.String,
   declarations: Schema.Array(inspectedDeclarationSchema),
   members: Schema.Array(
-    Schema.suspend(
-      (): Schema.Codec<ExportNamespaceMemberSchemaType> => exportNamespaceMemberSchema,
-    ),
+    Schema.suspend((): Schema.Codec<ExportNamespaceMember> => exportNamespaceMemberSchema),
   ),
 });
 const exportNamespaceDeclarationSpaceSchema = Schema.Struct({
@@ -124,8 +121,8 @@ const signatureTypeParameterModifierSchema = Schema.Literals(["const", "in", "ou
 const signatureTypeParameterSchema = Schema.Struct({
   name: Schema.String,
   modifiers: Schema.Array(signatureTypeParameterModifierSchema),
-  constraint: Schema.optional(Schema.String),
-  default: Schema.optional(Schema.String),
+  constraint: Schema.optionalKey(Schema.String),
+  default: Schema.optionalKey(Schema.String),
   synthetic: Schema.Boolean,
 });
 const signatureTypeReturnSchema = Schema.Struct({
@@ -140,7 +137,7 @@ const signaturePredicateReturnSchema = Schema.Struct({
 const signatureAssertionReturnSchema = Schema.Struct({
   kind: Schema.Literal("assertion"),
   parameter: Schema.String,
-  type: Schema.optional(Schema.String),
+  type: Schema.optionalKey(Schema.String),
 });
 const signatureReturnSchema = Schema.Union([
   signatureTypeReturnSchema,
@@ -151,24 +148,24 @@ const inspectedSignatureSchema = Schema.Struct({
   kind: Schema.Literals(["call", "construct"]),
   text: Schema.String,
   typeParameters: Schema.Array(signatureTypeParameterSchema),
-  thisParameter: Schema.optional(signatureThisParameterSchema),
+  thisParameter: Schema.optionalKey(signatureThisParameterSchema),
   parameters: Schema.Array(signatureParameterSchema),
   returns: signatureReturnSchema,
 });
 const inspectedModuleExportSchema = Schema.Struct({
   name: Schema.String,
-  alias: Schema.optional(exportAliasSchema),
+  alias: Schema.optionalKey(exportAliasSchema),
   spaces: Schema.Array(exportDeclarationSpaceSchema),
   signatures: Schema.Array(exportSignatureSchema),
 });
 const inspectedModuleExportSignaturesSchema = Schema.Struct({
   name: Schema.String,
-  aliasTargetName: Schema.optional(Schema.String),
+  aliasTargetName: Schema.optionalKey(Schema.String),
   signatures: Schema.Array(inspectedSignatureSchema),
 });
 const inspectedModuleExportDeclarationsSchema = Schema.Struct({
   name: Schema.String,
-  alias: Schema.optional(exportAliasSchema),
+  alias: Schema.optionalKey(exportAliasSchema),
   spaces: Schema.Array(exportDeclarationSpaceSchema),
 });
 const supportingTypeSchema = Schema.Struct({
@@ -205,7 +202,7 @@ const exportInspectionSchema = withInspectionResultIdentity({
   intent: Schema.Literal("export-inspection"),
   moduleExport: inspectedModuleExportSchema,
   supportingTypes: Schema.Array(supportingTypeSchema),
-  packageDocumentation: Schema.optional(packageDocumentationSchema),
+  packageDocumentation: Schema.optionalKey(packageDocumentationSchema),
 });
 const signatureInspectionSchema = withInspectionResultIdentity({
   intent: Schema.Literal("signature-inspection"),
@@ -287,7 +284,7 @@ const staticBoundaryFailureSchema = Schema.Struct({
 const limitFailureSchema = Schema.Struct({
   status: Schema.Literal("limit-exceeded"),
   reason: Schema.Literal("budget-exceeded"),
-  exceededBudget: budgetDimensionSchema,
+  exceededBudget: inspectionBudgetDimensionSchema,
   message: Schema.String,
 });
 const inspectionFailureSchema = Schema.Union([
@@ -305,196 +302,71 @@ export const inspectionOutcomeSchema = Schema.Union([
   inspectionFailureSchema,
 ]);
 
-/**
- * Projects schema-inferred protocol values into readonly TypeScript shapes.
- * Optional properties stay optional rather than becoming required properties
- * whose values include `undefined`.
- */
-export type ProtocolType<Value> = Value extends readonly (infer Item)[]
-  ? readonly ProtocolType<Item>[]
-  : Value extends object
-    ? {
-        readonly [Key in keyof Value as {} extends Pick<Value, Key> ? never : Key]: ProtocolType<
-          Value[Key]
-        >;
-      } & {
-        readonly [Key in keyof Value as {} extends Pick<Value, Key> ? Key : never]?: ProtocolType<
-          Exclude<Value[Key], undefined>
-        >;
-      }
-    : Value;
-
-export type AccessStyle = ProtocolType<typeof accessStyleSchema.Type>;
-export interface InterfaceOverviewRequest {
-  readonly resolutionContext: string;
-  readonly specifier: string;
-  readonly accessStyle?: AccessStyle;
-}
-export interface NormalizedInspectionTarget {
-  readonly resolutionContext: string;
-  readonly specifier: string;
-  readonly accessStyle: AccessStyle;
-}
-export type NormalizedInterfaceOverviewRequest = NormalizedInspectionTarget;
-export interface ExportInspectionRequest extends InterfaceOverviewRequest {
-  readonly exportName: string;
-}
-export interface NormalizedExportInspectionRequest extends NormalizedInspectionTarget {
-  readonly exportName: string;
-}
-export interface SignatureInspectionRequest extends InterfaceOverviewRequest {
-  readonly exportName: string;
-}
-export interface NormalizedSignatureInspectionRequest extends NormalizedInspectionTarget {
-  readonly exportName: string;
-}
-export interface ExportSearchRequest extends InterfaceOverviewRequest {
-  readonly query: string;
-}
-export interface NormalizedExportSearchRequest extends NormalizedInspectionTarget {
-  readonly query: string;
-}
-export type PublicSubpathDiscoveryRequest = InterfaceOverviewRequest;
-export type NormalizedPublicSubpathDiscoveryRequest = NormalizedInspectionTarget;
-export type DeclarationInspectionRequest = ExportInspectionRequest;
-export type NormalizedDeclarationInspectionRequest = NormalizedExportInspectionRequest;
-export interface MemberInspectionRequest extends ExportInspectionRequest {
-  readonly memberPath: readonly string[];
-}
-export interface NormalizedMemberInspectionRequest extends NormalizedExportInspectionRequest {
-  readonly memberPath: readonly string[];
-}
-export type InspectionPlanQuery =
-  | { readonly intent: "interface-overview" }
-  | { readonly intent: "export-inspection"; readonly exportName: string }
-  | { readonly intent: "signature-inspection"; readonly exportName: string }
-  | { readonly intent: "export-search"; readonly query: string }
-  | { readonly intent: "public-subpath-discovery" }
-  | { readonly intent: "declaration-inspection"; readonly exportName: string }
-  | {
-      readonly intent: "member-inspection";
-      readonly exportName: string;
-      readonly memberPath: readonly string[];
-    };
-export interface InspectionPlanRequest extends InterfaceOverviewRequest {
-  readonly queries: readonly InspectionPlanQuery[];
-}
-export interface NormalizedInspectionPlanRequest extends NormalizedInspectionTarget {
-  readonly queries: readonly InspectionPlanQuery[];
-}
-export interface PublicInterfaceComparisonRequest {
-  readonly before: InterfaceOverviewRequest;
-  readonly after: InterfaceOverviewRequest;
-}
-export interface NormalizedPublicInterfaceComparisonRequest {
-  readonly before: NormalizedInterfaceOverviewRequest;
-  readonly after: NormalizedInterfaceOverviewRequest;
-}
-export type ModuleExportIndexEntry = ProtocolType<typeof moduleExportIndexEntrySchema.Type>;
-export type PublicSubpath = ProtocolType<typeof publicSubpathSchema.Type>;
+export type ModuleExportIndexEntry = typeof moduleExportIndexEntrySchema.Type;
+export type PublicSubpath = typeof publicSubpathSchema.Type;
 export type { PackageIdentity } from "#typepeek/inspection/package-identity";
-export type ResolutionVariant = ProtocolType<typeof resolutionVariantSchema.Type>;
-export type InspectionResultIdentity = ProtocolType<typeof inspectionResultIdentitySchema.Type>;
-export type InterfaceOverview = ProtocolType<typeof interfaceOverviewSchema.Type>;
-export type DeclarationSpace = ProtocolType<typeof declarationSpaceSchema.Type>;
-export type DeclarationKind = ProtocolType<typeof declarationKindSchema.Type>;
-export type InspectedDeclaration = ProtocolType<typeof inspectedDeclarationSchema.Type>;
-export type ExportNamespaceMember = ProtocolType<typeof exportNamespaceMemberSchema.Type>;
-export type ExportDeclarationSpace = ProtocolType<typeof exportDeclarationSpaceSchema.Type>;
-export type ExportAlias = ProtocolType<typeof exportAliasSchema.Type>;
-export type ExportSignature = ProtocolType<typeof exportSignatureSchema.Type>;
-export type SignatureBinding = ProtocolType<typeof signatureBindingSchema.Type>;
-export type SignatureParameter = ProtocolType<typeof signatureParameterSchema.Type>;
-export type SignatureThisParameter = ProtocolType<typeof signatureThisParameterSchema.Type>;
-export type SignatureTypeParameterModifier = ProtocolType<
-  typeof signatureTypeParameterModifierSchema.Type
->;
-export type SignatureTypeParameter = ProtocolType<typeof signatureTypeParameterSchema.Type>;
-export type SignatureReturn = ProtocolType<typeof signatureReturnSchema.Type>;
-export type InspectedSignature = ProtocolType<typeof inspectedSignatureSchema.Type>;
-export type InspectedModuleExport = ProtocolType<typeof inspectedModuleExportSchema.Type>;
-export type SupportingType = ProtocolType<typeof supportingTypeSchema.Type>;
-export type PackageDocumentation = ProtocolType<typeof packageDocumentationSchema.Type>;
-export type ExportInspection = ProtocolType<typeof exportInspectionSchema.Type>;
-export type InspectedModuleExportSignatures = ProtocolType<
-  typeof inspectedModuleExportSignaturesSchema.Type
->;
-export type SignatureInspection = ProtocolType<typeof signatureInspectionSchema.Type>;
-export type ExportSearch = ProtocolType<typeof exportSearchSchema.Type>;
-export type PublicSubpathDiscovery = ProtocolType<typeof publicSubpathDiscoverySchema.Type>;
-export type InspectedModuleExportDeclarations = ProtocolType<
-  typeof inspectedModuleExportDeclarationsSchema.Type
->;
-export type DeclarationInspection = ProtocolType<typeof declarationInspectionSchema.Type>;
-export type MemberInspection = ProtocolType<typeof memberInspectionSchema.Type>;
-export type PublicInterfaceComparisonTarget = ProtocolType<typeof comparisonTargetSchema.Type>;
-export type PublicInterfaceComparison = ProtocolType<typeof publicInterfaceComparisonSchema.Type>;
-export type AtomicInspectionResult = ProtocolType<typeof atomicInspectionResultSchema.Type>;
-export type InspectionPlan = ProtocolType<typeof inspectionPlanSchema.Type>;
-export type InspectionResult = ProtocolType<typeof inspectionResultSchema.Type>;
-export type InspectionFailure = ProtocolType<typeof inspectionFailureSchema.Type>;
+export type ResolutionVariant = typeof resolutionVariantSchema.Type;
+export type InspectionResultIdentity = typeof inspectionResultIdentitySchema.Type;
+export type InterfaceOverview = typeof interfaceOverviewSchema.Type;
+export type DeclarationSpace = typeof declarationSpaceSchema.Type;
+export type DeclarationKind = typeof declarationKindSchema.Type;
+export type InspectedDeclaration = typeof inspectedDeclarationSchema.Type;
+export type ExportDeclarationSpace = typeof exportDeclarationSpaceSchema.Type;
+export type ExportAlias = typeof exportAliasSchema.Type;
+export type ExportSignature = typeof exportSignatureSchema.Type;
+export type SignatureBinding = typeof signatureBindingSchema.Type;
+export type SignatureParameter = typeof signatureParameterSchema.Type;
+export type SignatureThisParameter = typeof signatureThisParameterSchema.Type;
+export type SignatureTypeParameterModifier = typeof signatureTypeParameterModifierSchema.Type;
+export type SignatureTypeParameter = typeof signatureTypeParameterSchema.Type;
+export type SignatureReturn = typeof signatureReturnSchema.Type;
+export type InspectedSignature = typeof inspectedSignatureSchema.Type;
+export type InspectedModuleExport = typeof inspectedModuleExportSchema.Type;
+export type SupportingType = typeof supportingTypeSchema.Type;
+export type PackageDocumentation = typeof packageDocumentationSchema.Type;
+export type ExportInspection = typeof exportInspectionSchema.Type;
+export type InspectedModuleExportSignatures = typeof inspectedModuleExportSignaturesSchema.Type;
+export type SignatureInspection = typeof signatureInspectionSchema.Type;
+export type ExportSearch = typeof exportSearchSchema.Type;
+export type PublicSubpathDiscovery = typeof publicSubpathDiscoverySchema.Type;
+export type InspectedModuleExportDeclarations = typeof inspectedModuleExportDeclarationsSchema.Type;
+export type DeclarationInspection = typeof declarationInspectionSchema.Type;
+export type MemberInspection = typeof memberInspectionSchema.Type;
+export type PublicInterfaceComparisonTarget = typeof comparisonTargetSchema.Type;
+export type PublicInterfaceComparison = typeof publicInterfaceComparisonSchema.Type;
+export type AtomicInspectionResult = typeof atomicInspectionResultSchema.Type;
+export type InspectionPlan = typeof inspectionPlanSchema.Type;
+export type InspectionResult = typeof inspectionResultSchema.Type;
+export type InspectionFailure = typeof inspectionFailureSchema.Type;
 export type InspectionResultByIntent = {
   readonly [Intent in InspectionIntent]: Extract<InspectionResult, { readonly intent: Intent }>;
 };
 
 /** A complete Inspection Result or an explicit non-authoritative failure. */
 export type InspectionOutcome<Result extends InspectionResult = InspectionResult> =
-  | {
-      readonly status: "success";
-      readonly result: Result;
-    }
+  | (Omit<typeof inspectionSuccessSchema.Type, "result"> & { readonly result: Result })
   | InspectionFailure;
 
-export interface InspectionRequestByIntent {
-  readonly "interface-overview": InterfaceOverviewRequest;
-  readonly "export-inspection": ExportInspectionRequest;
-  readonly "signature-inspection": SignatureInspectionRequest;
-  readonly "export-search": ExportSearchRequest;
-  readonly "public-subpath-discovery": PublicSubpathDiscoveryRequest;
-  readonly "declaration-inspection": DeclarationInspectionRequest;
-  readonly "member-inspection": MemberInspectionRequest;
-  readonly "inspection-plan": InspectionPlanRequest;
-  readonly "public-interface-comparison": PublicInterfaceComparisonRequest;
-}
-
-export type InspectionRequestReading<Request> =
-  | {
-      readonly accepted: true;
-      readonly request: Request;
-    }
-  | {
-      readonly accepted: false;
-      readonly outcome: InspectionFailure;
-    };
-
-export type AnalysisRequest =
-  | { readonly intent: "interface-overview"; readonly request: NormalizedInspectionTarget }
-  | { readonly intent: "export-inspection"; readonly request: NormalizedExportInspectionRequest }
-  | {
-      readonly intent: "signature-inspection";
-      readonly request: NormalizedSignatureInspectionRequest;
-    }
-  | { readonly intent: "export-search"; readonly request: NormalizedExportSearchRequest }
-  | {
-      readonly intent: "public-subpath-discovery";
-      readonly request: NormalizedPublicSubpathDiscoveryRequest;
-    }
-  | {
-      readonly intent: "declaration-inspection";
-      readonly request: NormalizedDeclarationInspectionRequest;
-    }
-  | { readonly intent: "member-inspection"; readonly request: NormalizedMemberInspectionRequest }
-  | { readonly intent: "inspection-plan"; readonly request: NormalizedInspectionPlanRequest };
-
-export type AnalysisRequestReading =
-  | {
-      readonly accepted: true;
-      readonly request: AnalysisRequest;
-    }
-  | {
-      readonly accepted: false;
-      readonly outcome: InspectionFailure;
-    };
+export type {
+  AccessStyle,
+  AnalysisRequest,
+  DeclarationInspectionRequest,
+  ExportInspectionRequest,
+  ExportSearchRequest,
+  InspectionPlanRequest,
+  InspectionRequestByIntent,
+  InterfaceOverviewRequest,
+  MemberInspectionRequest,
+  NormalizedDeclarationInspectionRequest,
+  NormalizedInspectionPlanRequest,
+  NormalizedInspectionTarget,
+  NormalizedMemberInspectionRequest,
+  NormalizedPublicInterfaceComparisonRequest,
+  PublicInterfaceComparisonRequest,
+  PublicSubpathDiscoveryRequest,
+  SignatureInspectionRequest,
+} from "#typepeek/inspection/request-definitions";
+export type { InspectionPlanQuery } from "#typepeek/inspection/inspection-plan-query";
 
 function isPortableRelativePath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.includes("\\")) {
