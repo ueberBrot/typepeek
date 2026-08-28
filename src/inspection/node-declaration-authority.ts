@@ -2,12 +2,12 @@ import ts from "@typescript/typescript6";
 import { builtinModules } from "node:module";
 import { dirname } from "node:path";
 
-import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
-import { isPathWithin } from "#typepeek/inspection/evidence-boundary";
 import {
   isPublicProjectionChild,
   publicDeclarations,
-} from "#typepeek/inspection/public-declaration-projection";
+} from "#typepeek/inspection/declaration-projection";
+import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import { isPathWithin } from "#typepeek/inspection/evidence-boundary";
 import { isWellKnownSymbolMemberName } from "#typepeek/inspection/well-known-symbol";
 
 const MAX_DECLARATION_GRAPH_DEPTH = 256;

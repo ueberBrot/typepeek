@@ -45,12 +45,12 @@ const INFERRED_RETURN_TYPE_KINDS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.GetAccessor,
 ]);
 
-export interface PublicDeclarationProjection {
+export interface DeclarationProjection {
   readonly inferredTypes: readonly ts.Type[];
   readonly syntax: ts.Declaration;
 }
 
-export interface PublicDeclarationProjectionContext {
+export interface DeclarationProjectionContext {
   readonly moduleSymbol: ts.Symbol;
   readonly reserveTraversal: (depth: number) => void;
   readonly reserveTypeTraversal: (depth: number) => void;
@@ -61,8 +61,8 @@ export interface PublicDeclarationProjectionContext {
 export function projectPublicDeclaration(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
-  context: PublicDeclarationProjectionContext = standaloneProjectionContext(checker, declaration),
-): PublicDeclarationProjection {
+  context: DeclarationProjectionContext = standaloneProjectionContext(checker, declaration),
+): DeclarationProjection {
   return {
     get inferredTypes() {
       return inferredPublicTypes(checker, declaration, context);
@@ -77,7 +77,7 @@ export function projectPublicDeclaration(
 export function renderPublicDeclaration(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
-  context?: PublicDeclarationProjectionContext,
+  context?: DeclarationProjectionContext,
 ): string {
   const sourceFile = declaration.getSourceFile();
   return declarationPrinter
@@ -93,7 +93,7 @@ export function renderPublicDeclaration(
 function publicDeclarationSyntax(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): ts.Declaration {
   return projectMemberTypeQueries(
     checker,
@@ -105,7 +105,7 @@ function publicDeclarationSyntax(
 function publicDeclarationSyntaxBeforeMemberTypeQueries(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): ts.Declaration {
   const printableDeclaration = ts.isNamespaceExport(declaration) ? declaration.parent : declaration;
   return publicDeclaration(checker, printableDeclaration, context);
@@ -146,7 +146,7 @@ export function publicDeclarations(
 function inferredPublicTypes(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): readonly ts.Type[] {
   const types: ts.Type[] = [];
   collectInferredPublicTypes(checker, declaration, types);
@@ -163,7 +163,7 @@ function inferredPublicTypes(
 function projectMemberTypeQueries(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
-  projectionContext: PublicDeclarationProjectionContext,
+  projectionContext: DeclarationProjectionContext,
 ): ts.Declaration {
   const transformation = ts.transform<ts.Declaration>(declaration, [
     (context) => {
@@ -186,7 +186,7 @@ function projectMemberTypeQueries(
 function isMemberTypeQuery(
   checker: ts.TypeChecker,
   node: ts.Node,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): node is ts.TypeQueryNode {
   if (!ts.isTypeQueryNode(node)) {
     return false;
@@ -216,7 +216,7 @@ function isMemberTypeQuery(
 function resolvedMemberTypeNode(
   checker: ts.TypeChecker,
   query: ts.TypeQueryNode,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): ts.TypeNode {
   const exactStandardLibraryQuery = exactStandardLibraryMemberTypeQuery(checker, query);
   if (exactStandardLibraryQuery !== undefined) {
@@ -248,7 +248,7 @@ function resolvedMemberTypeNode(
 function assertMemberTypeSymbolIsRepresentable(
   checker: ts.TypeChecker,
   type: ts.Type,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): void {
   const symbol = type.aliasSymbol ?? type.getSymbol();
   if (
@@ -295,7 +295,7 @@ export function declarationOwnerIsMember(
 
 function containsTypeQuery(
   node: ts.Node,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
   allowsStandardLibraryTypeQuery: boolean,
   depth: number,
 ): boolean {
@@ -314,7 +314,7 @@ function collectMemberTypeQueryTypes(
   checker: ts.TypeChecker,
   node: ts.Node,
   types: ts.Type[],
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
   depth: number,
 ): void {
   context.reserveTraversal(depth);
@@ -399,7 +399,7 @@ function declarationHasExplicitType(declaration: ts.Declaration): boolean {
 function standaloneProjectionContext(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
-): PublicDeclarationProjectionContext {
+): DeclarationProjectionContext {
   const moduleSymbol = checker.getSymbolAtLocation(declaration.getSourceFile());
   if (moduleSymbol === undefined) {
     throw new UnsupportedInspectionError(
@@ -434,7 +434,7 @@ export function inferredPublicTypeChildren(
 function publicDeclaration(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): ts.Declaration {
   if (ts.isExportAssignment(declaration) && !declaration.getSourceFile().isDeclarationFile) {
     throw new UnsupportedInspectionError(
@@ -494,7 +494,7 @@ function publicDeclaration(
 function publicClassElement(
   checker: ts.TypeChecker,
   member: ts.ClassElement,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): ts.ClassElement {
   if (ts.isConstructorDeclaration(member)) {
     return ts.factory.updateConstructorDeclaration(
@@ -558,7 +558,7 @@ function publicClassElement(
 function publicModuleBody(
   checker: ts.TypeChecker,
   body: ts.ModuleBody | undefined,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): ts.ModuleBody | undefined {
   if (body === undefined) {
     return undefined;
@@ -584,7 +584,7 @@ function publicModuleBody(
 function publicNamespaceStatement(
   checker: ts.TypeChecker,
   statement: ts.Statement,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): readonly ts.Statement[] {
   if (ts.isVariableStatement(statement)) {
     return [
@@ -627,7 +627,7 @@ function publicType(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
   explicitType: ts.TypeNode | undefined,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): ts.TypeNode {
   if (explicitType !== undefined) {
     return explicitType;
@@ -648,7 +648,7 @@ function publicReturnType(
   checker: ts.TypeChecker,
   declaration: ts.SignatureDeclaration,
   explicitType: ts.TypeNode | undefined,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): ts.TypeNode {
   if (explicitType !== undefined) {
     return explicitType;
@@ -674,7 +674,7 @@ function publicReturnType(
 
 function assertReliableInferredType(
   typeNode: ts.TypeNode,
-  context?: PublicDeclarationProjectionContext,
+  context?: DeclarationProjectionContext,
 ): void {
   const traversal = { nodeCount: 0 };
   const reserveTraversal =
@@ -723,7 +723,7 @@ function reserveInferredTypeSyntaxTraversal(traversal: { nodeCount: number }, de
 function assertNoImplementationLocalType(
   checker: ts.TypeChecker,
   rootType: ts.Type,
-  context?: PublicDeclarationProjectionContext,
+  context?: DeclarationProjectionContext,
 ): void {
   const pending: { readonly depth: number; readonly type: ts.Type }[] = [
     { depth: 0, type: rootType },
@@ -846,7 +846,7 @@ function symbolType(checker: ts.TypeChecker, symbol: ts.Symbol): readonly ts.Typ
 function publicParameter(
   checker: ts.TypeChecker,
   parameter: ts.ParameterDeclaration,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): ts.ParameterDeclaration {
   const type = publicType(checker, parameter, parameter.type, context);
   const hasRequiredFollowingParameter = hasRequiredParameterAfter(parameter);
@@ -869,7 +869,7 @@ function publicParameter(
 function publicConstructorParameter(
   checker: ts.TypeChecker,
   parameter: ts.ParameterDeclaration,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): ts.ParameterDeclaration {
   const publicParameterDeclaration = publicParameter(checker, parameter, context);
   if (!hasPrivateModifier(parameter)) {
@@ -940,7 +940,7 @@ function publicClassMembers(
 function publicClassSyntaxElements(
   checker: ts.TypeChecker,
   members: readonly ts.ClassElement[],
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): readonly ts.ClassElement[] {
   const retainedMembers = publicClassMembers(checker, members);
   const retainedMemberSet = new Set(retainedMembers);
@@ -1057,7 +1057,7 @@ function isProjectionInitializer(parent: ts.Node, child: ts.Node): boolean {
 function publicParameterProperty(
   checker: ts.TypeChecker,
   parameter: IdentifiedParameter,
-  context: PublicDeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): ts.PropertyDeclaration {
   const modifiers = publicModifiers(parameter.modifiers)?.filter(
     ({ kind }) => kind !== ts.SyntaxKind.PublicKeyword,
