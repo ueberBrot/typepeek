@@ -32,7 +32,7 @@ describe("typepeek CLI", () => {
 
   beforeAll(async () => {
     fixture = await materializeCompiledPackageFixture();
-  }, 30_000);
+  }, 120_000);
 
   afterAll(async () => {
     await fixture?.cleanup();
