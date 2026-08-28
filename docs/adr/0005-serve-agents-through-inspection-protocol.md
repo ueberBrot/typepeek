@@ -1,6 +1,6 @@
 # Serve agents through the Inspection Protocol
 
-The Inspection Protocol has not been released, so no earlier wire shape carries a compatibility obligation.
+When this decision was made, the Inspection Protocol had not been released. No earlier wire shape therefore carries a compatibility obligation.
 
 Inspection Core owns canonical, transport-neutral outcomes. Protocol responses may project signature evidence as `structured`, `exact`, or `both`; the default is `structured` to avoid duplicating compiler text. They may also attach bounded, deterministic recovery requests derived from a validated request. Projection and recovery never weaken or replace the authoritative outcome.
 

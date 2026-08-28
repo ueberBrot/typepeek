@@ -1,316 +1,130 @@
 # Typepeek
 
-Typepeek describes the TypeScript-visible Public Interface of Inspectable
-Modules. Coding agents are the primary consumers; terminal users are secondary.
+Typepeek shows the TypeScript interface of an installed package without importing or executing it. Use it to find exports, inspect signatures and declarations, discover public subpaths, and compare the interfaces visible from two projects.
 
-## Usage
+Typepeek reads the packages already installed for a project. Results match the package version, module conditions, and declarations available to that project. They do not rely on online documentation.
 
-Start with an Interface Overview of a Package Module root, Public Subpath, or
-Node Platform Module visible from a Resolution Context:
+> [!WARNING]
+> Typepeek is under active development and has not been released to npm. Run it from source for now; commands and interfaces may change before the first release.
 
-```bash
-typepeek overview zod --context .
-# The overview command is also the default:
-typepeek zod --context .
-```
+## Why Typepeek
 
-The initial command prints a deterministic Interface Overview:
-
-```text
-Interface Overview
-Specifier: zod
-Access Style: import
-Package: zod@<installed-version>
-Module Exports (...):
-- ZodError
-- ZodType
-- z
-...
-Public Subpaths (...; use --subpaths to list):
-```
-
-At a package root, the Interface Overview also advertises manifest-declared
-Public Subpath count without flooding the default output. Pass `--subpaths` to
-list their exact Specifiers. Public Subpath Patterns are expanded from bounded
-Installed Evidence and only concrete Specifiers in the selected Resolution
-Variant are advertised:
+If your project imports `execa`, Typepeek can read the call signatures for its main export from the installed declarations:
 
 ```bash
-typepeek overview zod --context . --subpaths
-typepeek overview "@scope/package/public-subpath" --context .
+node src/cli.ts signatures execa execa --context .
 ```
 
-For a large Interface Overview, match Module Export names with a deterministic,
-case-insensitive substring. The heading reports both the match count and the
-complete count so filtered output is never mistaken for a complete overview:
+Typepeek returns each public call and construct signature in declaration order.
+
+> [!IMPORTANT]
+> Set `--context` to the consuming project's directory. Typepeek starts module resolution there, so the context determines which installed package and resolution conditions it sees.
+
+## Try it from source
+
+Typepeek requires Node.js 24.18 or later within the Node.js 24 release line and pnpm 11.20.
 
 ```bash
-typepeek overview zod --match error
+git clone https://github.com/ueberBrot/typepeek.git
+cd typepeek
+pnpm install --frozen-lockfile
+node src/cli.ts overview execa --context .
 ```
 
-For discovery without a complete Interface Overview, search Module Export names
-or read only manifest Public Subpaths:
+`overview` is the default command, so the final command can also be written as:
 
 ```bash
-typepeek search zod error --context .
-typepeek subpaths zod --context .
+node src/cli.ts execa --context .
 ```
 
-Export Search scans at most 4,096 names and returns at most 320 deterministic
-case-insensitive substring matches, so it can query an index broader than the
-320-entry overview limit. Public Subpath Discovery resolves bounded manifest
-evidence without materializing a TypeScript program.
+Run `node src/cli.ts --help` for the complete command surface. The packaged artifact exposes the same commands through the `typepeek` executable.
 
-Use Signature Inspection when you need the call or construct parameters for
-one Module Export. It skips declarations and Supporting Types:
+## Choose an inspection
+
+Start with the narrowest inspection that answers your question.
+
+| Question                                                                                         | Command        |
+| ------------------------------------------------------------------------------------------------ | -------------- |
+| What does this module export?                                                                    | `overview`     |
+| Which export names contain this text?                                                            | `search`       |
+| Which public subpaths does this package expose?                                                  | `subpaths`     |
+| How can I call or construct this export?                                                         | `signatures`   |
+| What declarations define this export?                                                            | `declarations` |
+| What defines this exact public member?                                                           | `member`       |
+| Which declarations, signatures, supporting types, and package documentation explain this export? | `export`       |
+| How can I run several inspections against one evidence snapshot?                                 | `plan`         |
+| Which export names or public subpaths differ between two contexts?                               | `compare`      |
+
+For example, discover an export before inspecting it:
 
 ```bash
-typepeek signatures zod ZodError --context .
+node src/cli.ts search execa error --context .
+node src/cli.ts declarations execa ExecaError --context .
 ```
 
-Human output shows the exact compiler-rendered signatures. For agents, `--json`
-adds structured type parameters, an explicit `this` parameter, ordinary
-parameters, and return semantics. It also keeps the exact signature text:
+Add `--json` for structured output. Add `--pretty` with `--json` when a person needs to read that output:
 
 ```bash
-typepeek signatures execa execa --context . --json
+node src/cli.ts signatures execa execa --context . --json --pretty
 ```
 
-Use Export Inspection when you also need declarations, Package Documentation,
-or bounded Supporting Types:
+Commands use the `import` access style by default. Pass `--access require` when you need the interface selected for CommonJS resolution conditions.
+
+## What Typepeek inspects
+
+Typepeek inspects installed package modules, their manifest-declared public subpaths, and linked workspace packages. It also inspects Node.js platform modules when the project can resolve `@types/node`. Typepeek supports ordinary `node_modules` installations produced by npm, pnpm, and Bun.
+
+Inspection is static. Typepeek reads installed manifests, declarations, package-exposed TypeScript source, and attached JSDoc. It does not import package code, run package scripts, evaluate project configuration code, or download missing material.
+
+Every inspection is bounded. Typepeek returns a complete result or an explicit typed failure when evidence is missing, unsupported, or too large. It does not present a partial result as authoritative.
+
+## Use Typepeek with coding agents
+
+Agents can use CLI JSON or the transport-neutral Inspection Protocol. `capabilities` describes the protocol version, supported intents, request fields, response options, failures, and budget dimensions without inspecting a package:
 
 ```bash
-typepeek export zod ZodError --context .
-typepeek export zod ZodError --context . --json
+node src/cli.ts capabilities
 ```
 
-The focused result keeps compact callable and constructable signature text in
-declaration order, represents type, value, and namespace declaration spaces
-independently, and follows only the bounded Supporting Types reachable from the
-selected Module Export. Attached Package Documentation is labeled as untrusted
-Installed Evidence and sanitized before terminal presentation.
-
-Use an Inspection Plan when several questions concern the same Specifier. The
-ordered JSON query list runs atomically over one Declaration Provider selection
-and one TypeScript program materialization:
+Install the Typepeek agent skill with the [`skills.sh`](https://skills.sh) CLI:
 
 ```bash
-typepeek plan zod '[{"intent":"interface-overview"},{"intent":"signature-inspection","exportName":"ZodError"}]' --context . --json
+npx skills@latest add ueberBrot/typepeek --skill typepeek
 ```
 
-Plans accept 1 through 16 `interface-overview`, `export-inspection`,
-`signature-inspection`, `export-search`, `public-subpath-discovery`,
-`declaration-inspection`, or `member-inspection` queries.
-If any query fails, the whole plan returns that typed failure without partial
-results.
+The skill teaches supported coding agents to choose the narrowest useful inspection. It does not install the Typepeek CLI.
 
-Compare the complete Module Export and Public Subpath indexes selected by two
-Resolution Contexts, Access Styles, Specifiers, or installed versions:
+Typepeek currently ships a CLI and a TypeScript inspection API. It does not ship an MCP server. An MCP adapter can use the same Inspection Protocol without invoking the CLI or parsing terminal output.
 
-```bash
-typepeek compare zod zod \
-  --before-context ./before \
-  --after-context ./after \
-  --before-access import \
-  --after-access require
-```
+## TypeScript API
 
-The directional result preserves both Package or Declaration Provider
-identities and both Resolution Variants. It reports added and removed names; it
-does not claim that a retained name has unchanged declarations or signatures.
-Use focused Declaration or Signature Inspection when that distinction matters.
-
-Discover the adapter contract without inspecting a package:
-
-```bash
-typepeek capabilities
-```
-
-The result declares its protocol version, supported intents, stable Failure
-Reasons, Budget Dimensions, request fields and examples, and response options.
-
-Agents can invoke that protocol directly with one bounded JSON request on stdin:
-
-```bash
-node -e 'process.stdout.write(JSON.stringify({protocolVersion:"1",intent:"signature-inspection",request:{resolutionContext:process.cwd(),specifier:"execa",exportName:"execa"}}))' \
-  | typepeek protocol
-```
-
-Protocol Resolution Contexts are absolute paths. Capabilities mark that format
-explicitly; CLI commands continue to resolve their `--context` option for humans.
-
-Protocol Signature Inspection defaults to structured evidence, which includes
-parameters and return semantics without repeating the compiler-rendered
-signature text. Request exact text or both representations when needed:
-
-```json
-{
-  "protocolVersion": "1",
-  "intent": "signature-inspection",
-  "request": {
-    "resolutionContext": "/absolute/path/to/consumer",
-    "specifier": "execa",
-    "exportName": "execa"
-  },
-  "response": { "signatureEvidence": "both" }
-}
-```
-
-Responses identify any omitted signature evidence. A failed focused lookup may
-also include bounded `recovery` entries containing complete protocol requests
-that an agent can execute without inventing parameters. Recovery is guidance,
-not part of the authoritative Inspection Outcome.
-
-CLI `--json` is an adapter rendering, not the Inspection Protocol. It
-emits one complete, newline-terminated Inspection Outcome on stdout,
-including the selected Access Style. Successful inspections exit with status 0;
-typed inspection failures exit with status 1 and are also emitted as JSON on
-stdout. Invalid invocations exit with status 2 and emit an
-`invalid-invocation` CLI diagnostic as JSON. Unexpected CLI failures use status 70. Machine-mode invocations leave stderr empty. CLI JSON follows the CLI's
-release compatibility policy; Inspection Protocol changes are represented by a
-new protocol version. The `protocol` command uses the same success and typed
-failure exit statuses; invalid wire input exits with status 2 and unexpected
-failures use status 70. It emits exactly one bounded JSON value on stdout and
-leaves stderr empty.
-
-Add `--pretty` to `--json` for two-space-indented human-readable JSON. Compact
-JSON remains the default for agents and pipelines, and `--pretty` without
-`--json` is an invalid invocation. Pretty formatting permits only its structural
-line feeds; control and bidirectional characters originating in inspected data
-remain escaped. The `protocol` command keeps its compact bounded wire format.
-
-The common `--access`, `--context`, `--json`, and `--pretty` options may precede
-or follow an ordinary single-target command. Comparison uses explicit
-`--before-*` and `--after-*` target options plus the common `--json` and
-`--pretty` options. `--subpaths` and `--match` affect only human Interface
-Overview rendering and cannot be combined with `--json`, whose complete result
-already contains every Public Subpath and Module Export. Put `--` before a
-Module Export name that begins with a hyphen. The `export` and `signatures`
-commands perform focused inspection. Invoking `typepeek` without arguments
-prints root help.
-
-Typepeek supports installed Package Modules backed by declarations or
-package-exposed TypeScript source, manifest-declared Public Subpaths, separate
-Declaration Providers, linked workspace packages, and Node Platform Modules
-backed by a visible `@types/node`. Inspection reads Installed Evidence only: it
-does not import the package runtime, run package scripts, or download missing
-material. Unsupported, not-found, static-boundary, and limit-exceeded
-inspections fail explicitly rather than returning a partial authoritative
-result.
-
-## Development
-
-```bash
-vp install --frozen-lockfile
-vp run validate              # check → Effect diagnostics → Fallow → test → build smoke → package smoke → benchmark gate
-vp run dependencies          # find eligible dependency updates
-vp run dependencies:update   # select and apply updates
-vp run benchmark:source      # measure source-checkout inspection latency
-vp run benchmark:build       # measure the application bundle
-vp run benchmark:package     # measure the publishable artifact
-vp run benchmark:agent-protocol # compare protocol evidence bytes and recovery workloads
-vp run benchmark:gate        # check semantics, cache reuse, agent payloads, latency, memory, and package size
-```
-
-Vite+ is the development command surface for formatting, Oxlint, TypeScript,
-Vitest, builds, and packaging. The explicit Vite and Vitest development
-dependencies pin the single peer/runtime identity shared by Vite+ and
-`@effect/vitest`; Oxfmt and Oxlint are supplied by Vite+ rather than installed
-directly. Tests of Effect-returning APIs use `it.effect` with test services or
-`it.live` when they intentionally exercise the operating system and real time.
-Promise adapter tests remain ordinary Vitest tests.
-
-Effect Schema definitions are the runtime and compile-time authority for
-Inspection requests, normalized analysis envelopes, Inspection Plan queries,
-Package Identity, protocol outcomes, and cache data. Public input types use a
-schema's encoded view; normalized and output types use its decoded view.
-
-Set `TYPEPEEK_PROFILE=1` on a source-checkout invocation to emit bounded,
-non-authoritative phase timings as JSON on stderr. Profiling never changes the
-Inspection Outcome on stdout and is disabled by default. Build and package
-artifacts exclude this repository-only diagnostic path.
-
-Successful inspections are reused across CLI invocations only while their
-bounded Installed Evidence Proof still matches every consumed manifest,
-declaration, resolution choice, and traversed Public Subpath directory. Failed,
-partial, bounded, or terminated analysis is never cached. The cache is an
-internal optimization and never appears in an Inspection Result or the public
-Inspection Core interface. By default it uses a private cache directory under
-the operating-system temporary directory, isolated by build identity; set
-`TYPEPEEK_CACHE_DIRECTORY` to an absolute private directory when an isolated or
-longer-lived cache is desired. Direct source execution caches only with this
-explicit setting because it has no stable packaged-build identity. Persistent
-caching is disabled on Windows until directory privacy can be verified. Removing
-the directory is always safe.
-
-Run the source entry directly while developing:
-
-```bash
-node src/cli.ts signatures zod ZodError --context /path/to/consumer
-```
-
-To test the application bundle, build it and invoke its CLI against a consumer
-whose installed packages you want to inspect:
-
-```bash
-vp build
-node .vite-plus/build/cli.js signatures zod ZodError --context /path/to/consumer --json
-printf '%s\n' '{"protocolVersion":"1","intent":"export-search","request":{"resolutionContext":"/path/to/consumer","specifier":"zod","query":"Error"}}' \
-  | node .vite-plus/build/cli.js protocol
-```
-
-To test the publishable artifact, build `dist` and invoke that CLI:
-
-```bash
-vp pack
-node dist/cli.js signatures zod ZodError --context /path/to/consumer --json
-printf '%s\n' '{"protocolVersion":"1","intent":"export-search","request":{"resolutionContext":"/path/to/consumer","specifier":"zod","query":"Error"}}' \
-  | node dist/cli.js protocol
-```
-
-`vp build` produces the application bundle under `.vite-plus/build`; `vp pack`
-produces the publishable `dist` artifact and declaration files used by package
-smoke tests.
-
-## Inspection API
-
-The CLI and future adapters use the same transport-neutral package interface.
-It returns typed Inspection Outcomes, so consumers do not need to parse CLI
-output:
+The `typepeek/inspection` package entry point exposes the transport-neutral inspection interface for programmatic integrations:
 
 ```ts
 import {
   inspectCapabilities,
-  inspectExport,
-  inspectExportDeclarations,
-  inspectExportMember,
-  inspectExportSearch,
   inspectExportSignatures,
   inspectInterfaceOverview,
-  inspectPlan,
-  inspectPublicSubpaths,
   invokeInspectionProtocol,
 } from "typepeek/inspection";
 ```
 
-The focused functions accept a `resolutionContext` and `specifier`, plus their
-focused selector. `inspectPlan` accepts the bounded ordered query list.
-`invokeInspectionProtocol` is the Inspection Protocol adapter seam, and
-`inspectCapabilities` describes it without reading Installed Evidence. Protocol
-responses can project signature evidence and can attach bounded executable
-recovery requests without changing Inspection Core's canonical outcomes.
-No MCP adapter is implemented or shipped; a future adapter can use this seam
-without invoking the CLI or parsing CLI JSON.
+Convenience functions return typed Inspection Outcomes. Adapter implementations can use `invokeInspectionProtocol` to keep protocol validation and recovery behavior consistent across transports.
 
-pnpm rejects package versions published less than seven days ago.
+## Development
 
-Deterministic validation steps are cached locally. Fallow and Taze always run
-fresh. The pre-commit hook formats and lints staged files through `vp staged`.
+Install the locked dependencies, then run the full validation suite:
 
-## Conventions
+```bash
+vp install --frozen-lockfile
+vp run validate
+```
 
-- Internal imports use the Node-native `#typepeek/*` alias.
-- Imports are grouped as built-in/external, alias, then relative imports.
-- Barrel files use explicit named re-exports; wildcard re-exports are not used.
-- Callers outside a folder use its barrel interface; modules inside the folder
-  import concrete implementation files to avoid barrel cycles.
+Useful development commands:
+
+```bash
+vp run check       # format, lint, and type-check
+vp test            # run the test suite
+vp build           # build the application bundle
+vp pack            # build the publishable package
+```
