@@ -1,4 +1,4 @@
-import { Predicate, Result, Schema } from "effect";
+import { Result, Schema } from "effect";
 
 import { inspectionIntentSchema } from "#typepeek/inspection/protocol-vocabulary";
 
@@ -11,37 +11,52 @@ const capabilityFieldNameSchema = Schema.String.check(
     expected: "a bounded capability field name",
   }),
 );
+const positiveNaturalSchema = Schema.Natural.check(Schema.isGreaterThan(0));
 const stringFieldCapabilityFields = {
   kind: Schema.Literal("string"),
   format: Schema.optionalKey(Schema.Literal("absolute-path")),
   minBytes: Schema.optionalKey(Schema.Natural),
-  maxBytes: Schema.optionalKey(Schema.Natural),
+  maxBytes: Schema.optionalKey(positiveNaturalSchema),
 } as const;
 const enumFieldCapabilityFields = {
   kind: Schema.Literal("enum"),
-  values: Schema.Array(Schema.String).check(Schema.isMinLength(1), Schema.isMaxLength(16)),
+  values: Schema.Array(Schema.String).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(16),
+    Schema.isUnique(),
+  ),
   default: Schema.optionalKey(Schema.String),
 } as const;
 const collectionFieldCapabilityFields = {
   kind: Schema.Literals(["inspection-plan-queries", "member-path"]),
   minItems: Schema.Natural,
-  maxItems: Schema.Natural,
-  maxItemBytes: Schema.optionalKey(Schema.Natural),
+  maxItems: positiveNaturalSchema,
+  maxItemBytes: Schema.optionalKey(positiveNaturalSchema),
 } as const;
-const stringFieldCapabilitySchema = Schema.Struct(stringFieldCapabilityFields).check(
-  Schema.makeFilter(hasValidCapabilityRelationships, {
-    expected: "consistent string byte bounds",
-  }),
+
+const stringFieldCapabilityStruct = Schema.Struct(stringFieldCapabilityFields);
+const enumFieldCapabilityStruct = Schema.Struct(enumFieldCapabilityFields);
+const collectionFieldCapabilityStruct = Schema.Struct(collectionFieldCapabilityFields);
+const stringFieldCapabilitySchema = stringFieldCapabilityStruct.check(
+  Schema.makeFilter(({ minBytes, maxBytes }: typeof stringFieldCapabilityStruct.Type) =>
+    minBytes === undefined || maxBytes === undefined || minBytes <= maxBytes
+      ? undefined
+      : { path: ["minBytes"], issue: "minBytes must not exceed maxBytes" },
+  ),
 );
-const enumFieldCapabilitySchema = Schema.Struct(enumFieldCapabilityFields).check(
-  Schema.makeFilter(hasValidCapabilityRelationships, {
-    expected: "an enum default included in its values",
-  }),
+const enumFieldCapabilitySchema = enumFieldCapabilityStruct.check(
+  Schema.makeFilter(({ default: defaultValue, values }: typeof enumFieldCapabilityStruct.Type) =>
+    defaultValue === undefined || values.includes(defaultValue)
+      ? undefined
+      : { path: ["default"], issue: "default must be one of values" },
+  ),
 );
-const collectionFieldCapabilitySchema = Schema.Struct(collectionFieldCapabilityFields).check(
-  Schema.makeFilter(hasValidCapabilityRelationships, {
-    expected: "consistent collection bounds",
-  }),
+const collectionFieldCapabilitySchema = collectionFieldCapabilityStruct.check(
+  Schema.makeFilter(({ minItems, maxItems }: typeof collectionFieldCapabilityStruct.Type) =>
+    minItems <= maxItems
+      ? undefined
+      : { path: ["minItems"], issue: "minItems must not exceed maxItems" },
+  ),
 );
 const inspectionTargetFieldCapabilitySchema = Schema.Struct({
   kind: Schema.Literal("inspection-target"),
@@ -55,36 +70,42 @@ const inspectionRequestFieldCapabilitySchema = Schema.Union([
   inspectionTargetFieldCapabilitySchema,
 ]);
 export type InspectionRequestFieldCapability = typeof inspectionRequestFieldCapabilitySchema.Type;
+const isInspectionRequestFieldCapability = Schema.is(inspectionRequestFieldCapabilitySchema);
 
 const requestFieldDescriptorSchema = <FieldNameSchema extends Schema.ConstraintDecoder<string>>(
   fieldNameSchema: FieldNameSchema,
-) =>
-  Schema.Union([
-    Schema.Struct({
-      name: fieldNameSchema,
-      required: Schema.Boolean,
-      ...stringFieldCapabilityFields,
-    }),
-    Schema.Struct({
-      name: fieldNameSchema,
-      required: Schema.Boolean,
-      ...enumFieldCapabilityFields,
-    }),
-    Schema.Struct({
-      name: fieldNameSchema,
-      required: Schema.Boolean,
-      ...collectionFieldCapabilityFields,
-    }),
+) => {
+  const stringDescriptorStruct = Schema.Struct({
+    name: fieldNameSchema,
+    required: Schema.Boolean,
+    ...stringFieldCapabilityFields,
+  });
+  const enumDescriptorStruct = Schema.Struct({
+    name: fieldNameSchema,
+    required: Schema.Boolean,
+    ...enumFieldCapabilityFields,
+  });
+  const collectionDescriptorStruct = Schema.Struct({
+    name: fieldNameSchema,
+    required: Schema.Boolean,
+    ...collectionFieldCapabilityFields,
+  });
+
+  return Schema.Union([
+    stringDescriptorStruct,
+    enumDescriptorStruct,
+    collectionDescriptorStruct,
     Schema.Struct({
       name: fieldNameSchema,
       required: Schema.Literal(true),
       ...inspectionTargetFieldCapabilitySchema.fields,
     }),
   ]).check(
-    Schema.makeFilter((descriptor) => hasValidCapabilityRelationships(descriptor), {
-      expected: "consistent request field capability metadata",
+    Schema.makeFilter(isInspectionRequestFieldCapability, {
+      expected: "valid request field capability metadata",
     }),
   );
+};
 
 export type InspectionRequestFieldDescriptorFor<Name extends string> = ReturnType<
   typeof requestFieldDescriptorSchema<Schema.Literal<Name>>
@@ -161,60 +182,4 @@ function requiredPropertyNames(schema: Schema.Struct<Schema.Struct.Fields>): Rea
     throw new Error("Request schema did not produce a required-property list.");
   }
   return new Set(required);
-}
-
-function hasValidCapabilityRelationships(value: unknown): boolean {
-  if (!Predicate.isObject(value)) {
-    return false;
-  }
-  switch (value["kind"]) {
-    case "string":
-      if (
-        (value["minBytes"] !== undefined && typeof value["minBytes"] !== "number") ||
-        (value["maxBytes"] !== undefined && typeof value["maxBytes"] !== "number")
-      ) {
-        return false;
-      }
-      return (
-        (value["maxBytes"] === undefined || value["maxBytes"] > 0) &&
-        (value["minBytes"] === undefined ||
-          value["maxBytes"] === undefined ||
-          value["minBytes"] <= value["maxBytes"])
-      );
-    case "enum": {
-      const values = value["values"];
-      const defaultValue = value["default"];
-      if (
-        !Array.isArray(values) ||
-        !values.every((entry) => typeof entry === "string") ||
-        (defaultValue !== undefined && typeof defaultValue !== "string")
-      ) {
-        return false;
-      }
-      return (
-        new Set(values).size === values.length &&
-        (defaultValue === undefined || values.includes(defaultValue))
-      );
-    }
-    case "inspection-plan-queries":
-    case "member-path": {
-      const minItems = value["minItems"];
-      const maxItems = value["maxItems"];
-      const maxItemBytes = value["maxItemBytes"];
-      if (
-        typeof minItems !== "number" ||
-        typeof maxItems !== "number" ||
-        (maxItemBytes !== undefined && typeof maxItemBytes !== "number")
-      ) {
-        return false;
-      }
-      return (
-        maxItems > 0 && minItems <= maxItems && (maxItemBytes === undefined || maxItemBytes > 0)
-      );
-    }
-    case "inspection-target":
-      return true;
-    default:
-      return false;
-  }
 }

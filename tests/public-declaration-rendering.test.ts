@@ -5,7 +5,7 @@ import {
   projectPublicDeclaration,
   publicDeclarations,
   renderPublicDeclaration,
-} from "#typepeek/inspection/public-declaration-projection";
+} from "#typepeek/inspection/declaration-projection";
 
 describe("Public Interface declaration rendering", () => {
   it("recovers inferred types while removing source implementation", () => {

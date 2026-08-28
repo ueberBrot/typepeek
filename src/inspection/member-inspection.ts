@@ -4,7 +4,7 @@ import { assertMergedDeclarationLimit } from "#typepeek/inspection/declaration-l
 import {
   isPrivateDeclaration,
   publicDeclarations,
-} from "#typepeek/inspection/public-declaration-projection";
+} from "#typepeek/inspection/declaration-projection";
 
 export type PublicMemberPathResolution =
   | { readonly status: "success"; readonly symbol: ts.Symbol }

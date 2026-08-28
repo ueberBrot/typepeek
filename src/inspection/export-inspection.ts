@@ -1,6 +1,16 @@
 import ts from "@typescript/typescript6";
 
 import { assertMergedDeclarationLimit } from "#typepeek/inspection/declaration-limits";
+import {
+  declarationOwnerIsMember,
+  inferredPublicTypeChildren,
+  isPrivateDeclaration,
+  isNamedTypeDeclarationSyntax,
+  projectPublicDeclaration,
+  type DeclarationProjectionContext,
+  publicDeclarations,
+  renderPublicDeclaration,
+} from "#typepeek/inspection/declaration-projection";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import {
   type AliasDeclaration,
@@ -29,16 +39,6 @@ import type {
   MemberInspection,
   SupportingType,
 } from "#typepeek/inspection/protocol";
-import {
-  declarationOwnerIsMember,
-  inferredPublicTypeChildren,
-  isPrivateDeclaration,
-  isNamedTypeDeclarationSyntax,
-  projectPublicDeclaration,
-  type PublicDeclarationProjectionContext,
-  publicDeclarations,
-  renderPublicDeclaration,
-} from "#typepeek/inspection/public-declaration-projection";
 import {
   type FocusedInspectionConstruction,
   type InspectionResultConstruction,
@@ -891,7 +891,7 @@ function supportingTraversal(
 function projectionContext(
   evidence: InspectableModuleEvidence,
   traversal: SupportingTraversalState,
-): PublicDeclarationProjectionContext {
+): DeclarationProjectionContext {
   return {
     moduleSymbol: evidence.moduleSymbol,
     reserveTraversal: (depth) => reserveAstTraversal(traversal, depth),
