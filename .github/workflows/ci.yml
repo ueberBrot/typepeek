@@ -39,9 +39,15 @@ jobs:
         run: vp run fallow
 
   test:
-    name: Tests
+    name: Tests (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 1/2
+          - 2/2
 
     steps:
       - name: Check out repository
@@ -53,7 +59,7 @@ jobs:
           install-bun: "true"
 
       - name: Test
-        run: vp test --exclude tests/packaged-cli-consumers.test.ts
+        run: vp test --exclude tests/packaged-cli-consumers.test.ts --shard=${{ matrix.shard }}
 
   package:
     name: Package
