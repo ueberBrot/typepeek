@@ -12,6 +12,8 @@
   },
   "files": [
     "dist",
+    "CHANGELOG.md",
+    "LICENSE",
     "README.md"
   ],
   "type": "module",

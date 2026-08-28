@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   assertArtifactCacheReuse,
@@ -8,6 +10,26 @@ import {
 } from "./artifact-boundary.ts";
 
 await assertRepositoryProfilingExcluded("dist");
+
+const npmCache = await mkdtemp(join(tmpdir(), "typepeek-npm-cache-"));
+try {
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  const packageDryRun = spawnSync(npmCommand, ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+    encoding: "utf8",
+    env: { ...process.env, NPM_CONFIG_CACHE: npmCache },
+  });
+  assert.equal(packageDryRun.status, 0, packageDryRun.stderr);
+
+  const [packageManifest] = JSON.parse(packageDryRun.stdout) as [
+    { readonly files: ReadonlyArray<{ readonly path: string }> },
+  ];
+  const packagedPaths = new Set(packageManifest.files.map(({ path }) => path));
+  for (const expectedPath of ["CHANGELOG.md", "LICENSE", "README.md", "package.json"] as const) {
+    assert.ok(packagedPaths.has(expectedPath), `${expectedPath} is missing from the npm package`);
+  }
+} finally {
+  await rm(npmCache, { force: true, recursive: true });
+}
 
 const packageVersion = (
   JSON.parse(await readFile("package.json", "utf8")) as { readonly version: string }
