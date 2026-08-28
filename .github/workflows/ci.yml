@@ -39,10 +39,19 @@ jobs:
         run: vp run fallow
 
   test:
-    name: Tests
-    needs: quality
+    name: Tests (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: 1/3
+            install-bun: "false"
+          - shard: 2/3
+            install-bun: "false"
+          - shard: 3/3
+            install-bun: "true"
 
     steps:
       - name: Check out repository
@@ -51,14 +60,13 @@ jobs:
       - name: Set up validation
         uses: ./.github/actions/setup-validation
         with:
-          install-bun: "true"
+          install-bun: ${{ matrix.install-bun }}
 
       - name: Test
-        run: vp test --exclude tests/packaged-cli-consumers.test.ts
+        run: vp test --exclude tests/packaged-cli-consumers.test.ts --shard=${{ matrix.shard }}
 
   package:
     name: Package
-    needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -80,9 +88,7 @@ jobs:
 
   consumer-compatibility:
     name: Consumer compatibility (${{ matrix.os }})
-    needs:
-      - test
-      - package
+    needs: quality
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:

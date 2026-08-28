@@ -1,8 +1,12 @@
 {
   "name": "typepeek",
   "version": "0.0.0",
-  "private": true,
   "description": "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ueberBrot/typepeek.git"
+  },
   "bin": {
     "typepeek": "./dist/cli.js"
   },
@@ -21,7 +25,12 @@
       "import": "./dist/inspection-api.js"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
+    "changeset": "changeset",
     "prepare": "vp config --no-agent"
   },
   "dependencies": {
@@ -31,6 +40,8 @@
     "execa": "^10.0.0"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "1.0.0",
+    "@changesets/cli": "3.0.1",
     "@effect/tsgo": "0.36.5",
     "@effect/vitest": "4.0.0-rc.110",
     "@types/node": "^24.13.3",
