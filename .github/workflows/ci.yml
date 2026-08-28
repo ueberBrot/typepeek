@@ -45,9 +45,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard:
-          - 1/2
-          - 2/2
+        include:
+          - shard: 1/3
+            install-bun: "false"
+          - shard: 2/3
+            install-bun: "false"
+          - shard: 3/3
+            install-bun: "true"
 
     steps:
       - name: Check out repository
@@ -56,7 +60,7 @@ jobs:
       - name: Set up validation
         uses: ./.github/actions/setup-validation
         with:
-          install-bun: "true"
+          install-bun: ${{ matrix.install-bun }}
 
       - name: Test
         run: vp test --exclude tests/packaged-cli-consumers.test.ts --shard=${{ matrix.shard }}
