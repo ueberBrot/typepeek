@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Typepeek logo</title>
+  <desc id="desc">Navy code braces reveal a cyan TypeScript type annotation.</desc>
+
+  <!-- Static interface boundaries -->
+  <path
+    d="M196 100h-22c-29 0-52 23-52 52v50c0 26-12 43-36 54 24 11 36 28 36 54v50c0 29 23 52 52 52h22"
+    fill="none"
+    stroke="#111827"
+    stroke-width="30"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M316 100h22c29 0 52 23 52 52v50c0 26 12 43 36 54-24 11-36 28-36 54v50c0 29-23 52-52 52h-22"
+    fill="none"
+    stroke="#111827"
+    stroke-width="30"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Revealed type annotation: : T -->
+  <circle cx="210" cy="235" r="16" fill="#38BDF8"/>
+  <circle cx="210" cy="277" r="16" fill="#38BDF8"/>
+  <path fill="#38BDF8" d="M244 203h82v29h-27v77h-28v-77h-27v-29Z"/>
+</svg>

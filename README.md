@@ -1,5 +1,9 @@
 # Typepeek
 
+<p align="center">
+  <img src="./assets/typepeek-logo.svg" alt="Typepeek logo" width="160">
+</p>
+
 Typepeek shows the TypeScript interface of an installed package without importing or executing it. Use it to find exports, inspect signatures and declarations, discover public subpaths, and compare the interfaces visible from two projects.
 
 Typepeek reads the packages already installed for a project. Results match the package version, module conditions, and declarations available to that project. They do not rely on online documentation.
