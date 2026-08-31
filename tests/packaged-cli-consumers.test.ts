@@ -153,22 +153,8 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
     );
   });
 
-  it("exposes every Inspection Core intent without importing the CLI adapter", async () => {
-    const outcomes = await Promise.all(
-      matrix.consumers.map((consumer) => consumer.runInspectionApi()),
-    );
-
-    for (const outcome of outcomes) {
-      expect(outcome).toMatchObject({
-        overview: { status: "success", result: { intent: "interface-overview" } },
-        focused: { status: "success", result: { intent: "export-inspection" } },
-        signatures: { status: "success", result: { intent: "signature-inspection" } },
-      });
-    }
-  });
-
-  it("publishes the structured Signature Inspection types to TypeScript consumers", async () => {
-    await Promise.all(matrix.consumers.map((consumer) => consumer.typecheckInspectionApi()));
+  it("does not expose a JavaScript library interface", async () => {
+    await Promise.all(matrix.consumers.map((consumer) => consumer.verifyNoLibraryImports()));
   });
 
   it("keeps package scripts, process spawning, and network access disabled", async () => {

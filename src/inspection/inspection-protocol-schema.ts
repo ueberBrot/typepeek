@@ -238,11 +238,6 @@ const searchRecoveryGuidanceSchema = Schema.Struct({
   reason: protocolRecoveryReasonSchemas.relatedExportNames,
   request: Schema.toEncoded(inspectionProtocolRequestSchemas["export-search"]),
 });
-const protocolRecoveryGuidanceSchema = Schema.Union([
-  declarationRecoveryGuidanceSchema,
-  signatureRecoveryGuidanceSchema,
-  searchRecoveryGuidanceSchema,
-]);
 function boundedRecovery<
   RecoverySchema extends Schema.Top & Schema.ConstraintDecoder<readonly unknown[]>,
 >(schema: RecoverySchema): RecoverySchema["Rebuild"] {
@@ -458,7 +453,6 @@ export type NormalizedInspectionProtocolRequestContract<
 export type DeclarationRecoveryGuidance = typeof declarationRecoveryGuidanceSchema.Type;
 export type SignatureRecoveryGuidance = typeof signatureRecoveryGuidanceSchema.Type;
 export type SearchRecoveryGuidance = typeof searchRecoveryGuidanceSchema.Type;
-export type ProtocolRecoveryGuidance = typeof protocolRecoveryGuidanceSchema.Type;
 export type ProtocolRecovery = typeof protocolRecoverySchema.Type;
 
 export type SignatureEvidenceProjectionFor<Evidence extends SignatureEvidenceKind> =
@@ -526,7 +520,4 @@ export type InspectionProtocolRequest = typeof inspectionProtocolRequestSchema.E
 export type NormalizedInspectionProtocolRequest = typeof inspectionProtocolRequestSchema.Type;
 export type InspectionProtocolResponse = typeof inspectionProtocolResponseSchema.Type;
 
-export type {
-  ProtocolRecoveryReason,
-  SignatureEvidenceKind,
-} from "#typepeek/inspection/protocol-vocabulary";
+export type { SignatureEvidenceKind } from "#typepeek/inspection/protocol-vocabulary";

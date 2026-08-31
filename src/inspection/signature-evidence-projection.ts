@@ -15,7 +15,6 @@ import type {
   InspectionResult,
   SignatureInspection,
 } from "#typepeek/inspection/protocol";
-export { SIGNATURE_EVIDENCE_KINDS } from "#typepeek/inspection/protocol-vocabulary";
 
 /** Removes only the Signature Evidence excluded by an explicit transport projection. */
 export function projectInspectionOutcome(

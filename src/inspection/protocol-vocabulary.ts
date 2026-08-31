@@ -51,7 +51,6 @@ export const signatureEvidenceKindSchema = Schema.Literals([
   "exact",
   "both",
 ] as const);
-export const SIGNATURE_EVIDENCE_KINDS = Object.freeze(signatureEvidenceKindSchema.literals);
 export const signatureEvidenceIntentSchema = Schema.Literals([
   "signature-inspection",
   "inspection-plan",
@@ -106,11 +105,6 @@ export const protocolRecoveryReasonSchemas = {
   signaturesWithoutSupportingTypes: Schema.Literal("inspect-signatures-without-supporting-types"),
   relatedExportNames: Schema.Literal("search-related-export-names"),
 } as const;
-const protocolRecoveryReasonSchema = Schema.Union([
-  protocolRecoveryReasonSchemas.declarationsWithoutSupportingTypes,
-  protocolRecoveryReasonSchemas.signaturesWithoutSupportingTypes,
-  protocolRecoveryReasonSchemas.relatedExportNames,
-]);
 export const PROTOCOL_RECOVERY_REASONS = Object.freeze([
   protocolRecoveryReasonSchemas.declarationsWithoutSupportingTypes.literal,
   protocolRecoveryReasonSchemas.signaturesWithoutSupportingTypes.literal,
@@ -136,8 +130,6 @@ export const PROTOCOL_RECOVERY_POLICY = Object.freeze(
 
 export type InspectionIntent = typeof inspectionIntentSchema.Type;
 export type AnalysisIntent = typeof analysisIntentSchema.Type;
-export type InspectionFailureReason = typeof inspectionFailureReasonSchema.Type;
 export type InspectionBudgetDimension = typeof inspectionBudgetDimensionSchema.Type;
 export type SignatureEvidenceKind = typeof signatureEvidenceKindSchema.Type;
 export type SignatureEvidenceIntent = typeof signatureEvidenceIntentSchema.Type;
-export type ProtocolRecoveryReason = typeof protocolRecoveryReasonSchema.Type;

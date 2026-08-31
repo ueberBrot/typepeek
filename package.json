@@ -11,24 +11,22 @@
     "typepeek": "./dist/cli.js"
   },
   "files": [
-    "dist",
+    "dist/**/*.js",
+    "!dist/inspection-api.js",
+    "assets/typepeek-logo.svg",
     "CHANGELOG.md",
     "LICENSE",
     "README.md"
   ],
   "type": "module",
   "imports": {
-    "#typepeek/inspection": "./src/inspection-api.ts",
+    "#typepeek/inspection": "./src/inspection/index.ts",
     "#typepeek/*": "./src/*.ts"
   },
-  "exports": {
-    "./inspection": {
-      "types": "./dist/inspection-api.d.ts",
-      "import": "./dist/inspection-api.js"
-    }
-  },
+  "exports": {},
   "publishConfig": {
     "access": "public",
+    "provenance": true,
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {

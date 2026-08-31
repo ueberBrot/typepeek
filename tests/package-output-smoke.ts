@@ -24,9 +24,24 @@ try {
     { readonly files: ReadonlyArray<{ readonly path: string }> },
   ];
   const packagedPaths = new Set(packageManifest.files.map(({ path }) => path));
-  for (const expectedPath of ["CHANGELOG.md", "LICENSE", "README.md", "package.json"] as const) {
+  for (const expectedPath of [
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "assets/typepeek-logo.svg",
+    "package.json",
+  ] as const) {
     assert.ok(packagedPaths.has(expectedPath), `${expectedPath} is missing from the npm package`);
   }
+  for (const packagedPath of packagedPaths) {
+    if (!packagedPath.startsWith("dist/")) continue;
+    assert.ok(packagedPath.endsWith(".js"), `${packagedPath} is not a required runtime artifact`);
+  }
+  assert.equal(
+    packagedPaths.has("dist/inspection-api.js"),
+    false,
+    "The retired JavaScript library entrypoint must not ship",
+  );
 } finally {
   await rm(npmCache, { force: true, recursive: true });
 }
@@ -78,18 +93,3 @@ assert.equal(
   "1",
 );
 await assertArtifactCacheReuse("dist/cli.js");
-const inspectionApiPath = "../dist/inspection-api.js";
-const inspectionApi: unknown = await import(inspectionApiPath);
-if (typeof inspectionApi !== "object" || inspectionApi === null) {
-  throw new TypeError("The packed Inspection Core entrypoint did not export a module object.");
-}
-assert.equal(typeof Reflect.get(inspectionApi, "inspectInterfaceOverview"), "function");
-assert.equal(typeof Reflect.get(inspectionApi, "inspectExport"), "function");
-assert.equal(typeof Reflect.get(inspectionApi, "inspectExportSignatures"), "function");
-assert.equal(typeof Reflect.get(inspectionApi, "inspectPlan"), "function");
-assert.equal(typeof Reflect.get(inspectionApi, "inspectExportSearch"), "function");
-assert.equal(typeof Reflect.get(inspectionApi, "inspectPublicSubpaths"), "function");
-assert.equal(typeof Reflect.get(inspectionApi, "inspectCapabilities"), "function");
-assert.equal(typeof Reflect.get(inspectionApi, "inspectionCapabilitiesSchema"), "function");
-assert.equal(typeof Reflect.get(inspectionApi, "comparePublicInterfaces"), "function");
-assert.equal(typeof Reflect.get(inspectionApi, "invokeInspectionProtocol"), "function");
