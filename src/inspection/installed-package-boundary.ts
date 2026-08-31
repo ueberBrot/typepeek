@@ -82,7 +82,11 @@ export function assertNoNestedDeclaredEntrypoint(
       : typeof manifest["typings"] === "string"
         ? manifest["typings"]
         : undefined;
-  if (declaredEntrypoint === undefined || manifest["exports"] !== undefined) {
+  if (declaredEntrypoint === undefined) {
+    return;
+  }
+  // An exports map selects the active declaration entrypoint and supersedes legacy fields.
+  if (manifest["exports"] !== undefined) {
     return;
   }
   const logicalRoot = resolve(packageRoot);

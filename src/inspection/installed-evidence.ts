@@ -58,6 +58,7 @@ export interface InspectableModuleDiscoveryEvidence {
   readonly publicSubpaths: readonly PublicSubpath[];
 }
 
+/** Couples a declaration entrypoint to its canonical and logical authorization roots. */
 export interface DeclarationProviderAuthority {
   readonly declarationPath: string;
   readonly root: {

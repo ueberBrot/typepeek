@@ -13,7 +13,8 @@ import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 
 export const CACHE_SCHEMA_VERSION = 1;
-export const INSPECTION_CACHE_SEMANTICS_VERSION = "3";
+/** Identifies the evidence rules that permit cache reuse. */
+export const INSPECTION_CACHE_SEMANTICS = "installed-evidence-proof";
 export const MAX_CACHE_ENTRY_BYTES = 160 * 1_024;
 const MAX_CACHE_RECEIPT_BYTES = 96 * 1_024;
 const MAX_CACHE_PATH_BYTES = 4 * 1_024;
@@ -66,7 +67,7 @@ const boundedAnalysisRequestSchema = analysisRequestSchema.check(
 );
 const inspectionCacheIdentityValueSchema = Schema.Struct({
   budgetPolicy: Schema.Literal(INSPECTION_BUDGET_POLICY.identity),
-  cacheSemanticsVersion: Schema.Literal(INSPECTION_CACHE_SEMANTICS_VERSION),
+  cacheSemantics: Schema.Literal(INSPECTION_CACHE_SEMANTICS),
   compilerVersion: Schema.Literal(ts.version),
   evidence: cacheEvidenceIdentitySchema,
   request: boundedAnalysisRequestSchema,

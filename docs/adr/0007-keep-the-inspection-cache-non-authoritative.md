@@ -1,6 +1,6 @@
 # Keep the inspection cache non-authoritative
 
-The optional persistent cache stores only a successful Inspection Outcome after the parent process validates it at the same protocol seam as an uncached result. Its identity includes the normalized request, package-manifest Typepeek version, compiler version, named budget-policy version, cache semantics, and canonical Installed Evidence selection. Transport protocol versions do not affect canonical Inspection Outcomes. A change to any cache identity dimension creates a miss.
+The optional persistent cache stores only a successful Inspection Outcome after the parent process validates it at the same protocol seam as an uncached result. Its identity includes the normalized request, package-manifest Typepeek version, compiler version, budget-policy identity, cache-semantics identity, and canonical Installed Evidence selection. Transport protocol versions do not affect canonical Inspection Outcomes. A change to any cache identity dimension creates a miss.
 
 Automatic persistent reuse is enabled only for packaged builds with an embedded package version. Direct source execution requires an explicit cache directory. Windows persistence remains disabled until Typepeek can verify private ownership instead of assuming it.
 

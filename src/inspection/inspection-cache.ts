@@ -26,7 +26,7 @@ import {
   type InspectionCacheHitNotice,
   type InspectionCacheIdentityValue,
   type InspectionCacheWriteReceipt,
-  INSPECTION_CACHE_SEMANTICS_VERSION,
+  INSPECTION_CACHE_SEMANTICS,
   MAX_CACHE_ENTRY_BYTES,
   readInspectionCacheEnvelope,
   readInspectionCacheHitNoticeMessage,
@@ -81,7 +81,7 @@ export function createInspectionCacheIdentity(
 ): InspectionCacheIdentity | undefined {
   const candidate = {
     budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
-    cacheSemanticsVersion: INSPECTION_CACHE_SEMANTICS_VERSION,
+    cacheSemantics: INSPECTION_CACHE_SEMANTICS,
     compilerVersion: ts.version,
     evidence: {
       declarationPath: selection.declarationAuthority.declarationPath,
