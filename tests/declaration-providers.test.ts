@@ -37,6 +37,22 @@ describe("Declaration Providers", () => {
     });
   });
 
+  it("inspects a hoisted JavaScript Package Module through its hoisted Declaration Provider", async () => {
+    const outcome = await inspectInterfaceOverview({
+      resolutionContext: fixture.hoistedProviderContext,
+      specifier: fixture.packageName,
+    });
+
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({
+      status: "success",
+      result: {
+        packageIdentity: { name: fixture.packageName, version: "3.0.0" },
+        declarationProvider: { name: fixture.providerName, version: "1.0.0" },
+        moduleExports: [{ name: "overloaded" }, { name: "providerVersion" }],
+      },
+    });
+  });
+
   it("inspects a separate provider expressed as an exact ambient module", async () => {
     const outcome = await inspectInterfaceOverview({
       resolutionContext: fixture.ambientProviderContext,

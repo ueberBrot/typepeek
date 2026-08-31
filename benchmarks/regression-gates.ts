@@ -69,7 +69,7 @@ async function measureCacheHit(): Promise<BenchmarkMeasurements["cache"]> {
     "signatures",
     "execa",
     "execa",
-    "--context",
+    "--workspace",
     resolve("."),
     "--json",
   ];

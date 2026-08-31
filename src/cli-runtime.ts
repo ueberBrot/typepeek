@@ -36,6 +36,8 @@ import {
 } from "#typepeek/protocol-wire";
 import { renderInspection, type TerminalRenderingOptions } from "#typepeek/terminal-rendering";
 
+import { selectCliWorkspace } from "./cli-workspace.ts";
+
 const MAX_CLI_DIAGNOSTIC_BYTES = 128 * 1_024;
 const INSPECTION_FAILURE_EXIT_CODE = 1;
 const INVALID_INVOCATION_EXIT_CODE = 2;
@@ -45,7 +47,7 @@ const COMMON_OPTION_WIDTHS = new Map<string, number>([
   ["--json", 1],
   ["--pretty", 1],
   ["--access", 2],
-  ["--context", 2],
+  ["--workspace", 2],
 ] as const);
 const INSPECTION_COMMANDS = new Set([
   "overview",
@@ -78,14 +80,20 @@ interface CliOutputOptions {
 
 interface InspectionTargetOptions extends CliOutputOptions {
   readonly access: "import" | "require";
-  readonly context: string;
+  readonly workspace?: string;
+}
+
+interface CliInspectionTargetRequest {
+  readonly resolutionContext: string;
+  readonly specifier: string;
+  readonly accessStyle: "import" | "require";
 }
 
 interface ComparisonOptions extends CliOutputOptions {
   readonly beforeAccess: "import" | "require";
   readonly afterAccess: "import" | "require";
-  readonly beforeContext: string;
-  readonly afterContext: string;
+  readonly beforeWorkspace?: string;
+  readonly afterWorkspace?: string;
 }
 
 interface OverviewOptions extends InspectionTargetOptions {
@@ -157,12 +165,12 @@ const inspectionTargetFlags = {
     placeholder: "import|require",
     brief: "Access Style whose package conditions select the Resolution Variant.",
   },
-  context: {
+  workspace: {
     kind: "parsed",
     parse: resolve,
-    default: ".",
+    optional: true,
     placeholder: "path",
-    brief: "Resolution Context from which Installed Evidence is visible.",
+    brief: "Consuming workspace from which Typepeek resolves the package.",
   },
   json: {
     kind: "boolean",
@@ -226,14 +234,17 @@ const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationConte
     if (optionError !== undefined) {
       return optionError;
     }
-    const outcome = await invokeCliInspection(
+    return runCliTargetInspection(
+      this,
       "interface-overview",
-      inspectionRequest(options, specifier),
+      options,
+      specifier,
+      (target) => target,
+      {
+        includePublicSubpaths: options.subpaths,
+        ...(options.match === undefined ? {} : { moduleExportMatch: options.match }),
+      },
     );
-    return writeCliOutcome(this, options, outcome, {
-      includePublicSubpaths: options.subpaths,
-      ...(options.match === undefined ? {} : { moduleExportMatch: options.match }),
-    });
   },
   parameters: {
     flags: {
@@ -260,17 +271,16 @@ const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationConte
   docs: {
     brief: "Index the Module Exports and Public Subpaths of one Inspectable Module.",
     fullDescription:
-      "Example: typepeek overview zod --context . Use --json for one structured Inspection Outcome.",
+      "Example: typepeek overview zod. Use --json for one structured Inspection Outcome.",
   },
 });
 
 const exportCommand = buildCommand<InspectionTargetOptions, [string, string], ApplicationContext>({
   async func(options, specifier, exportName) {
-    const outcome = await invokeCliInspection("export-inspection", {
-      ...inspectionRequest(options, specifier),
+    return runCliTargetInspection(this, "export-inspection", options, specifier, (target) => ({
+      ...target,
       exportName,
-    });
-    return writeCliOutcome(this, options, outcome);
+    }));
   },
   parameters: {
     flags: inspectionTargetFlags,
@@ -282,7 +292,7 @@ const exportCommand = buildCommand<InspectionTargetOptions, [string, string], Ap
   docs: {
     brief: "Inspect one Module Export with declarations and bounded Supporting Types.",
     fullDescription:
-      "Example: typepeek export zod ZodError --context . Use it when you need declarations or Supporting Types.",
+      "Example: typepeek export zod ZodError. Use it when you need declarations or Supporting Types.",
   },
 });
 
@@ -292,11 +302,10 @@ const signaturesCommand = buildCommand<
   ApplicationContext
 >({
   async func(options, specifier, exportName) {
-    const outcome = await invokeCliInspection("signature-inspection", {
-      ...inspectionRequest(options, specifier),
+    return runCliTargetInspection(this, "signature-inspection", options, specifier, (target) => ({
+      ...target,
       exportName,
-    });
-    return writeCliOutcome(this, options, outcome);
+    }));
   },
   parameters: {
     flags: inspectionTargetFlags,
@@ -308,7 +317,7 @@ const signaturesCommand = buildCommand<
   docs: {
     brief: "Inspect only the public call and construct signatures of one Module Export.",
     fullDescription:
-      "Example: typepeek signatures execa execa --context . --json emits structured type parameters, parameters, and return semantics.",
+      "Example: typepeek signatures execa execa --json emits structured type parameters, parameters, and return semantics.",
   },
 });
 
@@ -318,11 +327,10 @@ const declarationsCommand = buildCommand<
   ApplicationContext
 >({
   async func(options, specifier, exportName) {
-    const outcome = await invokeCliInspection("declaration-inspection", {
-      ...inspectionRequest(options, specifier),
+    return runCliTargetInspection(this, "declaration-inspection", options, specifier, (target) => ({
+      ...target,
       exportName,
-    });
-    return writeCliOutcome(this, options, outcome);
+    }));
   },
   parameters: {
     flags: inspectionTargetFlags,
@@ -334,7 +342,7 @@ const declarationsCommand = buildCommand<
   docs: {
     brief: "Inspect only the declarations of one Module Export.",
     fullDescription:
-      "Example: typepeek declarations zod ZodError --context . avoids Signature and Supporting Type traversal.",
+      "Example: typepeek declarations zod ZodError avoids Signature and Supporting Type traversal.",
   },
 });
 
@@ -344,12 +352,11 @@ const memberCommand = buildCommand<
   ApplicationContext
 >({
   async func(options, specifier, exportName, memberPath) {
-    const outcome = await invokeCliInspection("member-inspection", {
-      ...inspectionRequest(options, specifier),
+    return runCliTargetInspection(this, "member-inspection", options, specifier, (target) => ({
+      ...target,
       exportName,
       memberPath,
-    });
-    return writeCliOutcome(this, options, outcome);
+    }));
   },
   parameters: {
     flags: inspectionTargetFlags,
@@ -361,7 +368,7 @@ const memberCommand = buildCommand<
   docs: {
     brief: "Inspect exactly one public Member path of a Module Export.",
     fullDescription:
-      "Example: typepeek member zod ZodError issues --context . avoids unrelated declaration traversal.",
+      "Example: typepeek member zod ZodError issues avoids unrelated declaration traversal.",
   },
 });
 
@@ -371,11 +378,10 @@ const planCommand = buildCommand<
   ApplicationContext
 >({
   async func(options, specifier, queries) {
-    const outcome = await invokeCliInspection("inspection-plan", {
-      ...inspectionRequest(options, specifier),
+    return runCliTargetInspection(this, "inspection-plan", options, specifier, (target) => ({
+      ...target,
       queries,
-    });
-    return writeCliOutcome(this, options, outcome);
+    }));
   },
   parameters: {
     flags: inspectionTargetFlags,
@@ -387,17 +393,16 @@ const planCommand = buildCommand<
   docs: {
     brief: "Execute a bounded query list over one shared Installed Evidence snapshot.",
     fullDescription:
-      'Example: typepeek plan zod \'[{"intent":"interface-overview"}]\' --context . --json returns one atomic outcome.',
+      'Example: typepeek plan zod \'[{"intent":"interface-overview"}]\' --json returns one atomic outcome.',
   },
 });
 
 const searchCommand = buildCommand<InspectionTargetOptions, [string, string], ApplicationContext>({
   async func(options, specifier, query) {
-    const outcome = await invokeCliInspection("export-search", {
-      ...inspectionRequest(options, specifier),
+    return runCliTargetInspection(this, "export-search", options, specifier, (target) => ({
+      ...target,
       query,
-    });
-    return writeCliOutcome(this, options, outcome);
+    }));
   },
   parameters: {
     flags: inspectionTargetFlags,
@@ -409,17 +414,19 @@ const searchCommand = buildCommand<InspectionTargetOptions, [string, string], Ap
   docs: {
     brief: "Search the bounded Module Export index without returning an overview.",
     fullDescription:
-      "Example: typepeek search zod error --context . returns matching Module Export names and the complete count.",
+      "Example: typepeek search zod error returns matching Module Export names and the complete count.",
   },
 });
 
 const subpathsCommand = buildCommand<InspectionTargetOptions, [string], ApplicationContext>({
   async func(options, specifier) {
-    const outcome = await invokeCliInspection(
+    return runCliTargetInspection(
+      this,
       "public-subpath-discovery",
-      inspectionRequest(options, specifier),
+      options,
+      specifier,
+      (target) => target,
     );
-    return writeCliOutcome(this, options, outcome);
   },
   parameters: {
     flags: inspectionTargetFlags,
@@ -430,8 +437,7 @@ const subpathsCommand = buildCommand<InspectionTargetOptions, [string], Applicat
   },
   docs: {
     brief: "Discover manifest Public Subpaths without materializing a TypeScript program.",
-    fullDescription:
-      "Example: typepeek subpaths zod --context . lists only bounded manifest Public Subpaths.",
+    fullDescription: "Example: typepeek subpaths zod lists only bounded manifest Public Subpaths.",
   },
 });
 
@@ -475,14 +481,30 @@ const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], Applica
 
 const compareCommand = buildCommand<ComparisonOptions, [string, string], ApplicationContext>({
   async func(options, beforeSpecifier, afterSpecifier) {
+    const beforeResolutionContext = resolutionContextForSpecifier(
+      beforeSpecifier,
+      options.beforeWorkspace,
+      "--before-workspace",
+    );
+    if (beforeResolutionContext instanceof Error) {
+      return beforeResolutionContext;
+    }
+    const afterResolutionContext = resolutionContextForSpecifier(
+      afterSpecifier,
+      options.afterWorkspace,
+      "--after-workspace",
+    );
+    if (afterResolutionContext instanceof Error) {
+      return afterResolutionContext;
+    }
     const outcome = await invokeCliInspection("public-interface-comparison", {
       before: {
-        resolutionContext: options.beforeContext,
+        resolutionContext: beforeResolutionContext,
         specifier: beforeSpecifier,
         accessStyle: options.beforeAccess,
       },
       after: {
-        resolutionContext: options.afterContext,
+        resolutionContext: afterResolutionContext,
         specifier: afterSpecifier,
         accessStyle: options.afterAccess,
       },
@@ -505,19 +527,19 @@ const compareCommand = buildCommand<ComparisonOptions, [string, string], Applica
         placeholder: "import|require",
         brief: "Access Style for the after Resolution Variant.",
       },
-      beforeContext: {
+      beforeWorkspace: {
         kind: "parsed",
         parse: resolve,
-        default: ".",
+        optional: true,
         placeholder: "path",
-        brief: "Resolution Context for the before Interface Overview.",
+        brief: "Consuming workspace for the before Interface Overview.",
       },
-      afterContext: {
+      afterWorkspace: {
         kind: "parsed",
         parse: resolve,
-        default: ".",
+        optional: true,
         placeholder: "path",
-        brief: "Resolution Context for the after Interface Overview.",
+        brief: "Consuming workspace for the after Interface Overview.",
       },
       json: inspectionTargetFlags.json,
       pretty: inspectionTargetFlags.pretty,
@@ -530,7 +552,7 @@ const compareCommand = buildCommand<ComparisonOptions, [string, string], Applica
   docs: {
     brief: "Compare two complete Interface Overview indexes without merging variants.",
     fullDescription:
-      "Example: typepeek compare zod zod --before-context old --after-context new compares installed versions directionally.",
+      "Example: typepeek compare zod zod --before-workspace old --after-workspace new compares installed versions directionally.",
   },
 });
 
@@ -761,11 +783,44 @@ function requestsFlag(inputs: readonly string[], flag: "--json" | "--pretty"): b
 }
 
 function inspectionRequest(options: InspectionTargetOptions, specifier: string) {
+  const resolutionContext = resolutionContextForSpecifier(
+    specifier,
+    options.workspace,
+    "--workspace",
+  );
+  if (resolutionContext instanceof Error) {
+    return resolutionContext;
+  }
   return {
-    resolutionContext: options.context,
+    resolutionContext,
     specifier,
     accessStyle: options.access,
   } as const;
+}
+
+function resolutionContextForSpecifier(
+  specifier: string,
+  explicitWorkspace: string | undefined,
+  workspaceFlag: "--workspace" | "--before-workspace" | "--after-workspace",
+): string | InvalidInvocationError {
+  const selection = selectCliWorkspace(specifier, explicitWorkspace, workspaceFlag);
+  return selection instanceof Error ? new InvalidInvocationError(selection.message) : selection;
+}
+
+async function runCliTargetInspection<Intent extends InspectionIntent>(
+  context: ApplicationContext,
+  intent: Intent,
+  options: InspectionTargetOptions,
+  specifier: string,
+  requestForTarget: (target: CliInspectionTargetRequest) => InspectionRequestByIntent[Intent],
+  renderingOptions: TerminalRenderingOptions = {},
+): Promise<Error | undefined> {
+  const target = inspectionRequest(options, specifier);
+  if (target instanceof Error) {
+    return target;
+  }
+  const outcome = await invokeCliInspection(intent, requestForTarget(target));
+  return writeCliOutcome(context, options, outcome, renderingOptions);
 }
 
 async function invokeCliInspection<Intent extends InspectionIntent>(

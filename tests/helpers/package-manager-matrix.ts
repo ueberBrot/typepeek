@@ -1,6 +1,6 @@
 import { lstat, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   installDeclaredPackages,
@@ -24,6 +24,7 @@ export interface PackageManagerMatrix {
   readonly installations: readonly PackageManagerInstallation[];
   readonly staticInspection: StaticInspection;
   readonly unsupportedInstallation: {
+    readonly ancestorPackageSpecifier: string;
     readonly resolutionContext: string;
     readonly runtimeSentinel: string;
   };
@@ -63,12 +64,22 @@ export async function materializePackageManagerMatrix(): Promise<PackageManagerM
 }
 
 async function materializeUnsupportedInstallation(fixtureRoot: string): Promise<{
+  readonly ancestorPackageSpecifier: string;
   readonly resolutionContext: string;
   readonly runtimeSentinel: string;
 }> {
+  const ancestorPackageSpecifier = "@typepeek-fixture/ancestor-only";
   const resolutionContext = join(fixtureRoot, "repositories", "unsupported-pnp");
   const runtimeSentinel = join(resolutionContext, "PNP_RUNTIME_EXECUTED");
-  await mkdir(resolutionContext, { recursive: true });
+  const ancestorPackageRoot = join(
+    dirname(resolutionContext),
+    "node_modules",
+    ...ancestorPackageSpecifier.split("/"),
+  );
+  await Promise.all([
+    mkdir(resolutionContext, { recursive: true }),
+    mkdir(join(ancestorPackageRoot, "dist"), { recursive: true }),
+  ]);
   await Promise.all([
     writeFile(
       join(resolutionContext, "package.json"),
@@ -82,8 +93,20 @@ async function materializeUnsupportedInstallation(fixtureRoot: string): Promise<
       join(resolutionContext, ".pnp.cjs"),
       `require("node:fs").writeFileSync(${JSON.stringify(runtimeSentinel)}, "executed");\n`,
     ),
+    writeFile(
+      join(ancestorPackageRoot, "package.json"),
+      JSON.stringify({
+        name: ancestorPackageSpecifier,
+        version: "1.0.0",
+        types: "./dist/index.d.ts",
+      }),
+    ),
+    writeFile(
+      join(ancestorPackageRoot, "dist", "index.d.ts"),
+      "export declare const ancestorOnly: string;\n",
+    ),
   ]);
-  return { resolutionContext, runtimeSentinel };
+  return { ancestorPackageSpecifier, resolutionContext, runtimeSentinel };
 }
 
 async function packFixturePackages(

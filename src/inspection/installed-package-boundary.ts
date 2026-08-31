@@ -173,6 +173,13 @@ export function isSafePackagePathSegment(segment: string): boolean {
   return !["", ".", ".."].includes(segment) && !segment.includes("\\") && !segment.includes("\0");
 }
 
+export function hasDeclaredPackage(
+  manifest: Readonly<Record<string, unknown>>,
+  packageName: string,
+): boolean {
+  return DEPENDENCY_FIELDS.some((field) => hasOwnStringProperty(manifest[field], packageName));
+}
+
 export function findVisiblePackage(
   resolutionContext: string,
   packageSegments: readonly string[],
@@ -185,6 +192,35 @@ export function findVisiblePackage(
     return undefined;
   }
   return searchVisiblePackage(contextDirectory, packageSegments, observer);
+}
+
+export function findResolvablePackage(
+  resolutionContext: string,
+  packageSegments: readonly string[],
+  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+): VisiblePackageLocation | undefined {
+  const contextDirectory = startingDirectory(resolutionContext, observer);
+  const rejectUnsupportedInstallation = isDeclaredFromResolutionContext(
+    contextDirectory,
+    packageSegments.join("/"),
+    false,
+    observer,
+  );
+  return searchVisiblePackage(
+    contextDirectory,
+    packageSegments,
+    observer,
+    rejectUnsupportedInstallation,
+  );
+}
+
+export function findResolvableDeclarationProvider(
+  resolutionContext: string,
+  packageSegments: readonly string[],
+  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+): VisiblePackageLocation | undefined {
+  const contextDirectory = startingDirectory(resolutionContext, observer);
+  return searchVisiblePackage(contextDirectory, packageSegments, observer, false);
 }
 
 export function findVisiblePackageForDependency(
@@ -204,6 +240,7 @@ function searchVisiblePackage(
   contextDirectory: string,
   packageSegments: readonly string[],
   observer: PackageBoundaryObserver,
+  rejectUnsupportedInstallation = true,
 ): VisiblePackageLocation | undefined {
   let directory = contextDirectory;
 
@@ -216,7 +253,14 @@ function searchVisiblePackage(
         repositoryRoot: visibleRepositoryRoot(contextDirectory, directory, observer),
       };
     }
-    rejectPlugAndPlayInstallation(directory, observer);
+    if (hasPlugAndPlayMarker(directory, observer)) {
+      if (rejectUnsupportedInstallation) {
+        throw new UnsupportedInspectionError(
+          "The Resolution Context uses an unsupported installation without node_modules.",
+        );
+      }
+      return undefined;
+    }
 
     const parent = dirname(directory);
     if (parent === directory) {
@@ -246,10 +290,7 @@ function isDeclaredFromResolutionContext(
   observer: PackageBoundaryObserver,
 ): boolean {
   const contextManifest = findContextManifest(contextDirectory, requirePackageIdentity, observer);
-  return (
-    contextManifest !== undefined &&
-    DEPENDENCY_FIELDS.some((field) => hasOwnStringProperty(contextManifest[field], packageName))
-  );
+  return contextManifest !== undefined && hasDeclaredPackage(contextManifest, packageName);
 }
 
 function findContextManifest(
@@ -324,14 +365,6 @@ function hasOwnStringProperty(value: unknown, property: string): boolean {
     Object.hasOwn(value, property) &&
     typeof value[property] === "string"
   );
-}
-
-function rejectPlugAndPlayInstallation(directory: string, observer: PackageBoundaryObserver): void {
-  if (hasPlugAndPlayMarker(directory, observer)) {
-    throw new UnsupportedInspectionError(
-      "The Resolution Context uses an unsupported installation without node_modules.",
-    );
-  }
 }
 
 function hasPlugAndPlayMarker(directory: string, observer: PackageBoundaryObserver): boolean {

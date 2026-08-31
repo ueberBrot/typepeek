@@ -19,6 +19,7 @@ export interface WorkspacePackageInstallation {
   readonly consumerTwoContext: string;
   readonly hiddenWorkspaceInstalledElsewhere: boolean;
   readonly hiddenWorkspacePackage: string;
+  readonly hiddenWorkspaceResolvableFromConsumerOne: boolean;
   readonly manager: PackageManagerPin["manager"];
   readonly sourceWorkspaceIsLink: boolean;
   readonly sourceWorkspacePackage: string;
@@ -259,6 +260,11 @@ async function materializeWorkspaceInstallation(
       HIDDEN_WORKSPACE_PACKAGE,
     ),
     hiddenWorkspacePackage: HIDDEN_WORKSPACE_PACKAGE,
+    hiddenWorkspaceResolvableFromConsumerOne: await installedPackageExists(
+      repositoryRoot,
+      consumerOneContext,
+      HIDDEN_WORKSPACE_PACKAGE,
+    ),
     manager: packageManager.manager,
     sourceWorkspaceIsLink: await sourceWorkspaceIsLink(repositoryRoot, consumerOneContext),
     sourceWorkspacePackage: SOURCE_WORKSPACE_PACKAGE,

@@ -20,7 +20,7 @@ For repeatable use, install Typepeek as a development dependency:
 
 ```bash
 npm install --save-dev typepeek
-npx typepeek overview execa --context .
+npx typepeek overview execa
 ```
 
 `npx` uses the project-local executable when Typepeek is installed.
@@ -30,7 +30,7 @@ npx typepeek overview execa --context .
 Run the latest release without adding Typepeek to `package.json`:
 
 ```bash
-npx --yes typepeek@latest overview execa --context .
+npx --yes typepeek@latest overview execa
 ```
 
 ### Install globally
@@ -39,7 +39,7 @@ Install one version for direct use across projects:
 
 ```bash
 npm install --global typepeek
-typepeek overview execa --context .
+typepeek overview execa
 ```
 
 A global installation is convenient, but every project shares the installed version.
@@ -49,24 +49,29 @@ A global installation is convenient, but every project shares the installed vers
 If your project imports `execa`, Typepeek can read the call signatures for its main export from the installed declarations:
 
 ```bash
-npx typepeek signatures execa execa --context .
+npx typepeek signatures execa execa
 ```
 
 Typepeek returns each public call and construct signature in declaration order.
 
-> [!IMPORTANT]
-> Set `--context` to the consuming project's directory. Typepeek starts module resolution there, so the context determines which installed package and resolution conditions it sees.
-
-Inspect an installed package from the consuming project:
+Typepeek first identifies the consumer from the current directory. From a monorepo root, it selects the only declared workspace that depends on the requested package. If several workspaces depend on it, select the consumer explicitly:
 
 ```bash
-npx typepeek overview execa --context .
+npx typepeek execa --workspace packages/api
+```
+
+Within a workspace, Typepeek stays scoped to that workspace. The `--workspace` option selects another consumer; pass its workspace directory, not a path into `node_modules`.
+
+Inspect an installed package from the current project or workspace:
+
+```bash
+npx typepeek overview execa
 ```
 
 `overview` is the default command, so the final command can also be written as:
 
 ```bash
-npx typepeek execa --context .
+npx typepeek execa
 ```
 
 Run `npx typepeek --help` for the complete command surface. If you installed Typepeek globally, invoke `typepeek` directly instead.
@@ -85,19 +90,19 @@ Start with the narrowest inspection that answers your question.
 | What defines this exact public member?                                                           | `member`       |
 | Which declarations, signatures, supporting types, and package documentation explain this export? | `export`       |
 | How can I run several inspections against one evidence snapshot?                                 | `plan`         |
-| Which export names or public subpaths differ between two contexts?                               | `compare`      |
+| Which export names or public subpaths differ between two workspaces?                             | `compare`      |
 
 For example, discover an export before inspecting it:
 
 ```bash
-npx typepeek search execa error --context .
-npx typepeek declarations execa ExecaError --context .
+npx typepeek search execa error
+npx typepeek declarations execa ExecaError
 ```
 
 Add `--json` for structured output. Add `--pretty` with `--json` when a person needs to read that output:
 
 ```bash
-npx typepeek signatures execa execa --context . --json --pretty
+npx typepeek signatures execa execa --json --pretty
 ```
 
 Commands use the `import` access style by default. Pass `--access require` when you need the interface selected for CommonJS resolution conditions.
@@ -105,6 +110,8 @@ Commands use the `import` access style by default. Pass `--access require` when 
 ## What Typepeek inspects
 
 Typepeek inspects installed package modules, their manifest-declared public subpaths, and linked workspace packages. It also inspects Node.js platform modules when the project can resolve `@types/node`. Typepeek supports ordinary `node_modules` installations produced by npm, pnpm, and Bun.
+
+A requested Package Module need not appear in the Resolution Context's manifest. Typepeek can inspect it when its Specifier resolves through an ancestor `node_modules` directory, including when the installation hoists it for another Package Module. From a monorepo root, Typepeek selects a workspace when exactly one declares the package as a dependency. Typepeek does not scan nested `node_modules` directories that no selected Resolution Context can resolve.
 
 Inspection is static. Typepeek reads installed manifests, declarations, package-exposed TypeScript source, and attached JSDoc. It does not import package code, run package scripts, evaluate project configuration code, or download missing material.
 
