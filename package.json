@@ -11,7 +11,9 @@
     "typepeek": "./dist/cli.js"
   },
   "files": [
-    "dist",
+    "dist/**/*.js",
+    "dist/inspection-api.d.ts",
+    "assets/typepeek-logo.svg",
     "CHANGELOG.md",
     "LICENSE",
     "README.md"

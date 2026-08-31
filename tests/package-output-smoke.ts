@@ -24,8 +24,22 @@ try {
     { readonly files: ReadonlyArray<{ readonly path: string }> },
   ];
   const packagedPaths = new Set(packageManifest.files.map(({ path }) => path));
-  for (const expectedPath of ["CHANGELOG.md", "LICENSE", "README.md", "package.json"] as const) {
+  for (const expectedPath of [
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "assets/typepeek-logo.svg",
+    "dist/inspection-api.d.ts",
+    "package.json",
+  ] as const) {
     assert.ok(packagedPaths.has(expectedPath), `${expectedPath} is missing from the npm package`);
+  }
+  for (const packagedPath of packagedPaths) {
+    if (!packagedPath.startsWith("dist/")) continue;
+    assert.ok(
+      packagedPath.endsWith(".js") || packagedPath === "dist/inspection-api.d.ts",
+      `${packagedPath} is not a required runtime or public type artifact`,
+    );
   }
 } finally {
   await rm(npmCache, { force: true, recursive: true });
