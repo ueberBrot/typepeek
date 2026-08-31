@@ -24,6 +24,12 @@ runs:
         run-install: |
           - args: ["--frozen-lockfile"]
 
+    - name: Activate pnpm
+      shell: bash
+      run: |
+        corepack enable pnpm
+        pnpm --version
+
     - name: Set up Bun
       if: inputs.install-bun == 'true'
       uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
