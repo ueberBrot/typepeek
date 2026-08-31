@@ -2,7 +2,10 @@ import { opendirSync, readFileSync, statSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { dirname, isAbsolute, join, matchesGlob, relative, resolve, sep } from "node:path";
 
-import { hasDeclaredPackage, parsePackageNameSegments } from "#typepeek/inspection";
+import {
+  hasDeclaredPackage,
+  parsePackageNameSegments,
+} from "#typepeek/inspection/installed-package-boundary";
 
 const MAX_ANCESTOR_DIRECTORIES = 64;
 const MAX_WORKSPACES = 128;
@@ -10,64 +13,105 @@ const MAX_WORKSPACE_CONFIG_BYTES = 256 * 1_024;
 const MAX_WORKSPACE_DISCOVERY_DEPTH = 32;
 const MAX_WORKSPACE_DISCOVERY_OPERATIONS = 16 * 1_024;
 
-export type CliWorkspaceSelection =
-  | { readonly status: "selected"; readonly resolutionContext: string }
-  | {
-      readonly status: "ambiguous";
-      readonly candidates: readonly string[];
-      readonly repositoryRoot: string;
-    }
-  | { readonly status: "limit-exceeded"; readonly repositoryRoot: string };
+type WorkspaceFlag = "--workspace" | "--before-workspace" | "--after-workspace";
 
 class WorkspaceDiscoveryLimitError extends Error {}
 
 export function selectCliWorkspace(
   specifier: string,
   explicitWorkspace: string | undefined,
+  workspaceFlag: "--workspace" | "--before-workspace" | "--after-workspace",
   currentDirectory = process.cwd(),
-): CliWorkspaceSelection {
+): string | Error {
   if (explicitWorkspace !== undefined) {
-    return { status: "selected", resolutionContext: explicitWorkspace };
+    return explicitWorkspace;
   }
 
   const resolutionContext = resolve(currentDirectory);
-  const packageName = packageNameFromSpecifier(specifier);
-  if (packageName === undefined || isBuiltin(specifier)) {
-    return { status: "selected", resolutionContext };
+  const packageName = workspacePackageName(specifier);
+  if (packageName === undefined) {
+    return resolutionContext;
   }
 
-  try {
-    const repository = findWorkspaceRepository(resolutionContext);
-    if (
-      repository === undefined ||
-      repository.root !== resolutionContext ||
-      workspaceDeclaresPackage(repository.root, packageName)
-    ) {
-      return { status: "selected", resolutionContext };
-    }
+  return selectBoundedRepositoryWorkspace(resolutionContext, packageName, specifier, workspaceFlag);
+}
 
-    const discovery = discoverWorkspaceDirectories(repository);
-    if (discovery.status === "limit-exceeded") {
-      return { status: "limit-exceeded", repositoryRoot: repository.root };
-    }
-    const candidates = discovery.directories.filter((directory) =>
-      workspaceDeclaresPackage(directory, packageName),
-    );
-    if (candidates.length === 1) {
-      return { status: "selected", resolutionContext: candidates[0] as string };
-    }
-    return candidates.length > 1
-      ? { status: "ambiguous", candidates, repositoryRoot: repository.root }
-      : { status: "selected", resolutionContext };
+function selectBoundedRepositoryWorkspace(
+  resolutionContext: string,
+  packageName: string,
+  specifier: string,
+  workspaceFlag: WorkspaceFlag,
+): string | Error {
+  try {
+    return selectRepositoryWorkspace(resolutionContext, packageName, specifier, workspaceFlag);
   } catch (error) {
     if (error instanceof WorkspaceDiscoveryLimitError) {
-      return { status: "limit-exceeded", repositoryRoot: resolutionContext };
+      return new Error(
+        `Workspace discovery exceeded its bound. Select one with ${workspaceFlag} <path>.`,
+      );
     }
     throw error;
   }
 }
 
-export function displayWorkspaceCandidate(repositoryRoot: string, candidate: string): string {
+function selectRepositoryWorkspace(
+  resolutionContext: string,
+  packageName: string,
+  specifier: string,
+  workspaceFlag: WorkspaceFlag,
+): string | Error {
+  const repository = findWorkspaceRepository(resolutionContext);
+  if (
+    repository === undefined ||
+    usesCurrentResolutionContext(repository, resolutionContext, packageName)
+  ) {
+    return resolutionContext;
+  }
+
+  const candidates = discoverWorkspaceDirectories(repository).filter((directory) =>
+    workspaceDeclaresPackage(directory, packageName),
+  );
+  return selectDeclaredWorkspace(
+    candidates,
+    repository,
+    resolutionContext,
+    specifier,
+    workspaceFlag,
+  );
+}
+
+function usesCurrentResolutionContext(
+  repository: WorkspaceRepository,
+  resolutionContext: string,
+  packageName: string,
+): boolean {
+  return (
+    repository.root !== resolutionContext || workspaceDeclaresPackage(repository.root, packageName)
+  );
+}
+
+function selectDeclaredWorkspace(
+  candidates: readonly string[],
+  repository: WorkspaceRepository,
+  resolutionContext: string,
+  specifier: string,
+  workspaceFlag: WorkspaceFlag,
+): string | Error {
+  if (candidates.length === 1) {
+    return candidates[0] as string;
+  }
+  if (candidates.length === 0) {
+    return resolutionContext;
+  }
+  const displayedCandidates = candidates
+    .map((candidate) => displayWorkspaceCandidate(repository.root, candidate))
+    .join(", ");
+  return new Error(
+    `Specifier "${specifier}" matches multiple consuming workspaces: ${displayedCandidates}. Select one with ${workspaceFlag} <path>.`,
+  );
+}
+
+function displayWorkspaceCandidate(repositoryRoot: string, candidate: string): string {
   const relativeCandidate = relative(repositoryRoot, candidate);
   return relativeCandidate === "" ? "." : relativeCandidate.split(sep).join("/");
 }
@@ -76,10 +120,6 @@ interface WorkspaceRepository {
   readonly patterns: readonly string[];
   readonly root: string;
 }
-
-type WorkspaceDiscovery =
-  | { readonly status: "complete"; readonly directories: readonly string[] }
-  | { readonly status: "limit-exceeded" };
 
 function findWorkspaceRepository(startingDirectory: string): WorkspaceRepository | undefined {
   let directory = startingDirectory;
@@ -110,16 +150,15 @@ function readManifestWorkspacePatterns(manifestPath: string): readonly string[] 
     return [];
   }
   const workspaces = manifest["workspaces"];
-  if (Array.isArray(workspaces)) {
-    return workspaces.filter((value): value is string => typeof value === "string");
-  }
-  if (isRecord(workspaces)) {
-    const packages = workspaces["packages"];
-    return Array.isArray(packages)
-      ? packages.filter((value): value is string => typeof value === "string")
-      : [];
-  }
-  return [];
+  return Array.isArray(workspaces)
+    ? stringValues(workspaces)
+    : stringValues(isRecord(workspaces) ? workspaces["packages"] : undefined);
+}
+
+function stringValues(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 function readJsonRecord(fileName: string): Readonly<Record<string, unknown>> | undefined {
@@ -141,78 +180,96 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 
 function readPnpmWorkspacePatterns(fileName: string): readonly string[] {
   const text = readBoundedText(fileName);
-  if (text === undefined) {
+  return text === undefined ? [] : pnpmWorkspacePatterns(text);
+}
+
+function pnpmWorkspacePatterns(text: string): readonly string[] {
+  const lines = text.split(/\r?\n/u);
+  const packagesLine = lines.findIndex((line) => /^\s*packages\s*:\s*$/u.test(line));
+  if (packagesLine === -1) {
     return [];
   }
-  const patterns: string[] = [];
-  let packagesIndent: number | undefined;
-  for (const line of text.split(/\r?\n/u)) {
-    const packagesMatch = /^(\s*)packages\s*:\s*$/u.exec(line);
-    if (packagesMatch !== null) {
-      packagesIndent = (packagesMatch[1] ?? "").length;
-      continue;
-    }
-    if (packagesIndent === undefined || line.trim() === "" || line.trimStart().startsWith("#")) {
-      continue;
-    }
-    const indent = line.length - line.trimStart().length;
-    if (indent <= packagesIndent) {
-      break;
-    }
-    const itemMatch = /^\s*-\s*(.+?)\s*$/u.exec(line);
-    if (itemMatch !== null) {
-      const pattern = unquoteYamlScalar(stripYamlComment(itemMatch[1] ?? ""));
-      if (pattern !== "") {
-        patterns.push(pattern);
-      }
-    }
+  const packagesIndent = leadingWhitespace(lines[packagesLine] as string);
+  const block = lines.slice(packagesLine + 1);
+  const blockEnd = block.findIndex((line) => yamlBlockHasEnded(line, packagesIndent));
+  return (blockEnd === -1 ? block : block.slice(0, blockEnd)).flatMap(pnpmWorkspacePattern);
+}
+
+function yamlBlockHasEnded(line: string, parentIndent: number): boolean {
+  return !isIgnorableYamlLine(line) && leadingWhitespace(line) <= parentIndent;
+}
+
+function isIgnorableYamlLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed === "" || trimmed.startsWith("#");
+}
+
+function leadingWhitespace(line: string): number {
+  return line.length - line.trimStart().length;
+}
+
+function pnpmWorkspacePattern(line: string): readonly string[] {
+  const item = /^\s*-\s*(.+?)\s*$/u.exec(line)?.[1];
+  if (item === undefined) {
+    return [];
   }
-  return patterns;
+  const pattern = unquoteYamlScalar(stripYamlComment(item));
+  return pattern === "" ? [] : [pattern];
 }
 
 function stripYamlComment(value: string): string {
-  let quote: "'" | '"' | undefined;
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index];
-    if (quote === undefined && (character === "'" || character === '"')) {
-      quote = character;
-      continue;
-    }
-    if (character === quote) {
-      quote = undefined;
-      continue;
-    }
-    if (quote === undefined && character === "#" && /\s/u.test(value[index - 1] ?? "")) {
-      return value.slice(0, index).trim();
-    }
+  const trimmed = value.trim();
+  const quote = leadingYamlQuote(trimmed);
+  const commentIndex =
+    quote === undefined ? trimmed.search(/\s#/u) : closingYamlQuoteEnd(trimmed, quote);
+  return commentIndex > 0 ? trimmed.slice(0, commentIndex).trim() : trimmed;
+}
+
+function closingYamlQuoteEnd(value: string, quote: "'" | '"'): number {
+  const quotedScalar =
+    quote === "'" ? /^'(?:''|[^'])*'/u.exec(value) : /^"(?:\\.|[^"\\])*"/u.exec(value);
+  return quotedScalar?.[0].length ?? -1;
+}
+
+function leadingYamlQuote(value: string): "'" | '"' | undefined {
+  const firstCharacter = value[0];
+  if (firstCharacter !== "'" && firstCharacter !== '"') {
+    return undefined;
   }
-  return value.trim();
+  return firstCharacter;
+}
+
+function yamlQuote(value: string): "'" | '"' | undefined {
+  const quote = leadingYamlQuote(value);
+  return quote !== undefined && value.length >= 2 && value.endsWith(quote) ? quote : undefined;
 }
 
 function unquoteYamlScalar(value: string): string {
-  if (
-    value.length >= 2 &&
-    ((value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'")))
-  ) {
-    return value.slice(1, -1);
-  }
-  return value.trim();
+  const trimmed = value.trim();
+  return yamlQuote(trimmed) === undefined ? trimmed : trimmed.slice(1, -1);
 }
 
 function readBoundedText(fileName: string): string | undefined {
-  let statistics;
+  const fileSize = readableFileSize(fileName);
+  if (fileSize === undefined) {
+    return undefined;
+  }
+  if (fileSize > MAX_WORKSPACE_CONFIG_BYTES) {
+    throw new WorkspaceDiscoveryLimitError();
+  }
+  return readText(fileName);
+}
+
+function readableFileSize(fileName: string): number | undefined {
   try {
-    statistics = statSync(fileName);
+    const statistics = statSync(fileName);
+    return statistics.isFile() ? statistics.size : undefined;
   } catch {
     return undefined;
   }
-  if (!statistics.isFile()) {
-    return undefined;
-  }
-  if (statistics.size > MAX_WORKSPACE_CONFIG_BYTES) {
-    throw new WorkspaceDiscoveryLimitError();
-  }
+}
+
+function readText(fileName: string): string | undefined {
   try {
     return readFileSync(fileName, "utf8");
   } catch {
@@ -220,7 +277,23 @@ function readBoundedText(fileName: string): string | undefined {
   }
 }
 
-function discoverWorkspaceDirectories(repository: WorkspaceRepository): WorkspaceDiscovery {
+interface WorkspaceDiscoveryState {
+  readonly directories: string[];
+  operations: number;
+}
+
+interface WorkspaceDirectoryContents {
+  readonly childDirectories: readonly string[];
+  readonly hasManifest: boolean;
+}
+
+interface WorkspaceTraversal {
+  readonly excludePatterns: readonly string[];
+  readonly includePatterns: readonly string[];
+  readonly state: WorkspaceDiscoveryState;
+}
+
+function discoverWorkspaceDirectories(repository: WorkspaceRepository): readonly string[] {
   const includePatterns = normalizedWorkspacePatterns(
     repository.patterns.filter((pattern) => !pattern.startsWith("!")),
   );
@@ -229,72 +302,137 @@ function discoverWorkspaceDirectories(repository: WorkspaceRepository): Workspac
       .filter((pattern) => pattern.startsWith("!"))
       .map((pattern) => pattern.slice(1)),
   );
-  const directories: string[] = [];
-  let operations = 0;
-  let exceeded = false;
-
-  const visit = (directory: string, relativeDirectory: string, depth: number): void => {
-    if (exceeded || depth > MAX_WORKSPACE_DISCOVERY_DEPTH) {
-      exceeded = true;
-      return;
-    }
-    operations += 1;
-    if (operations > MAX_WORKSPACE_DISCOVERY_OPERATIONS) {
-      exceeded = true;
-      return;
-    }
-    const childDirectories: string[] = [];
-    let hasManifest = false;
-    let directoryHandle;
-    try {
-      directoryHandle = opendirSync(directory);
-    } catch {
-      return;
-    }
-    try {
-      for (
-        let entry = directoryHandle.readSync();
-        entry !== null;
-        entry = directoryHandle.readSync()
-      ) {
-        operations += 1;
-        if (operations > MAX_WORKSPACE_DISCOVERY_OPERATIONS) {
-          exceeded = true;
-          return;
-        }
-        hasManifest ||= entry.isFile() && entry.name === "package.json";
-        if (entry.isDirectory() && ![".git", "node_modules"].includes(entry.name)) {
-          childDirectories.push(entry.name);
-        }
-      }
-    } finally {
-      directoryHandle.closeSync();
-    }
-    if (
-      relativeDirectory !== "" &&
-      hasManifest &&
-      matchesAnyWorkspacePattern(relativeDirectory, includePatterns) &&
-      !matchesAnyWorkspacePattern(relativeDirectory, excludePatterns)
-    ) {
-      directories.push(directory);
-      if (directories.length > MAX_WORKSPACES) {
-        exceeded = true;
-        return;
-      }
-    }
-    for (const childDirectory of childDirectories) {
-      const childRelative =
-        relativeDirectory === "" ? childDirectory : `${relativeDirectory}/${childDirectory}`;
-      if (couldContainWorkspace(childRelative, includePatterns)) {
-        visit(join(directory, childDirectory), childRelative, depth + 1);
-      }
-    }
+  const traversal: WorkspaceTraversal = {
+    excludePatterns,
+    includePatterns,
+    state: { directories: [], operations: 0 },
   };
+  visitWorkspaceDirectory(repository.root, "", 0, traversal);
+  return traversal.state.directories.sort();
+}
 
-  visit(repository.root, "", 0);
-  return exceeded
-    ? { status: "limit-exceeded" }
-    : { status: "complete", directories: directories.sort() };
+function visitWorkspaceDirectory(
+  directory: string,
+  relativeDirectory: string,
+  depth: number,
+  traversal: WorkspaceTraversal,
+): void {
+  enforceDiscoveryDepth(depth);
+  consumeDiscoveryOperation(traversal.state);
+  const contents = readWorkspaceDirectory(directory, traversal.state);
+  if (contents === undefined) {
+    return;
+  }
+  if (
+    isSelectedWorkspaceDirectory(
+      relativeDirectory,
+      contents.hasManifest,
+      traversal.includePatterns,
+      traversal.excludePatterns,
+    )
+  ) {
+    recordWorkspaceDirectory(traversal.state, directory);
+  }
+  for (const childDirectory of contents.childDirectories) {
+    visitWorkspaceChild(directory, relativeDirectory, childDirectory, depth, traversal);
+  }
+}
+
+function enforceDiscoveryDepth(depth: number): void {
+  if (depth > MAX_WORKSPACE_DISCOVERY_DEPTH) {
+    throw new WorkspaceDiscoveryLimitError();
+  }
+}
+
+function consumeDiscoveryOperation(state: WorkspaceDiscoveryState): void {
+  state.operations += 1;
+  if (state.operations > MAX_WORKSPACE_DISCOVERY_OPERATIONS) {
+    throw new WorkspaceDiscoveryLimitError();
+  }
+}
+
+function readWorkspaceDirectory(
+  directory: string,
+  state: WorkspaceDiscoveryState,
+): WorkspaceDirectoryContents | undefined {
+  const directoryHandle = openWorkspaceDirectory(directory);
+  if (directoryHandle === undefined) {
+    return undefined;
+  }
+  try {
+    return collectWorkspaceDirectoryContents(directoryHandle, state);
+  } finally {
+    directoryHandle.closeSync();
+  }
+}
+
+function openWorkspaceDirectory(directory: string): ReturnType<typeof opendirSync> | undefined {
+  try {
+    return opendirSync(directory);
+  } catch {
+    return undefined;
+  }
+}
+
+function collectWorkspaceDirectoryContents(
+  directoryHandle: ReturnType<typeof opendirSync>,
+  state: WorkspaceDiscoveryState,
+): WorkspaceDirectoryContents {
+  const childDirectories: string[] = [];
+  let hasManifest = false;
+  for (let entry = directoryHandle.readSync(); entry !== null; entry = directoryHandle.readSync()) {
+    consumeDiscoveryOperation(state);
+    hasManifest ||= isPackageManifestEntry(entry.name, entry.isFile());
+    childDirectories.push(...traversableDirectoryNames(entry.name, entry.isDirectory()));
+  }
+  return { childDirectories, hasManifest };
+}
+
+function isPackageManifestEntry(name: string, isFile: boolean): boolean {
+  return isFile && name === "package.json";
+}
+
+function traversableDirectoryNames(name: string, isDirectory: boolean): readonly string[] {
+  return isTraversableDirectory(name, isDirectory) ? [name] : [];
+}
+
+function isTraversableDirectory(name: string, isDirectory: boolean): boolean {
+  return isDirectory && name !== ".git" && name !== "node_modules";
+}
+
+function isSelectedWorkspaceDirectory(
+  relativeDirectory: string,
+  hasManifest: boolean,
+  includePatterns: readonly string[],
+  excludePatterns: readonly string[],
+): boolean {
+  return (
+    relativeDirectory !== "" &&
+    hasManifest &&
+    matchesAnyWorkspacePattern(relativeDirectory, includePatterns) &&
+    !matchesAnyWorkspacePattern(relativeDirectory, excludePatterns)
+  );
+}
+
+function recordWorkspaceDirectory(state: WorkspaceDiscoveryState, directory: string): void {
+  state.directories.push(directory);
+  if (state.directories.length > MAX_WORKSPACES) {
+    throw new WorkspaceDiscoveryLimitError();
+  }
+}
+
+function visitWorkspaceChild(
+  directory: string,
+  relativeDirectory: string,
+  childDirectory: string,
+  depth: number,
+  traversal: WorkspaceTraversal,
+): void {
+  const childRelative =
+    relativeDirectory === "" ? childDirectory : `${relativeDirectory}/${childDirectory}`;
+  if (couldContainWorkspace(childRelative, traversal.includePatterns)) {
+    visitWorkspaceDirectory(join(directory, childDirectory), childRelative, depth + 1, traversal);
+  }
 }
 
 function normalizedWorkspacePatterns(patterns: readonly string[]): readonly string[] {
@@ -309,54 +447,58 @@ function normalizedWorkspacePattern(pattern: string): string | undefined {
     .replaceAll("\\", "/")
     .replace(/^(?:\.\/)+/u, "")
     .replace(/\/+$/u, "");
-  if (
-    normalized === "" ||
-    isAbsolute(normalized) ||
-    normalized.split("/").includes("..") ||
-    normalized.includes("\0")
-  ) {
-    return undefined;
-  }
-  return normalized;
+  return unusableWorkspacePattern(normalized) ? undefined : normalized;
+}
+
+function unusableWorkspacePattern(pattern: string): boolean {
+  return [
+    pattern === "",
+    isAbsolute(pattern),
+    pattern.split("/").includes(".."),
+    pattern.includes("\0"),
+  ].includes(true);
 }
 
 function matchesAnyWorkspacePattern(path: string, patterns: readonly string[]): boolean {
-  return patterns.some((pattern) => {
-    try {
-      return matchesGlob(path, pattern);
-    } catch {
-      return false;
-    }
-  });
+  return patterns.some((pattern) => matchesWorkspacePattern(path, pattern));
+}
+
+function matchesWorkspacePattern(path: string, pattern: string): boolean {
+  try {
+    return matchesGlob(path, pattern);
+  } catch {
+    return false;
+  }
 }
 
 function couldContainWorkspace(path: string, patterns: readonly string[]): boolean {
-  const pathSegments = path.split("/");
-  return patterns.some((pattern) => {
-    const patternSegments = pattern.split("/");
-    const recursiveWildcard = patternSegments.indexOf("**");
-    const firstGlobSegment = patternSegments.findIndex((segment) => /[*?[{]/u.test(segment));
-    const fixedSegments = patternSegments.slice(
-      0,
-      firstGlobSegment === -1 ? patternSegments.length : firstGlobSegment,
-    );
-    const fixedPrefix = fixedSegments.join("/");
-    const compatiblePrefix =
-      fixedPrefix === "" ||
-      fixedPrefix === path ||
-      fixedPrefix.startsWith(`${path}/`) ||
-      path.startsWith(`${fixedPrefix}/`);
-    let matches = false;
-    try {
-      matches = matchesGlob(path, pattern);
-    } catch {
-      // Invalid patterns cannot contain a workspace.
-    }
-    return (
-      compatiblePrefix &&
-      (matches || recursiveWildcard !== -1 || pathSegments.length < patternSegments.length)
-    );
-  });
+  return patterns.some((pattern) => patternCouldContainWorkspace(path, pattern));
+}
+
+function patternCouldContainWorkspace(path: string, pattern: string): boolean {
+  const patternSegments = pattern.split("/");
+  return (
+    hasCompatibleFixedPrefix(path, fixedPatternPrefix(patternSegments)) &&
+    (matchesWorkspacePattern(path, pattern) ||
+      patternSegments.includes("**") ||
+      path.split("/").length < patternSegments.length)
+  );
+}
+
+function fixedPatternPrefix(patternSegments: readonly string[]): string {
+  const firstGlobSegment = patternSegments.findIndex((segment) => /[*?[{]/u.test(segment));
+  return patternSegments
+    .slice(0, firstGlobSegment === -1 ? patternSegments.length : firstGlobSegment)
+    .join("/");
+}
+
+function hasCompatibleFixedPrefix(path: string, fixedPrefix: string): boolean {
+  return (
+    fixedPrefix === "" ||
+    fixedPrefix === path ||
+    fixedPrefix.startsWith(`${path}/`) ||
+    path.startsWith(`${fixedPrefix}/`)
+  );
 }
 
 function workspaceDeclaresPackage(directory: string, packageName: string): boolean {
@@ -364,6 +506,6 @@ function workspaceDeclaresPackage(directory: string, packageName: string): boole
   return manifest !== undefined && hasDeclaredPackage(manifest, packageName);
 }
 
-function packageNameFromSpecifier(specifier: string): string | undefined {
-  return parsePackageNameSegments(specifier)?.join("/");
+function workspacePackageName(specifier: string): string | undefined {
+  return isBuiltin(specifier) ? undefined : parsePackageNameSegments(specifier)?.join("/");
 }

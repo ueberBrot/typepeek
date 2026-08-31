@@ -126,7 +126,7 @@ describe("typepeek CLI", () => {
       writeFile(join(repositoryRoot, "package.json"), JSON.stringify({ private: true })),
       writeFile(
         join(repositoryRoot, "pnpm-workspace.yaml"),
-        "packages:\n  - 'packages/*' # consuming workspaces\n",
+        "packages:\n  - 'packages/*' # consuming \"workspaces\"\n",
       ),
       writeFile(
         join(workspaceRoot, "package.json"),

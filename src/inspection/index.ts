@@ -17,10 +17,6 @@ export {
   inspectionCapabilitiesSchema,
 } from "#typepeek/inspection/protocol-metadata";
 export { invokeInspectionProtocol } from "#typepeek/inspection/inspection-protocol";
-export {
-  hasDeclaredPackage,
-  parsePackageNameSegments,
-} from "#typepeek/inspection/installed-package-boundary";
 export type {
   AtomicInspectionResult,
   DeclarationInspection,

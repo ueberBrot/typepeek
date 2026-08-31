@@ -36,7 +36,7 @@ import {
 } from "#typepeek/protocol-wire";
 import { renderInspection, type TerminalRenderingOptions } from "#typepeek/terminal-rendering";
 
-import { displayWorkspaceCandidate, selectCliWorkspace } from "./cli-workspace.ts";
+import { selectCliWorkspace } from "./cli-workspace.ts";
 
 const MAX_CLI_DIAGNOSTIC_BYTES = 128 * 1_024;
 const INSPECTION_FAILURE_EXIT_CODE = 1;
@@ -803,21 +803,8 @@ function resolutionContextForSpecifier(
   explicitWorkspace: string | undefined,
   workspaceFlag: "--workspace" | "--before-workspace" | "--after-workspace",
 ): string | InvalidInvocationError {
-  const selection = selectCliWorkspace(specifier, explicitWorkspace);
-  if (selection.status === "selected") {
-    return selection.resolutionContext;
-  }
-  if (selection.status === "limit-exceeded") {
-    return new InvalidInvocationError(
-      `Workspace discovery exceeded its bound. Select one with ${workspaceFlag} <path>.`,
-    );
-  }
-  const candidates = selection.candidates
-    .map((candidate) => displayWorkspaceCandidate(selection.repositoryRoot, candidate))
-    .join(", ");
-  return new InvalidInvocationError(
-    `Specifier "${specifier}" matches multiple consuming workspaces: ${candidates}. Select one with ${workspaceFlag} <path>.`,
-  );
+  const selection = selectCliWorkspace(specifier, explicitWorkspace, workspaceFlag);
+  return selection instanceof Error ? new InvalidInvocationError(selection.message) : selection;
 }
 
 async function runCliTargetInspection<Intent extends InspectionIntent>(
