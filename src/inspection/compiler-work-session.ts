@@ -44,9 +44,7 @@ export interface CompilerWorkSession {
     accessStyle: AccessStyle,
     allowedRoots: readonly string[],
   ) => PackageDeclarationResolver;
-  readonly observePackageBoundary: (
-    manifestCache: Map<string, Readonly<Record<string, unknown>>>,
-  ) => PackageBoundaryObserver;
+  readonly packageBoundaryObserver: PackageBoundaryObserver;
   readonly readResolutionFile: (fileName: string) => string;
   readonly observeEvidenceFile: ObserveInstalledEvidenceFile;
   readonly observeEvidenceDirectory?: ObserveInstalledEvidenceDirectory;
@@ -73,6 +71,7 @@ export function createCompilerWorkSession({
   const observeEvidenceDirectory = evidenceObserver?.observeDirectory;
   const observeEvidenceFile = evidenceObserver?.observeFile ?? (() => undefined);
   const observeResolution = evidenceObserver?.observeResolution ?? (() => undefined);
+  const packageManifestCache = new Map<string, Readonly<Record<string, unknown>>>();
   let operationCount = 0;
   let resolutionByteCount = 0;
 
@@ -121,13 +120,13 @@ export function createCompilerWorkSession({
         observeEvidenceFile,
         observeResolution,
       ),
-    observePackageBoundary: (manifestCache) => ({
-      manifestCache,
+    packageBoundaryObserver: {
+      manifestCache: packageManifestCache,
       observeEvidenceFile,
       remainingBytes,
       reserveBytes,
       reserveOperation: reserveOperations,
-    }),
+    },
     readResolutionFile,
     ...(observeEvidenceDirectory === undefined ? {} : { observeEvidenceDirectory }),
     observeEvidenceFile,

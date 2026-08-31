@@ -31,8 +31,13 @@ const request: AnalysisRequest = {
   },
 };
 const selection = {
-  declarationPath: "/repository/node_modules/example/index.d.ts",
-  declarationRoot: "/repository/node_modules/example",
+  declarationAuthority: {
+    declarationPath: "/repository/node_modules/example/index.d.ts",
+    root: {
+      canonical: "/repository/node_modules/example",
+      logical: "/repository/node_modules/example",
+    },
+  },
   kind: "package",
   repositoryRoot: "/repository",
   resolutionContextDirectory: "/consumer",
