@@ -126,22 +126,7 @@ npx skills@latest add ueberBrot/typepeek --skill typepeek
 
 The skill teaches supported coding agents to choose the narrowest useful inspection. It does not install the Typepeek CLI.
 
-Typepeek currently ships a CLI and a TypeScript inspection API. It does not ship an MCP server. An MCP adapter can use the same Inspection Protocol without invoking the CLI or parsing terminal output.
-
-## TypeScript API
-
-The `typepeek/inspection` package entry point exposes the transport-neutral inspection interface for programmatic integrations:
-
-```ts
-import {
-  inspectCapabilities,
-  inspectExportSignatures,
-  inspectInterfaceOverview,
-  invokeInspectionProtocol,
-} from "typepeek/inspection";
-```
-
-Convenience functions return typed Inspection Outcomes. Adapter implementations can use `invokeInspectionProtocol` to keep protocol validation and recovery behavior consistent across transports.
+Typepeek ships a CLI. Programmatic adapters invoke the `protocol` command over stdin and stdout. Typepeek exposes no JavaScript library and ships no MCP server.
 
 ## Development
 

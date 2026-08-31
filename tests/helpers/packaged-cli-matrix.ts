@@ -29,10 +29,9 @@ export interface PackagedCliConsumer {
   readonly productionDependencyPaths: readonly string[];
   readonly resolutionContext: string;
   readonly run: (arguments_: readonly string[]) => Promise<{ readonly stdout: string }>;
-  readonly runInspectionApi: () => Promise<unknown>;
-  readonly typecheckInspectionApi: () => Promise<void>;
   readonly typepeekTarballPath: string;
   readonly version: string;
+  readonly verifyNoLibraryImports: () => Promise<void>;
   readonly verifyNoInspectionIo: () => Promise<void>;
 }
 
@@ -162,50 +161,20 @@ async function materializeConsumer(
         resolutionContext,
       });
     },
-    runInspectionApi: async () => {
+    verifyNoLibraryImports: async () => {
       const script = [
-        'import { inspectExport, inspectExportSignatures, inspectInterfaceOverview } from "typepeek/inspection";',
-        `const resolutionContext = ${JSON.stringify(resolutionContext)};`,
-        'const overview = await inspectInterfaceOverview({ resolutionContext, specifier: "publint" });',
-        'const focused = await inspectExport({ resolutionContext, specifier: "publint/utils", exportName: "formatMessage" });',
-        'const signatures = await inspectExportSignatures({ resolutionContext, specifier: "zod", exportName: "ZodError" });',
-        "process.stdout.write(JSON.stringify({ overview, focused, signatures }));",
+        'for (const specifier of ["typepeek", "typepeek/inspection"]) {',
+        "  try {",
+        "    await import(specifier);",
+        "    throw new Error(`${specifier} unexpectedly exposed a JavaScript module`);",
+        "  } catch (error) {",
+        '    if (!(error instanceof Error) || !("code" in error) || error.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") throw error;',
+        "  }",
+        "}",
       ].join("\n");
-      const result = await execa(process.execPath, ["--input-type=module", "--eval", script], {
+      await execa(process.execPath, ["--input-type=module", "--eval", script], {
         cwd: resolutionContext,
       });
-      return JSON.parse(result.stdout) as unknown;
-    },
-    typecheckInspectionApi: async () => {
-      const sourcePath = join(resolutionContext, "inspection-api-consumer.mts");
-      await writeFile(
-        sourcePath,
-        [
-          'import type { InspectedSignature, ResolutionVariant, SignatureBinding, SignatureParameter, SignatureReturn, SignatureThisParameter, SignatureTypeParameter, SignatureTypeParameterModifier } from "typepeek/inspection";',
-          "declare const signature: InspectedSignature;",
-          "declare const binding: SignatureBinding;",
-          "declare const parameter: SignatureParameter;",
-          "declare const returned: SignatureReturn;",
-          "declare const thisParameter: SignatureThisParameter;",
-          "declare const typeParameter: SignatureTypeParameter;",
-          "declare const modifier: SignatureTypeParameterModifier;",
-          "declare const resolutionVariant: ResolutionVariant;",
-          "void [signature, binding, parameter, returned, thisParameter, typeParameter, modifier, resolutionVariant];",
-        ].join("\n"),
-      );
-      await execa(join(sourceCheckout, "node_modules", ".bin", "tsc6"), [
-        "--ignoreConfig",
-        "--noEmit",
-        "--strict",
-        "--skipLibCheck",
-        "--target",
-        "ES2024",
-        "--module",
-        "NodeNext",
-        "--moduleResolution",
-        "NodeNext",
-        sourcePath,
-      ]);
     },
     typepeekTarballPath,
     version,

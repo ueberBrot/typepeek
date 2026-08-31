@@ -12,7 +12,7 @@
   },
   "files": [
     "dist/**/*.js",
-    "dist/inspection-api.d.ts",
+    "!dist/inspection-api.js",
     "assets/typepeek-logo.svg",
     "CHANGELOG.md",
     "LICENSE",
@@ -20,15 +20,10 @@
   ],
   "type": "module",
   "imports": {
-    "#typepeek/inspection": "./src/inspection-api.ts",
+    "#typepeek/inspection": "./src/inspection/index.ts",
     "#typepeek/*": "./src/*.ts"
   },
-  "exports": {
-    "./inspection": {
-      "types": "./dist/inspection-api.d.ts",
-      "import": "./dist/inspection-api.js"
-    }
-  },
+  "exports": {},
   "publishConfig": {
     "access": "public",
     "provenance": true,
