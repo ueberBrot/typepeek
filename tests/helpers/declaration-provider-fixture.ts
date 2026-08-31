@@ -11,6 +11,7 @@ export interface DeclarationProviderFixture {
   readonly ambientProviderContext: string;
   readonly brokenExportEqualsNodeProviderContext: string;
   readonly brokenNodeProviderContext: string;
+  readonly hoistedProviderContext: string;
   readonly injectedNodeProviderContext: string;
   readonly nestedProviderContext: string;
   readonly exportedImportNodeProviderContext: string;
@@ -280,6 +281,7 @@ export async function materializeDeclarationProviderFixture(): Promise<Declarati
     ]);
 
     const providerOneContext = join(fixtureRoot, "contexts", "provider-one");
+    const hoistedProviderContext = join(providerOneContext, "workspace");
     const providerTwoContext = join(fixtureRoot, "contexts", "provider-two");
     const providerOnlyContext = join(fixtureRoot, "contexts", "provider-only");
     const missingProviderContext = join(fixtureRoot, "contexts", "missing-provider");
@@ -308,6 +310,11 @@ export async function materializeDeclarationProviderFixture(): Promise<Declarati
       npmCacheRoot,
       "provider one context",
     );
+    await mkdir(hoistedProviderContext);
+    await writeJson(join(hoistedProviderContext, "package.json"), {
+      name: "fixture-hoisted-provider-workspace",
+      private: true,
+    });
     await installContext(
       providerTwoContext,
       [targetTarball, providerTwoTarball],
@@ -376,6 +383,7 @@ export async function materializeDeclarationProviderFixture(): Promise<Declarati
       brokenExportEqualsNodeProviderContext,
       brokenNodeProviderContext,
       cleanup: () => rm(fixtureRoot, { recursive: true, force: true }),
+      hoistedProviderContext,
       injectedNodeProviderContext,
       nestedProviderContext,
       exportedImportNodeProviderContext,

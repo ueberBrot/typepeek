@@ -2,6 +2,7 @@ import { it as effectIt } from "@effect/vitest";
 import { Effect } from "effect";
 import { execa } from "execa";
 import { access } from "node:fs/promises";
+import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vite-plus/test";
 
 import {
@@ -654,6 +655,24 @@ it("describes a compiled Package Module without executing its runtime", async ()
     "dependencyExport",
   ]);
   await expect(access(fixture.runtimeSentinel)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("inspects an npm-hoisted Package Module from a workspace Resolution Context", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: join(fixture.resolutionContext, "packages", "workspace-main"),
+    specifier: "@typepeek-fixture/dependency",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      packageIdentity: {
+        name: "@typepeek-fixture/dependency",
+        version: "1.0.0",
+      },
+      moduleExports: [{ name: "dependencyExport" }],
+    },
+  });
 });
 
 it("renders an Interface Overview through the CLI", async () => {

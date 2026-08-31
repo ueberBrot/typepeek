@@ -96,11 +96,12 @@ describe("workspace Resolution Contexts", () => {
     }
   }, 30_000);
 
-  it("rejects a workspace package not declared by the selected Resolution Context", async () => {
+  it("inspects only workspace Package Modules resolvable from the selected Resolution Context", async () => {
     for (const {
       consumerOneContext,
       hiddenWorkspaceInstalledElsewhere,
       hiddenWorkspacePackage,
+      hiddenWorkspaceResolvableFromConsumerOne,
       manager,
     } of matrix.installations) {
       expect(hiddenWorkspaceInstalledElsewhere, manager).toBe(true);
@@ -109,10 +110,20 @@ describe("workspace Resolution Contexts", () => {
         specifier: hiddenWorkspacePackage,
       });
 
-      expect(outcome, manager).toEqual({
-        status: "not-found",
-        reason: "specifier-not-found",
-        message: `Specifier "${hiddenWorkspacePackage}" is not installed from this Resolution Context.`,
+      if (!hiddenWorkspaceResolvableFromConsumerOne) {
+        expect(outcome, manager).toEqual({
+          status: "not-found",
+          reason: "specifier-not-found",
+          message: `Specifier "${hiddenWorkspacePackage}" is not installed from this Resolution Context.`,
+        });
+        continue;
+      }
+      expect(outcome, manager).toMatchObject({
+        status: "success",
+        result: {
+          packageIdentity: { name: hiddenWorkspacePackage, version: "1.0.0" },
+          moduleExports: [{ name: "hiddenWorkspaceValue" }],
+        },
       });
     }
   });

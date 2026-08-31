@@ -106,6 +106,8 @@ Commands use the `import` access style by default. Pass `--access require` when 
 
 Typepeek inspects installed package modules, their manifest-declared public subpaths, and linked workspace packages. It also inspects Node.js platform modules when the project can resolve `@types/node`. Typepeek supports ordinary `node_modules` installations produced by npm, pnpm, and Bun.
 
+A requested Package Module need not appear in the Resolution Context's manifest. Typepeek can inspect it when its Specifier resolves through an ancestor `node_modules` directory, including when the installation hoists it for another Package Module. Typepeek does not scan nested `node_modules` directories that the Resolution Context cannot resolve.
+
 Inspection is static. Typepeek reads installed manifests, declarations, package-exposed TypeScript source, and attached JSDoc. It does not import package code, run package scripts, evaluate project configuration code, or download missing material.
 
 Every inspection is bounded. Typepeek returns a complete result or an explicit typed failure when evidence is missing, unsupported, or too large. It does not present a partial result as authoritative.

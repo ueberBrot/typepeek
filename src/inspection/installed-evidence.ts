@@ -16,6 +16,8 @@ import {
   assertNoNestedDeclarationOwner,
   canonicalPackageBoundary,
   declarationProviderSegments,
+  findResolvableDeclarationProvider,
+  findResolvablePackage,
   findVisiblePackage,
   type InstalledManifest,
   type PackageBoundaryObserver,
@@ -153,7 +155,7 @@ function selectPackageDeclarationProvider(
   }
 
   const { packageBoundaryObserver } = compilerWorkSession;
-  const packageLocation = findVisiblePackage(
+  const packageLocation = findResolvablePackage(
     request.resolutionContext,
     packageSpecifier.packageSegments,
     packageBoundaryObserver,
@@ -166,7 +168,7 @@ function selectPackageDeclarationProvider(
     packageLocation.packageRoot,
     packageBoundaryObserver,
   );
-  const providerLocation = findVisiblePackage(
+  const providerLocation = findResolvableDeclarationProvider(
     request.resolutionContext,
     declarationProviderSegments(packageSpecifier.packageRootSpecifier),
     packageBoundaryObserver,

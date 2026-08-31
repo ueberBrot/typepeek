@@ -149,6 +149,22 @@ describe("Supported Installation package-manager layouts", () => {
       code: "ENOENT",
     });
   });
+
+  it("stops an undeclared Specifier at an unsupported installation", async () => {
+    const { ancestorPackageSpecifier, resolutionContext, runtimeSentinel } =
+      matrix.unsupportedInstallation;
+    const outcome = await inspectInterfaceOverview({
+      resolutionContext,
+      specifier: ancestorPackageSpecifier,
+    });
+
+    expect(outcome).toEqual({
+      status: "not-found",
+      reason: "specifier-not-found",
+      message: `Specifier "${ancestorPackageSpecifier}" is not installed from this Resolution Context.`,
+    });
+    await expect(access(runtimeSentinel)).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });
 
 // File paths vary by layout; all other provenance must match.
