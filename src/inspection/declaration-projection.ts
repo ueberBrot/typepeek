@@ -108,7 +108,7 @@ function publicDeclarationSyntaxBeforeMemberTypeQueries(
   context: DeclarationProjectionContext,
 ): ts.Declaration {
   const printableDeclaration = ts.isNamespaceExport(declaration) ? declaration.parent : declaration;
-  return publicDeclaration(checker, printableDeclaration, context);
+  return publicDeclaration(checker, printableDeclaration, context, 0);
 }
 
 /** Identifies declaration nodes that cannot contribute to a Public Interface. */
@@ -435,7 +435,9 @@ function publicDeclaration(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
   context: DeclarationProjectionContext,
+  depth: number,
 ): ts.Declaration {
+  context.reserveTraversal(depth);
   if (ts.isExportAssignment(declaration) && !declaration.getSourceFile().isDeclarationFile) {
     throw new UnsupportedInspectionError(
       "A source-backed default expression cannot be represented without implementation.",
@@ -486,7 +488,7 @@ function publicDeclaration(
           declaration,
           publicModifiers(declaration.modifiers),
           declaration.name,
-          publicModuleBody(checker, declaration.body, context),
+          publicModuleBody(checker, declaration.body, context, depth),
         )
       : declaration;
 }
@@ -559,12 +561,13 @@ function publicModuleBody(
   checker: ts.TypeChecker,
   body: ts.ModuleBody | undefined,
   context: DeclarationProjectionContext,
+  depth: number,
 ): ts.ModuleBody | undefined {
   if (body === undefined) {
     return undefined;
   }
   if (ts.isModuleDeclaration(body)) {
-    return publicDeclaration(checker, body, context) as ts.NamespaceDeclaration;
+    return publicDeclaration(checker, body, context, depth + 1) as ts.NamespaceDeclaration;
   }
   if (!ts.isModuleBlock(body)) {
     return body;
@@ -577,7 +580,9 @@ function publicModuleBody(
   );
   return ts.factory.updateModuleBlock(
     body,
-    publicStatements.flatMap((statement) => publicNamespaceStatement(checker, statement, context)),
+    publicStatements.flatMap((statement) =>
+      publicNamespaceStatement(checker, statement, context, depth + 1),
+    ),
   );
 }
 
@@ -585,6 +590,7 @@ function publicNamespaceStatement(
   checker: ts.TypeChecker,
   statement: ts.Statement,
   context: DeclarationProjectionContext,
+  depth: number,
 ): readonly ts.Statement[] {
   if (ts.isVariableStatement(statement)) {
     return [
@@ -595,7 +601,7 @@ function publicNamespaceStatement(
           statement.declarationList,
           statement.declarationList.declarations.map(
             (declaration) =>
-              publicDeclaration(checker, declaration, context) as ts.VariableDeclaration,
+              publicDeclaration(checker, declaration, context, depth + 1) as ts.VariableDeclaration,
           ),
         ),
       ),
@@ -607,6 +613,7 @@ function publicNamespaceStatement(
         checker,
         statement as unknown as ts.Declaration,
         context,
+        depth,
       ) as unknown as ts.Statement,
     ];
   }

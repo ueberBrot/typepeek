@@ -130,18 +130,11 @@ function orderedSignatureCandidates(
     return [];
   }
   const type = signatureType(checker, symbol, declaration, resolution.valueAccessible);
-  const candidates = [
-    ...signatureCandidates(checker, type, ts.SignatureKind.Call, "call"),
-    ...signatureCandidates(checker, type, ts.SignatureKind.Construct, "construct"),
-  ];
+  const candidates: SignatureCandidate[] = [];
+  appendSignatureCandidates(candidates, checker, type, ts.SignatureKind.Call, "call");
+  appendSignatureCandidates(candidates, checker, type, ts.SignatureKind.Construct, "construct");
   const sourceOrder = declarationSourceOrder(symbol, type);
   candidates.sort((left, right) => compareSignatureCandidates(left, right, sourceOrder));
-  if (candidates.length > MAX_SIGNATURES) {
-    throw new InspectionLimitError(
-      "signatures",
-      "Inspection exceeded its Module Export signature limit.",
-    );
-  }
   return candidates;
 }
 
@@ -373,24 +366,31 @@ function signatureType(
     : checker.getDeclaredTypeOfSymbol(symbol);
 }
 
-function signatureCandidates(
+function appendSignatureCandidates(
+  candidates: SignatureCandidate[],
   checker: ts.TypeChecker,
   type: ts.Type,
   signatureKind: ts.SignatureKind,
   kind: ExportSignature["kind"],
-): readonly SignatureCandidate[] {
-  return checker
-    .getSignaturesOfType(type, signatureKind)
-    .filter(
-      (signature) =>
-        signatureKind !== ts.SignatureKind.Construct || isPublicConstructorSignature(signature),
-    )
-    .map((signature, compilerOrder) => ({
+): void {
+  const signatures = checker.getSignaturesOfType(type, signatureKind);
+  for (const [compilerOrder, signature] of signatures.entries()) {
+    if (signatureKind === ts.SignatureKind.Construct && !isPublicConstructorSignature(signature)) {
+      continue;
+    }
+    if (candidates.length >= MAX_SIGNATURES) {
+      throw new InspectionLimitError(
+        "signatures",
+        "Inspection exceeded its Module Export signature limit.",
+      );
+    }
+    candidates.push({
       compilerOrder,
       kind,
       signature,
       signatureKind,
-    }));
+    });
+  }
 }
 
 function isPublicConstructorSignature(signature: ts.Signature): boolean {

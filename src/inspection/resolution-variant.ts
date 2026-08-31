@@ -95,6 +95,7 @@ export function selectResolutionVariant({
   const resolver = compilerWorkSession.createPackageResolver(
     request.resolutionContext,
     request.accessStyle,
+    declarationRoots,
   );
   return {
     declarationPath: resolveDeclarationPath(

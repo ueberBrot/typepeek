@@ -121,11 +121,26 @@ function inspectInitialPublicInterface(
   ];
   const visitedSymbols = new Set<ts.Symbol>();
   const visitedNodes = new Set<ts.Node>();
+  let pendingSymbolIndex = 0;
+  let pendingNodeIndex = 0;
   let directReference = false;
 
-  while (pendingSymbols.length > 0 || pendingNodes.length > 0) {
-    enqueueSymbolDeclarations(checker, pendingSymbols, pendingNodes, visitedSymbols);
-    const root = pendingNodes.shift();
+  while (pendingSymbolIndex < pendingSymbols.length || pendingNodeIndex < pendingNodes.length) {
+    if (pendingSymbolIndex < pendingSymbols.length) {
+      const pendingSymbol = pendingSymbols[pendingSymbolIndex];
+      pendingSymbolIndex += 1;
+      enqueueSymbolDeclarations(
+        checker,
+        pendingSymbol,
+        pendingSymbols,
+        pendingNodes,
+        visitedSymbols,
+      );
+    }
+    const root = pendingNodes[pendingNodeIndex];
+    if (pendingNodeIndex < pendingNodes.length) {
+      pendingNodeIndex += 1;
+    }
     if (root === undefined || visitedNodes.has(root)) {
       continue;
     }
@@ -181,11 +196,11 @@ function resolvedSymbolDeclarations(
 
 function enqueueSymbolDeclarations(
   checker: ts.TypeChecker,
+  symbol: ts.Symbol | undefined,
   pendingSymbols: ts.Symbol[],
   pendingNodes: ts.Node[],
   visitedSymbols: Set<ts.Symbol>,
 ): void {
-  const symbol = pendingSymbols.shift();
   if (symbol === undefined || visitedSymbols.has(symbol)) {
     return;
   }

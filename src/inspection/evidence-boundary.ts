@@ -1,8 +1,10 @@
 import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import { InspectionLimitError } from "#typepeek/inspection/errors";
 import type { InspectionBudgetDimension } from "#typepeek/inspection/protocol-vocabulary";
+
+const MAX_CANONICAL_CANDIDATE_DEPTH = 256;
 
 /** Reads bounded installed evidence and rejects files larger than the caller's budget. */
 export function readBoundedUtf8File(
@@ -80,5 +82,30 @@ export function canonicalEvidencePath(fileName: string): string | undefined {
     return realpathSync(fileName);
   } catch {
     return undefined;
+  }
+}
+
+/** Canonicalizes an evidence candidate through its nearest existing ancestor. */
+export function canonicalEvidenceCandidatePath(fileName: string): string | undefined {
+  let current = resolve(fileName);
+  const missingSegments: string[] = [];
+
+  for (let depth = 0; ; depth += 1) {
+    if (depth > MAX_CANONICAL_CANDIDATE_DEPTH) {
+      throw new InspectionLimitError(
+        "compiler-host-work",
+        "Inspection exceeded its compiler host work limit.",
+      );
+    }
+    const canonicalAncestor = canonicalEvidencePath(current);
+    if (canonicalAncestor !== undefined) {
+      return resolve(canonicalAncestor, ...missingSegments);
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    missingSegments.unshift(basename(current));
+    current = parent;
   }
 }

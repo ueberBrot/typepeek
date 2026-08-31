@@ -1,11 +1,13 @@
 import ts from "@typescript/typescript6";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import {
+  canonicalEvidenceCandidatePath,
   canonicalEvidencePath,
   isEvidenceDirectory,
   isEvidenceFile,
+  isPathWithin,
   readBoundedUtf8File,
 } from "#typepeek/inspection/evidence-boundary";
 import type {
@@ -40,15 +42,17 @@ export interface CompilerWorkSession {
   readonly createPackageResolver: (
     resolutionContext: string,
     accessStyle: AccessStyle,
+    allowedRoots: readonly string[],
   ) => PackageDeclarationResolver;
-  readonly observePackageBoundary: (
-    manifestCache: Map<string, Readonly<Record<string, unknown>>>,
-  ) => PackageBoundaryObserver;
+  readonly packageBoundaryObserver: PackageBoundaryObserver;
   readonly readResolutionFile: (fileName: string) => string;
   readonly observeEvidenceFile: ObserveInstalledEvidenceFile;
   readonly observeEvidenceDirectory?: ObserveInstalledEvidenceDirectory;
   readonly observeResolution: (probe: InstalledEvidenceResolutionProbe) => void;
-  readonly resolveEvidenceProbe: (probe: InstalledEvidenceResolutionProbe) => string | undefined;
+  readonly resolveEvidenceProbe: (
+    probe: InstalledEvidenceResolutionProbe,
+    allowedRoots: readonly string[],
+  ) => string | undefined;
   readonly reserveOperations: (count?: number) => void;
 }
 
@@ -67,6 +71,7 @@ export function createCompilerWorkSession({
   const observeEvidenceDirectory = evidenceObserver?.observeDirectory;
   const observeEvidenceFile = evidenceObserver?.observeFile ?? (() => undefined);
   const observeResolution = evidenceObserver?.observeResolution ?? (() => undefined);
+  const packageManifestCache = new Map<string, Readonly<Record<string, unknown>>>();
   let operationCount = 0;
   let resolutionByteCount = 0;
 
@@ -104,30 +109,32 @@ export function createCompilerWorkSession({
   };
 
   return {
-    createPackageResolver: (resolutionContext, accessStyle) =>
+    createPackageResolver: (resolutionContext, accessStyle, allowedRoots) =>
       createPackageDeclarationResolver(
         resolutionContext,
         accessStyle,
+        allowedRoots,
         reserveOperations,
         remainingBytes,
         reserveBytes,
         observeEvidenceFile,
         observeResolution,
       ),
-    observePackageBoundary: (manifestCache) => ({
-      manifestCache,
+    packageBoundaryObserver: {
+      manifestCache: packageManifestCache,
       observeEvidenceFile,
       remainingBytes,
       reserveBytes,
       reserveOperation: reserveOperations,
-    }),
+    },
     readResolutionFile,
     ...(observeEvidenceDirectory === undefined ? {} : { observeEvidenceDirectory }),
     observeEvidenceFile,
     observeResolution,
-    resolveEvidenceProbe: (probe) =>
+    resolveEvidenceProbe: (probe, allowedRoots) =>
       resolveEvidenceProbe(
         probe,
+        allowedRoots,
         reserveOperations,
         remainingBytes,
         reserveBytes,
@@ -139,6 +146,7 @@ export function createCompilerWorkSession({
 
 function resolveEvidenceProbe(
   probe: InstalledEvidenceResolutionProbe,
+  allowedRoots: readonly string[],
   reserveOperations: (count?: number) => void,
   remainingBytes: () => number,
   reserveBytes: (count: number) => void,
@@ -146,6 +154,7 @@ function resolveEvidenceProbe(
 ): string | undefined {
   const host = createBoundedModuleResolutionHost(
     dirname(probe.containingFile),
+    allowedRoots,
     reserveOperations,
     remainingBytes,
     reserveBytes,
@@ -175,6 +184,7 @@ function resolveEvidenceProbe(
 function createPackageDeclarationResolver(
   resolutionContext: string,
   accessStyle: AccessStyle,
+  allowedRoots: readonly string[],
   reserveOperations: (count?: number) => void,
   remainingBytes: () => number,
   reserveBytes: (count: number) => void,
@@ -190,6 +200,7 @@ function createPackageDeclarationResolver(
   const compilerOptions = resolutionCompilerOptions();
   const host = createBoundedModuleResolutionHost(
     contextDirectory,
+    allowedRoots,
     reserveOperations,
     remainingBytes,
     reserveBytes,
@@ -219,6 +230,7 @@ function createPackageDeclarationResolver(
         : undefined;
       observeResolution({
         accessStyle,
+        allowedRoots: resolutionCapabilityRoots(allowedRoots),
         containingFile,
         kind: "module",
         ...(resolvedPath === undefined ? {} : { resolvedPath }),
@@ -229,39 +241,141 @@ function createPackageDeclarationResolver(
   };
 }
 
+function resolutionCapabilityRoots(roots: readonly string[]): readonly string[] {
+  return [
+    ...new Set(
+      roots.flatMap((root) => {
+        const canonicalRoot = canonicalEvidencePath(root);
+        return canonicalRoot === undefined ? [] : [resolve(root), canonicalRoot];
+      }),
+    ),
+  ];
+}
+
 function createBoundedModuleResolutionHost(
   contextDirectory: string,
+  allowedRoots: readonly string[],
   reserveOperations: (count?: number) => void,
   remainingBytes: () => number,
   reserveBytes: (count: number) => void,
   observeEvidenceFile: ObserveInstalledEvidenceFile,
 ): ts.ModuleResolutionHost & Pick<PackageDeclarationResolver, "canonicalPath"> {
+  const canonicalAllowedRoots = allowedRoots.flatMap((root) => {
+    reserveOperations();
+    const canonicalRoot = canonicalEvidencePath(root);
+    return canonicalRoot === undefined ? [] : [canonicalRoot];
+  });
+  const logicalAllowedRoots = [
+    ...allowedRoots.map((root) => resolve(root)),
+    ...canonicalAllowedRoots,
+  ];
   const directoryExistsCache = new Map<string, boolean>();
   const fileExistsCache = new Map<string, boolean>();
   const readFileCache = new Map<string, string | undefined>();
   const realpathCache = new Map<string, string | undefined>();
-  const observedCanonicalPath = (fileName: string): string | undefined =>
-    cachedResolutionResult(reserveOperations, realpathCache, fileName, () =>
+  const observedCanonicalPath = (fileName: string): string | undefined => {
+    if (!isAuthorizedResolutionPath(canonicalAllowedRoots, logicalAllowedRoots, fileName)) {
+      return undefined;
+    }
+    return cachedResolutionResult(reserveOperations, realpathCache, fileName, () =>
       canonicalEvidencePath(fileName),
     );
+  };
   return {
     canonicalPath: observedCanonicalPath,
     directoryExists: (directory) =>
+      isAuthorizedResolutionDirectory(canonicalAllowedRoots, logicalAllowedRoots, directory) &&
       cachedResolutionResult(reserveOperations, directoryExistsCache, directory, () =>
         isEvidenceDirectory(directory),
       ),
     fileExists: (fileName) =>
+      isAuthorizedResolutionPath(canonicalAllowedRoots, logicalAllowedRoots, fileName) &&
       cachedResolutionResult(reserveOperations, fileExistsCache, fileName, () =>
         isEvidenceFile(fileName),
       ),
     getCurrentDirectory: () => contextDirectory,
-    readFile: (fileName) =>
-      cachedResolutionResult(reserveOperations, readFileCache, fileName, () =>
+    readFile: (fileName) => {
+      if (!isAuthorizedResolutionPath(canonicalAllowedRoots, logicalAllowedRoots, fileName)) {
+        return undefined;
+      }
+      return cachedResolutionResult(reserveOperations, readFileCache, fileName, () =>
         readPackageResolutionFile(fileName, remainingBytes, reserveBytes, observeEvidenceFile),
-      ),
+      );
+    },
     realpath: (fileName) => observedCanonicalPath(fileName) ?? fileName,
     useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
   };
+}
+
+function isAuthorizedResolutionPath(
+  canonicalAllowedRoots: readonly string[],
+  logicalAllowedRoots: readonly string[],
+  candidate: string,
+): boolean {
+  return isAuthorizedResolutionCandidate(
+    canonicalAllowedRoots,
+    logicalAllowedRoots,
+    candidate,
+    false,
+  );
+}
+
+function isAuthorizedResolutionDirectory(
+  canonicalAllowedRoots: readonly string[],
+  logicalAllowedRoots: readonly string[],
+  candidate: string,
+): boolean {
+  return isAuthorizedResolutionCandidate(
+    canonicalAllowedRoots,
+    logicalAllowedRoots,
+    candidate,
+    true,
+  );
+}
+
+function isAuthorizedResolutionCandidate(
+  canonicalAllowedRoots: readonly string[],
+  logicalAllowedRoots: readonly string[],
+  candidate: string,
+  allowAncestor: boolean,
+): boolean {
+  const lexicalCandidate = resolve(candidate);
+  if (
+    !logicalAllowedRoots.some(
+      (allowedRoot) =>
+        isPathWithin(allowedRoot, lexicalCandidate) ||
+        (allowAncestor && isPathWithin(lexicalCandidate, allowedRoot)),
+    )
+  ) {
+    return false;
+  }
+  const canonicalCandidate = canonicalEvidenceCandidatePath(candidate);
+  return (
+    canonicalCandidate !== undefined &&
+    (canonicalAllowedRoots.some(
+      (allowedRoot) =>
+        (isPathWithin(allowedRoot, canonicalCandidate) &&
+          !crossesNestedPackageBoundary(allowedRoot, canonicalCandidate)) ||
+        (allowAncestor && isPathWithin(canonicalCandidate, allowedRoot)),
+    ) ||
+      (allowAncestor &&
+        logicalAllowedRoots.some((allowedRoot) => isPathWithin(lexicalCandidate, allowedRoot))))
+  );
+}
+
+function crossesNestedPackageBoundary(allowedRoot: string, candidate: string): boolean {
+  const segments = relative(allowedRoot, candidate).split(sep);
+  for (const [index, segment] of segments.entries()) {
+    if (segment !== "node_modules") {
+      continue;
+    }
+    const packageSegment = segments[index + 1];
+    if (packageSegment === undefined) {
+      return false;
+    }
+    return packageSegment.startsWith("@") ? segments[index + 2] !== undefined : true;
+  }
+  return false;
 }
 
 function cachedResolutionResult<Result>(

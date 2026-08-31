@@ -2386,6 +2386,22 @@ it.each([
   },
 );
 
+it("bounds nested namespace projection during Member Inspection", async () => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/deep-member-namespace",
+    exportName: "Root",
+    memberPath: ["Selected"],
+  });
+
+  expect(outcome).toEqual({
+    status: "limit-exceeded",
+    reason: "budget-exceeded",
+    exceededBudget: "supporting-type-traversal",
+    message: "Inspection exceeded its Supporting Type traversal limit.",
+  });
+});
+
 it("returns deterministic unchanged evidence before and after hostile bounded inspections", async () => {
   const inspectStableExport = () =>
     inspectExport({
@@ -2480,6 +2496,19 @@ it("does not follow declarations into caller project source", async () => {
   const outcome = await inspectInterfaceOverview({
     resolutionContext: fixture.resolutionContext,
     specifier: "@typepeek-fixture/escaping",
+  });
+
+  expect(outcome).toMatchObject({
+    status: "static-boundary",
+    reason: "static-boundary",
+    message: "A declaration references source outside its installed package boundary.",
+  });
+});
+
+it("does not probe outside paths from unresolved declaration imports", async () => {
+  const outcome = await inspectInterfaceOverview({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/outside-resolution-storm",
   });
 
   expect(outcome).toMatchObject({

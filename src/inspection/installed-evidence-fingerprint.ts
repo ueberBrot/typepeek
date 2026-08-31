@@ -1,9 +1,12 @@
 import { Result, Schema } from "effect";
 import { createHash } from "node:crypto";
 import { opendirSync, type Dirent } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
-import { canonicalEvidencePath } from "#typepeek/inspection/evidence-boundary";
+import {
+  canonicalEvidenceCandidatePath,
+  canonicalEvidencePath,
+} from "#typepeek/inspection/evidence-boundary";
 import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted-data";
 
 const MAX_FINGERPRINTED_FILES = 512;
@@ -49,6 +52,10 @@ const installedEvidenceDirectoriesSchema = Schema.Array(
 );
 const installedEvidenceResolutionProbeSchema = Schema.Struct({
   accessStyle: Schema.optionalKey(Schema.Literals(["import", "require"])),
+  allowedRoots: Schema.optionalKey(
+    Schema.Array(boundedEvidencePathSchema).check(Schema.isMaxLength(16)),
+  ),
+  canonicalContainingFile: Schema.optionalKey(boundedEvidencePathSchema),
   containingFile: boundedEvidencePathSchema,
   kind: Schema.Literals(["module", "type-reference"]),
   resolvedPath: Schema.optionalKey(boundedEvidencePathSchema),
@@ -203,17 +210,55 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
 function normalizeResolutionProbe(
   probe: InstalledEvidenceResolutionProbe,
 ): InstalledEvidenceResolutionProbe | undefined {
-  const containingFile =
-    canonicalEvidencePath(probe.containingFile) ??
-    (isAbsolute(probe.containingFile) ? probe.containingFile : undefined);
-  if (containingFile === undefined) {
+  const canonicalContainingFile = isAbsolute(probe.containingFile)
+    ? canonicalEvidenceCandidatePath(probe.containingFile)
+    : undefined;
+  if (canonicalContainingFile === undefined) {
     return undefined;
   }
+  const containingFile = resolve(probe.containingFile);
+  const allowedRoots = normalizedResolutionRoots(probe.allowedRoots);
+  if (
+    allowedRoots === undefined ||
+    (allowedRoots.length === 0 && probe.resolvedPath !== undefined)
+  ) {
+    return undefined;
+  }
+  const normalizedProbe = {
+    ...probe,
+    allowedRoots,
+    containingFile,
+    ...(canonicalContainingFile === containingFile ? {} : { canonicalContainingFile }),
+  };
   if (probe.resolvedPath === undefined) {
-    return { ...probe, containingFile };
+    return normalizedProbe;
   }
   const resolvedPath = canonicalEvidencePath(probe.resolvedPath);
-  return resolvedPath === undefined ? undefined : { ...probe, containingFile, resolvedPath };
+  return resolvedPath === undefined ? undefined : { ...normalizedProbe, resolvedPath };
+}
+
+function normalizedResolutionRoots(
+  roots: readonly string[] | undefined,
+): readonly string[] | undefined {
+  if (roots === undefined) {
+    return undefined;
+  }
+  const normalized = new Map<string, string>();
+  for (const root of roots) {
+    if (!isAbsolute(root)) {
+      return undefined;
+    }
+    const logicalRoot = resolve(root);
+    const canonicalRoot = canonicalEvidencePath(root);
+    if (canonicalRoot === undefined) {
+      return undefined;
+    }
+    const current = normalized.get(canonicalRoot);
+    if (current === undefined || (current === canonicalRoot && logicalRoot !== canonicalRoot)) {
+      normalized.set(canonicalRoot, logicalRoot);
+    }
+  }
+  return [...normalized.values()];
 }
 
 /** Re-reads one directory under an aggregate entry allowance for cache validation. */

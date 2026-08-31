@@ -928,6 +928,33 @@ describe("typepeek CLI", () => {
     }
   });
 
+  it("reuses outcomes resolved through a workspace-linked package", async () => {
+    const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-cache-workspace-link-test-"));
+    const arguments_ = [
+      "src/cli.ts",
+      "overview",
+      "@typepeek-fixture/workspace-main",
+      "--context",
+      fixture.resolutionContext,
+      "--json",
+    ];
+    const env = {
+      TYPEPEEK_CACHE_DIRECTORY: cacheDirectory,
+      TYPEPEEK_PROFILE: "1",
+    };
+
+    try {
+      const first = await execa(process.execPath, arguments_, { env });
+      const repeated = await execa(process.execPath, arguments_, { env });
+
+      expect(repeated.stdout).toBe(first.stdout);
+      expect(profilePhaseNames(repeated.stderr)).toContain("inspection-cache-hit");
+      expect(profilePhaseNames(repeated.stderr)).not.toContain("program-materialization");
+    } finally {
+      await rm(cacheDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("invalidates when transitive declaration resolution selects a nearer package", async () => {
     const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-cache-resolution-test-"));
     const compiledRoot = join(

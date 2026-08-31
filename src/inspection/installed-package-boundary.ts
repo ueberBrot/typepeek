@@ -1,6 +1,6 @@
 import { Predicate, Result, Schema } from "effect";
 import { realpathSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import { isPathWithin, readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
@@ -61,11 +61,41 @@ export function declarationProviderSegments(packageRootSpecifier: string): reado
 export function assertNoNestedDeclarationOwner(
   providerRoot: string,
   declarationPath: string,
+  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
 ): void {
-  const materializedOwner = findMaterializedPackageRoot(declarationPath);
+  const materializedOwner = findMaterializedPackageRoot(declarationPath, observer);
   if (materializedOwner !== undefined && materializedOwner !== providerRoot) {
     throw new UnsupportedInspectionError(
       "The declaration entrypoint belongs to a nested installed package instead of the selected Declaration Provider.",
+    );
+  }
+}
+
+export function assertNoNestedDeclaredEntrypoint(
+  packageRoot: string,
+  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+): void {
+  const manifest = readManifestRecord(packageRoot, observer);
+  const declaredEntrypoint =
+    typeof manifest["types"] === "string"
+      ? manifest["types"]
+      : typeof manifest["typings"] === "string"
+        ? manifest["typings"]
+        : undefined;
+  if (declaredEntrypoint === undefined) {
+    return;
+  }
+  // An exports map selects the active declaration entrypoint and supersedes legacy fields.
+  if (manifest["exports"] !== undefined) {
+    return;
+  }
+  const logicalRoot = resolve(packageRoot);
+  const candidate = resolve(logicalRoot, declaredEntrypoint);
+  if (isPathWithin(logicalRoot, candidate)) {
+    assertNoNestedDeclarationOwner(
+      canonicalPackageBoundary(packageRoot, observer),
+      candidate,
+      observer,
     );
   }
 }

@@ -18,8 +18,7 @@ import {
   INSPECTION_BUDGET_POLICY,
   MAX_ANALYSIS_RESULT_BYTES,
 } from "#typepeek/inspection/budget-policy";
-import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
-import { canonicalEvidencePath, readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
+import { readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
 import {
   CACHE_SCHEMA_VERSION,
   type EncodedInspectionCacheIdentityValue,
@@ -27,7 +26,7 @@ import {
   type InspectionCacheHitNotice,
   type InspectionCacheIdentityValue,
   type InspectionCacheWriteReceipt,
-  INSPECTION_CACHE_SEMANTICS_VERSION,
+  INSPECTION_CACHE_SEMANTICS,
   MAX_CACHE_ENTRY_BYTES,
   readInspectionCacheEnvelope,
   readInspectionCacheHitNoticeMessage,
@@ -43,15 +42,8 @@ import {
 } from "#typepeek/inspection/inspection-cache-codec";
 import { enforceAnalysisRequestOutcome } from "#typepeek/inspection/inspection-outcome-authority";
 import type { InspectableModuleSelection } from "#typepeek/inspection/installed-evidence";
-import {
-  type InstalledEvidenceDirectoryFingerprint,
-  type InstalledEvidenceFingerprint,
-  type InstalledEvidenceProof,
-  type InstalledEvidenceResolutionProbe,
-  MAX_FINGERPRINTED_DIRECTORY_ENTRIES,
-  readInstalledEvidenceDirectoryFingerprint,
-  sha256,
-} from "#typepeek/inspection/installed-evidence-fingerprint";
+import type { InstalledEvidenceProof } from "#typepeek/inspection/installed-evidence-fingerprint";
+import { installedEvidenceProofStillMatches } from "#typepeek/inspection/installed-evidence-proof";
 import {
   type AnalysisRequest,
   type AtomicInspectionResult,
@@ -64,7 +56,6 @@ import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 import { HAS_EMBEDDED_TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 
 const MAX_CACHE_DIRECTORY_ENTRIES = 256;
-const MAX_CACHE_EVIDENCE_BYTES = 12 * 1_024 * 1_024;
 
 export type {
   InspectionCacheHitNotice,
@@ -90,11 +81,11 @@ export function createInspectionCacheIdentity(
 ): InspectionCacheIdentity | undefined {
   const candidate = {
     budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
-    cacheSemanticsVersion: INSPECTION_CACHE_SEMANTICS_VERSION,
+    cacheSemantics: INSPECTION_CACHE_SEMANTICS,
     compilerVersion: ts.version,
     evidence: {
-      declarationPath: selection.declarationPath,
-      declarationRoot: selection.declarationRoot,
+      declarationPath: selection.declarationAuthority.declarationPath,
+      declarationRoot: selection.declarationAuthority.root.canonical,
       kind: selection.kind,
       repositoryRoot: selection.repositoryRoot,
       resolutionContextDirectory: selection.resolutionContextDirectory,
@@ -121,7 +112,8 @@ export function readInspectionCacheOutcome(
     return undefined;
   }
   const entry = readCacheEntry(path, identity);
-  return entry !== undefined && evidenceStillMatches(entry, currentSelectionProof)
+  return entry !== undefined &&
+    installedEvidenceProofStillMatches(entry.proof, currentSelectionProof)
     ? entry.outcome
     : undefined;
 }
@@ -359,98 +351,6 @@ function cacheIdentityMatches(
   return candidate !== undefined && stableJson(candidate) === expected.serialized;
 }
 
-function evidenceStillMatches(
-  entry: ValidatedInspectionCachePayload,
-  currentSelectionProof: InstalledEvidenceProof,
-): boolean {
-  return (
-    currentManifestsMatch(entry.proof, currentSelectionProof) &&
-    resolutionProbesStillMatch(entry.proof.resolutions) &&
-    directoryFingerprintsStillMatch(entry.proof.directories) &&
-    fileFingerprintsStillMatch(entry.proof.files)
-  );
-}
-
-function currentManifestsMatch(
-  cached: InstalledEvidenceProof,
-  current: InstalledEvidenceProof,
-): boolean {
-  const currentManifests = new Map(
-    current.files
-      .filter(({ kind }) => kind === "manifest")
-      .map((fingerprint) => [fingerprint.path, fingerprint.sha256]),
-  );
-  const cachedManifests = new Map(
-    cached.files
-      .filter(({ kind }) => kind === "manifest")
-      .map((fingerprint) => [fingerprint.path, fingerprint.sha256]),
-  );
-  return [...currentManifests].every(
-    ([path, fingerprint]) => cachedManifests.get(path) === fingerprint,
-  );
-}
-
-function directoryFingerprintsStillMatch(
-  directories: readonly InstalledEvidenceDirectoryFingerprint[],
-): boolean {
-  let directoryEntryCount = 0;
-  for (const directory of directories) {
-    const remainingEntries = MAX_FINGERPRINTED_DIRECTORY_ENTRIES - directoryEntryCount;
-    const current = readInstalledEvidenceDirectoryFingerprint(directory.path, remainingEntries);
-    if (!directoryFingerprintMatches(current, directory)) {
-      return false;
-    }
-    directoryEntryCount += current.entries;
-  }
-  return true;
-}
-
-function directoryFingerprintMatches(
-  current: InstalledEvidenceDirectoryFingerprint | undefined,
-  expected: InstalledEvidenceDirectoryFingerprint,
-): current is InstalledEvidenceDirectoryFingerprint {
-  return (
-    current !== undefined &&
-    current.path === expected.path &&
-    current.entries === expected.entries &&
-    current.sha256 === expected.sha256
-  );
-}
-
-function fileFingerprintsStillMatch(files: readonly InstalledEvidenceFingerprint[]): boolean {
-  let byteCount = 0;
-  for (const fingerprint of files) {
-    const validation = validateFileFingerprint(fingerprint, byteCount);
-    if (validation === undefined) {
-      return false;
-    }
-    byteCount = validation;
-  }
-  return true;
-}
-
-function validateFileFingerprint(
-  fingerprint: InstalledEvidenceFingerprint,
-  consumedBytes: number,
-): number | undefined {
-  if (canonicalEvidencePath(fingerprint.path) !== fingerprint.path) {
-    return undefined;
-  }
-  try {
-    const contents = readBoundedUtf8File(
-      fingerprint.path,
-      MAX_CACHE_EVIDENCE_BYTES - consumedBytes,
-      "compiler-host-bytes",
-      "Inspection cache validation exceeded its byte limit.",
-    );
-    return sha256(contents) === fingerprint.sha256
-      ? consumedBytes + Buffer.byteLength(contents)
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function readWriteReceipt(
   value: unknown,
   request: AnalysisRequest,
@@ -459,23 +359,6 @@ function readWriteReceipt(
   return receipt !== undefined && stableJson(receipt.identity.request) === stableJson(request)
     ? receipt
     : undefined;
-}
-
-function resolutionProbesStillMatch(probes: readonly InstalledEvidenceResolutionProbe[]): boolean {
-  try {
-    const session = createCompilerWorkSession();
-    return probes.every((probe) => {
-      const accessStyle = readOwnOptionalProperty(probe, "accessStyle");
-      const resolvedPath = readOwnOptionalProperty(probe, "resolvedPath");
-      const safeProbe = Object.assign(Object.create(null), probe, {
-        accessStyle,
-        resolvedPath,
-      }) as InstalledEvidenceResolutionProbe;
-      return session.resolveEvidenceProbe(safeProbe) === resolvedPath;
-    });
-  } catch {
-    return false;
-  }
 }
 
 function readOwnOptionalProperty<Value extends object, Key extends keyof Value & string>(
