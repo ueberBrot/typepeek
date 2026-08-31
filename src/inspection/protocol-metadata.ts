@@ -25,17 +25,10 @@ import {
 } from "#typepeek/inspection/request-definitions";
 
 export {
-  INSPECTION_BUDGET_DIMENSIONS,
-  INSPECTION_FAILURE_REASONS,
   INSPECTION_INTENTS,
   INSPECTION_PROTOCOL_VERSION,
-  PROTOCOL_RECOVERY_REASONS,
 } from "#typepeek/inspection/protocol-vocabulary";
-export type {
-  InspectionBudgetDimension,
-  InspectionFailureReason,
-  InspectionIntent,
-} from "#typepeek/inspection/protocol-vocabulary";
+export type { InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
 
 const MAX_INSPECTION_CAPABILITIES_BYTES = 16_384 as const;
 
@@ -176,8 +169,6 @@ export const inspectionCapabilitiesSchema = inspectionCapabilitiesBaseSchema.che
   }),
 );
 export type InspectionCapabilities = typeof inspectionCapabilitiesSchema.Type;
-export type InspectionRequestDescriptor = InspectionCapabilities["requestDescriptors"][number];
-export type InspectionRequestFieldDescriptor = InspectionRequestDescriptor["fields"][number];
 
 const REQUEST_DESCRIPTORS = Schema.decodeUnknownSync(requestDescriptorsSchema)(
   INSPECTION_REQUEST_DESCRIPTORS,

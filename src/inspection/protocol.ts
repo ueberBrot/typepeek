@@ -347,7 +347,6 @@ export type ExportAlias = typeof exportAliasSchema.Type;
 export type ExportSignature = typeof exportSignatureSchema.Type;
 export type SignatureBinding = typeof signatureBindingSchema.Type;
 export type SignatureParameter = typeof signatureParameterSchema.Type;
-export type SignatureThisParameter = typeof signatureThisParameterSchema.Type;
 export type SignatureTypeParameterModifier = typeof signatureTypeParameterModifierSchema.Type;
 export type SignatureTypeParameter = typeof signatureTypeParameterSchema.Type;
 export type SignatureReturn = typeof signatureReturnSchema.Type;
