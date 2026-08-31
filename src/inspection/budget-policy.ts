@@ -2,7 +2,7 @@
 export const INSPECTION_BUDGET_POLICY = {
   analysisHeapMegabytes: 192,
   declarationSourceBytes: 8 * 1_024 * 1_024,
-  identity: "8mib-declarations-192mib-analysis-heap-v2",
+  identity: "8mib-declarations-192mib-analysis-heap",
 } as const;
 
 /** Maximum serialized stdout bytes accepted from the isolated analysis process. */
