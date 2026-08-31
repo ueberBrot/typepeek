@@ -28,7 +28,7 @@ assert.equal(versionCli.stdout, `${packageVersion}\n`);
 
 const cli = spawnSync(
   process.execPath,
-  [".vite-plus/build/cli.js", "signatures", "execa", "execa", "--context", ".", "--json"],
+  [".vite-plus/build/cli.js", "signatures", "execa", "execa", "--workspace", ".", "--json"],
   { encoding: "utf8" },
 );
 assert.equal(cli.status, 0, cli.stderr || cli.stdout);

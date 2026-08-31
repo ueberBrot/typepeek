@@ -34,7 +34,7 @@ for (const benchmarkCase of selectLatencyWorkloads(options.caseName)) {
     const startedAt = performance.now();
     const result = await execa(
       process.execPath,
-      [executable, ...benchmarkCase.arguments_, "--context", resolve(".")],
+      [executable, ...benchmarkCase.arguments_, "--workspace", resolve(".")],
       {
         env: {
           TYPEPEEK_CACHE_BYPASS: "1",

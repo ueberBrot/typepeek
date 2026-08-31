@@ -12,7 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { type CompiledPackageFixture, materializeCompiledPackageFixture } from "./helpers/index.ts";
@@ -63,6 +63,306 @@ describe("typepeek CLI", () => {
     const result = await execa(process.execPath, ["src/cli.ts", "--version"]);
 
     expect(result.stdout).toContain(manifest.version);
+  });
+
+  it("infers the only workspace that declares a package", async () => {
+    const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-workspace-inference-"));
+    const workspaceRoot = join(repositoryRoot, "packages", "consumer");
+    const packageRoot = join(workspaceRoot, "node_modules", "workspace-only-package");
+    await Promise.all([
+      mkdir(packageRoot, { recursive: true }),
+      writeFile(
+        join(repositoryRoot, "package.json"),
+        JSON.stringify({ private: true, workspaces: ["./packages/*"] }),
+      ),
+    ]);
+    await Promise.all([
+      writeFile(
+        join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "workspace-consumer",
+          private: true,
+          dependencies: { "workspace-only-package": "1.0.0" },
+        }),
+      ),
+      writeFile(
+        join(packageRoot, "package.json"),
+        JSON.stringify({
+          name: "workspace-only-package",
+          version: "1.0.0",
+          types: "./index.d.ts",
+        }),
+      ),
+      writeFile(join(packageRoot, "index.d.ts"), "export declare const workspaceValue: string;\n"),
+    ]);
+
+    try {
+      const result = await execa(
+        process.execPath,
+        [join(process.cwd(), "src/cli.ts"), "workspace-only-package", "--json"],
+        { cwd: repositoryRoot, reject: false },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        status: "success",
+        result: {
+          packageIdentity: { name: "workspace-only-package", version: "1.0.0" },
+          moduleExports: [{ name: "workspaceValue" }],
+        },
+      });
+    } finally {
+      await rm(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("infers a declared pnpm workspace with a quoted pattern and inline comment", async () => {
+    const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-pnpm-workspace-"));
+    const workspaceRoot = join(repositoryRoot, "packages", "consumer");
+    const packageRoot = join(workspaceRoot, "node_modules", "pnpm-workspace-package");
+    await mkdir(packageRoot, { recursive: true });
+    await Promise.all([
+      writeFile(join(repositoryRoot, "package.json"), JSON.stringify({ private: true })),
+      writeFile(
+        join(repositoryRoot, "pnpm-workspace.yaml"),
+        "packages:\n  - 'packages/*' # consuming workspaces\n",
+      ),
+      writeFile(
+        join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "pnpm-workspace-consumer",
+          private: true,
+          dependencies: { "pnpm-workspace-package": "1.0.0" },
+        }),
+      ),
+      writeFile(
+        join(packageRoot, "package.json"),
+        JSON.stringify({
+          name: "pnpm-workspace-package",
+          version: "1.0.0",
+          types: "./index.d.ts",
+        }),
+      ),
+      writeFile(join(packageRoot, "index.d.ts"), "export declare const pnpmValue: string;\n"),
+    ]);
+
+    try {
+      const result = await execa(
+        process.execPath,
+        [join(process.cwd(), "src/cli.ts"), "pnpm-workspace-package", "--json"],
+        { cwd: repositoryRoot, reject: false },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        status: "success",
+        result: { moduleExports: [{ name: "pnpmValue" }] },
+      });
+    } finally {
+      await rm(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves an undeclared hoisted package from the monorepo root", async () => {
+    const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-hoisted-package-"));
+    const workspaceRoot = join(repositoryRoot, "packages", "consumer");
+    const packageRoot = join(repositoryRoot, "node_modules", "hoisted-transitive-package");
+    await Promise.all([
+      mkdir(workspaceRoot, { recursive: true }),
+      mkdir(packageRoot, { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(
+        join(repositoryRoot, "package.json"),
+        JSON.stringify({ private: true, workspaces: ["packages/*"] }),
+      ),
+      writeFile(
+        join(workspaceRoot, "package.json"),
+        JSON.stringify({ name: "hoisted-consumer", private: true }),
+      ),
+      writeFile(
+        join(packageRoot, "package.json"),
+        JSON.stringify({
+          name: "hoisted-transitive-package",
+          version: "1.0.0",
+          types: "./index.d.ts",
+        }),
+      ),
+      writeFile(join(packageRoot, "index.d.ts"), "export declare const hoistedValue: string;\n"),
+    ]);
+
+    try {
+      const result = await execa(
+        process.execPath,
+        [join(process.cwd(), "src/cli.ts"), "hoisted-transitive-package", "--json"],
+        { cwd: repositoryRoot, reject: false },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        status: "success",
+        result: { moduleExports: [{ name: "hoistedValue" }] },
+      });
+    } finally {
+      await rm(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reports bounded workspace discovery when a workspace manifest is oversized", async () => {
+    const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-workspace-limit-"));
+    await writeFile(
+      join(repositoryRoot, "package.json"),
+      JSON.stringify({ private: true, padding: "x".repeat(256 * 1_024) }),
+    );
+
+    try {
+      const result = await execa(
+        process.execPath,
+        [join(process.cwd(), "src/cli.ts"), "oversized-workspace-package", "--json"],
+        { cwd: repositoryRoot, reject: false },
+      );
+
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({
+        status: "invalid-invocation",
+        message: "Workspace discovery exceeded its bound. Select one with --workspace <path>.",
+      });
+    } finally {
+      await rm(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reports bounded workspace discovery when ancestor traversal is exhausted", async () => {
+    const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-ancestor-limit-"));
+    const nestedDirectory = join(
+      repositoryRoot,
+      ...Array.from({ length: 64 }, (_, index) => `level-${index}`),
+    );
+    await Promise.all([
+      mkdir(nestedDirectory, { recursive: true }),
+      writeFile(
+        join(repositoryRoot, "package.json"),
+        JSON.stringify({ private: true, workspaces: ["packages/*"] }),
+      ),
+    ]);
+
+    try {
+      const result = await execa(
+        process.execPath,
+        [join(process.cwd(), "src/cli.ts"), "ancestor-limit-package", "--json"],
+        { cwd: nestedDirectory, reject: false },
+      );
+
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({
+        status: "invalid-invocation",
+        message: "Workspace discovery exceeded its bound. Select one with --workspace <path>.",
+      });
+    } finally {
+      await rm(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("requires --workspace when several workspaces declare a package", async () => {
+    const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-workspace-ambiguity-"));
+    const packageRoots = ["consumer-one", "consumer-two"].map((workspace) =>
+      join(repositoryRoot, "packages", workspace, "node_modules", "shared-package"),
+    );
+    const workspaceRoots = packageRoots.map((packageRoot) => dirname(dirname(packageRoot)));
+    await Promise.all(packageRoots.map((packageRoot) => mkdir(packageRoot, { recursive: true })));
+    await Promise.all([
+      writeFile(
+        join(repositoryRoot, "package.json"),
+        JSON.stringify({ private: true, workspaces: ["packages/*"] }),
+      ),
+      ...workspaceRoots.map((workspaceRoot, index) =>
+        writeFile(
+          join(workspaceRoot, "package.json"),
+          JSON.stringify({
+            name: `consumer-${index + 1}`,
+            private: true,
+            dependencies: { "shared-package": "1.0.0" },
+          }),
+        ),
+      ),
+      ...packageRoots.map((packageRoot) =>
+        writeFile(
+          join(packageRoot, "package.json"),
+          JSON.stringify({ name: "shared-package", version: "1.0.0", types: "./index.d.ts" }),
+        ),
+      ),
+    ]);
+
+    try {
+      const result = await execa(
+        process.execPath,
+        [join(process.cwd(), "src/cli.ts"), "shared-package", "--json"],
+        { cwd: repositoryRoot, reject: false },
+      );
+
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({
+        status: "invalid-invocation",
+        message:
+          'Specifier "shared-package" matches multiple consuming workspaces: packages/consumer-one, packages/consumer-two. Select one with --workspace <path>.',
+      });
+    } finally {
+      await rm(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not infer a sibling when invoked from within a workspace", async () => {
+    const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-workspace-scope-"));
+    const currentWorkspace = join(repositoryRoot, "packages", "current");
+    const siblingWorkspace = join(repositoryRoot, "packages", "sibling");
+    const packageRoot = join(siblingWorkspace, "node_modules", "sibling-only-package");
+    await Promise.all([
+      mkdir(currentWorkspace, { recursive: true }),
+      mkdir(packageRoot, { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(
+        join(repositoryRoot, "package.json"),
+        JSON.stringify({ private: true, workspaces: ["packages/*"] }),
+      ),
+      writeFile(
+        join(currentWorkspace, "package.json"),
+        JSON.stringify({ name: "current-workspace", private: true }),
+      ),
+      writeFile(
+        join(siblingWorkspace, "package.json"),
+        JSON.stringify({
+          name: "sibling-workspace",
+          private: true,
+          dependencies: { "sibling-only-package": "1.0.0" },
+        }),
+      ),
+      writeFile(
+        join(packageRoot, "package.json"),
+        JSON.stringify({ name: "sibling-only-package", version: "1.0.0", types: "./index.d.ts" }),
+      ),
+      writeFile(join(packageRoot, "index.d.ts"), "export declare const siblingValue: string;\n"),
+    ]);
+
+    try {
+      const result = await execa(
+        process.execPath,
+        [join(process.cwd(), "src/cli.ts"), "sibling-only-package", "--json"],
+        { cwd: currentWorkspace, reject: false },
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        status: "not-found",
+        reason: "specifier-not-found",
+      });
+    } finally {
+      await rm(repositoryRoot, { recursive: true, force: true });
+    }
   });
 
   it.each([{ flags: [] }, { flags: ["--json"] }])(
@@ -202,9 +502,9 @@ describe("typepeek CLI", () => {
       "compare",
       "@typepeek-fixture/conditional",
       "@typepeek-fixture/conditional",
-      "--before-context",
+      "--before-workspace",
       fixture.resolutionContext,
-      "--after-context",
+      "--after-workspace",
       fixture.resolutionContext,
       "--before-access",
       "import",
@@ -226,7 +526,7 @@ describe("typepeek CLI", () => {
       "declarations",
       "@typepeek-fixture/focused",
       "createWidget",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
     ]);
 
@@ -243,7 +543,7 @@ describe("typepeek CLI", () => {
       "@typepeek-fixture/focused",
       "PublicShape",
       "visible",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
     ]);
 
@@ -260,7 +560,7 @@ describe("typepeek CLI", () => {
       "@typepeek-fixture/focused",
       "PublicShape",
       "a.b",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ]);
@@ -282,7 +582,7 @@ describe("typepeek CLI", () => {
       "@typepeek-fixture/focused",
       "NestedShape",
       '["nested","leaf"]',
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ]);
@@ -303,7 +603,7 @@ describe("typepeek CLI", () => {
       "search",
       "@typepeek-fixture/focused",
       "error",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
     ]);
 
@@ -317,7 +617,7 @@ describe("typepeek CLI", () => {
       "src/cli.ts",
       "subpaths",
       "@typepeek-fixture/conditional",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -346,7 +646,7 @@ describe("typepeek CLI", () => {
           { intent: "public-subpath-discovery" },
           { intent: "public-subpath-discovery" },
         ]),
-        "--context",
+        "--workspace",
         fixture.resolutionContext,
         "--json",
       ],
@@ -378,7 +678,7 @@ describe("typepeek CLI", () => {
         { intent: "interface-overview" },
         { intent: "signature-inspection", exportName: "detailed" },
       ]),
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -457,7 +757,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/focused",
       "createWidget",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
     ];
     const [result, repeated] = await Promise.all([
@@ -484,7 +784,7 @@ describe("typepeek CLI", () => {
       "src/cli.ts",
       "overview",
       "@typepeek-fixture/compiled",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
     ];
     const [first, second, shorthand] = await Promise.all([
@@ -510,7 +810,7 @@ describe("typepeek CLI", () => {
       "signatures",
       "@typepeek-fixture/focused",
       "detailed",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -545,7 +845,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/focused",
       "createWidget",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -577,7 +877,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/focused",
       "createWidget",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -634,7 +934,7 @@ describe("typepeek CLI", () => {
         { intent: "interface-overview" },
         { intent: "signature-inspection", exportName: "createWidget" },
       ]),
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -662,7 +962,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/focused",
       "createWidget",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -702,7 +1002,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/focused",
       "createWidget",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -738,7 +1038,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/focused",
       "createWidget",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -772,7 +1072,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/focused",
       "createWidget",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -807,7 +1107,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/focused",
       "createWidget",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -850,7 +1150,7 @@ describe("typepeek CLI", () => {
           "src/cli.ts",
           "overview",
           "@typepeek-fixture/focused",
-          "--context",
+          "--workspace",
           fixture.resolutionContext,
           "--json",
         ],
@@ -883,7 +1183,7 @@ describe("typepeek CLI", () => {
             "src/cli.ts",
             "overview",
             "@typepeek-fixture/focused",
-            "--context",
+            "--workspace",
             fixture.resolutionContext,
             "--json",
           ],
@@ -907,7 +1207,7 @@ describe("typepeek CLI", () => {
       "src/cli.ts",
       "overview",
       "@typepeek-fixture/compiled",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -934,7 +1234,7 @@ describe("typepeek CLI", () => {
       "src/cli.ts",
       "overview",
       "@typepeek-fixture/workspace-main",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -976,7 +1276,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/compiled",
       "dependencyExport",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -1025,7 +1325,7 @@ describe("typepeek CLI", () => {
       "src/cli.ts",
       "subpaths",
       "@typepeek-fixture/conditional",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -1068,7 +1368,7 @@ describe("typepeek CLI", () => {
       "src/cli.ts",
       "subpaths",
       "@typepeek-fixture/conditional",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -1117,7 +1417,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/compiled",
       "createWidget",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -1168,7 +1468,7 @@ describe("typepeek CLI", () => {
       "src/cli.ts",
       "overview",
       "@typepeek-fixture/focused",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -1201,7 +1501,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/focused",
       "missingExport",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -1231,7 +1531,7 @@ describe("typepeek CLI", () => {
       "export",
       "@typepeek-fixture/focused",
       "createWidget",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -1262,7 +1562,7 @@ describe("typepeek CLI", () => {
     const result = await execa(process.execPath, [
       "src/cli.ts",
       "@typepeek-fixture/conditional",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--subpaths",
     ]);
@@ -1279,7 +1579,7 @@ describe("typepeek CLI", () => {
       "src/cli.ts",
       "overview",
       "@typepeek-fixture/focused",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--match",
       "error",
@@ -1298,7 +1598,7 @@ describe("typepeek CLI", () => {
       "signatures",
       "@typepeek-fixture/deep-supporting-types",
       "inspect",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
     ]);
 
@@ -1313,7 +1613,7 @@ describe("typepeek CLI", () => {
       "signatures",
       "@typepeek-fixture/focused",
       "detailed",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ]);
@@ -1352,7 +1652,7 @@ describe("typepeek CLI", () => {
         "export",
         "@typepeek-fixture/focused",
         "createWidget",
-        "--context",
+        "--workspace",
         fixture.resolutionContext,
         "--json",
         ...flags,
@@ -1377,7 +1677,7 @@ describe("typepeek CLI", () => {
       "signatures",
       "@typepeek-fixture/focused",
       "detailed",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "--json",
     ];
@@ -1397,7 +1697,13 @@ describe("typepeek CLI", () => {
     ["static-boundary", "./project-source.d.ts"],
     ["limit-exceeded", "@typepeek-fixture/broad"],
   ] as const)("emits the %s failure as JSON on stdout", async (status, specifier) => {
-    const arguments_ = ["src/cli.ts", specifier, "--context", fixture.resolutionContext, "--json"];
+    const arguments_ = [
+      "src/cli.ts",
+      specifier,
+      "--workspace",
+      fixture.resolutionContext,
+      "--json",
+    ];
     const [first, repeated] = await Promise.all([
       execa(process.execPath, arguments_, { reject: false }),
       execa(process.execPath, arguments_, { reject: false }),
@@ -1418,7 +1724,7 @@ describe("typepeek CLI", () => {
         [
           "src/cli.ts",
           "@typepeek-fixture/focused",
-          "--context",
+          "--workspace",
           fixture.resolutionContext,
           ...flagArguments,
           "--json",
@@ -1443,10 +1749,32 @@ describe("typepeek CLI", () => {
 
     expect(help.stdout).toContain("typepeek signatures");
     expect(help.stdout).toContain("<specifier> <export-name>");
-    expect(help.stdout).toContain("--context path");
+    expect(help.stdout).toContain("--workspace path");
+    expect(help.stdout).not.toContain("--context");
     expect(help.stdout).toContain("--json");
     expect(help.stdout).toContain("--pretty");
     expect(compareHelp.stdout).toContain("<before-specifier> <after-specifier>");
+    expect(compareHelp.stdout).toContain("--before-workspace path");
+    expect(compareHelp.stdout).toContain("--after-workspace path");
+    expect(compareHelp.stdout).not.toContain("--before-context");
+    expect(compareHelp.stdout).not.toContain("--after-context");
+  });
+
+  it("rejects the removed --context flag", async () => {
+    const result = await execa(
+      process.execPath,
+      [
+        "src/cli.ts",
+        "overview",
+        "@typepeek-fixture/focused",
+        "--context",
+        fixture.resolutionContext,
+      ],
+      { reject: false },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("--context");
   });
 
   it("explains the capabilities-to-protocol machine workflow", async () => {
@@ -1466,7 +1794,7 @@ describe("typepeek CLI", () => {
     async (specifier) => {
       const result = await execa(
         process.execPath,
-        ["src/cli.ts", "overview", specifier, "--context", fixture.resolutionContext, "--json"],
+        ["src/cli.ts", "overview", specifier, "--workspace", fixture.resolutionContext, "--json"],
         { reject: false },
       );
 
@@ -1486,7 +1814,7 @@ describe("typepeek CLI", () => {
         "src/cli.ts",
         "signatures",
         "@typepeek-fixture/focused",
-        "--context",
+        "--workspace",
         fixture.resolutionContext,
         "--",
         "-missing",
@@ -1522,7 +1850,7 @@ describe("typepeek CLI", () => {
   it("escapes terminal controls in failed inspection diagnostics", async () => {
     const result = await execa(
       process.execPath,
-      ["src/cli.ts", "missing\u001B[31m-package", "--context", fixture.resolutionContext],
+      ["src/cli.ts", "missing\u001B[31m-package", "--workspace", fixture.resolutionContext],
       { reject: false },
     );
 
@@ -1624,7 +1952,7 @@ describe("typepeek CLI", () => {
       "src/cli.ts",
       "--json",
       "--pretty",
-      "--context",
+      "--workspace",
       fixture.resolutionContext,
       "signatures",
       "@typepeek-fixture/focused",
@@ -1650,7 +1978,7 @@ async function assertDeterministicFailure(
   specifier: string,
   message: string,
 ): Promise<void> {
-  const arguments_ = ["src/cli.ts", specifier, "--context", fixture.resolutionContext];
+  const arguments_ = ["src/cli.ts", specifier, "--workspace", fixture.resolutionContext];
   const [first, second] = await Promise.all([
     execa(process.execPath, arguments_, { reject: false }),
     execa(process.execPath, arguments_, { reject: false }),

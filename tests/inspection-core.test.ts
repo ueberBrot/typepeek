@@ -679,7 +679,7 @@ it("renders an Interface Overview through the CLI", async () => {
   const result = await execa(process.execPath, [
     "src/cli.ts",
     "@typepeek-fixture/compiled",
-    "--context",
+    "--workspace",
     fixture.resolutionContext,
   ]);
 

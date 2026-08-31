@@ -22,7 +22,7 @@ export async function assertRepositoryProfilingExcluded(directory: string): Prom
 /** Executes the shipped worker twice and proves the second run reuses one cache entry. */
 export async function assertArtifactCacheReuse(cliPath: string): Promise<void> {
   const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-artifact-cache-"));
-  const arguments_ = [cliPath, "overview", "@stricli/core", "--context", ".", "--json"];
+  const arguments_ = [cliPath, "overview", "@stricli/core", "--workspace", ".", "--json"];
   const env = { ...process.env, TYPEPEEK_CACHE_DIRECTORY: cacheDirectory };
   try {
     const first = spawnSync(process.execPath, arguments_, { encoding: "utf8", env });

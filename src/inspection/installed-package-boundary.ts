@@ -173,6 +173,13 @@ export function isSafePackagePathSegment(segment: string): boolean {
   return !["", ".", ".."].includes(segment) && !segment.includes("\\") && !segment.includes("\0");
 }
 
+export function hasDeclaredPackage(
+  manifest: Readonly<Record<string, unknown>>,
+  packageName: string,
+): boolean {
+  return DEPENDENCY_FIELDS.some((field) => hasOwnStringProperty(manifest[field], packageName));
+}
+
 export function findVisiblePackage(
   resolutionContext: string,
   packageSegments: readonly string[],
@@ -283,10 +290,7 @@ function isDeclaredFromResolutionContext(
   observer: PackageBoundaryObserver,
 ): boolean {
   const contextManifest = findContextManifest(contextDirectory, requirePackageIdentity, observer);
-  return (
-    contextManifest !== undefined &&
-    DEPENDENCY_FIELDS.some((field) => hasOwnStringProperty(contextManifest[field], packageName))
-  );
+  return contextManifest !== undefined && hasDeclaredPackage(contextManifest, packageName);
 }
 
 function findContextManifest(

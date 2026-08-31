@@ -74,11 +74,11 @@ export async function materializeStaticInspection(
           : join(adapter.sourceCheckout, "src", "inspection", "analysis-process-entry.ts");
       const commandArguments =
         adapter.kind === "installed"
-          ? [...arguments_, "--context", resolutionContext]
+          ? [...arguments_, "--workspace", resolutionContext]
           : [
               join(adapter.sourceCheckout, "src", "cli.ts"),
               ...arguments_,
-              "--context",
+              "--workspace",
               resolutionContext,
             ];
       try {
