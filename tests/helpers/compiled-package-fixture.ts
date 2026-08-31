@@ -238,6 +238,20 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     runtime: 'throw new Error("Typepeek executed the escaping fixture runtime");\n',
   },
   {
+    directory: "outside-resolution-storm-package",
+    name: "@typepeek-fixture/outside-resolution-storm",
+    version: "1.0.0",
+    declaration: [
+      ...Array.from(
+        { length: 60_000 },
+        (_, index) => `import type {} from "../../../../outside-missing-${index}.js";`,
+      ),
+      "export declare const visible: string;",
+      "",
+    ].join("\n"),
+    runtime: 'throw new Error("Typepeek executed the outside resolution fixture runtime");\n',
+  },
+  {
     directory: "unresolved-package",
     name: "@typepeek-fixture/unresolved",
     version: "1.0.0",
@@ -948,6 +962,22 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "",
     ].join("\n"),
     runtime: 'throw new Error("Typepeek executed the deep namespace runtime");\n',
+  },
+  {
+    directory: "deep-member-namespace-package",
+    name: "@typepeek-fixture/deep-member-namespace",
+    version: "1.0.0",
+    declaration: [
+      "export declare namespace Root {",
+      "  export namespace Selected {",
+      ...Array.from({ length: 65 }, (_, index) => `export namespace N${index} {`),
+      "export const leaf: string;",
+      ...Array.from({ length: 65 }, () => "}"),
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+    runtime: 'throw new Error("Typepeek executed the deep member namespace runtime");\n',
   },
   {
     directory: "oversized-manifest-package",

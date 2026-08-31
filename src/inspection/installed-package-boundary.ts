@@ -22,6 +22,8 @@ export interface VisiblePackageLocation {
 export interface InstalledManifest {
   readonly packageIdentity: PackageIdentity;
   readonly exports: unknown;
+  readonly types: unknown;
+  readonly typings: unknown;
 }
 
 interface AncestorManifest {
@@ -61,8 +63,9 @@ export function declarationProviderSegments(packageRootSpecifier: string): reado
 export function assertNoNestedDeclarationOwner(
   providerRoot: string,
   declarationPath: string,
+  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
 ): void {
-  const materializedOwner = findMaterializedPackageRoot(declarationPath);
+  const materializedOwner = findMaterializedPackageRoot(declarationPath, observer);
   if (materializedOwner !== undefined && materializedOwner !== providerRoot) {
     throw new UnsupportedInspectionError(
       "The declaration entrypoint belongs to a nested installed package instead of the selected Declaration Provider.",
@@ -340,6 +343,8 @@ export function readInstalledManifest(
   return {
     packageIdentity,
     exports: manifest["exports"],
+    types: manifest["types"],
+    typings: manifest["typings"],
   };
 }
 

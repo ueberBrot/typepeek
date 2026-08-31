@@ -13,7 +13,7 @@ import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 
 export const CACHE_SCHEMA_VERSION = 1;
-export const INSPECTION_CACHE_SEMANTICS_VERSION = "2";
+export const INSPECTION_CACHE_SEMANTICS_VERSION = "3";
 export const MAX_CACHE_ENTRY_BYTES = 160 * 1_024;
 const MAX_CACHE_RECEIPT_BYTES = 96 * 1_024;
 const MAX_CACHE_PATH_BYTES = 4 * 1_024;

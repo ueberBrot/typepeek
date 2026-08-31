@@ -1,4 +1,5 @@
 import ts from "@typescript/typescript6";
+import { resolve } from "node:path";
 
 import {
   type CompilerWorkSession,
@@ -61,6 +62,7 @@ export type InspectableModuleSelection = {
   readonly resolutionContextDirectory: string;
   readonly declarationPath: string;
   readonly declarationRoot: string;
+  readonly logicalDeclarationRoot: string;
   readonly repositoryRoot: string;
   readonly resultIdentity: InspectionResultIdentity;
   readonly readPublicSubpaths: () => readonly PublicSubpath[];
@@ -68,7 +70,11 @@ export type InspectableModuleSelection = {
   readonly providerIdentity: PackageIdentity;
   readonly packageBoundaryObserver: ReturnType<CompilerWorkSession["observePackageBoundary"]>;
   readonly readNodeDeclarationProvider: () =>
-    | { readonly declarationPath: string; readonly declarationRoot: string }
+    | {
+        readonly declarationPath: string;
+        readonly declarationRoot: string;
+        readonly logicalDeclarationRoot: string;
+      }
     | undefined;
 } & (
   | { readonly kind: "package"; readonly ambientSpecifier: string | undefined }
@@ -78,6 +84,7 @@ export type InspectableModuleSelection = {
 interface NodeDeclarationProvider {
   readonly declarationPath: string;
   readonly declarationRoot: string;
+  readonly logicalDeclarationRoot: string;
 }
 
 interface SelectedNodeDeclarationProvider extends NodeDeclarationProvider {
@@ -173,6 +180,7 @@ function selectPackageDeclarationProvider(
     packageRootSpecifier: packageSpecifier.packageRootSpecifier,
     declarationRoots: availableDeclarationRoots(
       canonicalPackageRoot,
+      packageLocation.packageRoot,
       providerLocation,
       packageBoundaryObserver,
     ),
@@ -185,6 +193,7 @@ function selectPackageDeclarationProvider(
     canonicalPackageRoot,
     manifest,
     packageLocation.repositoryRoot,
+    packageLocation.packageRoot,
     providerLocation,
     packageBoundaryObserver,
   );
@@ -202,6 +211,7 @@ function selectPackageDeclarationProvider(
     ),
     declarationPath: resolutionVariant.declarationPath,
     declarationRoot: declarationPackage.root,
+    logicalDeclarationRoot: declarationPackage.logicalRoot,
     repositoryRoot: declarationPackage.repositoryRoot,
     resultIdentity: packageResultIdentity(
       manifest.packageIdentity,
@@ -239,7 +249,11 @@ function visibleNodeDeclarationProvider(
   );
   return provider === undefined
     ? undefined
-    : { declarationPath: provider.declarationPath, declarationRoot: provider.declarationRoot };
+    : {
+        declarationPath: provider.declarationPath,
+        declarationRoot: provider.declarationRoot,
+        logicalDeclarationRoot: provider.logicalDeclarationRoot,
+      };
 }
 
 function selectNodeDeclarationProvider(
@@ -272,6 +286,7 @@ function selectNodeDeclarationProvider(
     specifier: request.specifier,
     declarationPath: provider.declarationPath,
     declarationRoot: provider.declarationRoot,
+    logicalDeclarationRoot: provider.logicalDeclarationRoot,
     repositoryRoot: canonicalPackageBoundary(
       provider.location.repositoryRoot,
       packageBoundaryObserver,
@@ -305,11 +320,18 @@ function selectVisibleNodeDeclarationProvider(
     request: { ...request, specifier: "@types/node" },
     packageRoot: declarationRoot,
     packageRootSpecifier: "@types/node",
+    declarationRoots: [declarationRoot, location.packageRoot],
     exports: manifest.exports,
     missingDeclarationMessage: "The visible @types/node package has no readable entrypoint.",
   });
   assertNoNestedDeclarationOwner(declarationRoot, declarationPath);
-  return { declarationPath, declarationRoot, location, manifest };
+  return {
+    declarationPath,
+    declarationRoot,
+    logicalDeclarationRoot: location.packageRoot,
+    location,
+    manifest,
+  };
 }
 
 function materializeInspectableModule(
@@ -338,15 +360,20 @@ function materializeInspectableModule(
 
 function availableDeclarationRoots(
   packageRoot: string,
+  logicalPackageRoot: string,
   providerLocation: VisiblePackageLocation | undefined,
   packageBoundaryObserver: ReturnType<CompilerWorkSession["observePackageBoundary"]>,
 ): readonly string[] {
-  return providerLocation === undefined
-    ? [packageRoot]
-    : [
-        packageRoot,
-        canonicalPackageBoundary(providerLocation.packageRoot, packageBoundaryObserver),
-      ];
+  return [
+    packageRoot,
+    logicalPackageRoot,
+    ...(providerLocation === undefined
+      ? []
+      : [
+          canonicalPackageBoundary(providerLocation.packageRoot, packageBoundaryObserver),
+          providerLocation.packageRoot,
+        ]),
+  ];
 }
 
 function selectedPublicSubpath(packageSpecifier: PackageSpecifier): {
@@ -380,10 +407,12 @@ function selectedDeclarationPackage(
   packageRoot: string,
   manifest: InstalledManifest,
   repositoryRoot: string,
+  logicalPackageRoot: string,
   providerLocation: VisiblePackageLocation | undefined,
   packageBoundaryObserver: ReturnType<CompilerWorkSession["observePackageBoundary"]>,
 ): {
   readonly root: string;
+  readonly logicalRoot: string;
   readonly identity: PackageIdentity;
   readonly repositoryRoot: string;
 } {
@@ -391,6 +420,7 @@ function selectedDeclarationPackage(
     assertNoNestedDeclarationOwner(packageRoot, declarationPath);
     return {
       root: packageRoot,
+      logicalRoot: logicalPackageRoot,
       identity: manifest.packageIdentity,
       repositoryRoot: canonicalPackageBoundary(repositoryRoot, packageBoundaryObserver),
     };
@@ -398,11 +428,16 @@ function selectedDeclarationPackage(
   if (providerLocation !== undefined) {
     const root = canonicalPackageBoundary(providerLocation.packageRoot, packageBoundaryObserver);
     if (isPathWithin(root, declarationPath)) {
-      assertNoNestedDeclarationOwner(root, declarationPath);
+      const providerManifest = readInstalledManifest(
+        providerLocation.packageRoot,
+        packageBoundaryObserver,
+      );
+      assertNoNestedManifestEntrypoint(root, providerManifest, packageBoundaryObserver);
+      assertNoNestedDeclarationOwner(root, declarationPath, packageBoundaryObserver);
       return {
         root,
-        identity: readInstalledManifest(providerLocation.packageRoot, packageBoundaryObserver)
-          .packageIdentity,
+        logicalRoot: providerLocation.packageRoot,
+        identity: providerManifest.packageIdentity,
         repositoryRoot: canonicalPackageBoundary(
           providerLocation.repositoryRoot,
           packageBoundaryObserver,
@@ -413,6 +448,26 @@ function selectedDeclarationPackage(
   throw new UnsupportedInspectionError(
     "The declaration entrypoint has no installed Declaration Provider.",
   );
+}
+
+function assertNoNestedManifestEntrypoint(
+  providerRoot: string,
+  manifest: InstalledManifest,
+  packageBoundaryObserver: ReturnType<CompilerWorkSession["observePackageBoundary"]>,
+): void {
+  const declaredEntrypoint =
+    typeof manifest.types === "string"
+      ? manifest.types
+      : typeof manifest.typings === "string"
+        ? manifest.typings
+        : undefined;
+  if (declaredEntrypoint === undefined) {
+    return;
+  }
+  const candidate = resolve(providerRoot, declaredEntrypoint);
+  if (isPathWithin(providerRoot, candidate)) {
+    assertNoNestedDeclarationOwner(providerRoot, candidate, packageBoundaryObserver);
+  }
 }
 
 function parsePackageSpecifier(specifier: string): PackageSpecifier | undefined {
