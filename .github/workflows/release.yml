@@ -130,6 +130,9 @@ jobs:
           cache: "false"
           registry-url: https://registry.npmjs.org/
         env:
+          # The unclaimed package has no npm settings page on which to
+          # configure a trusted publisher. Remove this bootstrap token after
+          # publishing 0.1.0 and authorizing release.yml through npm OIDC.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
 
       - name: Publish package and create GitHub release
@@ -139,6 +142,6 @@ jobs:
           create-github-releases: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
-          # The unclaimed package needs this only for its first publish. Remove
-          # the secret after configuring npm trusted publishing for release.yml.
+          # npm uses OIDC before this fallback token. Remove the token after
+          # configuring release.yml as the package's trusted publisher.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}

@@ -8,15 +8,48 @@ Typepeek shows the TypeScript interface of an installed package without importin
 
 Typepeek reads the packages already installed for a project. Results match the package version, module conditions, and declarations available to that project. They do not rely on online documentation.
 
-> [!WARNING]
-> Typepeek is under active development and has not been released to npm. Run it from source for now; commands and interfaces may change before the first release.
+Typepeek requires Node.js 24.18 or later within the Node.js 24 release line. The examples use npm because it ships with Node.js. If you prefer another package manager, use its equivalent install and run commands.
+
+## Run Typepeek
+
+Choose how to run Typepeek.
+
+### Install in a project
+
+For repeatable use, install Typepeek as a development dependency:
+
+```bash
+npm install --save-dev typepeek
+npx typepeek overview execa --context .
+```
+
+`npx` uses the project-local executable when Typepeek is installed.
+
+### Run once
+
+Run the latest release without adding Typepeek to `package.json`:
+
+```bash
+npx --yes typepeek@latest overview execa --context .
+```
+
+### Install globally
+
+Install one version for direct use across projects:
+
+```bash
+npm install --global typepeek
+typepeek overview execa --context .
+```
+
+A global installation is convenient, but every project shares the installed version.
 
 ## Why Typepeek
 
 If your project imports `execa`, Typepeek can read the call signatures for its main export from the installed declarations:
 
 ```bash
-node src/cli.ts signatures execa execa --context .
+npx typepeek signatures execa execa --context .
 ```
 
 Typepeek returns each public call and construct signature in declaration order.
@@ -24,24 +57,19 @@ Typepeek returns each public call and construct signature in declaration order.
 > [!IMPORTANT]
 > Set `--context` to the consuming project's directory. Typepeek starts module resolution there, so the context determines which installed package and resolution conditions it sees.
 
-## Try it from source
-
-Typepeek requires Node.js 24.18 or later within the Node.js 24 release line and pnpm 11.20.
+Inspect an installed package from the consuming project:
 
 ```bash
-git clone https://github.com/ueberBrot/typepeek.git
-cd typepeek
-pnpm install --frozen-lockfile
-node src/cli.ts overview execa --context .
+npx typepeek overview execa --context .
 ```
 
 `overview` is the default command, so the final command can also be written as:
 
 ```bash
-node src/cli.ts execa --context .
+npx typepeek execa --context .
 ```
 
-Run `node src/cli.ts --help` for the complete command surface. The packaged artifact exposes the same commands through the `typepeek` executable.
+Run `npx typepeek --help` for the complete command surface. If you installed Typepeek globally, invoke `typepeek` directly instead.
 
 ## Choose an inspection
 
@@ -62,14 +90,14 @@ Start with the narrowest inspection that answers your question.
 For example, discover an export before inspecting it:
 
 ```bash
-node src/cli.ts search execa error --context .
-node src/cli.ts declarations execa ExecaError --context .
+npx typepeek search execa error --context .
+npx typepeek declarations execa ExecaError --context .
 ```
 
 Add `--json` for structured output. Add `--pretty` with `--json` when a person needs to read that output:
 
 ```bash
-node src/cli.ts signatures execa execa --context . --json --pretty
+npx typepeek signatures execa execa --context . --json --pretty
 ```
 
 Commands use the `import` access style by default. Pass `--access require` when you need the interface selected for CommonJS resolution conditions.
@@ -87,7 +115,7 @@ Every inspection is bounded. Typepeek returns a complete result or an explicit t
 Agents can use CLI JSON or the transport-neutral Inspection Protocol. `capabilities` describes the protocol version, supported intents, request fields, response options, failures, and budget dimensions without inspecting a package:
 
 ```bash
-node src/cli.ts capabilities
+npx typepeek capabilities
 ```
 
 Install the Typepeek agent skill with the [`skills.sh`](https://skills.sh) CLI:
@@ -117,7 +145,7 @@ Convenience functions return typed Inspection Outcomes. Adapter implementations 
 
 ## Development
 
-Install the locked dependencies, then run the full validation suite:
+Typepeek development requires pnpm 11.20. Install the locked dependencies, then run the full validation suite:
 
 ```bash
 vp install --frozen-lockfile
