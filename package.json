@@ -1,6 +1,6 @@
 {
   "name": "typepeek",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
   "license": "ISC",
   "repository": {

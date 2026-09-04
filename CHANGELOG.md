@@ -1,5 +1,11 @@
 # typepeek
 
+## 0.2.1
+
+### Patch Changes
+
+- [#58](https://github.com/ueberBrot/typepeek/pull/58) [`1173e9b`](https://github.com/ueberBrot/typepeek/commit/1173e9b1b26af75114e7c3148dde500200851e6c) - Member Inspection now strips method and accessor bodies, property initializers, and nonconstant enum initializer expressions from package-exposed TypeScript source. It preserves public signatures and inferred types. Existing cached outcomes expire so they cannot return implementation code.
+
 ## 0.2.0
 
 ### Minor Changes
