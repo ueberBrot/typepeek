@@ -14,7 +14,7 @@ import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 
 export const CACHE_SCHEMA_VERSION = 1;
 /** Identifies the evidence rules that permit cache reuse. */
-export const INSPECTION_CACHE_SEMANTICS = "installed-evidence-proof";
+export const INSPECTION_CACHE_SEMANTICS = "installed-evidence-proof-member-projection";
 export const MAX_CACHE_ENTRY_BYTES = 160 * 1_024;
 const MAX_CACHE_RECEIPT_BYTES = 96 * 1_024;
 const MAX_CACHE_PATH_BYTES = 4 * 1_024;

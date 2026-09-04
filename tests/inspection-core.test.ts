@@ -440,6 +440,73 @@ it("inspects one exact public member without traversing the complete export", as
   });
 });
 
+it("removes source method implementation from Member Inspection", async () => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/private-constructor-source",
+    exportName: "SourceMembers",
+    memberPath: ["send"],
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      intent: "member-inspection",
+      moduleExportName: "SourceMembers",
+      memberPath: ["send"],
+      declarations: [{ kind: "method", text: "send(prefix?: string): string;" }],
+    },
+  });
+});
+
+it.each([
+  ["count", [{ kind: "property", text: "count: number;" }]],
+  ["mode", [{ kind: "property", text: 'readonly mode: "public";' }]],
+  [
+    "label",
+    [
+      { kind: "accessor", text: "get label(): string;" },
+      { kind: "accessor", text: "set label(value: string);" },
+    ],
+  ],
+  [
+    "run",
+    [
+      { kind: "method", text: "run(value: string): string;" },
+      { kind: "method", text: "run(value: number): number;" },
+    ],
+  ],
+] as const)(
+  "preserves only the public declaration of source Member %s",
+  async (member, declarations) => {
+    const outcome = await inspectExportMember({
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/private-constructor-source",
+      exportName: "SourceMembers",
+      memberPath: [member],
+    });
+
+    expect(outcome).toMatchObject({ status: "success", result: { declarations } });
+  },
+);
+
+it.each([
+  ["Constant", "Constant = 3"],
+  ["Computed", "Computed"],
+])("projects source enum Member %s without initializer implementation", async (member, text) => {
+  const outcome = await inspectExportMember({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/private-constructor-source",
+    exportName: "SourceValues",
+    memberPath: [member],
+  });
+
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: { declarations: [{ kind: "enum-member", text }] },
+  });
+});
+
 it("does not expose a private member through focused Member Inspection", async () => {
   const outcome = await inspectExportMember({
     resolutionContext: fixture.resolutionContext,

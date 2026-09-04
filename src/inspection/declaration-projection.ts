@@ -474,6 +474,18 @@ function publicDeclaration(
       declaration.members.map((member) => publicEnumMember(checker, member)),
     );
   }
+  if (ts.isEnumMember(declaration)) {
+    return publicEnumMember(checker, declaration);
+  }
+  if (
+    ts.isConstructorDeclaration(declaration) ||
+    ts.isMethodDeclaration(declaration) ||
+    ts.isGetAccessorDeclaration(declaration) ||
+    ts.isSetAccessorDeclaration(declaration) ||
+    ts.isPropertyDeclaration(declaration)
+  ) {
+    return publicClassElement(checker, declaration, context);
+  }
   return ts.isClassDeclaration(declaration)
     ? ts.factory.updateClassDeclaration(
         declaration,
