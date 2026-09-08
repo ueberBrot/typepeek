@@ -199,7 +199,7 @@ const inspectionEvidenceSchema = Schema.Struct({
 function readTypepeekEvidence(output: string) {
   const evidence: { intent: string; specifier: string; exportName?: string; query?: string }[] = [];
   // Accept a complete JSON result or newline-delimited results from a command chain.
-  for (const text of new Set([output, ...output.split("\n")])) {
+  for (const text of new Set([output, ...output.split("\n")].map((text) => text.trim()))) {
     try {
       const value: unknown = JSON.parse(text);
       if (!Schema.is(inspectionEvidenceSchema)(value)) continue;

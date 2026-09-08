@@ -1,0 +1,615 @@
+{
+  "kind": "codex-discovery-benchmark",
+  "schemaVersion": 1,
+  "status": "complete",
+  "codexVersion": "codex-cli 0.153.4",
+  "identity": {
+    "workspace": "/Users/debruyn/Code/privates/typepeek/.benchmarks/inspection-performance-pilot-20260908",
+    "node": "v24.18.0",
+    "compiler": "6.0.3",
+    "ripgrep": "ripgrep 15.2.0 (rev e89fff89ac)",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "osRelease": "25.6.0",
+    "cpu": "Apple M1 Max",
+    "hostname": "MacBookPro.fritz.box",
+    "adapter": "package",
+    "evidenceHash": "7f73c2da28c81dbf25d38d0354156810da8a5f757032af419f3651be515ab0ad",
+    "lockfileHash": "372ac1a51597d70746e45dd5a5390b8ffc584b6607d35a692b7ee2e45dbf5369",
+    "artifactHash": "9d0a1540a30c268a4a85f363463e798168f4e226aad1c978c2162c3ba962ff8f",
+    "harnessHash": "b07b8f175b86046cdc7fc4a2d4f24a91bcef2308a8bdaaccd62c7c5a0ba08b44",
+    "commit": "d39e91c1c55c9e9259ea047afc75ea9c94c54e0e",
+    "codexHarnessHash": "f866d25279e8885922c58e84f5408c0189064722970c1bbf350fbe294feae702",
+    "skillHash": "cd5063d5f85144d0ade76100dca9a869e8e5ab00da0ef42c6d208aeda13eb765"
+  },
+  "recordedAt": "2026-09-08T17:32:09.927Z",
+  "options": {
+    "cases": ["effect-option", "typescript-program"],
+    "models": ["gpt-5.6-luna", "gpt-5.6-sol"],
+    "efforts": ["low"],
+    "conditions": ["typepeek-required"],
+    "repeats": 1,
+    "deadlineSeconds": 120,
+    "trialTokenLimit": 15000,
+    "totalTokenLimit": 250000,
+    "seed": 1729,
+    "output": "/Users/debruyn/Code/privates/typepeek/.benchmarks/codex-required-pilot-2026-09-08",
+    "prepareOnly": false
+  },
+  "groups": [
+    {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "condition": "typepeek-required",
+      "infrastructureFailures": 0,
+      "intervalScope": "Descriptive run-level variability within these fixed tasks; not uncertainty across tasks or packages.",
+      "attempts": 2,
+      "correct": 2,
+      "successRate": 1,
+      "successByDeadline": {
+        "30": 1,
+        "60": 1,
+        "120": 1
+      },
+      "successfulSeconds": {
+        "count": 2,
+        "min": 10.224657916999996,
+        "median": 12.846908500499998,
+        "p95": 15.20693402565,
+        "max": 15.469159084,
+        "mean": 12.846908500499998,
+        "standardDeviation": 3.7084223391264644,
+        "coefficientOfVariationPercent": 28.86626256411909,
+        "meanCi95HalfWidth": 33.31831591395102
+      },
+      "allAttemptSeconds": {
+        "count": 2,
+        "min": 10.224657916999996,
+        "median": 12.846908500499998,
+        "p95": 15.20693402565,
+        "max": 15.469159084,
+        "mean": 12.846908500499998,
+        "standardDeviation": 3.7084223391264644,
+        "coefficientOfVariationPercent": 28.86626256411909,
+        "meanCi95HalfWidth": 33.31831591395102
+      },
+      "reportedInputTokens": 59844,
+      "reportedCachedInputTokens": 33024,
+      "reportedOutputTokens": 552,
+      "reportedReasoningOutputTokens": 95,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 30198,
+      "cliAdoptionRate": 1,
+      "pairedSuccessfulCases": 0,
+      "pairedTimeComparison": null,
+      "pairedTokenComparison": null
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "condition": "typepeek-required",
+      "infrastructureFailures": 0,
+      "intervalScope": "Descriptive run-level variability within these fixed tasks; not uncertainty across tasks or packages.",
+      "attempts": 2,
+      "correct": 2,
+      "successRate": 1,
+      "successByDeadline": {
+        "30": 1,
+        "60": 1,
+        "120": 1
+      },
+      "successfulSeconds": {
+        "count": 2,
+        "min": 16.716373875,
+        "median": 22.687917229500002,
+        "p95": 28.06230624855,
+        "max": 28.659460584,
+        "mean": 22.687917229500002,
+        "standardDeviation": 8.44503760023283,
+        "coefficientOfVariationPercent": 37.22262169244939,
+        "meanCi95HalfWidth": 75.87442986227701
+      },
+      "allAttemptSeconds": {
+        "count": 2,
+        "min": 16.716373875,
+        "median": 22.687917229500002,
+        "p95": 28.06230624855,
+        "max": 28.659460584,
+        "mean": 22.687917229500002,
+        "standardDeviation": 8.44503760023283,
+        "coefficientOfVariationPercent": 37.22262169244939,
+        "meanCi95HalfWidth": 75.87442986227701
+      },
+      "reportedInputTokens": 59976,
+      "reportedCachedInputTokens": 34944,
+      "reportedOutputTokens": 628,
+      "reportedReasoningOutputTokens": 60,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 30302,
+      "cliAdoptionRate": 1,
+      "pairedSuccessfulCases": 0,
+      "pairedTimeComparison": null,
+      "pairedTokenComparison": null
+    }
+  ],
+  "byTask": [
+    {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "condition": "typepeek-required",
+      "infrastructureFailures": 0,
+      "intervalScope": "Descriptive run-level variability within these fixed tasks; not uncertainty across tasks or packages.",
+      "attempts": 1,
+      "correct": 1,
+      "successRate": 1,
+      "successByDeadline": {
+        "30": 1,
+        "60": 1,
+        "120": 1
+      },
+      "successfulSeconds": {
+        "count": 1,
+        "min": 15.469159084,
+        "median": 15.469159084,
+        "p95": 15.469159084,
+        "max": 15.469159084,
+        "mean": 15.469159084,
+        "standardDeviation": 0,
+        "coefficientOfVariationPercent": 0,
+        "meanCi95HalfWidth": null
+      },
+      "allAttemptSeconds": {
+        "count": 1,
+        "min": 15.469159084,
+        "median": 15.469159084,
+        "p95": 15.469159084,
+        "max": 15.469159084,
+        "mean": 15.469159084,
+        "standardDeviation": 0,
+        "coefficientOfVariationPercent": 0,
+        "meanCi95HalfWidth": null
+      },
+      "reportedInputTokens": 35983,
+      "reportedCachedInputTokens": 22016,
+      "reportedOutputTokens": 334,
+      "reportedReasoningOutputTokens": 58,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 36317,
+      "cliAdoptionRate": 1,
+      "pairedSuccessfulCases": 0,
+      "pairedTimeComparison": null,
+      "pairedTokenComparison": null,
+      "task": "effect-option",
+      "specifier": "effect/Option"
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "condition": "typepeek-required",
+      "infrastructureFailures": 0,
+      "intervalScope": "Descriptive run-level variability within these fixed tasks; not uncertainty across tasks or packages.",
+      "attempts": 1,
+      "correct": 1,
+      "successRate": 1,
+      "successByDeadline": {
+        "30": 1,
+        "60": 1,
+        "120": 1
+      },
+      "successfulSeconds": {
+        "count": 1,
+        "min": 28.659460584,
+        "median": 28.659460584,
+        "p95": 28.659460584,
+        "max": 28.659460584,
+        "mean": 28.659460584,
+        "standardDeviation": 0,
+        "coefficientOfVariationPercent": 0,
+        "meanCi95HalfWidth": null
+      },
+      "allAttemptSeconds": {
+        "count": 1,
+        "min": 28.659460584,
+        "median": 28.659460584,
+        "p95": 28.659460584,
+        "max": 28.659460584,
+        "mean": 28.659460584,
+        "standardDeviation": 0,
+        "coefficientOfVariationPercent": 0,
+        "meanCi95HalfWidth": null
+      },
+      "reportedInputTokens": 36037,
+      "reportedCachedInputTokens": 23424,
+      "reportedOutputTokens": 343,
+      "reportedReasoningOutputTokens": 32,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 36380,
+      "cliAdoptionRate": 1,
+      "pairedSuccessfulCases": 0,
+      "pairedTimeComparison": null,
+      "pairedTokenComparison": null,
+      "task": "effect-option",
+      "specifier": "effect/Option"
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "condition": "typepeek-required",
+      "infrastructureFailures": 0,
+      "intervalScope": "Descriptive run-level variability within these fixed tasks; not uncertainty across tasks or packages.",
+      "attempts": 1,
+      "correct": 1,
+      "successRate": 1,
+      "successByDeadline": {
+        "30": 1,
+        "60": 1,
+        "120": 1
+      },
+      "successfulSeconds": {
+        "count": 1,
+        "min": 10.224657916999996,
+        "median": 10.224657916999996,
+        "p95": 10.224657916999996,
+        "max": 10.224657916999996,
+        "mean": 10.224657916999996,
+        "standardDeviation": 0,
+        "coefficientOfVariationPercent": 0,
+        "meanCi95HalfWidth": null
+      },
+      "allAttemptSeconds": {
+        "count": 1,
+        "min": 10.224657916999996,
+        "median": 10.224657916999996,
+        "p95": 10.224657916999996,
+        "max": 10.224657916999996,
+        "mean": 10.224657916999996,
+        "standardDeviation": 0,
+        "coefficientOfVariationPercent": 0,
+        "meanCi95HalfWidth": null
+      },
+      "reportedInputTokens": 23861,
+      "reportedCachedInputTokens": 11008,
+      "reportedOutputTokens": 218,
+      "reportedReasoningOutputTokens": 37,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 24079,
+      "cliAdoptionRate": 1,
+      "pairedSuccessfulCases": 0,
+      "pairedTimeComparison": null,
+      "pairedTokenComparison": null,
+      "task": "typescript-program",
+      "specifier": "@typescript/typescript6"
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "condition": "typepeek-required",
+      "infrastructureFailures": 0,
+      "intervalScope": "Descriptive run-level variability within these fixed tasks; not uncertainty across tasks or packages.",
+      "attempts": 1,
+      "correct": 1,
+      "successRate": 1,
+      "successByDeadline": {
+        "30": 1,
+        "60": 1,
+        "120": 1
+      },
+      "successfulSeconds": {
+        "count": 1,
+        "min": 16.716373875,
+        "median": 16.716373875,
+        "p95": 16.716373875,
+        "max": 16.716373875,
+        "mean": 16.716373875,
+        "standardDeviation": 0,
+        "coefficientOfVariationPercent": 0,
+        "meanCi95HalfWidth": null
+      },
+      "allAttemptSeconds": {
+        "count": 1,
+        "min": 16.716373875,
+        "median": 16.716373875,
+        "p95": 16.716373875,
+        "max": 16.716373875,
+        "mean": 16.716373875,
+        "standardDeviation": 0,
+        "coefficientOfVariationPercent": 0,
+        "meanCi95HalfWidth": null
+      },
+      "reportedInputTokens": 23939,
+      "reportedCachedInputTokens": 11520,
+      "reportedOutputTokens": 285,
+      "reportedReasoningOutputTokens": 28,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 24224,
+      "cliAdoptionRate": 1,
+      "pairedSuccessfulCases": 0,
+      "pairedTimeComparison": null,
+      "pairedTokenComparison": null,
+      "task": "typescript-program",
+      "specifier": "@typescript/typescript6"
+    }
+  ],
+  "attempts": [
+    {
+      "classification": "task",
+      "task": "effect-option",
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "condition": "typepeek-required",
+      "repeat": 0,
+      "seconds": 28.659460584,
+      "passed": true,
+      "error": null,
+      "exitCode": 0,
+      "timedOut": false,
+      "promptHash": "e4fcf825658d8a020a626788ffc8531bc3a08a165424e5a31c4a6da0d81076d3",
+      "evidenceHash": "e8106af90d09f4957a4008cd9e45ce113b37e7e180371289b358ff81fc983256",
+      "expectedFacts": ["call:< A > ( self : Option < A > ) : A | null"],
+      "telemetry": {
+        "completedTurns": 1,
+        "inputTokens": 36037,
+        "outputTokens": 343,
+        "cachedInputTokens": 23424,
+        "reasoningOutputTokens": 32,
+        "commands": [
+          "/bin/zsh -c 'typepeek search effect/Option null --json'",
+          "/bin/zsh -c 'typepeek signatures effect/Option getOrNull --json'"
+        ],
+        "toolOutputBytes": 907,
+        "invalidLines": 0,
+        "usedTypepeek": true,
+        "typepeekEvidence": [
+          {
+            "intent": "export-search",
+            "specifier": "effect/Option",
+            "query": "null"
+          },
+          {
+            "intent": "export-search",
+            "specifier": "effect/Option",
+            "query": "null"
+          },
+          {
+            "intent": "signature-inspection",
+            "specifier": "effect/Option",
+            "exportName": "getOrNull"
+          },
+          {
+            "intent": "signature-inspection",
+            "specifier": "effect/Option",
+            "exportName": "getOrNull"
+          }
+        ]
+      },
+      "artifactDirectory": "/Users/debruyn/Code/privates/typepeek/.benchmarks/codex-required-pilot-2026-09-08/000-effect-option-typepeek-required",
+      "answer": {
+        "status": "answered",
+        "specifier": "effect/Option",
+        "exportName": "getOrNull",
+        "signatures": ["<A>(self: Option<A>): A | null"],
+        "matches": []
+      },
+      "commandEvidence": [
+        {
+          "command": "/bin/zsh -c 'typepeek search effect/Option null --json'",
+          "output": "{\"status\":\"success\",\"result\":{\"intent\":\"export-search\",\"query\":\"null\",\"totalModuleExports\":67,\"matches\":[{\"name\":\"flatMapNullishOr\"},{\"name\":\"fromNullOr\"},{\"name\":\"fromNullishOr\"},{\"name\":\"getOrNull\"},{\"name\":\"liftNullishOr\"}],\"specifier\":\"effect/Option\",\"resolutionVariant\":{\"accessStyle\":\"import\"},\"packageIdentity\":{\"name\":\"effect\",\"version\":\"4.0.0-rc.110\"}}}\n",
+          "exitCode": 0
+        },
+        {
+          "command": "/bin/zsh -c 'typepeek signatures effect/Option getOrNull --json'",
+          "output": "{\"status\":\"success\",\"result\":{\"intent\":\"signature-inspection\",\"moduleExport\":{\"name\":\"getOrNull\",\"signatures\":[{\"kind\":\"call\",\"text\":\"<A>(self: Option<A>): A | null\",\"typeParameters\":[{\"name\":\"A\",\"modifiers\":[],\"synthetic\":false}],\"parameters\":[{\"binding\":{\"kind\":\"identifier\",\"name\":\"self\",\"synthetic\":false},\"type\":\"Option<A>\",\"optional\":false,\"rest\":false}],\"returns\":{\"kind\":\"type\",\"type\":\"A | null\"}}]},\"specifier\":\"effect/Option\",\"resolutionVariant\":{\"accessStyle\":\"import\"},\"packageIdentity\":{\"name\":\"effect\",\"version\":\"4.0.0-rc.110\"}}}\n",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "classification": "task",
+      "task": "typescript-program",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "condition": "typepeek-required",
+      "repeat": 0,
+      "seconds": 10.224657916999996,
+      "passed": true,
+      "error": null,
+      "exitCode": 0,
+      "timedOut": false,
+      "promptHash": "a9c0e56b316949a8ed8df08b933f300f6316d4ea278709311d60e60e0fe0aa3f",
+      "evidenceHash": "17a57d7506130c6009acfe1b74cc0f1b5cca1dda067b663531281fd1cce337ee",
+      "expectedFacts": [
+        "call:( createProgramOptions : CreateProgramOptions ) : Program",
+        "call:( rootNames : readonly string [ ] , options : CompilerOptions , host ? : CompilerHost , oldProgram ? : Program , configFileParsingDiagnostics ? : readonly Diagnostic [ ] ) : Program"
+      ],
+      "telemetry": {
+        "completedTurns": 1,
+        "inputTokens": 23861,
+        "outputTokens": 218,
+        "cachedInputTokens": 11008,
+        "reasoningOutputTokens": 37,
+        "commands": [
+          "/bin/zsh -c 'typepeek signatures @typescript/typescript6 createProgram --json'"
+        ],
+        "toolOutputBytes": 1511,
+        "invalidLines": 0,
+        "usedTypepeek": true,
+        "typepeekEvidence": [
+          {
+            "intent": "signature-inspection",
+            "specifier": "@typescript/typescript6",
+            "exportName": "createProgram"
+          },
+          {
+            "intent": "signature-inspection",
+            "specifier": "@typescript/typescript6",
+            "exportName": "createProgram"
+          }
+        ]
+      },
+      "artifactDirectory": "/Users/debruyn/Code/privates/typepeek/.benchmarks/codex-required-pilot-2026-09-08/001-typescript-program-typepeek-required",
+      "answer": {
+        "status": "answered",
+        "specifier": "@typescript/typescript6",
+        "exportName": "createProgram",
+        "signatures": [
+          "(createProgramOptions: CreateProgramOptions): Program",
+          "(rootNames: readonly string[], options: CompilerOptions, host?: CompilerHost, oldProgram?: Program, configFileParsingDiagnostics?: readonly Diagnostic[]): Program"
+        ],
+        "matches": []
+      },
+      "commandEvidence": [
+        {
+          "command": "/bin/zsh -c 'typepeek signatures @typescript/typescript6 createProgram --json'",
+          "output": "{\"status\":\"success\",\"result\":{\"intent\":\"signature-inspection\",\"moduleExport\":{\"name\":\"createProgram\",\"signatures\":[{\"kind\":\"call\",\"text\":\"(createProgramOptions: CreateProgramOptions): Program\",\"typeParameters\":[],\"parameters\":[{\"binding\":{\"kind\":\"identifier\",\"name\":\"createProgramOptions\",\"synthetic\":false},\"type\":\"CreateProgramOptions\",\"optional\":false,\"rest\":false}],\"returns\":{\"kind\":\"type\",\"type\":\"Program\"}},{\"kind\":\"call\",\"text\":\"(rootNames: readonly string[], options: CompilerOptions, host?: CompilerHost, oldProgram?: Program, configFileParsingDiagnostics?: readonly Diagnostic[]): Program\",\"typeParameters\":[],\"parameters\":[{\"binding\":{\"kind\":\"identifier\",\"name\":\"rootNames\",\"synthetic\":false},\"type\":\"readonly string[]\",\"optional\":false,\"rest\":false},{\"binding\":{\"kind\":\"identifier\",\"name\":\"options\",\"synthetic\":false},\"type\":\"CompilerOptions\",\"optional\":false,\"rest\":false},{\"binding\":{\"kind\":\"identifier\",\"name\":\"host\",\"synthetic\":false},\"type\":\"CompilerHost | undefined\",\"optional\":true,\"rest\":false},{\"binding\":{\"kind\":\"identifier\",\"name\":\"oldProgram\",\"synthetic\":false},\"type\":\"Program | undefined\",\"optional\":true,\"rest\":false},{\"binding\":{\"kind\":\"identifier\",\"name\":\"configFileParsingDiagnostics\",\"synthetic\":false},\"type\":\"readonly Diagnostic[] | undefined\",\"optional\":true,\"rest\":false}],\"returns\":{\"kind\":\"type\",\"type\":\"Program\"}}]},\"specifier\":\"@typescript/typescript6\",\"resolutionVariant\":{\"accessStyle\":\"import\"},\"packageIdentity\":{\"name\":\"@typescript/typescript6\",\"version\":\"6.0.2\"}}}\n",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "classification": "task",
+      "task": "effect-option",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "condition": "typepeek-required",
+      "repeat": 0,
+      "seconds": 15.469159084,
+      "passed": true,
+      "error": null,
+      "exitCode": 0,
+      "timedOut": false,
+      "promptHash": "e4fcf825658d8a020a626788ffc8531bc3a08a165424e5a31c4a6da0d81076d3",
+      "evidenceHash": "e8106af90d09f4957a4008cd9e45ce113b37e7e180371289b358ff81fc983256",
+      "expectedFacts": ["call:< A > ( self : Option < A > ) : A | null"],
+      "telemetry": {
+        "completedTurns": 1,
+        "inputTokens": 35983,
+        "outputTokens": 334,
+        "cachedInputTokens": 22016,
+        "reasoningOutputTokens": 58,
+        "commands": [
+          "/bin/zsh -c 'typepeek search effect/Option null --json'",
+          "/bin/zsh -c 'typepeek signatures effect/Option getOrNull --json'"
+        ],
+        "toolOutputBytes": 907,
+        "invalidLines": 0,
+        "usedTypepeek": true,
+        "typepeekEvidence": [
+          {
+            "intent": "export-search",
+            "specifier": "effect/Option",
+            "query": "null"
+          },
+          {
+            "intent": "export-search",
+            "specifier": "effect/Option",
+            "query": "null"
+          },
+          {
+            "intent": "signature-inspection",
+            "specifier": "effect/Option",
+            "exportName": "getOrNull"
+          },
+          {
+            "intent": "signature-inspection",
+            "specifier": "effect/Option",
+            "exportName": "getOrNull"
+          }
+        ]
+      },
+      "artifactDirectory": "/Users/debruyn/Code/privates/typepeek/.benchmarks/codex-required-pilot-2026-09-08/002-effect-option-typepeek-required",
+      "answer": {
+        "status": "answered",
+        "specifier": "effect/Option",
+        "exportName": "getOrNull",
+        "signatures": ["<A>(self: Option<A>): A | null"],
+        "matches": []
+      },
+      "commandEvidence": [
+        {
+          "command": "/bin/zsh -c 'typepeek search effect/Option null --json'",
+          "output": "{\"status\":\"success\",\"result\":{\"intent\":\"export-search\",\"query\":\"null\",\"totalModuleExports\":67,\"matches\":[{\"name\":\"flatMapNullishOr\"},{\"name\":\"fromNullOr\"},{\"name\":\"fromNullishOr\"},{\"name\":\"getOrNull\"},{\"name\":\"liftNullishOr\"}],\"specifier\":\"effect/Option\",\"resolutionVariant\":{\"accessStyle\":\"import\"},\"packageIdentity\":{\"name\":\"effect\",\"version\":\"4.0.0-rc.110\"}}}\n",
+          "exitCode": 0
+        },
+        {
+          "command": "/bin/zsh -c 'typepeek signatures effect/Option getOrNull --json'",
+          "output": "{\"status\":\"success\",\"result\":{\"intent\":\"signature-inspection\",\"moduleExport\":{\"name\":\"getOrNull\",\"signatures\":[{\"kind\":\"call\",\"text\":\"<A>(self: Option<A>): A | null\",\"typeParameters\":[{\"name\":\"A\",\"modifiers\":[],\"synthetic\":false}],\"parameters\":[{\"binding\":{\"kind\":\"identifier\",\"name\":\"self\",\"synthetic\":false},\"type\":\"Option<A>\",\"optional\":false,\"rest\":false}],\"returns\":{\"kind\":\"type\",\"type\":\"A | null\"}}]},\"specifier\":\"effect/Option\",\"resolutionVariant\":{\"accessStyle\":\"import\"},\"packageIdentity\":{\"name\":\"effect\",\"version\":\"4.0.0-rc.110\"}}}\n",
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "classification": "task",
+      "task": "typescript-program",
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "condition": "typepeek-required",
+      "repeat": 0,
+      "seconds": 16.716373875,
+      "passed": true,
+      "error": null,
+      "exitCode": 0,
+      "timedOut": false,
+      "promptHash": "a9c0e56b316949a8ed8df08b933f300f6316d4ea278709311d60e60e0fe0aa3f",
+      "evidenceHash": "17a57d7506130c6009acfe1b74cc0f1b5cca1dda067b663531281fd1cce337ee",
+      "expectedFacts": [
+        "call:( createProgramOptions : CreateProgramOptions ) : Program",
+        "call:( rootNames : readonly string [ ] , options : CompilerOptions , host ? : CompilerHost , oldProgram ? : Program , configFileParsingDiagnostics ? : readonly Diagnostic [ ] ) : Program"
+      ],
+      "telemetry": {
+        "completedTurns": 1,
+        "inputTokens": 23939,
+        "outputTokens": 285,
+        "cachedInputTokens": 11520,
+        "reasoningOutputTokens": 28,
+        "commands": [
+          "/bin/zsh -c 'typepeek signatures @typescript/typescript6 createProgram --json'"
+        ],
+        "toolOutputBytes": 1511,
+        "invalidLines": 0,
+        "usedTypepeek": true,
+        "typepeekEvidence": [
+          {
+            "intent": "signature-inspection",
+            "specifier": "@typescript/typescript6",
+            "exportName": "createProgram"
+          },
+          {
+            "intent": "signature-inspection",
+            "specifier": "@typescript/typescript6",
+            "exportName": "createProgram"
+          }
+        ]
+      },
+      "artifactDirectory": "/Users/debruyn/Code/privates/typepeek/.benchmarks/codex-required-pilot-2026-09-08/003-typescript-program-typepeek-required",
+      "answer": {
+        "status": "answered",
+        "specifier": "@typescript/typescript6",
+        "exportName": "createProgram",
+        "signatures": [
+          "(createProgramOptions: CreateProgramOptions): Program",
+          "(rootNames: readonly string[], options: CompilerOptions, host?: CompilerHost, oldProgram?: Program, configFileParsingDiagnostics?: readonly Diagnostic[]): Program"
+        ],
+        "matches": []
+      },
+      "commandEvidence": [
+        {
+          "command": "/bin/zsh -c 'typepeek signatures @typescript/typescript6 createProgram --json'",
+          "output": "{\"status\":\"success\",\"result\":{\"intent\":\"signature-inspection\",\"moduleExport\":{\"name\":\"createProgram\",\"signatures\":[{\"kind\":\"call\",\"text\":\"(createProgramOptions: CreateProgramOptions): Program\",\"typeParameters\":[],\"parameters\":[{\"binding\":{\"kind\":\"identifier\",\"name\":\"createProgramOptions\",\"synthetic\":false},\"type\":\"CreateProgramOptions\",\"optional\":false,\"rest\":false}],\"returns\":{\"kind\":\"type\",\"type\":\"Program\"}},{\"kind\":\"call\",\"text\":\"(rootNames: readonly string[], options: CompilerOptions, host?: CompilerHost, oldProgram?: Program, configFileParsingDiagnostics?: readonly Diagnostic[]): Program\",\"typeParameters\":[],\"parameters\":[{\"binding\":{\"kind\":\"identifier\",\"name\":\"rootNames\",\"synthetic\":false},\"type\":\"readonly string[]\",\"optional\":false,\"rest\":false},{\"binding\":{\"kind\":\"identifier\",\"name\":\"options\",\"synthetic\":false},\"type\":\"CompilerOptions\",\"optional\":false,\"rest\":false},{\"binding\":{\"kind\":\"identifier\",\"name\":\"host\",\"synthetic\":false},\"type\":\"CompilerHost | undefined\",\"optional\":true,\"rest\":false},{\"binding\":{\"kind\":\"identifier\",\"name\":\"oldProgram\",\"synthetic\":false},\"type\":\"Program | undefined\",\"optional\":true,\"rest\":false},{\"binding\":{\"kind\":\"identifier\",\"name\":\"configFileParsingDiagnostics\",\"synthetic\":false},\"type\":\"readonly Diagnostic[] | undefined\",\"optional\":true,\"rest\":false}],\"returns\":{\"kind\":\"type\",\"type\":\"Program\"}}]},\"specifier\":\"@typescript/typescript6\",\"resolutionVariant\":{\"accessStyle\":\"import\"},\"packageIdentity\":{\"name\":\"@typescript/typescript6\",\"version\":\"6.0.2\"}}}\n",
+          "exitCode": 0
+        }
+      ]
+    }
+  ],
+  "runNotes": [
+    "Four-attempt verification pilot, not a comparative timing/token or reliability study. Every first attempt is retained.",
+    "An earlier isolation preflight from a checkout under /private/tmp found the grader readable and stopped before any model requests. This pilot ran from detached commit d39e91c under the repository ignored .benchmarks directory, where isolation passed. No isolation check was relaxed.",
+    "The exact prepacked CLI artifact is unchanged from execa-chunked-reads.json. Fixture creation and packing are outside model-trial timers.",
+    "The archived original telemetry may repeat an evidence item for trailing-newline JSON output. A subsequent parser fix deduplicates those records; command counts, tool-use grades, final-answer grades, times, and tokens are unaffected. The original records are preserved."
+  ],
+  "traceReview": {
+    "reviewedAttempts": 4,
+    "successfulInspectionOutputsMatchIndependentOracle": 4,
+    "finalAnswersPassed": 4,
+    "currentEvidenceParserRetainsOriginalGrades": true
+  }
+}

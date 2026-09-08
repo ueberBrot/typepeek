@@ -27,3 +27,24 @@ The earlier 90-attempt study remains unchanged. Its nine failed attempts compris
 The new `typepeek-required` condition explicitly requires a successful JSON inspection of the requested module and export, includes the shipped skill, and instructs the model to copy signature text. Its tool-use grade rejects help-only, failed, and wrong-module commands. The final answer still has to pass the independent oracle. This is a prescribed workflow and must be reported separately from voluntary adoption. An agent that ignores the requirement still fails; the harness does not relabel or retry it into a success.
 
 A recovery experiment remains separate work: it must retain first-attempt failures, use a fixed retry allowance, and charge all retry time and tokens. This change does not claim to have measured recovery or eliminated model failures.
+
+## Required-use verification pilot
+
+Both models passed both tasks at low effort, with one fresh attempt per task and no retries:
+
+| Model | Task                     | Correct / attempts |   Time | Reported input + output tokens |
+| ----- | ------------------------ | -----------------: | -----: | -----------------------------: |
+| Luna  | Effect generic signature |                1/1 | 15.5 s |                         36,317 |
+| Luna  | TypeScript overloads     |                1/1 | 10.2 s |                         24,079 |
+| Sol   | Effect generic signature |                1/1 | 28.7 s |                         36,380 |
+| Sol   | TypeScript overloads     |                1/1 | 16.7 s |                         24,224 |
+
+All four traces contain successful installed-evidence inspections whose signature text matches the independent oracle. All four final answers preserve the generic parameter and declared overloads. Total reported usage is **121,000 tokens**, including cached input within input totals. The [archive](codex-required-pilot.json) retains prompts, answers, command outputs, grades, timing, usage, and identities. This four-attempt pilot has no control arm and cannot establish a reliability improvement, time advantage, or token savings.
+
+The first isolation preflight was attempted from the performance worktree under `/private/tmp`. It detected that the grader was readable and stopped before any model calls. The pilot then used the same committed harness and prepacked artifact in a detached checkout outside shared temporary directories. Isolation passed without weakening any check. An evidence-parser follow-up removes duplicate records caused by trailing-newline JSON; replaying all four traces preserves every original tool-use grade. Archived original telemetry remains unchanged.
+
+## Verification
+
+Formatting, lint, types, Effect diagnostics, Fallow, build and package smoke checks, the seven packaged regression gates, and the four-method discovery smoke check pass. Standards and spec review have no remaining findings.
+
+The initial full-suite run passed 525 tests but hit two package-fixture failures under restricted networking and two failures under unrestricted parallel load. Rerunning the affected 72 tests with CI's two-worker setting and required network access passed; the additional required-search and trailing-newline regressions also pass. No product deadline or resource limit was increased to accommodate the tests.

@@ -152,6 +152,7 @@ it("requires task evidence in the required-use condition and keeps availability 
     gradeCodexExecution(scenario, "typepeek-required", command(evidence.replace("execa", "other"))),
   ).toContain("inspection");
   expect(gradeCodexExecution(scenario, "typepeek-required", command(evidence))).toBeNull();
+  expect(command(`${evidence}\n`).typepeekEvidence).toHaveLength(1);
   const plan = JSON.stringify({
     status: "success",
     result: { intent: "inspection-plan", inspections: [JSON.parse(evidence).result] },
