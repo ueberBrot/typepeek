@@ -92,6 +92,7 @@ function focusedExportRequest(prepared: PreparedInspectionCoreRequest):
     case "signature-inspection":
     case "declaration-inspection":
     case "member-inspection":
+    case "member-discovery":
       return prepared.request;
     default:
       return undefined;

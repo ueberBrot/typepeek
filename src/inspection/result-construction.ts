@@ -1,8 +1,10 @@
 import {
   MAX_RESULT_CONSTRUCTION_BYTES,
+  MAX_MEMBER_CANDIDATES,
   MAX_RESULT_CONSTRUCTION_NODES,
 } from "#typepeek/inspection/budget-policy";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
+import type { MemberPath } from "#typepeek/inspection/member-path";
 import type {
   DeclarationSpace,
   DeclarationInspection,
@@ -28,6 +30,7 @@ import type {
   SupportingType,
   AtomicInspectionResult,
   MemberInspection,
+  MemberDiscovery,
 } from "#typepeek/inspection/protocol";
 
 interface FragmentSize {
@@ -81,7 +84,7 @@ export interface FocusedInspectionConstruction {
   ) => DeclarationInspection;
   readonly memberResult: (
     moduleExportName: string,
-    memberPath: readonly string[],
+    memberPath: MemberPath,
     declarations: readonly InspectedDeclaration[],
   ) => MemberInspection;
 }
@@ -144,6 +147,7 @@ export function assertInspectionResultConstructionBound(value: object): void {
 
 /** Owns one aggregate Inspection Result construction budget and all assembly paths. */
 export class InspectionResultConstruction {
+  #memberCandidates = 0;
   readonly #budget = new ResultConstructionBudget();
   readonly #target: InspectionResultConstructionTarget;
 
@@ -207,6 +211,40 @@ export class InspectionResultConstruction {
         matches: retainedMatches,
       },
       retainedMatches,
+    );
+  }
+
+  consumeMemberCandidates(count: number): void {
+    this.#memberCandidates += count;
+    if (this.#memberCandidates > MAX_MEMBER_CANDIDATES) {
+      throw new InspectionLimitError(
+        "member-candidates",
+        "Inspection exceeded its Member candidate limit.",
+      );
+    }
+  }
+
+  memberDiscovery(
+    moduleExportName: string,
+    memberPath: MemberPath,
+    query: string | undefined,
+    totalMembers: number,
+    members: MemberDiscovery["members"],
+  ): MemberDiscovery {
+    const retainedMembers = members.map((member) => this.#budget.leaf(member));
+    return this.#budget.container(
+      {
+        intent: "member-discovery",
+        specifier: this.#target.specifier,
+        resolutionVariant: this.#target.resolutionVariant,
+        ...this.#target.identity,
+        moduleExportName,
+        memberPath,
+        ...(query === undefined ? {} : { query }),
+        totalMembers,
+        members: retainedMembers,
+      },
+      retainedMembers,
     );
   }
 
@@ -349,7 +387,7 @@ class FocusedInspectionResultConstruction implements FocusedInspectionConstructi
 
   memberResult(
     moduleExportName: string,
-    memberPath: readonly string[],
+    memberPath: MemberPath,
     declarations: readonly InspectedDeclaration[],
   ): MemberInspection {
     return this.#budget.container(

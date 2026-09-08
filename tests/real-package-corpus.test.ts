@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import {
   inspectExport,
+  inspectExportMembers,
+  inspectExportMember,
   inspectExportSignatures,
   inspectInterfaceOverview,
   type ExportInspection,
@@ -229,6 +231,33 @@ const SIGNATURE_QUESTIONS = [
 
 describe("pinned real-package corpus", () => {
   let corpus: RealPackageCorpus;
+
+  it("discovers the documented ZodError member and inspects its qualified path", async () => {
+    const target = {
+      resolutionContext: corpus.resolutionContext,
+      specifier: "zod",
+      exportName: "ZodError",
+    };
+    const discovery = await inspectExportMembers({ ...target, query: "ISSUE" });
+    expect(discovery).toMatchObject({
+      status: "success",
+      result: {
+        members: [
+          { name: "addIssue", spaces: ["type"] },
+          { name: "addIssues", spaces: ["type"] },
+          { name: "issues", spaces: ["type"] },
+        ],
+      },
+    });
+    const selected = await inspectExportMember({
+      ...target,
+      memberPath: [{ name: "issues", space: "type" }],
+    });
+    expect(selected).toMatchObject({
+      status: "success",
+      result: { declarations: [{ text: expect.stringContaining("issues") }] },
+    });
+  });
 
   beforeAll(async () => {
     corpus = await materializeRealPackageCorpus();

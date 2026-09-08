@@ -58,6 +58,7 @@ it("publishes deterministic adapter capabilities without TypeScript enums", () =
       "public-subpath-discovery",
       "declaration-inspection",
       "member-inspection",
+      "member-discovery",
       "inspection-plan",
       "public-interface-comparison",
     ],
@@ -851,4 +852,86 @@ it("keeps exported protocol vocabularies immutable at runtime", async () => {
   ).resolves.toMatchObject({
     outcome: { status: "unsupported", reason: "invalid-request" },
   });
+});
+
+it("publishes qualified Member selector grammar and optional discovery fields", () => {
+  const descriptor = inspectCapabilities().requestDescriptors.find(
+    (entry) => entry.intent === "member-discovery",
+  );
+  expect(descriptor).toMatchObject({
+    fields: expect.arrayContaining([
+      {
+        name: "memberPath",
+        required: false,
+        kind: "member-path",
+        minItems: 0,
+        maxItems: 16,
+        maxItemBytes: 256,
+        unqualified: true,
+        qualified: { name: "name", space: "space", values: ["type", "value", "namespace"] },
+      },
+      { name: "query", required: false, kind: "string", minBytes: 1, maxBytes: 256 },
+    ]),
+  });
+  expect(inspectCapabilities().budgetDimensions).toEqual(
+    expect.arrayContaining(["member-candidates", "member-matches"]),
+  );
+});
+
+it("discovers filtered Members and executes qualified follow-up inspection through the protocol", async () => {
+  const target = {
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/focused",
+    exportName: "PublicShape",
+  };
+  const discovery = await invokeInspectionProtocol({
+    protocolVersion: "1",
+    intent: "member-discovery",
+    request: { ...target, query: "VIS" },
+  });
+  expect(discovery).toMatchObject({
+    outcome: {
+      status: "success",
+      result: {
+        intent: "member-discovery",
+        memberPath: [],
+        totalMembers: 2,
+        query: "VIS",
+        members: [{ name: "visible", spaces: ["type"] }],
+      },
+    },
+  });
+  expect(
+    Result.isSuccess(Schema.decodeUnknownResult(inspectionProtocolResponseSchema)(discovery)),
+  ).toBe(true);
+  const followup = await invokeInspectionProtocol({
+    protocolVersion: "1",
+    intent: "inspection-plan",
+    request: {
+      ...target,
+      queries: [
+        { intent: "member-discovery", exportName: "PublicShape", query: "absent" },
+        {
+          intent: "member-inspection",
+          exportName: "PublicShape",
+          memberPath: [{ name: "visible", space: "type" }],
+        },
+      ],
+    },
+  });
+  expect(followup).toMatchObject({
+    outcome: {
+      status: "success",
+      result: {
+        intent: "inspection-plan",
+        inspections: [
+          { intent: "member-discovery", totalMembers: 2, members: [] },
+          { intent: "member-inspection", memberPath: [{ name: "visible", space: "type" }] },
+        ],
+      },
+    },
+  });
+  expect(
+    Result.isSuccess(Schema.decodeUnknownResult(inspectionProtocolResponseSchema)(followup)),
+  ).toBe(true);
 });

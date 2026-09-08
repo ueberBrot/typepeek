@@ -118,6 +118,7 @@ const NODE_AUGMENTATION_SCOPE_BY_QUERY = {
   "public-subpath-discovery": "none",
   "declaration-inspection": "focused-export",
   "member-inspection": "focused-export",
+  "member-discovery": "focused-export",
 } as const satisfies Readonly<Record<InspectionPlanQuery["intent"], NodeAugmentationScope>>;
 
 /** Materializes and validates one bounded TypeScript declaration program. */

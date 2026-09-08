@@ -1,7 +1,8 @@
 import { Predicate, Result, Schema } from "effect";
 
+import { MAX_MEMBER_CANDIDATES, MAX_MEMBER_MATCHES } from "#typepeek/inspection/budget-policy";
 import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection-plan-query";
-import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
+import { memberPathsEqual, readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import type { PackageIdentity } from "#typepeek/inspection/package-identity";
 import {
   type AnalysisRequest,
@@ -18,6 +19,7 @@ import {
   type InspectionResultByIntent,
   type InterfaceOverview,
   type MemberInspection,
+  type MemberDiscovery,
   type NormalizedDeclarationInspectionRequest,
   type NormalizedInspectionPlanRequest,
   type NormalizedInspectionTarget,
@@ -78,6 +80,10 @@ export function enforceInspectionOutcome(
   intent: "declaration-inspection",
   value: unknown,
 ): InspectionOutcome<DeclarationInspection>;
+export function enforceInspectionOutcome(
+  intent: "member-discovery",
+  value: unknown,
+): InspectionOutcome<MemberDiscovery>;
 export function enforceInspectionOutcome(
   intent: "member-inspection",
   value: unknown,
@@ -273,6 +279,13 @@ const INSPECTION_PLAN_QUERY_MATCHERS = {
   "signature-inspection": matchesFocusedPlanQuery,
   "declaration-inspection": matchesFocusedPlanQuery,
   "member-inspection": matchesMemberPlanQuery,
+  "member-discovery": (inspection, query) =>
+    inspection.intent === "member-discovery" &&
+    query.intent === "member-discovery" &&
+    inspection.moduleExportName === query.exportName &&
+    memberPathsEqual(inspection.memberPath, query.memberPath) &&
+    inspection.query === query.query &&
+    isAuthoritativeMemberDiscovery(inspection),
 } as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryMatcher>>;
 
 function matchesFocusedPlanQuery(
@@ -309,8 +322,24 @@ function isAuthoritativeMemberInspection(inspection: MemberInspection): boolean 
   );
 }
 
-function memberPathsEqual(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((segment, index) => segment === right[index]);
+function isAuthoritativeMemberDiscovery(inspection: MemberDiscovery): boolean {
+  const order = ["type", "value", "namespace"];
+  return (
+    inspection.totalMembers <= MAX_MEMBER_CANDIDATES &&
+    inspection.members.length <= MAX_MEMBER_MATCHES &&
+    inspection.members.length <= inspection.totalMembers &&
+    (inspection.query !== undefined || inspection.members.length === inspection.totalMembers) &&
+    inspection.members.every(
+      (member, index) =>
+        (index === 0 || (inspection.members[index - 1]?.name ?? "") < member.name) &&
+        (inspection.query === undefined ||
+          member.name.toLowerCase().includes(inspection.query.toLowerCase())) &&
+        member.spaces.every(
+          (space, index) =>
+            index === 0 || order.indexOf(member.spaces[index - 1] ?? "") < order.indexOf(space),
+        ),
+    )
+  );
 }
 
 function readInspectionOutcome(value: unknown): InspectionOutcome | undefined {

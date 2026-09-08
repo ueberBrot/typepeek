@@ -7,6 +7,7 @@ import {
   inspectFocusedModuleExport,
   inspectFocusedModuleExportDeclarations,
   inspectFocusedModuleExportMember,
+  discoverFocusedModuleExportMembers,
 } from "#typepeek/inspection/export-inspection";
 import {
   createInspectionCacheIdentity,
@@ -30,6 +31,7 @@ import {
   createInstalledEvidenceFingerprintRecorder,
   type InstalledEvidenceProof,
 } from "#typepeek/inspection/installed-evidence-fingerprint";
+import { formatMemberPath, type MemberPath } from "#typepeek/inspection/member-path";
 import { profileInspectionPhase } from "#typepeek/inspection/performance-profile";
 import type {
   AnalysisRequest,
@@ -214,6 +216,7 @@ const INSPECTION_QUERY_HANDLERS = {
   "signature-inspection": inspectSignatureQuery,
   "declaration-inspection": inspectDeclarationQuery,
   "member-inspection": inspectMemberQuery,
+  "member-discovery": inspectMemberDiscoveryQuery,
   "export-search": inspectExportSearchQuery,
   "public-subpath-discovery": inspectPublicSubpathQuery,
 } as const satisfies {
@@ -300,6 +303,30 @@ function inspectMemberQuery(
   return missingMemberOutcome(query.exportName, query.memberPath, construction.specifier);
 }
 
+function inspectMemberDiscoveryQuery(
+  evidence: InspectableModuleEvidence,
+  query: Extract<InspectionPlanQuery, { readonly intent: "member-discovery" }>,
+  construction: InspectionResultConstruction,
+): EvidenceQueryResult {
+  const outcome = discoverFocusedModuleExportMembers(
+    evidence,
+    query.exportName,
+    query.memberPath,
+    query.query,
+    construction,
+  );
+  if (outcome.status === "success") {
+    return outcome.result;
+  }
+  if (outcome.status === "export-not-found") {
+    return missingExportOutcome(query.exportName, construction.specifier);
+  }
+  if (outcome.status === "ambiguous-member") {
+    return ambiguousMemberOutcome(query.exportName, query.memberPath);
+  }
+  return missingMemberOutcome(query.exportName, query.memberPath, construction.specifier);
+}
+
 function inspectExportSearchQuery(
   evidence: InspectableModuleEvidence,
   query: Extract<InspectionPlanQuery, { readonly intent: "export-search" }>,
@@ -335,35 +362,29 @@ function missingExportOutcome(exportName: string, specifier: string): Inspection
 
 function missingMemberOutcome(
   exportName: string,
-  memberPath: readonly string[],
+  memberPath: MemberPath,
   specifier: string,
 ): InspectionFailure {
   return {
     status: "not-found",
     reason: "member-not-found",
-    message: `Public Member "${[exportName, ...memberPath].join(".")}" was not found in "${specifier}".`,
+    message: `Public Member "${[exportName, formatMemberPath(memberPath)].join(".")}" was not found in "${specifier}".`,
   };
 }
 
-function ambiguousMemberOutcome(
-  exportName: string,
-  memberPath: readonly string[],
-): InspectionFailure {
+function ambiguousMemberOutcome(exportName: string, memberPath: MemberPath): InspectionFailure {
   return {
     status: "unsupported",
     reason: "ambiguous-member",
-    message: `Public Member "${[exportName, ...memberPath].join(".")}" is ambiguous across declaration spaces.`,
+    message: `Public Member "${[exportName, formatMemberPath(memberPath)].join(".")}" is ambiguous across declaration spaces.`,
   };
 }
 
-function unsupportedMemberOutcome(
-  exportName: string,
-  memberPath: readonly string[],
-): InspectionFailure {
+function unsupportedMemberOutcome(exportName: string, memberPath: MemberPath): InspectionFailure {
   return {
     status: "unsupported",
     reason: "no-static-representation",
-    message: `Public Member "${[exportName, ...memberPath].join(".")}" has no declaration-safe static representation.`,
+    message: `Public Member "${[exportName, formatMemberPath(memberPath)].join(".")}" has no declaration-safe static representation.`,
   };
 }
 

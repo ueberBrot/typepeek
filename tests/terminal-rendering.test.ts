@@ -2,6 +2,26 @@ import { expect, it } from "vite-plus/test";
 
 import { renderInspection } from "#typepeek/terminal-rendering";
 
+it("renders Member Discovery selectors and escapes package-controlled names", () => {
+  const rendered = renderInspection({
+    intent: "member-discovery",
+    specifier: "example",
+    packageIdentity: { name: "example", version: "1.0.0" },
+    resolutionVariant: { accessStyle: "import" },
+    moduleExportName: "Shape",
+    memberPath: [{ name: "nested", space: "type" }],
+    query: "SHARED\u001b[31m",
+    totalMembers: 3,
+    members: [{ name: "shared\nvalue", spaces: ["type", "value"] }],
+  });
+
+  expect(rendered).toContain("Members of: Shape.type:nested");
+  expect(rendered).toContain("3 total");
+  expect(rendered).toContain("(type, value)");
+  expect(rendered).not.toContain("\u001b");
+  expect(rendered).not.toContain("shared\nvalue");
+});
+
 it("renders a deterministic Interface Overview", () => {
   expect(
     renderInspection({

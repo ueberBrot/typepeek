@@ -26,6 +26,8 @@ The target is established when the Resolution Context, Specifier, and Access Sty
 | Which Public Subpaths can be imported?                                             | `typepeek subpaths <specifier>`                                                        |
 | What are an export's call or construct signatures?                                 | `typepeek signatures <specifier> <export>`                                             |
 | What declarations define an export?                                                | `typepeek declarations <specifier> <export>`                                           |
+| Which immediate public member names are available?                                 | `typepeek members <specifier> <export> [member-path]`                                  |
+| Which public member names contain a substring?                                     | `typepeek members <specifier> <export> [member-path] --match <query>`                  |
 | What defines one public member?                                                    | `typepeek member <specifier> <export> <member-path>`                                   |
 | Which declarations, Package Documentation, and Supporting Types explain an export? | `typepeek export <specifier> <export>`                                                 |
 | Which answers share one Specifier and evidence snapshot?                           | `typepeek plan <specifier> '<queries-json>' --json`                                    |
@@ -33,7 +35,11 @@ The target is established when the Resolution Context, Specifier, and Access Sty
 
 Start with `overview` only when the exact export is unknown. Use `search` for name discovery without returning an overview. Run discovery and focused inspection sequentially when the focused query depends on the discovery result; use `plan` when every query is already known.
 
-For a nested Member path, pass a JSON string array such as `'["shape","keyof"]'`. Add `--json` when structured fields matter. Keep compact JSON for machine consumption; add `--pretty` only when a human will read it.
+Use `members` before `member` when the exact member name is unknown or an export's declarations exceed a budget. Discovery lists immediate public names, available spaces, and the complete count before filtering. `--match` narrows both JSON and terminal results. An empty result means no names matched; a typed budget failure supplies no partial list.
+
+For a nested Member path, pass a JSON array such as `'["shape","keyof"]'`. If a segment is ambiguous, list its parent's members and replace that segment with a selector using a returned space: `'[{"name":"shared","space":"type"},"leaf"]'`. `type` selects instance/type members, `value` selects value/static members, and `namespace` selects namespace exports. Qualified and unqualified segments can be mixed at any depth. The same paths work in `members`, `member`, and Inspection Plans.
+
+Add `--json` when structured fields matter. Keep compact JSON for machine consumption; add `--pretty` only when a human will read it.
 
 The inspection is complete when each question has either the narrowest complete Inspection Result or an explicit typed failure.
 

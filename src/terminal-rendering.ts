@@ -10,6 +10,7 @@ import type {
   InterfaceOverview,
   InspectionPlan,
   MemberInspection,
+  MemberDiscovery,
   PackageIdentity,
   PublicSubpathDiscovery,
   PublicInterfaceComparison,
@@ -18,6 +19,7 @@ import type {
   SignatureInspection,
 } from "#typepeek/inspection";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
+import { formatMemberPath } from "#typepeek/inspection/member-path";
 import { terminalSafeLine } from "#typepeek/output-safety";
 
 const MAX_TERMINAL_OUTPUT_BYTES = 128 * 1_024;
@@ -79,6 +81,8 @@ function renderSingleTargetInspectionResult(
       return renderDeclarationInspection(result);
     case "member-inspection":
       return renderMemberInspection(result);
+    case "member-discovery":
+      return renderMemberDiscovery(result);
   }
 }
 
@@ -122,8 +126,24 @@ function renderDeclarationInspection(result: DeclarationInspection): string {
 function renderMemberInspection(result: MemberInspection): string {
   return [
     ...renderSingleTargetHeading("Member Inspection", result),
-    `Member: ${terminalSafeLine([result.moduleExportName, ...result.memberPath].join("."))}`,
+    `Member: ${terminalSafeLine(result.moduleExportName)}.${terminalSafeLine(formatMemberPath(result.memberPath))}`,
     ...result.declarations.flatMap(renderDeclaration),
+  ].join("\n");
+}
+
+function renderMemberDiscovery(result: MemberDiscovery): string {
+  const path = formatMemberPath(result.memberPath);
+  const count =
+    result.query === undefined
+      ? `${result.totalMembers}`
+      : `${result.members.length} matching "${terminalSafeLine(result.query)}"; ${result.totalMembers} total`;
+  return [
+    ...renderSingleTargetHeading("Member Discovery", result),
+    `Members of: ${terminalSafeLine(result.moduleExportName)}${path === "" ? "" : `.${terminalSafeLine(path)}`}`,
+    `Public Members (${count}):`,
+    ...result.members.map(
+      ({ name, spaces }) => `- ${terminalSafeLine(name)} (${spaces.join(", ")})`,
+    ),
   ].join("\n");
 }
 

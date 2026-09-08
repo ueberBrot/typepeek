@@ -114,8 +114,16 @@ _Avoid_: partial Export Inspection, fallback result
 A bounded Inspection Result containing the complete declaration spaces of one Module Export in a Resolution Variant. It excludes signatures, Supporting Types, and Package Documentation rather than returning a partial Export Inspection.
 _Avoid_: stripped Export Inspection, declaration preview
 
+**Member Discovery**:
+A bounded index of the immediate public Members beneath a Module Export or exact Member path, with their available declaration spaces and complete candidate count. A name filter narrows the index without changing that count.
+_Avoid_: declaration preview, recursive member traversal
+
+**Member Path**:
+An ordered sequence of exact public Member names beneath a Module Export. Each step may select the parent's type, value, or namespace space to distinguish otherwise ambiguous Members.
+_Avoid_: property expression, runtime traversal
+
 **Member Inspection**:
-A bounded Inspection Result containing the complete public declarations for one exact Member path beneath a Module Export. It excludes unrelated Members, Supporting Types, signatures, and Package Documentation.
+A bounded Inspection Result containing the complete public declarations for one exact Member Path beneath a Module Export. It excludes unrelated Members, Supporting Types, signatures, and Package Documentation.
 _Avoid_: member search, object traversal, runtime property lookup
 
 **Inspection Plan**:

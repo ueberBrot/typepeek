@@ -10,6 +10,7 @@ export const analysisIntentSchema = Schema.Literals([
   "public-subpath-discovery",
   "declaration-inspection",
   "member-inspection",
+  "member-discovery",
   "inspection-plan",
 ] as const);
 export const ANALYSIS_INTENTS = Object.freeze(analysisIntentSchema.literals);
@@ -81,6 +82,8 @@ export const inspectionBudgetDimensionSchema = Schema.Literals([
   "module-exports",
   "export-search-candidates",
   "export-search-matches",
+  "member-candidates",
+  "member-matches",
   "package-documentation",
   "inferred-type-traversal",
   "namespace-depth",

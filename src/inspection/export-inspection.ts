@@ -23,10 +23,13 @@ import {
 import type { InspectableModuleEvidence } from "#typepeek/inspection/installed-evidence";
 import {
   publicMemberDeclarations,
+  discoverPublicMembers,
   resolvePublicMemberPath,
 } from "#typepeek/inspection/member-inspection";
+import { MAX_MEMBER_PATH_SEGMENTS, type MemberPath } from "#typepeek/inspection/member-path";
 import { inspectPackageDocumentation } from "#typepeek/inspection/package-documentation";
 import type {
+  MemberDiscovery,
   DeclarationInspection,
   DeclarationKind,
   DeclarationSpace,
@@ -370,7 +373,7 @@ export type FocusedMemberInspection =
 export function inspectFocusedModuleExportMember(
   evidence: InspectableModuleEvidence,
   exportName: string,
-  memberPath: readonly string[],
+  memberPath: MemberPath,
   constructionOwner: InspectionResultConstruction,
 ): FocusedMemberInspection {
   const resolution = resolveFocusedExport(evidence.checker, evidence.moduleSymbol, exportName);
@@ -399,6 +402,51 @@ export function inspectFocusedModuleExportMember(
   return {
     status: "success",
     result: construction.memberResult(exportName, memberPath, declarations),
+  };
+}
+
+/** Discovers one export's immediate members after resolving an optional exact path. */
+export function discoverFocusedModuleExportMembers(
+  evidence: InspectableModuleEvidence,
+  exportName: string,
+  memberPath: MemberPath,
+  query: string | undefined,
+  construction: InspectionResultConstruction,
+):
+  | { readonly status: "success"; readonly result: MemberDiscovery }
+  | Exclude<FocusedMemberInspection, { readonly status: "success" }> {
+  const resolution = resolveFocusedExport(evidence.checker, evidence.moduleSymbol, exportName);
+  if (resolution === undefined) {
+    return { status: "export-not-found" };
+  }
+  const memberResolution = resolvePublicMemberPath(
+    evidence.checker,
+    resolution.targetSymbol,
+    memberPath,
+  );
+  if (memberResolution.status !== "success") {
+    return memberResolution;
+  }
+  const discovery = discoverPublicMembers(
+    evidence.checker,
+    memberResolution.symbol,
+    query,
+    construction,
+  );
+  if (memberPath.length === MAX_MEMBER_PATH_SEGMENTS && discovery.totalMembers > 0) {
+    throw new UnsupportedInspectionError(
+      "Member Discovery cannot select children beyond the Member path depth limit.",
+    );
+  }
+  return {
+    status: "success",
+    result: construction.memberDiscovery(
+      exportName,
+      memberPath,
+      query,
+      discovery.totalMembers,
+      discovery.members,
+    ),
   };
 }
 

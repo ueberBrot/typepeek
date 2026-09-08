@@ -87,6 +87,7 @@ Start with the narrowest inspection that answers your question.
 | Which public subpaths does this package expose?                                                  | `subpaths`     |
 | How can I call or construct this export?                                                         | `signatures`   |
 | What declarations define this export?                                                            | `declarations` |
+| Which public members are available beneath this export?                                          | `members`      |
 | What defines this exact public member?                                                           | `member`       |
 | Which declarations, signatures, supporting types, and package documentation explain this export? | `export`       |
 | How can I run several inspections against one evidence snapshot?                                 | `plan`         |
@@ -106,6 +107,32 @@ npx typepeek signatures execa execa --json --pretty
 ```
 
 Commands use the `import` access style by default. Pass `--access require` when you need the interface selected for CommonJS resolution conditions.
+
+## Discover and inspect members
+
+Use `members` when you know the export but need to find a public member. It lists immediate member names and their available declaration spaces without rendering the export's declarations or expanding supporting types:
+
+```bash
+npx typepeek members zod ZodError
+npx typepeek members zod ZodError --match issue --json
+```
+
+`--match` filters names by a case-insensitive substring in both terminal and JSON output. Results include the complete count before filtering. An unmatched search returns an empty list. If discovery exceeds its candidate or result budget, the entire inspection returns a typed failure.
+
+Pass a member name to inspect its declarations, or a JSON array for a nested path:
+
+```bash
+npx typepeek member zod ZodError issues
+npx typepeek members zod ZodError '["issues"]'
+```
+
+A class can expose the same name through its instance type and its static value. Discovery labels those spaces as `type` and `value`; namespace exports use `namespace`. If an unqualified name selects distinct members, Typepeek returns `ambiguous-member`. Qualify that path segment with a space returned by discovery. For example, select `ZodError`'s instance member explicitly:
+
+```bash
+npx typepeek member zod ZodError '[{"name":"issues","space":"type"}]'
+```
+
+Each segment can be a name or a `{ "name": "…", "space": "type" | "value" | "namespace" }` selector. Qualified segments work at any depth and in Inspection Plans. Omit the path from `members` to list the export's immediate members; supply a path to list the selected member's children.
 
 ## What Typepeek inspects
 

@@ -89,6 +89,7 @@ function atomicInspectionResultWith<SignatureInspectionSchema extends Schema.Con
     atomicInspectionResultSchemas["public-subpath-discovery"],
     atomicInspectionResultSchemas["declaration-inspection"],
     atomicInspectionResultSchemas["member-inspection"],
+    atomicInspectionResultSchemas["member-discovery"],
   ]);
 }
 
@@ -179,6 +180,10 @@ const inspectionProtocolRequestSchemas = {
     "declaration-inspection",
     inspectionRequestSchemas["declaration-inspection"],
   ),
+  "member-discovery": requestEnvelopeWithoutProjection(
+    "member-discovery",
+    inspectionRequestSchemas["member-discovery"],
+  ),
   "member-inspection": requestEnvelopeWithoutProjection(
     "member-inspection",
     inspectionRequestSchemas["member-inspection"],
@@ -205,6 +210,7 @@ const exactInspectionProtocolRequestSchema = authoritativeContract<
     inspectionProtocolRequestSchemas["public-subpath-discovery"],
     inspectionProtocolRequestSchemas["declaration-inspection"],
     inspectionProtocolRequestSchemas["member-inspection"],
+    inspectionProtocolRequestSchemas["member-discovery"],
     inspectionProtocolRequestSchemas["inspection-plan"],
     inspectionProtocolRequestSchemas["public-interface-comparison"],
   ]),
@@ -282,6 +288,7 @@ const nonProjectedInspectionResultSchema = Schema.Union([
   inspectionResultSchemas["public-subpath-discovery"],
   inspectionResultSchemas["declaration-inspection"],
   inspectionResultSchemas["member-inspection"],
+  inspectionResultSchemas["member-discovery"],
   inspectionResultSchemas["public-interface-comparison"],
 ]);
 const nonProjectedInspectionOutcomeSchema = Schema.Union([

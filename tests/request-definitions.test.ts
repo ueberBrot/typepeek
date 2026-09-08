@@ -1,5 +1,6 @@
 import { expect, it } from "vite-plus/test";
 
+import { readInspectionPlanQueries } from "#typepeek/inspection/inspection-plan-query";
 import {
   readAnalysisRequest,
   readInspectionRequest,
@@ -318,4 +319,127 @@ it("rejects request fields that change during boundary reading", () => {
     accepted: false,
   });
   expect(specifierReads).toBe(0);
+});
+
+it("normalizes Member Discovery with qualified selectors and an optional root path", () => {
+  const target = { resolutionContext: "/repository", specifier: "example", exportName: "Example" };
+  expect(readInspectionRequest("member-discovery", target)).toEqual({
+    accepted: true,
+    request: { ...target, accessStyle: "import", memberPath: [] },
+  });
+  const query = {
+    intent: "member-discovery",
+    exportName: "Example",
+    memberPath: [{ name: "nested", space: "namespace" }],
+    query: "VaL",
+  };
+  expect(readInspectionRequest("inspection-plan", { ...target, queries: [query] })).toMatchObject({
+    accepted: true,
+    request: { queries: [query] },
+  });
+});
+
+it("rejects malformed and behavioral Member selectors in direct requests and plans", () => {
+  const target = { resolutionContext: "/repository", specifier: "example", exportName: "Example" };
+  let accessorCalls = 0;
+  const accessor = {
+    name: "nested",
+    get space() {
+      accessorCalls += 1;
+      return "type";
+    },
+  };
+  const inherited = Object.create({ name: "nested", space: "type" });
+  const invalidPaths = [
+    null,
+    [""],
+    [{ name: "nested", space: "static" }],
+    [{ name: "nested", space: "type", extra: true }],
+    [accessor],
+    [inherited],
+    Array(1),
+    ["x".repeat(257)],
+    Array(17).fill("x"),
+  ];
+  for (const memberPath of invalidPaths) {
+    for (const intent of ["member-discovery", "member-inspection"] as const) {
+      expect(readInspectionRequest(intent, { ...target, memberPath })).toMatchObject({
+        accepted: false,
+      });
+      expect(
+        readInspectionRequest("inspection-plan", {
+          ...target,
+          queries: [{ intent, exportName: "Example", memberPath }],
+        }),
+      ).toMatchObject({ accepted: false });
+    }
+  }
+  expect(accessorCalls).toBe(0);
+});
+
+it("bounds Member Discovery queries and snapshots qualified selectors", () => {
+  const target = { resolutionContext: "/repository", specifier: "example", exportName: "Example" };
+  for (const query of ["", "é".repeat(129), null, 4, undefined]) {
+    expect(readInspectionRequest("member-discovery", { ...target, query })).toMatchObject({
+      accepted: false,
+    });
+  }
+  const segment = { name: "nested", space: "type" };
+  const reading = readInspectionRequest("member-discovery", {
+    ...target,
+    memberPath: [segment],
+    query: "é".repeat(128),
+  });
+  segment.name = "changed";
+  expect(reading).toMatchObject({
+    accepted: true,
+    request: { memberPath: [{ name: "nested", space: "type" }] },
+  });
+  let accessorCalls = 0;
+  expect(
+    readInspectionRequest("member-discovery", {
+      ...target,
+      get query() {
+        accessorCalls += 1;
+        return "name";
+      },
+    }),
+  ).toMatchObject({ accepted: false });
+  expect(accessorCalls).toBe(0);
+});
+
+it("identifies invalid Member Discovery plan queries without evaluating supplied behavior", () => {
+  let accessorCalls = 0;
+  const invalidQueries = [
+    { intent: "member-discovery", exportName: "Example", query: "" },
+    { intent: "member-discovery", exportName: "Example", memberPath: [""] },
+    {
+      intent: "member-discovery",
+      exportName: "Example",
+      get query() {
+        accessorCalls += 1;
+        return "name";
+      },
+    },
+    {
+      intent: "member-discovery",
+      exportName: "Example",
+      memberPath: [
+        {
+          name: "nested",
+          get space() {
+            accessorCalls += 1;
+            return "type";
+          },
+        },
+      ],
+    },
+  ];
+  for (const query of invalidQueries) {
+    expect(readInspectionPlanQueries([query])).toEqual({
+      accepted: false,
+      issue: "invalid-member-discovery",
+    });
+  }
+  expect(accessorCalls).toBe(0);
 });

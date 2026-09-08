@@ -1,6 +1,10 @@
-import { Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 
-import { memberPathSchema } from "#typepeek/inspection/member-path";
+import {
+  memberPathSchema,
+  memberDiscoveryPathSchema,
+  readBoundedMemberPath,
+} from "#typepeek/inspection/member-path";
 import type { AnalysisRequest } from "#typepeek/inspection/protocol";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
@@ -14,7 +18,8 @@ export type InspectionPlanQueryIssue =
   | "unsupported-intent"
   | "invalid-search"
   | "invalid-focused"
-  | "invalid-member";
+  | "invalid-member"
+  | "invalid-member-discovery";
 
 export type InspectionPlanQueriesReading =
   | { readonly accepted: true; readonly queries: readonly InspectionPlanQuery[] }
@@ -35,6 +40,7 @@ const INSPECTION_PLAN_QUERY_INTENTS = [
   "public-subpath-discovery",
   "declaration-inspection",
   "member-inspection",
+  "member-discovery",
 ] as const;
 type InspectionPlanQueryIntent = (typeof INSPECTION_PLAN_QUERY_INTENTS)[number];
 const INSPECTION_PLAN_QUERY_SCHEMAS = {
@@ -57,6 +63,12 @@ const INSPECTION_PLAN_QUERY_SCHEMAS = {
   "declaration-inspection": Schema.Struct({
     intent: Schema.Literal("declaration-inspection"),
     exportName: Schema.String,
+  }),
+  "member-discovery": Schema.Struct({
+    intent: Schema.Literal("member-discovery"),
+    exportName: Schema.String,
+    memberPath: memberDiscoveryPathSchema.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+    query: Schema.optionalKey(exportSearchQuerySchema),
   }),
   "member-inspection": Schema.Struct({
     intent: Schema.Literal("member-inspection"),
@@ -126,6 +138,17 @@ export function inspectionPlanQueriesForRequest(
     case "signature-inspection":
     case "declaration-inspection":
       return [{ intent: analysisRequest.intent, exportName: analysisRequest.request.exportName }];
+    case "member-discovery":
+      return [
+        {
+          intent: analysisRequest.intent,
+          exportName: analysisRequest.request.exportName,
+          memberPath: analysisRequest.request.memberPath,
+          ...(analysisRequest.request.query === undefined
+            ? {}
+            : { query: analysisRequest.request.query }),
+        },
+      ];
     case "member-inspection":
       return [
         {
@@ -144,13 +167,27 @@ export function inspectionPlanQueriesForRequest(
 function readInspectionPlanQuery(value: unknown): InspectionPlanQueryReading {
   const query = snapshotDataProperties(value, INSPECTION_PLAN_QUERY_FIELDS);
   if (query === undefined) {
-    return { accepted: false, issue: "invalid-entry" };
+    const identity = snapshotDataProperties(value, ["intent"]);
+    return {
+      accepted: false,
+      issue:
+        identity?.["intent"] === "member-discovery" ? "invalid-member-discovery" : "invalid-entry",
+    };
   }
   const intent = Result.getOrUndefined(decodeInspectionPlanQueryIntent(query["intent"]));
   if (intent === undefined) {
     return { accepted: false, issue: "unsupported-intent" };
   }
-  const decoded = Result.getOrUndefined(decodeInspectionPlanQuery(query));
+  let candidate = query;
+  if (intent === "member-inspection" || intent === "member-discovery") {
+    const memberPath = readBoundedMemberPath(
+      intent === "member-discovery" && query["memberPath"] === undefined ? [] : query["memberPath"],
+      intent === "member-discovery",
+    );
+    if (memberPath === undefined) return { accepted: false, issue: issueForIntent(intent) };
+    candidate = { ...query, memberPath };
+  }
+  const decoded = Result.getOrUndefined(decodeInspectionPlanQuery(candidate));
   return decoded === undefined
     ? { accepted: false, issue: issueForIntent(intent) }
     : { accepted: true, query: decoded };
@@ -162,6 +199,8 @@ function issueForIntent(intent: InspectionPlanQuery["intent"]): InspectionPlanQu
       return "invalid-search";
     case "member-inspection":
       return "invalid-member";
+    case "member-discovery":
+      return "invalid-member-discovery";
     case "export-inspection":
     case "signature-inspection":
     case "declaration-inspection":
