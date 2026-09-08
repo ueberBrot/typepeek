@@ -3,6 +3,9 @@ allowBuilds:
 minimumReleaseAge: 10080
 minimumReleaseAgeIgnoreMissingTime: false
 minimumReleaseAgeStrict: true
+# Vite+ selects package.json's pnpm pin; avoid a second toolchain lockfile document.
+# https://github.com/pnpm/pnpm/issues/13805
+pmOnFail: ignore
 overrides:
   vite@*: npm:@voidzero-dev/vite-plus-core@0.2.6
   vitest@*: 4.1.10

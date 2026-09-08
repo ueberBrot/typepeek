@@ -163,12 +163,16 @@ Typepeek ships a CLI. Programmatic adapters invoke the `protocol` command over s
 
 ## Development
 
-Typepeek development requires pnpm 11.20. Install the locked dependencies, then run the full validation suite:
+Install [Vite+](https://viteplus.dev/guide/) for development. It manages Node.js 24.18 and downloads the pnpm 12.3.4 version pinned in `package.json`. Install the locked dependencies and run the full validation suite:
 
 ```bash
 vp install --frozen-lockfile
 vp run validate
 ```
+
+CI and release jobs use the same Vite+ setup and frozen install. The standard [`pnpm/setup`](https://github.com/pnpm/setup) action also makes pnpm available for direct commands and consumer tests, with dependency installation disabled. Both tools read the same `packageManager` pin. Local development needs only Vite+.
+
+`pnpm-workspace.yaml` sets [`pmOnFail: ignore`](https://pnpm.io/settings/cli#pmonfail) because Vite+ owns package-manager version selection. This also keeps the dependency lockfile in one YAML document, avoiding the [reported GitHub dependency-graph parsing issue](https://github.com/pnpm/pnpm/issues/13805).
 
 Useful development commands:
 
