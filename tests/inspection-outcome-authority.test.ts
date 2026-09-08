@@ -672,8 +672,8 @@ it("accepts only the bounded Signature Inspection result shape", () => {
         ...outcome.result,
         moduleExport: {
           ...outcome.result.moduleExport,
-          signatures: outcome.result.moduleExport.signatures.map(
-            ({ returns: _, ...signature }) => signature,
+          signatures: outcome.result.moduleExport.signatures.map((signature) =>
+            Object.fromEntries(Object.entries(signature).filter(([key]) => key !== "returns")),
           ),
         },
       },

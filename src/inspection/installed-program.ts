@@ -732,12 +732,10 @@ function reExportedStatementDeclarations(
       if (declarations.length === 0) {
         throw unresolvedDeclarationReference();
       }
-      return declarations.map(
-        (declaration): PendingDeclarationGraphEntry => ({
-          declaration,
-          expandSourceExports: false,
-        }),
-      );
+      return declarations.map((declaration): PendingDeclarationGraphEntry => ({
+        declaration,
+        expandSourceExports: false,
+      }));
     });
   }
   return resolvedModuleSourceFiles(checker, statement.moduleSpecifier).map(
