@@ -1,0 +1,150 @@
+{
+  "kind": "codex-skill-paired-comparison",
+  "source": "benchmarks/results/2026-09-08/codex-three-conditions-post-fix.json",
+  "seed": 1729,
+  "interpretation": "CLI-only / CLI-plus-skill ratios; above 1 favors the skill. Includes only paired successes. Seeded run-level bootstrap intervals for fixed tasks; not package-population inference. Retain correctness and all-attempt usage alongside these selected pairs.",
+  "comparisons": [
+    {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "baseline": "typepeek",
+      "treatment": "typepeek-skill",
+      "successfulPairs": 11,
+      "pairKeys": [
+        {
+          "task": "effect-option",
+          "repeat": 2
+        },
+        {
+          "task": "execa-command",
+          "repeat": 0
+        },
+        {
+          "task": "stricli-routes",
+          "repeat": 2
+        },
+        {
+          "task": "node-exists",
+          "repeat": 1
+        },
+        {
+          "task": "typescript-program",
+          "repeat": 1
+        },
+        {
+          "task": "effect-option",
+          "repeat": 1
+        },
+        {
+          "task": "node-exists",
+          "repeat": 2
+        },
+        {
+          "task": "execa-command",
+          "repeat": 1
+        },
+        {
+          "task": "typescript-program",
+          "repeat": 2
+        },
+        {
+          "task": "stricli-routes",
+          "repeat": 1
+        },
+        {
+          "task": "node-exists",
+          "repeat": 0
+        }
+      ],
+      "time": {
+        "unit": "seconds",
+        "medianRatio": 1.3715776404193525,
+        "ratioCi95": [1.061999141901605, 1.68854646814687],
+        "medianSaved": 5.602617165999954
+      },
+      "tokens": {
+        "unit": "tokens",
+        "medianRatio": 1.425947817276028,
+        "ratioCi95": [1.271385776101187, 1.6241867103219578],
+        "medianSaved": 10477
+      }
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "baseline": "typepeek",
+      "treatment": "typepeek-skill",
+      "successfulPairs": 14,
+      "pairKeys": [
+        {
+          "task": "typescript-program",
+          "repeat": 1
+        },
+        {
+          "task": "execa-command",
+          "repeat": 2
+        },
+        {
+          "task": "stricli-routes",
+          "repeat": 1
+        },
+        {
+          "task": "effect-option",
+          "repeat": 0
+        },
+        {
+          "task": "execa-command",
+          "repeat": 1
+        },
+        {
+          "task": "effect-option",
+          "repeat": 1
+        },
+        {
+          "task": "node-exists",
+          "repeat": 2
+        },
+        {
+          "task": "stricli-routes",
+          "repeat": 0
+        },
+        {
+          "task": "effect-option",
+          "repeat": 2
+        },
+        {
+          "task": "typescript-program",
+          "repeat": 2
+        },
+        {
+          "task": "execa-command",
+          "repeat": 0
+        },
+        {
+          "task": "stricli-routes",
+          "repeat": 2
+        },
+        {
+          "task": "node-exists",
+          "repeat": 0
+        },
+        {
+          "task": "typescript-program",
+          "repeat": 0
+        }
+      ],
+      "time": {
+        "unit": "seconds",
+        "medianRatio": 1.002357295478224,
+        "ratioCi95": [0.7094953155882686, 1.2518814101925895],
+        "medianSaved": 0.044409333000075435
+      },
+      "tokens": {
+        "unit": "tokens",
+        "medianRatio": 0.9153746071431857,
+        "ratioCi95": [0.7115750703525906, 0.9331376024817195],
+        "medianSaved": -2054
+      }
+    }
+  ]
+}

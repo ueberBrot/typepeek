@@ -1,0 +1,354 @@
+{
+  "kind": "codex-sleep-sensitivity",
+  "source": "benchmarks/results/2026-09-08/codex-three-conditions-post-fix.json",
+  "interpretation": "Sensitivity analysis excluding the complete Luna/Stricli/repeat-0 block for verified host sleep. No other observations excluded or replaced. Sol is unchanged. This 87-attempt view is not balanced across tasks. Keep the complete original campaign and separate supplemental block alongside it. Ratios above 1 favor treatment; paired analyses select successes and intervals describe fixed-task run variability.",
+  "excluded": [
+    {
+      "artifactDirectory": ".benchmarks/codex-three-conditions-post-fix-2026-09-08/048-stricli-routes-typepeek",
+      "model": "gpt-5.6-luna",
+      "task": "stricli-routes",
+      "repeat": 0,
+      "condition": "typepeek",
+      "passed": true,
+      "timedOut": false,
+      "seconds": 15.672706583000021
+    },
+    {
+      "artifactDirectory": ".benchmarks/codex-three-conditions-post-fix-2026-09-08/049-stricli-routes-files",
+      "model": "gpt-5.6-luna",
+      "task": "stricli-routes",
+      "repeat": 0,
+      "condition": "files",
+      "passed": true,
+      "timedOut": false,
+      "seconds": 21.08787929100008
+    },
+    {
+      "artifactDirectory": ".benchmarks/codex-three-conditions-post-fix-2026-09-08/050-stricli-routes-typepeek-skill",
+      "model": "gpt-5.6-luna",
+      "task": "stricli-routes",
+      "repeat": 0,
+      "condition": "typepeek-skill",
+      "passed": false,
+      "timedOut": true,
+      "seconds": 585.1584657090001
+    }
+  ],
+  "attempts": 87,
+  "groups": [
+    {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "condition": "files",
+      "attempts": 14,
+      "correct": 12,
+      "successfulSeconds": {
+        "count": 12,
+        "min": 11.838513708000072,
+        "median": 23.753306458499978,
+        "p95": 50.83396902714989,
+        "max": 58.46558791599981,
+        "mean": 27.166991177083336,
+        "standardDeviation": 13.906709931576156,
+        "coefficientOfVariationPercent": 51.1897318364322,
+        "meanCi95HalfWidth": 8.835961516152558
+      },
+      "allAttemptSeconds": {
+        "count": 14,
+        "min": 5.821847416999983,
+        "median": 21.862321645999998,
+        "p95": 49.44640195644992,
+        "max": 58.46558791599981,
+        "mean": 24.979164261928577,
+        "standardDeviation": 14.148025246869594,
+        "coefficientOfVariationPercent": 56.63930585713383,
+        "meanCi95HalfWidth": 8.167432603867278
+      },
+      "reportedInputTokens": 792697,
+      "reportedCachedInputTokens": 510976,
+      "reportedOutputTokens": 10232,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 66910.75
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "condition": "typepeek",
+      "attempts": 14,
+      "correct": 12,
+      "successfulSeconds": {
+        "count": 12,
+        "min": 13.046545875000069,
+        "median": 18.511780582999926,
+        "p95": 22.577660258849985,
+        "max": 22.904079666999984,
+        "mean": 17.976890243083307,
+        "standardDeviation": 3.623705230862396,
+        "coefficientOfVariationPercent": 20.157575542058133,
+        "meanCi95HalfWidth": 2.3024079831477366
+      },
+      "allAttemptSeconds": {
+        "count": 14,
+        "min": 5.041977708999999,
+        "median": 17.10631966599985,
+        "p95": 22.518311275549983,
+        "max": 22.904079666999984,
+        "mean": 16.803300116142832,
+        "standardDeviation": 4.841254376492116,
+        "coefficientOfVariationPercent": 28.811330768538443,
+        "meanCi95HalfWidth": 2.7947800592825245
+      },
+      "reportedInputTokens": 534742,
+      "reportedCachedInputTokens": 408832,
+      "reportedOutputTokens": 6005,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 45062.25
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "condition": "typepeek-skill",
+      "attempts": 14,
+      "correct": 12,
+      "successfulSeconds": {
+        "count": 12,
+        "min": 8.473180750000058,
+        "median": 12.628010438000025,
+        "p95": 16.398478512350003,
+        "max": 16.523077208000004,
+        "mean": 13.041712680749995,
+        "standardDeviation": 2.690020006454443,
+        "coefficientOfVariationPercent": 20.626278712802826,
+        "meanCi95HalfWidth": 1.7091686942245725
+      },
+      "allAttemptSeconds": {
+        "count": 14,
+        "min": 8.11143687500013,
+        "median": 12.628010438000025,
+        "p95": 17.273698918649973,
+        "max": 18.66771066699992,
+        "mean": 13.09140712221429,
+        "standardDeviation": 3.228755217670559,
+        "coefficientOfVariationPercent": 24.663164070360413,
+        "meanCi95HalfWidth": 1.863909639300644
+      },
+      "reportedInputTokens": 392060,
+      "reportedCachedInputTokens": 240896,
+      "reportedOutputTokens": 4050,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 33009.166666666664
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "condition": "files",
+      "attempts": 15,
+      "correct": 14,
+      "successfulSeconds": {
+        "count": 14,
+        "min": 12.675901792000047,
+        "median": 22.226643042000127,
+        "p95": 65.26128388915004,
+        "max": 74.56250387499999,
+        "mean": 31.053943568500017,
+        "standardDeviation": 19.73120594911343,
+        "coefficientOfVariationPercent": 63.53848716698269,
+        "meanCi95HalfWidth": 11.390515069802124
+      },
+      "allAttemptSeconds": {
+        "count": 15,
+        "min": 6.965276542000007,
+        "median": 21.434584625000134,
+        "p95": 64.54580542870004,
+        "max": 74.56250387499999,
+        "mean": 29.44803243340002,
+        "standardDeviation": 20.004902911872627,
+        "coefficientOfVariationPercent": 67.9329016535007,
+        "meanCi95HalfWidth": 11.079447782285587
+      },
+      "reportedInputTokens": 668716,
+      "reportedCachedInputTokens": 481024,
+      "reportedOutputTokens": 9030,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 48410.42857142857
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "condition": "typepeek",
+      "attempts": 15,
+      "correct": 14,
+      "successfulSeconds": {
+        "count": 14,
+        "min": 14.224536124999984,
+        "median": 20.54137202050004,
+        "p95": 71.69221402454991,
+        "max": 79.14027629099972,
+        "mean": 28.71619569335711,
+        "standardDeviation": 20.889361724127983,
+        "coefficientOfVariationPercent": 72.74418222801114,
+        "meanCi95HalfWidth": 12.059100195440346
+      },
+      "allAttemptSeconds": {
+        "count": 15,
+        "min": 7.736754375000019,
+        "median": 19.347153416000072,
+        "p95": 71.11928615789992,
+        "max": 79.14027629099972,
+        "mean": 27.317566272133305,
+        "standardDeviation": 20.845597559026906,
+        "coefficientOfVariationPercent": 76.30839933311165,
+        "meanCi95HalfWidth": 11.545055262863006
+      },
+      "reportedInputTokens": 658890,
+      "reportedCachedInputTokens": 477440,
+      "reportedOutputTokens": 8163,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 47646.642857142855
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "condition": "typepeek-skill",
+      "attempts": 15,
+      "correct": 15,
+      "successfulSeconds": {
+        "count": 15,
+        "min": 13.16205999999994,
+        "median": 18.977071874999908,
+        "p95": 31.924237807899967,
+        "max": 33.35165879100003,
+        "mean": 20.695557686000033,
+        "standardDeviation": 6.818439389586347,
+        "coefficientOfVariationPercent": 32.94639116779555,
+        "meanCi95HalfWidth": 3.77630141502794
+      },
+      "allAttemptSeconds": {
+        "count": 15,
+        "min": 13.16205999999994,
+        "median": 18.977071874999908,
+        "p95": 31.924237807899967,
+        "max": 33.35165879100003,
+        "mean": 20.695557686000033,
+        "standardDeviation": 6.818439389586347,
+        "coefficientOfVariationPercent": 32.94639116779555,
+        "meanCi95HalfWidth": 3.77630141502794
+      },
+      "reportedInputTokens": 476423,
+      "reportedCachedInputTokens": 345088,
+      "reportedOutputTokens": 4774,
+      "usageComplete": true,
+      "tokensPerCorrectAnswer": 32079.8
+    }
+  ],
+  "comparisons": [
+    {
+      "model": "gpt-5.6-luna",
+      "baseline": "files",
+      "treatment": "typepeek",
+      "successfulPairs": 10,
+      "time": {
+        "unit": "seconds",
+        "medianRatio": 1.1646395457197918,
+        "ratioCi95": [0.9074059771395246, 1.721943988801372],
+        "medianSaved": 3.582488896000024
+      },
+      "tokens": {
+        "unit": "tokens",
+        "medianRatio": 1.2547931258463516,
+        "ratioCi95": [0.9608083438966282, 1.6938702682276092],
+        "medianSaved": 11618.5
+      }
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "baseline": "files",
+      "treatment": "typepeek-skill",
+      "successfulPairs": 10,
+      "time": {
+        "unit": "seconds",
+        "medianRatio": 1.5383782854130001,
+        "ratioCi95": [1.205598405357181, 2.570951330473963],
+        "medianSaved": 7.501187499999999
+      },
+      "tokens": {
+        "unit": "tokens",
+        "medianRatio": 1.5765226803030135,
+        "ratioCi95": [1.3640722085782877, 2.7053631756756755],
+        "medianSaved": 15642
+      }
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "baseline": "typepeek",
+      "treatment": "typepeek-skill",
+      "successfulPairs": 11,
+      "time": {
+        "unit": "seconds",
+        "medianRatio": 1.3715776404193525,
+        "ratioCi95": [1.061999141901605, 1.68854646814687],
+        "medianSaved": 5.602617165999954
+      },
+      "tokens": {
+        "unit": "tokens",
+        "medianRatio": 1.425947817276028,
+        "ratioCi95": [1.271385776101187, 1.6241867103219578],
+        "medianSaved": 10477
+      }
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "baseline": "files",
+      "treatment": "typepeek",
+      "successfulPairs": 13,
+      "time": {
+        "unit": "seconds",
+        "medianRatio": 1.0537032791515444,
+        "ratioCi95": [0.947284125526264, 1.3688530504857386],
+        "medianSaved": 1.1731763339999581
+      },
+      "tokens": {
+        "unit": "tokens",
+        "medianRatio": 0.9980593053454722,
+        "ratioCi95": [0.9892297205180641, 1.4322636226577643],
+        "medianSaved": -68
+      }
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "baseline": "files",
+      "treatment": "typepeek-skill",
+      "successfulPairs": 14,
+      "time": {
+        "unit": "seconds",
+        "medianRatio": 0.9703174839077288,
+        "ratioCi95": [0.721631993503228, 1.8933288950524978],
+        "medianSaved": -0.4551385830000507
+      },
+      "tokens": {
+        "unit": "tokens",
+        "medianRatio": 0.9112769097532502,
+        "ratioCi95": [0.7042550193988735, 1.5974015203870076],
+        "medianSaved": -2113.5
+      }
+    },
+    {
+      "model": "gpt-5.6-sol",
+      "baseline": "typepeek",
+      "treatment": "typepeek-skill",
+      "successfulPairs": 14,
+      "time": {
+        "unit": "seconds",
+        "medianRatio": 1.002357295478224,
+        "ratioCi95": [0.7094953155882686, 1.2518814101925895],
+        "medianSaved": 0.044409333000075435
+      },
+      "tokens": {
+        "unit": "tokens",
+        "medianRatio": 0.9153746071431857,
+        "ratioCi95": [0.7115750703525906, 0.9331376024817195],
+        "medianSaved": -2054
+      }
+    }
+  ]
+}

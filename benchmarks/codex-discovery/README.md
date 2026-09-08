@@ -22,6 +22,14 @@ node benchmarks/codex-discovery/run.ts --models gpt-5.6-luna,gpt-5.6-sol --repea
 
 This schedules 60 attempts. The four-million-token campaign limit is checked between attempts; it is not an estimate of required usage.
 
+To measure the shipped skill's contribution separately from CLI availability:
+
+```bash
+node benchmarks/codex-discovery/run.ts --models gpt-5.6-luna,gpt-5.6-sol --efforts low --conditions files,typepeek,typepeek-skill --repeats 3 --total-token-limit 6000000 --output .benchmarks/codex-three-conditions
+```
+
+This schedules 90 attempts: five tasks × two models × three conditions × three repetitions. The skill condition supplies the checked-in `skills/typepeek/SKILL.md` verbatim in the task prompt. It measures explicit skill guidance, including its input-token cost; automatic skill discovery and invocation overhead are outside this comparison. CLI use remains the model's choice. Compare skill versus CLI-only as well as both treatments versus files-only, retaining failures and all reported usage.
+
 For a larger matrix:
 
 ```bash
@@ -41,6 +49,8 @@ An independent TypeScript consumer supplies the answer key. The grader checks th
 ## Time and tokens
 
 The timer starts immediately before `codex exec` and ends when the process exits. It includes client startup, model latency, tool calls, retries, and final answer generation. Fixture creation, oracle construction, grading, and artifact writes happen outside the timer. Run studies sequentially while the machine is otherwise idle.
+
+Keep the host awake during measurement. On macOS, prefix the runner command with `caffeinate -i` to prevent idle sleep for its lifetime. Host suspension can delay the process timeout and leave final usage unavailable. Preserve such attempts, document the interruption, and report any block exclusion or supplemental repetition separately; do not silently replace the original observations.
 
 Every trial saves its prompt, launch settings, JSONL events, stderr, final answer, and grade. `summary.json` includes individual attempts and grouped results; `summary.md` presents the main table. Machine, Node/compiler/Codex versions, dependency evidence, lockfile, CLI artifact, harness, and skill hashes identify the inputs. Raw artifacts are local and gitignored. Explicit output directories must be empty; the default creates a timestamped subdirectory so later runs do not overwrite earlier evidence.
 
