@@ -14,7 +14,6 @@ import {
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import {
   type AliasDeclaration,
-  findFocusedExportAliasDeclaration,
   type FocusedExportResolution,
   resolveFocusedExport,
   resolveFocusedExportSymbol,
@@ -27,11 +26,7 @@ import {
   resolvePublicMemberPath,
   type PublicMemberPathResolution,
 } from "#typepeek/inspection/member-inspection";
-import {
-  MAX_MEMBER_PATH_SEGMENTS,
-  memberDeclarationSpaceSchema,
-  type MemberPath,
-} from "#typepeek/inspection/member-path";
+import { MAX_MEMBER_PATH_SEGMENTS, type MemberPath } from "#typepeek/inspection/member-path";
 import { inspectPackageDocumentation } from "#typepeek/inspection/package-documentation";
 import type {
   MemberDiscovery,
@@ -94,12 +89,6 @@ const DECLARATION_KIND_BY_SYNTAX_KIND = new Map<ts.SyntaxKind, DeclarationKind>(
   [ts.SyntaxKind.EnumMember, "enum-member"],
 ]);
 
-const SYMBOL_FLAGS_BY_SPACE: Readonly<Record<DeclarationSpace, ts.SymbolFlags>> = {
-  type: ts.SymbolFlags.Type,
-  value: ts.SymbolFlags.Value,
-  namespace: ts.SymbolFlags.Namespace,
-};
-
 const DECLARATION_POLICY_BY_KIND: Readonly<
   Record<
     DeclarationKind,
@@ -136,13 +125,9 @@ interface NamespaceTraversalState {
 }
 
 interface FocusedDeclarationEvidence {
-  readonly aliasDeclaration: AliasDeclaration | undefined;
   readonly construction: FocusedInspectionConstruction;
-  readonly exportedSymbol: ts.Symbol;
   readonly namespaceMembers: readonly NamespaceMemberEvidence[];
   readonly resolution: FocusedExportResolution;
-  readonly spaces: readonly DeclarationSpace[];
-  readonly targetSymbol: ts.Symbol;
 }
 
 type SupportingReferenceKind = "type" | "type-query";
@@ -237,25 +222,17 @@ export function createModuleExportInspection(
     }
     const packageDocumentationEvidence = inspectPackageDocumentation(
       evidence.checker,
-      focused.exportedSymbol,
-      focused.targetSymbol,
-      focused.aliasDeclaration,
+      focused.resolution.exportedSymbol,
+      focused.resolution.targetSymbol,
+      focused.resolution.aliasDeclaration,
     );
     const packageDocumentation =
       packageDocumentationEvidence === undefined
         ? undefined
         : focused.construction.documentation(packageDocumentationEvidence);
-    const moduleExport = inspectModuleExport(
-      focused.exportedSymbol,
-      focused.targetSymbol,
-      focused.resolution,
-      focused.aliasDeclaration,
-      focused.spaces,
-      focused.namespaceMembers,
-      focused.construction,
-    );
+    const moduleExport = inspectModuleExport(focused);
     const supportingTypes = inspectSupportingTypes(
-      focused.targetSymbol,
+      focused.resolution.targetSymbol,
       focused.namespaceMembers,
       focused.construction,
     );
@@ -270,17 +247,11 @@ export function createModuleExportInspection(
     if (focused === undefined) {
       return undefined;
     }
-    const alias = inspectAlias(focused.resolution, focused.aliasDeclaration, focused.construction);
+    const alias = inspectAlias(focused.resolution, focused.construction);
     const moduleExport = focused.construction.moduleExportDeclarations({
-      name: focused.exportedSymbol.getName(),
+      name: focused.resolution.exportedSymbol.getName(),
       ...(alias === undefined ? {} : { alias }),
-      spaces: inspectDeclarationSpaces(
-        focused.targetSymbol,
-        focused.spaces,
-        focused.aliasDeclaration,
-        focused.namespaceMembers,
-        focused.construction,
-      ),
+      spaces: inspectDeclarationSpaces(focused),
     });
     return focused.construction.declarationResult(moduleExport);
   }
@@ -292,20 +263,14 @@ export function createModuleExportInspection(
     if (resolution === undefined) {
       return undefined;
     }
-    const { exportedSymbol, targetSymbol } = resolution;
-    const aliasDeclaration = findFocusedExportAliasDeclaration(exportedSymbol);
+    const { targetSymbol, aliasDeclaration, spaces } = resolution;
     assertSupportedSelectedDeclarationKind(evidence.checker, targetSymbol, aliasDeclaration);
-    const spaces = occupiedDeclarationSpaces(exportedSymbol, targetSymbol, aliasDeclaration);
     return {
-      aliasDeclaration,
       construction: constructionOwner.focused(),
-      exportedSymbol,
       namespaceMembers: spaces.includes("namespace")
         ? inspectNamespaceMemberEvidence(evidence.checker, targetSymbol)
         : [],
       resolution,
-      spaces,
-      targetSymbol,
     };
   }
 
@@ -397,28 +362,15 @@ export function createModuleExportInspection(
         );
   }
 
-  function inspectModuleExport(
-    exportedSymbol: ts.Symbol,
-    targetSymbol: ts.Symbol,
-    resolution: FocusedExportResolution,
-    aliasDeclaration: AliasDeclaration | undefined,
-    spaces: readonly DeclarationSpace[],
-    namespaceMembers: readonly NamespaceMemberEvidence[],
-    construction: FocusedInspectionConstruction,
-  ): InspectedModuleExport {
-    const alias = inspectAlias(resolution, aliasDeclaration, construction);
-    const declarationSpaces = inspectDeclarationSpaces(
-      targetSymbol,
-      spaces,
-      aliasDeclaration,
-      namespaceMembers,
-      construction,
-    );
+  function inspectModuleExport(focused: FocusedDeclarationEvidence): InspectedModuleExport {
+    const { resolution, construction } = focused;
+    const alias = inspectAlias(resolution, construction);
+    const declarationSpaces = inspectDeclarationSpaces(focused);
     const signatures = inspectResolvedExportSignatures(evidence.checker, resolution, (value) =>
       construction.signature(value),
     );
     return construction.moduleExport({
-      name: exportedSymbol.getName(),
+      name: resolution.exportedSymbol.getName(),
       ...(alias === undefined ? {} : { alias }),
       spaces: declarationSpaces,
       signatures,
@@ -427,9 +379,9 @@ export function createModuleExportInspection(
 
   function inspectAlias(
     resolution: FocusedExportResolution,
-    aliasDeclaration: AliasDeclaration | undefined,
     construction: FocusedInspectionConstruction,
   ): ExportAlias | undefined {
+    const { aliasDeclaration } = resolution;
     if (aliasDeclaration === undefined || resolution.aliasTargetName === undefined) {
       return undefined;
     }
@@ -437,15 +389,14 @@ export function createModuleExportInspection(
     return construction.alias(resolution.aliasTargetName, declaration);
   }
 
-  function inspectDeclarationSpaces(
-    symbol: ts.Symbol,
-    occupiedSpaces: readonly DeclarationSpace[],
-    aliasDeclaration: AliasDeclaration | undefined,
-    namespaceMembers: readonly NamespaceMemberEvidence[],
-    construction: FocusedInspectionConstruction,
-  ): readonly ExportDeclarationSpace[] {
-    const declarations = inspectableDeclarations(evidence.checker, symbol);
-    return occupiedSpaces.map((space): ExportDeclarationSpace => {
+  function inspectDeclarationSpaces({
+    resolution,
+    namespaceMembers,
+    construction,
+  }: FocusedDeclarationEvidence): readonly ExportDeclarationSpace[] {
+    const { targetSymbol, aliasDeclaration, spaces } = resolution;
+    const declarations = inspectableDeclarations(evidence.checker, targetSymbol);
+    return spaces.map((space): ExportDeclarationSpace => {
       if (space === "namespace") {
         return construction.namespaceSpace(inspectNamespaceMembers(namespaceMembers, construction));
       }
@@ -637,7 +588,7 @@ export function createModuleExportInspection(
           ? supportsTypeQuery(declaration)
           : isNamedTypeDeclarationSyntax(declaration)),
     );
-    assertDeclarationLimit(declarations);
+    assertMergedDeclarationLimit(declarations);
     return declarations;
   }
 
@@ -664,7 +615,7 @@ function inspectableDeclarations(
   const declarations = publicDeclarations(checker, symbol.declarations ?? []).filter(
     (declaration) => declarationKind(declaration) !== undefined,
   );
-  assertDeclarationLimit(declarations);
+  assertMergedDeclarationLimit(declarations);
   return declarations;
 }
 
@@ -697,10 +648,6 @@ function selectedDeclarationIsUnsupported(
   return declarations.some(ts.isBindingElement);
 }
 
-function assertDeclarationLimit(declarations: readonly ts.Declaration[]): void {
-  assertMergedDeclarationLimit(declarations);
-}
-
 function declarationKind(declaration: ts.Declaration): DeclarationKind | undefined {
   return DECLARATION_KIND_BY_SYNTAX_KIND.get(declaration.kind);
 }
@@ -722,28 +669,8 @@ function inspectableMemberDeclarations(
   checker: ts.TypeChecker,
   symbol: ts.Symbol,
 ): readonly ts.Declaration[] {
-  const declarations = publicDeclarations(checker, symbol.declarations ?? []).filter(
+  return publicMemberDeclarations(checker, symbol).filter(
     (declaration) => declarationKind(declaration) !== undefined,
-  );
-  const memberDeclarations = publicMemberDeclarations(checker, symbol).filter((declaration) =>
-    declarations.includes(declaration),
-  );
-  assertDeclarationLimit(memberDeclarations);
-  return memberDeclarations;
-}
-
-function occupiedDeclarationSpaces(
-  exportedSymbol: ts.Symbol,
-  targetSymbol: ts.Symbol,
-  aliasDeclaration: AliasDeclaration | undefined,
-): readonly DeclarationSpace[] {
-  if (aliasDeclaration !== undefined && isTypeOnlyAlias(aliasDeclaration)) {
-    return ["type"];
-  }
-  const symbol =
-    (exportedSymbol.flags & ts.SymbolFlags.Alias) === 0 ? exportedSymbol : targetSymbol;
-  return memberDeclarationSpaceSchema.literals.filter((space) =>
-    symbolOccupiesSpace(symbol, space),
   );
 }
 
@@ -818,18 +745,20 @@ function inspectNamespaceMember(
   state: NamespaceTraversalState,
   depth: number,
 ): NamespaceMemberEvidence {
-  const aliasDeclaration = findFocusedExportAliasDeclaration(member);
-  const target = resolveFocusedExportSymbol(checker, member).targetSymbol;
+  const { aliasDeclaration, targetSymbol } = resolveFocusedExportSymbol(checker, member);
   const namespaceAliasDeclaration =
     aliasDeclaration !== undefined && ts.isNamespaceExport(aliasDeclaration)
       ? [aliasDeclaration]
       : [];
-  const declarations = [...namespaceAliasDeclaration, ...inspectableDeclarations(checker, target)];
-  assertDeclarationLimit(declarations);
+  const declarations = [
+    ...namespaceAliasDeclaration,
+    ...inspectableDeclarations(checker, targetSymbol),
+  ];
+  assertMergedDeclarationLimit(declarations);
   return {
     name: member.getName(),
     declarations,
-    members: collectNamespaceMembers(checker, target, state, depth + 1),
+    members: collectNamespaceMembers(checker, targetSymbol, state, depth + 1),
   };
 }
 
@@ -840,10 +769,6 @@ function namespaceMemberDeclarations(
     ...member.declarations,
     ...namespaceMemberDeclarations(member.members),
   ]);
-}
-
-function symbolOccupiesSpace(symbol: ts.Symbol, space: DeclarationSpace): boolean {
-  return (symbol.flags & SYMBOL_FLAGS_BY_SPACE[space]) !== 0;
 }
 
 function declarationSpaces(declaration: ts.Declaration): readonly DeclarationSpace[] {
@@ -881,15 +806,6 @@ function assertSupportingTypeBudget(depth: number, supportingTypeCount: number):
   }
 }
 
-function isTypeOnlyAlias(declaration: AliasDeclaration): boolean {
-  return (
-    typeOnlyExportSpecifier(declaration) ??
-    typeOnlyNamespaceExport(declaration) ??
-    typeOnlyImportEqualsDeclaration(declaration) ??
-    false
-  );
-}
-
 function supportingReference(node: ts.Node): SupportingReference | undefined {
   if (ts.isTypeQueryNode(node)) {
     return { kind: "type-query", location: node.exprName };
@@ -906,18 +822,4 @@ function ordinaryTypeReferenceLocation(node: ts.Node): ts.Node | undefined {
     return node.expression;
   }
   return ts.isImportTypeNode(node) ? node.qualifier : undefined;
-}
-
-function typeOnlyExportSpecifier(declaration: AliasDeclaration): boolean | undefined {
-  return ts.isExportSpecifier(declaration)
-    ? declaration.isTypeOnly || declaration.parent.parent.isTypeOnly
-    : undefined;
-}
-
-function typeOnlyNamespaceExport(declaration: AliasDeclaration): boolean | undefined {
-  return ts.isNamespaceExport(declaration) ? declaration.parent.isTypeOnly : undefined;
-}
-
-function typeOnlyImportEqualsDeclaration(declaration: AliasDeclaration): boolean | undefined {
-  return ts.isImportEqualsDeclaration(declaration) ? declaration.isTypeOnly : undefined;
 }
