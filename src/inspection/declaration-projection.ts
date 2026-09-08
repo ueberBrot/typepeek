@@ -34,16 +34,6 @@ const NAMESPACE_DECLARATION_KINDS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.ModuleDeclaration,
   ts.SyntaxKind.TypeAliasDeclaration,
 ]);
-const INFERRED_DECLARATION_TYPE_KINDS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.VariableDeclaration,
-  ts.SyntaxKind.PropertyDeclaration,
-  ts.SyntaxKind.Parameter,
-]);
-const INFERRED_RETURN_TYPE_KINDS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.FunctionDeclaration,
-  ts.SyntaxKind.MethodDeclaration,
-  ts.SyntaxKind.GetAccessor,
-]);
 
 export interface DeclarationProjection {
   readonly inferredTypes: readonly ts.Type[];
@@ -135,11 +125,13 @@ export function isPublicProjectionChild(
 }
 
 /** Removes source overload implementations from the declarations visible to callers. */
-export function publicDeclarations(
+export function publicDeclarations<Declaration extends ts.Declaration>(
   checker: ts.TypeChecker,
-  declarations: readonly ts.Declaration[],
-): readonly ts.Declaration[] {
-  return withoutOverloadImplementations(checker, declarations);
+  declarations: readonly Declaration[],
+): readonly Declaration[] {
+  return declarations.filter(
+    (declaration) => !isOverloadImplementation(checker, declaration, declarations),
+  );
 }
 
 /** Returns checker types synthesized into a source-backed Public Interface. */
@@ -586,7 +578,7 @@ function publicModuleBody(
   }
   const exportedStatements = body.statements.filter(isExportedNamespaceStatement);
   const exportedFunctions = exportedStatements.filter(ts.isFunctionDeclaration);
-  const publicFunctions = new Set(withoutOverloadImplementations(checker, exportedFunctions));
+  const publicFunctions = new Set(publicDeclarations(checker, exportedFunctions));
   const publicStatements = exportedStatements.filter(
     (statement) => !ts.isFunctionDeclaration(statement) || publicFunctions.has(statement),
   );
@@ -693,13 +685,9 @@ function publicReturnType(
 
 function assertReliableInferredType(
   typeNode: ts.TypeNode,
-  context?: DeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): void {
-  const traversal = { nodeCount: 0 };
-  const reserveTraversal =
-    context?.reserveTraversal ??
-    ((depth: number) => reserveInferredTypeSyntaxTraversal(traversal, depth));
-  if (containsDegradedInferredType(typeNode, reserveTraversal, 0)) {
+  if (containsDegradedInferredType(typeNode, context.reserveTraversal, 0)) {
     throw new UnsupportedInspectionError(
       "An inferred Public Interface type cannot be represented statically without standard libraries.",
     );
@@ -742,31 +730,22 @@ function reserveInferredTypeSyntaxTraversal(traversal: { nodeCount: number }, de
 function assertNoImplementationLocalType(
   checker: ts.TypeChecker,
   rootType: ts.Type,
-  context?: DeclarationProjectionContext,
+  context: DeclarationProjectionContext,
 ): void {
   const pending: { readonly depth: number; readonly type: ts.Type }[] = [
     { depth: 0, type: rootType },
   ];
-  const visited = context?.validatedTypes ?? new Set<ts.Type>();
+  const visited = context.validatedTypes;
   for (const { depth, type } of pending) {
     if (visited.has(type)) {
       continue;
     }
     visited.add(type);
-    if (context === undefined) {
-      if (visited.size > MAX_INFERRED_TYPE_TRAVERSAL_NODES) {
-        throw new InspectionLimitError(
-          "inferred-type-traversal",
-          "Inspection exceeded its inferred type traversal limit.",
-        );
-      }
-    } else {
-      context.reserveTypeTraversal(depth);
-    }
+    context.reserveTypeTraversal(depth);
     const symbol = type.aliasSymbol ?? type.getSymbol();
     if (
       symbol?.declarations?.some((declaration) =>
-        isImplementationLocalDeclaration(declaration, context?.reserveTypeTraversal),
+        isImplementationLocalDeclaration(declaration, context.reserveTypeTraversal),
       ) === true
     ) {
       throw new UnsupportedInspectionError(
@@ -784,11 +763,11 @@ function assertNoImplementationLocalType(
 
 function isImplementationLocalDeclaration(
   declaration: ts.Declaration,
-  reserveTraversal?: (depth: number) => void,
+  reserveTraversal: (depth: number) => void,
 ): boolean {
   let depth = 0;
   for (let ancestor = declaration.parent; ancestor !== undefined; ancestor = ancestor.parent) {
-    reserveTraversal?.(depth);
+    reserveTraversal(depth);
     depth += 1;
     if (ts.isSourceFile(ancestor) || ts.isModuleBlock(ancestor)) {
       return false;
@@ -935,7 +914,7 @@ function publicClassMembers(
   checker: ts.TypeChecker,
   members: readonly ts.ClassElement[],
 ): readonly ts.ClassElement[] {
-  const membersWithoutImplementations = withoutOverloadImplementations(
+  const membersWithoutImplementations = publicDeclarations(
     checker,
     members.filter(
       (member) =>
@@ -1087,15 +1066,6 @@ function publicParameterProperty(
     parameter.questionToken,
     publicType(checker, parameter, parameter.type, context),
     undefined,
-  );
-}
-
-function withoutOverloadImplementations<T extends ts.Declaration>(
-  checker: ts.TypeChecker,
-  declarations: readonly T[],
-): readonly T[] {
-  return declarations.filter(
-    (declaration) => !isOverloadImplementation(checker, declaration, declarations),
   );
 }
 
@@ -1383,8 +1353,10 @@ function collectInferredDeclarationType(
   types: ts.Type[],
 ): void {
   if (
-    explicitDeclarationType(declaration) === undefined &&
-    INFERRED_DECLARATION_TYPE_KINDS.has(declaration.kind)
+    (ts.isVariableDeclaration(declaration) ||
+      ts.isPropertyDeclaration(declaration) ||
+      ts.isParameter(declaration)) &&
+    declaration.type === undefined
   ) {
     types.push(checker.getTypeAtLocation(declaration));
   }
@@ -1396,12 +1368,16 @@ function collectInferredReturnType(
   types: ts.Type[],
 ): void {
   if (
-    explicitDeclarationType(declaration) !== undefined ||
-    !INFERRED_RETURN_TYPE_KINDS.has(declaration.kind)
+    !(
+      ts.isFunctionDeclaration(declaration) ||
+      ts.isMethodDeclaration(declaration) ||
+      ts.isGetAccessorDeclaration(declaration)
+    ) ||
+    declaration.type !== undefined
   ) {
     return;
   }
-  const signature = checker.getSignatureFromDeclaration(declaration as ts.SignatureDeclaration);
+  const signature = checker.getSignatureFromDeclaration(declaration);
   if (signature !== undefined) {
     types.push(checker.getReturnTypeOfSignature(signature));
   }
