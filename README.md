@@ -117,7 +117,7 @@ npx typepeek members zod ZodError
 npx typepeek members zod ZodError --match issue --json
 ```
 
-`--match` filters names by a case-insensitive substring in both terminal and JSON output. Results include the complete count before filtering. An unmatched search returns an empty list. If discovery exceeds a budget or cannot represent a public member, the entire inspection returns a typed failure.
+`--match` filters names by a case-insensitive substring in both terminal and JSON output. Results include the complete count before filtering. An unmatched search returns an empty list. Typepeek still checks every candidate, even when a filter returns only a few names. If discovery exceeds a budget or cannot represent a public member, the entire inspection returns a typed failure.
 
 Pass a member name to inspect its declarations, or a JSON array for a nested path:
 
@@ -132,6 +132,8 @@ npx typepeek member zod ZodError '[{"name":"issues","space":"type"}]'
 ```
 
 Each segment can be a name or a `{ "name": "…", "space": "type" | "value" | "namespace" }` selector. Qualified segments work at any depth and in Inspection Plans. Omit the path from `members` to list the export's immediate members; supply a path to list the selected member's children.
+
+Discovery includes inherited members, including names from TypeScript's standard library. Inspecting one with `member` can return `unsupported-evidence` if its declaration cannot be traced to the project's installed files.
 
 ## What Typepeek inspects
 

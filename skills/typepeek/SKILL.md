@@ -1,6 +1,6 @@
 ---
 name: typepeek
-description: Inspect installed TypeScript package interfaces with Typepeek. Use when choosing a dependency's public entrypoint, export, signature, declaration, or member from a repository.
+description: Inspect installed TypeScript interfaces with Typepeek when discovering public entrypoints, exports, or members, inspecting signatures or declarations, or comparing interfaces between projects.
 ---
 
 # Typepeek
@@ -35,11 +35,17 @@ The target is established when the Resolution Context, Specifier, and Access Sty
 
 Start with `overview` only when the exact export is unknown. Use `search` for name discovery without returning an overview. Run discovery and focused inspection sequentially when the focused query depends on the discovery result; use `plan` when every query is already known.
 
-Use `members` before `member` when the exact member name is unknown or an export's declarations exceed a budget. Discovery lists immediate public names, available spaces, and the complete count before filtering. `--match` narrows both JSON and terminal results. An empty result means no names matched; a typed budget failure supplies no partial list.
-
-For a nested Member path, pass a JSON array such as `'["shape","keyof"]'`. If a segment is ambiguous, list its parent's members and replace that segment with a selector using a returned space: `'[{"name":"shared","space":"type"},"leaf"]'`. `type` selects instance/type members, `value` selects value/static members, and `namespace` selects namespace exports. Qualified and unqualified segments can be mixed at any depth. The same paths work in `members`, `member`, and Inspection Plans.
-
 Add `--json` when structured fields matter. Keep compact JSON for machine consumption; add `--pretty` only when a human will read it.
+
+## Discover and select Members
+
+Use `members` before `member` when the exact Member name is unknown or an export's declarations exceed a budget. Omit the path to list the export's immediate Members; supply a path to list that Member's children. Use `--match` when a name hint can narrow the returned list.
+
+Read `totalMembers` as the complete count before filtering. An empty filtered list means no names matched; an unfiltered success with zero Members identifies a leaf. Filtering narrows the returned names in both JSON and terminal output; candidate traversal and evidence validation still cover the complete index. A typed failure supplies no partial list.
+
+For a nested Member Path, pass a JSON array such as `'["shape","keyof"]'`. If a segment is ambiguous, list its parent's Members and replace that segment with a selector using a returned space: `'[{"name":"shared","space":"type"},"leaf"]'`. `type` selects instance/type members, `value` selects value/static members, and `namespace` selects namespace exports. Qualified and unqualified segments can be mixed at any depth. The same paths work in `members`, `member`, and Inspection Plans.
+
+Discovery establishes names and declaration spaces, including inherited Members. Inspect a selected path with `member` when declarations are needed. A discovered standard-library Member can still return `unsupported-evidence` when its declaration lacks Installed Evidence provenance.
 
 The inspection is complete when each question has either the narrowest complete Inspection Result or an explicit typed failure.
 
