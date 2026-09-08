@@ -1,0 +1,306 @@
+{
+  "kind": "discovery-benchmark",
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T17:45:12.517Z",
+  "identity": {
+    "workspace": "/private/tmp/typepeek-inspection-performance-20260908",
+    "node": "v24.18.0",
+    "compiler": "6.0.3",
+    "ripgrep": "ripgrep 15.2.0 (rev e89fff89ac)",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "osRelease": "25.6.0",
+    "cpu": "Apple M1 Max",
+    "hostname": "MacBookPro.fritz.box",
+    "adapter": "package",
+    "evidenceHash": "2d836e8b15b392b6c05bcd3d18ae0a76d0650bf891418fb704590f2dce0520a9",
+    "lockfileHash": "372ac1a51597d70746e45dd5a5390b8ffc584b6607d35a692b7ee2e45dbf5369",
+    "artifactHash": "8f6c1400232ae039fbbcfa4b6e056013573658803a8bfe62ee68f1ece3d312c9",
+    "harnessHash": "b07b8f175b86046cdc7fc4a2d4f24a91bcef2308a8bdaaccd62c7c5a0ba08b44",
+    "commit": "de95966abfffaccde96a6f2689585f5773cb8bbc"
+  },
+  "options": {
+    "iterations": 5,
+    "warmups": 1,
+    "seed": 1729,
+    "timeoutMs": 15000,
+    "tolerancePercent": 10,
+    "toleranceMs": 10,
+    "maxCvPercent": 20
+  },
+  "evidenceUnchanged": true,
+  "inputsUnchanged": true,
+  "rows": [
+    {
+      "workload": "execa-invocation",
+      "condition": "compiler",
+      "question": "Find every public call signature of the installed execa export.",
+      "expectedFacts": [
+        "call:< NewOptionsType extends Options = { } > ( options : NewOptionsType ) : ExecaMethod < { } & NewOptionsType >",
+        "call:( templateString_0 : TemplateStringsArray , ... templateString : TemplateExpression [ ] ) : ResultPromise < { } >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , arguments ? : readonly string [ ] , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 443.2254580000008,
+          "stdoutBytes": 629,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 444.9360829999987,
+          "stdoutBytes": 629,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 445.9673750000002,
+          "stdoutBytes": 629,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 441.46187499999905,
+          "stdoutBytes": 629,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 476.99254199999996,
+          "stdoutBytes": 629,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-invocation",
+      "condition": "typepeek-cold",
+      "question": "Find every public call signature of the installed execa export.",
+      "expectedFacts": [
+        "call:< NewOptionsType extends Options = { } > ( options : NewOptionsType ) : ExecaMethod < { } & NewOptionsType >",
+        "call:( templateString_0 : TemplateStringsArray , ... templateString : TemplateExpression [ ] ) : ResultPromise < { } >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , arguments ? : readonly string [ ] , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1315.8162919999995,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1296.680457999999,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1306.6139999999996,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1332.5389159999995,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1294.9882080000025,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-invocation",
+      "condition": "typepeek-warm",
+      "question": "Find every public call signature of the installed execa export.",
+      "expectedFacts": [
+        "call:< NewOptionsType extends Options = { } > ( options : NewOptionsType ) : ExecaMethod < { } & NewOptionsType >",
+        "call:( templateString_0 : TemplateStringsArray , ... templateString : TemplateExpression [ ] ) : ResultPromise < { } >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , arguments ? : readonly string [ ] , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1293.2785830000003,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1298.9265830000004,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1312.9455420000013,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1298.5245000000014,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1404.6851669999996,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        }
+      ]
+    }
+  ],
+  "evaluation": {
+    "correctness": true,
+    "stable": true,
+    "baselineCompatible": true,
+    "incompatibilities": [],
+    "passed": true,
+    "rows": [
+      {
+        "workload": "execa-invocation",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 441.46187499999905,
+          "median": 444.9360829999987,
+          "p95": 470.7875086,
+          "max": 476.99254199999996,
+          "mean": 450.5166665999997,
+          "standardDeviation": 14.899344946531253,
+          "coefficientOfVariationPercent": 3.3071684248609463,
+          "meanCi95HalfWidth": 18.497014396591457
+        },
+        "medianStdoutBytes": 629,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-invocation",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1294.9882080000025,
+          "median": 1306.6139999999996,
+          "p95": 1329.1943911999995,
+          "max": 1332.5389159999995,
+          "mean": 1309.3275748,
+          "standardDeviation": 15.441828769427723,
+          "coefficientOfVariationPercent": 1.17937092799611,
+          "meanCi95HalfWidth": 19.1704890438356
+        },
+        "medianStdoutBytes": 2448,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-invocation",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1293.2785830000003,
+          "median": 1298.9265830000004,
+          "p95": 1386.337242,
+          "max": 1404.6851669999996,
+          "mean": 1321.6720750000006,
+          "standardDeviation": 46.97521645574698,
+          "coefficientOfVariationPercent": 3.554226297453319,
+          "meanCi95HalfWidth": 58.318084330763995
+        },
+        "medianStdoutBytes": 2448,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      }
+    ],
+    "comparisons": [
+      {
+        "workload": "execa-invocation",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.3413153195970656,
+          "speedupCi95": [0.33129379540011816, 0.3683373632696422],
+          "medianSavedMilliseconds": -860.6466249999994
+        }
+      },
+      {
+        "workload": "execa-invocation",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.3399719258281215,
+          "speedupCi95": [0.3395725627392491, 0.3427146044372411],
+          "medianSavedMilliseconds": -857.0626250000023
+        }
+      }
+    ]
+  }
+}

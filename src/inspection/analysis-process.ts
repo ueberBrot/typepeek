@@ -1,4 +1,5 @@
-import { Effect, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { execaNode } from "execa";
 
 import {
@@ -9,7 +10,7 @@ import {
   readInspectionCacheHitNotice,
   removeInspectionCacheEntry,
   writeValidatedInspectionCacheOutcome,
-} from "#typepeek/inspection/inspection-cache";
+} from "#typepeek/inspection/inspection-cache-storage";
 import { enforceAnalysisRequestOutcome } from "#typepeek/inspection/inspection-outcome-authority";
 import {
   forwardInspectionProfile,

@@ -1,3 +1,4 @@
+import ts from "@typescript/typescript6";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
@@ -7,6 +8,7 @@ const packageManifest = JSON.parse(
 ) as { readonly version: string };
 const packageVersionDefine = {
   __TYPEPEEK_VERSION__: JSON.stringify(packageManifest.version),
+  __TYPEPEEK_COMPILER_VERSION__: JSON.stringify(ts.version),
 };
 
 const releaseProfileAdapter = fileURLToPath(
@@ -38,7 +40,13 @@ export default defineConfig({
     },
     outDir: ".vite-plus/build",
     rolldownOptions: {
-      external: [/^node:/u, "@stricli/core", "@typescript/typescript6", "effect", "execa"],
+      external: [
+        /^node:/u,
+        "@stricli/core",
+        "@typescript/typescript6",
+        /^effect(?:\/|$)/u,
+        "execa",
+      ],
       output: {
         // analysis-process.ts resolves the emitted worker relative to a shared
         // implementation chunk, so shared chunks deliberately remain at root.

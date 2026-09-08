@@ -1,0 +1,1409 @@
+{
+  "notes": [
+    "One sampled diagnostic execution per case and process; not ordinary benchmark observations.",
+    "Inclusive times overlap and must not be added. Repeated names on the same stack are counted once.",
+    "Raw profiles remain in the local audit-profiles and audit-profiles-after directories; hashes identify them."
+  ],
+  "profiles": [
+    {
+      "stage": "before",
+      "file": "parent-effect.cpuprofile",
+      "sha256": "ebd52f0f239b35e2497285835a60d719dbb9a0ac3813c4b1af7006025de5b5f2",
+      "elapsedMilliseconds": 1501.5,
+      "activeSampleMilliseconds": 372.3,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 0.0,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 0.0,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 0.0,
+        "observeResolution": 0.0,
+        "snapshot": 0.0,
+        "realpathSync": 8.2,
+        "(garbage collector)": 11.2
+      },
+      "largestSelfTimes": [
+        {
+          "function": "(idle)",
+          "milliseconds": 1129.0
+        },
+        {
+          "function": "wrapSafe",
+          "milliseconds": 89.2
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 53.0
+        },
+        {
+          "function": "",
+          "milliseconds": 37.8
+        },
+        {
+          "function": "parse",
+          "milliseconds": 29.1
+        },
+        {
+          "function": "open",
+          "milliseconds": 11.3
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 11.3
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 11.2
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 9.2
+        },
+        {
+          "function": "getPackageScopeConfig",
+          "milliseconds": 7.5
+        },
+        {
+          "function": "#getOrCreateModuleJobAfterResolve",
+          "milliseconds": 6.3
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 5.7
+        }
+      ]
+    },
+    {
+      "stage": "before",
+      "file": "parent-execa.cpuprofile",
+      "sha256": "39395416e6c4914383b4a93801ec3b37eed357a1af596689fa11ba10480c30b9",
+      "elapsedMilliseconds": 1404.3,
+      "activeSampleMilliseconds": 367.9,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 0.0,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 0.0,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 0.0,
+        "observeResolution": 0.0,
+        "snapshot": 0.0,
+        "realpathSync": 4.4,
+        "(garbage collector)": 9.9
+      },
+      "largestSelfTimes": [
+        {
+          "function": "(idle)",
+          "milliseconds": 1036.1
+        },
+        {
+          "function": "wrapSafe",
+          "milliseconds": 89.1
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 42.0
+        },
+        {
+          "function": "",
+          "milliseconds": 41.2
+        },
+        {
+          "function": "parse",
+          "milliseconds": 31.1
+        },
+        {
+          "function": "internalModuleStat",
+          "milliseconds": 10.0
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 9.9
+        },
+        {
+          "function": "getPackageScopeConfig",
+          "milliseconds": 8.8
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 8.7
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 7.8
+        },
+        {
+          "function": "open",
+          "milliseconds": 7.6
+        },
+        {
+          "function": "get",
+          "milliseconds": 6.2
+        }
+      ]
+    },
+    {
+      "stage": "before",
+      "file": "parent-node.cpuprofile",
+      "sha256": "1052e60fbb62b9db83276ee11f954782cacc37f0be5ad879559ab79f895f60c1",
+      "elapsedMilliseconds": 1184.9,
+      "activeSampleMilliseconds": 374.3,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 0.0,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 0.0,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 0.0,
+        "observeResolution": 0.0,
+        "snapshot": 0.0,
+        "realpathSync": 10.8,
+        "(garbage collector)": 10.4
+      },
+      "largestSelfTimes": [
+        {
+          "function": "(idle)",
+          "milliseconds": 810.2
+        },
+        {
+          "function": "wrapSafe",
+          "milliseconds": 88.3
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 54.4
+        },
+        {
+          "function": "",
+          "milliseconds": 45.0
+        },
+        {
+          "function": "parse",
+          "milliseconds": 31.5
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 10.4
+        },
+        {
+          "function": "open",
+          "milliseconds": 7.7
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 7.7
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 7.4
+        },
+        {
+          "function": "#getOrCreateModuleJobAfterResolve",
+          "milliseconds": 6.6
+        },
+        {
+          "function": "normalizeString",
+          "milliseconds": 6.4
+        },
+        {
+          "function": "decode",
+          "milliseconds": 6.3
+        }
+      ]
+    },
+    {
+      "stage": "before",
+      "file": "parent-stricli.cpuprofile",
+      "sha256": "0004c09258b2efed082412ea46f752faa3b873584fdacc72d9cb22612ef1ab3e",
+      "elapsedMilliseconds": 870.5,
+      "activeSampleMilliseconds": 374.9,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 0.0,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 0.0,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 0.0,
+        "observeResolution": 0.0,
+        "snapshot": 0.0,
+        "realpathSync": 10.1,
+        "(garbage collector)": 5.1
+      },
+      "largestSelfTimes": [
+        {
+          "function": "(idle)",
+          "milliseconds": 495.6
+        },
+        {
+          "function": "wrapSafe",
+          "milliseconds": 90.2
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 55.5
+        },
+        {
+          "function": "",
+          "milliseconds": 39.4
+        },
+        {
+          "function": "parse",
+          "milliseconds": 27.7
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 11.1
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 9.4
+        },
+        {
+          "function": "getPackageScopeConfig",
+          "milliseconds": 8.7
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 7.7
+        },
+        {
+          "function": "internalModuleStat",
+          "milliseconds": 7.4
+        },
+        {
+          "function": "#getOrCreateModuleJobAfterResolve",
+          "milliseconds": 6.1
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 5.1
+        }
+      ]
+    },
+    {
+      "stage": "before",
+      "file": "parent-typescript.cpuprofile",
+      "sha256": "0dd508aca755e169e5fa39e62400bcff00ce16f0c075c20f6ceccfe11e0841b6",
+      "elapsedMilliseconds": 970.4,
+      "activeSampleMilliseconds": 374.2,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 0.0,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 0.0,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 0.0,
+        "observeResolution": 0.0,
+        "snapshot": 0.0,
+        "realpathSync": 7.0,
+        "(garbage collector)": 11.3
+      },
+      "largestSelfTimes": [
+        {
+          "function": "(idle)",
+          "milliseconds": 596.1
+        },
+        {
+          "function": "wrapSafe",
+          "milliseconds": 91.6
+        },
+        {
+          "function": "",
+          "milliseconds": 41.6
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 41.5
+        },
+        {
+          "function": "parse",
+          "milliseconds": 30.0
+        },
+        {
+          "function": "internalModuleStat",
+          "milliseconds": 11.8
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 11.3
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 8.3
+        },
+        {
+          "function": "#getOrCreateModuleJobAfterResolve",
+          "milliseconds": 8.0
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 7.7
+        },
+        {
+          "function": "open",
+          "milliseconds": 6.4
+        },
+        {
+          "function": "get",
+          "milliseconds": 5.9
+        }
+      ]
+    },
+    {
+      "stage": "before",
+      "file": "worker-effect.cpuprofile",
+      "sha256": "ee90b98c9bfbe30a5bdeb6183f34aa40a422b9ef21a8e14f776e284d33809215",
+      "elapsedMilliseconds": 1229.4,
+      "activeSampleMilliseconds": 1227.3,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 775.9,
+        "selectNodeDeclarationProgram": 18.8,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 279.7,
+        "isAuthorizedResolutionPath": 235.8,
+        "normalizeResolutionProbe": 32.5,
+        "observeFile": 8.5,
+        "observeResolution": 32.5,
+        "snapshot": 19.8,
+        "realpathSync": 225.3,
+        "(garbage collector)": 52.1
+      },
+      "largestSelfTimes": [
+        {
+          "function": "lstat",
+          "milliseconds": 138.7
+        },
+        {
+          "function": "wrapSafe",
+          "milliseconds": 82.7
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 78.3
+        },
+        {
+          "function": "",
+          "milliseconds": 64.2
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 52.1
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 45.0
+        },
+        {
+          "function": "scan",
+          "milliseconds": 35.8
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 32.5
+        },
+        {
+          "function": "doJSDocScan",
+          "milliseconds": 31.4
+        },
+        {
+          "function": "parse",
+          "milliseconds": 27.4
+        },
+        {
+          "function": "normalizeString",
+          "milliseconds": 24.5
+        },
+        {
+          "function": "resolve",
+          "milliseconds": 23.2
+        }
+      ]
+    },
+    {
+      "stage": "before",
+      "file": "worker-execa.cpuprofile",
+      "sha256": "efc81f24092a92e77ffdb14b63156897cdd3ebf13a34af8235a7cf35a827f23a",
+      "elapsedMilliseconds": 1130.3,
+      "activeSampleMilliseconds": 1128.9,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 627.7,
+        "selectNodeDeclarationProgram": 450.5,
+        "standardGlobals": 70.2,
+        "resolveModuleLiteral": 159.1,
+        "isAuthorizedResolutionPath": 154.3,
+        "normalizeResolutionProbe": 17.8,
+        "observeFile": 11.1,
+        "observeResolution": 15.2,
+        "snapshot": 19.7,
+        "realpathSync": 145.4,
+        "(garbage collector)": 53.9
+      },
+      "largestSelfTimes": [
+        {
+          "function": "wrapSafe",
+          "milliseconds": 87.8
+        },
+        {
+          "function": "lstat",
+          "milliseconds": 85.1
+        },
+        {
+          "function": "",
+          "milliseconds": 63.2
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 63.2
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 53.9
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 44.3
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 32.3
+        },
+        {
+          "function": "parse",
+          "milliseconds": 31.7
+        },
+        {
+          "function": "normalizeString",
+          "milliseconds": 23.9
+        },
+        {
+          "function": "open",
+          "milliseconds": 22.0
+        },
+        {
+          "function": "resolve",
+          "milliseconds": 19.5
+        },
+        {
+          "function": "scan",
+          "milliseconds": 19.2
+        }
+      ]
+    },
+    {
+      "stage": "before",
+      "file": "worker-node.cpuprofile",
+      "sha256": "b96b142fc272d96292270f0cff2e219aa06da0fbbb75fe7a59560f045b47c2c7",
+      "elapsedMilliseconds": 869.2,
+      "activeSampleMilliseconds": 868.3,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 423.5,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 78.7,
+        "isAuthorizedResolutionPath": 77.7,
+        "normalizeResolutionProbe": 10.0,
+        "observeFile": 11.0,
+        "observeResolution": 11.2,
+        "snapshot": 15.8,
+        "realpathSync": 82.3,
+        "(garbage collector)": 47.2
+      },
+      "largestSelfTimes": [
+        {
+          "function": "wrapSafe",
+          "milliseconds": 81.6
+        },
+        {
+          "function": "",
+          "milliseconds": 62.7
+        },
+        {
+          "function": "lstat",
+          "milliseconds": 52.6
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 47.2
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 46.9
+        },
+        {
+          "function": "parse",
+          "milliseconds": 28.8
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 22.6
+        },
+        {
+          "function": "normalizeString",
+          "milliseconds": 20.1
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 18.9
+        },
+        {
+          "function": "open",
+          "milliseconds": 12.9
+        },
+        {
+          "function": "scan",
+          "milliseconds": 11.4
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 11.0
+        }
+      ]
+    },
+    {
+      "stage": "before",
+      "file": "worker-stricli.cpuprofile",
+      "sha256": "3762250bef41805b9e1e6f8c78f9dec8c2362033fb5aa5d59b799281f388b3b9",
+      "elapsedMilliseconds": 523.1,
+      "activeSampleMilliseconds": 522.8,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 126.5,
+        "selectNodeDeclarationProgram": 11.3,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 14.0,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 3.7,
+        "observeResolution": 0.0,
+        "snapshot": 9.5,
+        "realpathSync": 9.8,
+        "(garbage collector)": 13.7
+      },
+      "largestSelfTimes": [
+        {
+          "function": "wrapSafe",
+          "milliseconds": 89.8
+        },
+        {
+          "function": "",
+          "milliseconds": 50.9
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 41.7
+        },
+        {
+          "function": "parse",
+          "milliseconds": 29.2
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 27.7
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 13.7
+        },
+        {
+          "function": "internalModuleStat",
+          "milliseconds": 8.9
+        },
+        {
+          "function": "getPackageScopeConfig",
+          "milliseconds": 8.8
+        },
+        {
+          "function": "get",
+          "milliseconds": 7.7
+        },
+        {
+          "function": "open",
+          "milliseconds": 7.7
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 7.6
+        },
+        {
+          "function": "compileFunction",
+          "milliseconds": 7.2
+        }
+      ]
+    },
+    {
+      "stage": "before",
+      "file": "worker-typescript.cpuprofile",
+      "sha256": "14157784cb24576b31d896f987f91c211ca4fc87cb301b812ec20d13cee5aec3",
+      "elapsedMilliseconds": 645.1,
+      "activeSampleMilliseconds": 643.9,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 212.7,
+        "selectNodeDeclarationProgram": 37.6,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 3.7,
+        "isAuthorizedResolutionPath": 13.5,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 2.5,
+        "observeResolution": 0.0,
+        "snapshot": 10.1,
+        "realpathSync": 17.2,
+        "(garbage collector)": 34.0
+      },
+      "largestSelfTimes": [
+        {
+          "function": "wrapSafe",
+          "milliseconds": 89.6
+        },
+        {
+          "function": "",
+          "milliseconds": 53.9
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 51.3
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 34.0
+        },
+        {
+          "function": "parse",
+          "milliseconds": 29.3
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 27.5
+        },
+        {
+          "function": "getPackageScopeConfig",
+          "milliseconds": 12.3
+        },
+        {
+          "function": "open",
+          "milliseconds": 11.4
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 10.7
+        },
+        {
+          "function": "scan",
+          "milliseconds": 9.2
+        },
+        {
+          "function": "lstat",
+          "milliseconds": 7.5
+        },
+        {
+          "function": "#getOrCreateModuleJobAfterResolve",
+          "milliseconds": 6.6
+        }
+      ]
+    },
+    {
+      "stage": "after",
+      "file": "parent-effect.cpuprofile",
+      "sha256": "08f6772bad7710b7b9efe43d90ceea52a58882ea948779597250df532d697049",
+      "elapsedMilliseconds": 1166.5,
+      "activeSampleMilliseconds": 162.5,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 0.0,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 0.0,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 0.0,
+        "observeResolution": 0.0,
+        "snapshot": 0.0,
+        "realpathSync": 6.3,
+        "(garbage collector)": 10.1
+      },
+      "largestSelfTimes": [
+        {
+          "function": "(idle)",
+          "milliseconds": 1003.7
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 41.0
+        },
+        {
+          "function": "",
+          "milliseconds": 18.5
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 10.1
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 8.6
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 7.7
+        },
+        {
+          "function": "parse",
+          "milliseconds": 5.2
+        },
+        {
+          "function": "open",
+          "milliseconds": 5.0
+        },
+        {
+          "function": "normalizeString",
+          "milliseconds": 3.8
+        },
+        {
+          "function": "internalModuleStat",
+          "milliseconds": 2.5
+        },
+        {
+          "function": "lstat",
+          "milliseconds": 2.5
+        },
+        {
+          "function": "__require",
+          "milliseconds": 2.5
+        }
+      ]
+    },
+    {
+      "stage": "after",
+      "file": "parent-execa.cpuprofile",
+      "sha256": "e33d93b46341fc52afecd14a8d610b9561e5c1a9a64516d61aa369cf7ca0a8c6",
+      "elapsedMilliseconds": 1082.8,
+      "activeSampleMilliseconds": 162.5,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 0.0,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 0.0,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 0.0,
+        "observeResolution": 0.0,
+        "snapshot": 0.0,
+        "realpathSync": 7.8,
+        "(garbage collector)": 7.4
+      },
+      "largestSelfTimes": [
+        {
+          "function": "(idle)",
+          "milliseconds": 920.3
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 31.2
+        },
+        {
+          "function": "",
+          "milliseconds": 20.0
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 7.4
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 7.3
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 6.3
+        },
+        {
+          "function": "internalModuleStat",
+          "milliseconds": 5.0
+        },
+        {
+          "function": "open",
+          "milliseconds": 3.9
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 3.8
+        },
+        {
+          "function": "get",
+          "milliseconds": 3.8
+        },
+        {
+          "function": "getPackageScopeConfig",
+          "milliseconds": 3.8
+        },
+        {
+          "function": "normalizeString",
+          "milliseconds": 3.7
+        }
+      ]
+    },
+    {
+      "stage": "after",
+      "file": "parent-node.cpuprofile",
+      "sha256": "25eac36cf5d559f3d5054a29739eb2f49368ddf1f3b9798c9cbde611c6be5c88",
+      "elapsedMilliseconds": 933.6,
+      "activeSampleMilliseconds": 171.7,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 0.0,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 0.0,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 0.0,
+        "observeResolution": 0.0,
+        "snapshot": 0.0,
+        "realpathSync": 10.0,
+        "(garbage collector)": 11.2
+      },
+      "largestSelfTimes": [
+        {
+          "function": "(idle)",
+          "milliseconds": 761.7
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 29.2
+        },
+        {
+          "function": "",
+          "milliseconds": 18.2
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 11.2
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 9.1
+        },
+        {
+          "function": "open",
+          "milliseconds": 7.5
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 7.4
+        },
+        {
+          "function": "getPackageScopeConfig",
+          "milliseconds": 6.3
+        },
+        {
+          "function": "parse",
+          "milliseconds": 5.0
+        },
+        {
+          "function": "normalizeString",
+          "milliseconds": 5.0
+        },
+        {
+          "function": "internalModuleStat",
+          "milliseconds": 3.9
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 3.7
+        }
+      ]
+    },
+    {
+      "stage": "after",
+      "file": "parent-stricli.cpuprofile",
+      "sha256": "4cab6595e6669a64fd6ed4df8b43dd5a045f3d7f7edf48a95b803a54a67b4dec",
+      "elapsedMilliseconds": 605.4,
+      "activeSampleMilliseconds": 169.5,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 0.0,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 0.0,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 0.0,
+        "observeResolution": 0.0,
+        "snapshot": 0.0,
+        "realpathSync": 8.4,
+        "(garbage collector)": 10.0
+      },
+      "largestSelfTimes": [
+        {
+          "function": "(idle)",
+          "milliseconds": 435.4
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 26.6
+        },
+        {
+          "function": "",
+          "milliseconds": 19.3
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 10.0
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 9.8
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 7.5
+        },
+        {
+          "function": "__require",
+          "milliseconds": 5.0
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 5.0
+        },
+        {
+          "function": "internalModuleStat",
+          "milliseconds": 3.8
+        },
+        {
+          "function": "get",
+          "milliseconds": 3.8
+        },
+        {
+          "function": "update",
+          "milliseconds": 2.7
+        },
+        {
+          "function": "getPackageScopeConfig",
+          "milliseconds": 2.7
+        }
+      ]
+    },
+    {
+      "stage": "after",
+      "file": "parent-typescript.cpuprofile",
+      "sha256": "9bff733d8e25b96857ae6bc4a24649f5418546e86f6b12aa12fe4256cb8dc910",
+      "elapsedMilliseconds": 702.0,
+      "activeSampleMilliseconds": 171.8,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 0.0,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 0.0,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 0.0,
+        "observeResolution": 0.0,
+        "snapshot": 0.0,
+        "realpathSync": 1.2,
+        "(garbage collector)": 5.1
+      },
+      "largestSelfTimes": [
+        {
+          "function": "(idle)",
+          "milliseconds": 530.2
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 24.5
+        },
+        {
+          "function": "",
+          "milliseconds": 18.7
+        },
+        {
+          "function": "getPackageScopeConfig",
+          "milliseconds": 11.6
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 10.1
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 9.2
+        },
+        {
+          "function": "open",
+          "milliseconds": 7.5
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 5.1
+        },
+        {
+          "function": "pathToFileURL",
+          "milliseconds": 3.8
+        },
+        {
+          "function": "parse",
+          "milliseconds": 3.8
+        },
+        {
+          "function": "#getOrCreateModuleJobAfterResolve",
+          "milliseconds": 3.7
+        },
+        {
+          "function": "internalModuleStat",
+          "milliseconds": 3.7
+        }
+      ]
+    },
+    {
+      "stage": "after",
+      "file": "worker-effect.cpuprofile",
+      "sha256": "9b144ce6837d604f2cae9c8db3d4ebcc5bab615252a8b6328f72eaefda321ca8",
+      "elapsedMilliseconds": 1053.7,
+      "activeSampleMilliseconds": 1052.3,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 684.8,
+        "selectNodeDeclarationProgram": 16.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 238.4,
+        "isAuthorizedResolutionPath": 205.8,
+        "normalizeResolutionProbe": 5.0,
+        "observeFile": 4.6,
+        "observeResolution": 6.2,
+        "snapshot": 8.2,
+        "realpathSync": 171.6,
+        "(garbage collector)": 47.8
+      },
+      "largestSelfTimes": [
+        {
+          "function": "lstat",
+          "milliseconds": 113.7
+        },
+        {
+          "function": "wrapSafe",
+          "milliseconds": 82.7
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 50.5
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 47.8
+        },
+        {
+          "function": "",
+          "milliseconds": 35.5
+        },
+        {
+          "function": "normalizeString",
+          "milliseconds": 29.5
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 28.7
+        },
+        {
+          "function": "parse",
+          "milliseconds": 28.6
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 28.2
+        },
+        {
+          "function": "relative",
+          "milliseconds": 27.0
+        },
+        {
+          "function": "scan",
+          "milliseconds": 24.9
+        },
+        {
+          "function": "doJSDocScan",
+          "milliseconds": 21.2
+        }
+      ]
+    },
+    {
+      "stage": "after",
+      "file": "worker-execa.cpuprofile",
+      "sha256": "987ebb32284b4884d53ada05443252ef7d3753e277db0cb27f7dac2da0ab8871",
+      "elapsedMilliseconds": 998.8,
+      "activeSampleMilliseconds": 998.5,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 593.5,
+        "selectNodeDeclarationProgram": 416.7,
+        "standardGlobals": 73.6,
+        "resolveModuleLiteral": 167.8,
+        "isAuthorizedResolutionPath": 149.4,
+        "normalizeResolutionProbe": 8.5,
+        "observeFile": 1.3,
+        "observeResolution": 8.5,
+        "snapshot": 8.0,
+        "realpathSync": 130.6,
+        "(garbage collector)": 40.0
+      },
+      "largestSelfTimes": [
+        {
+          "function": "wrapSafe",
+          "milliseconds": 86.4
+        },
+        {
+          "function": "lstat",
+          "milliseconds": 85.0
+        },
+        {
+          "function": "",
+          "milliseconds": 60.7
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 40.0
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 31.8
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 28.8
+        },
+        {
+          "function": "resolve",
+          "milliseconds": 28.7
+        },
+        {
+          "function": "parse",
+          "milliseconds": 26.0
+        },
+        {
+          "function": "normalizeString",
+          "milliseconds": 22.2
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 22.1
+        },
+        {
+          "function": "scan",
+          "milliseconds": 22.1
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 18.0
+        }
+      ]
+    },
+    {
+      "stage": "after",
+      "file": "worker-node.cpuprofile",
+      "sha256": "1dacf7075bf35ca4db5fa2651da7c63ab0a11c658b5774789d4046fed09fcc17",
+      "elapsedMilliseconds": 800.5,
+      "activeSampleMilliseconds": 799.8,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 398.0,
+        "selectNodeDeclarationProgram": 0.0,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 95.5,
+        "isAuthorizedResolutionPath": 64.6,
+        "normalizeResolutionProbe": 7.6,
+        "observeFile": 2.0,
+        "observeResolution": 7.6,
+        "snapshot": 8.2,
+        "realpathSync": 68.5,
+        "(garbage collector)": 57.4
+      },
+      "largestSelfTimes": [
+        {
+          "function": "wrapSafe",
+          "milliseconds": 80.2
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 57.4
+        },
+        {
+          "function": "lstat",
+          "milliseconds": 48.9
+        },
+        {
+          "function": "",
+          "milliseconds": 46.7
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 37.4
+        },
+        {
+          "function": "parse",
+          "milliseconds": 35.8
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 24.6
+        },
+        {
+          "function": "scan",
+          "milliseconds": 14.3
+        },
+        {
+          "function": "stat",
+          "milliseconds": 13.7
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 12.1
+        },
+        {
+          "function": "normalizeString",
+          "milliseconds": 11.4
+        },
+        {
+          "function": "doJSDocScan",
+          "milliseconds": 11.0
+        }
+      ]
+    },
+    {
+      "stage": "after",
+      "file": "worker-stricli.cpuprofile",
+      "sha256": "707729cab5db6a786a0d44b5a401789cfbb10b3a905d7accbbe36cd4464607b7",
+      "elapsedMilliseconds": 483.4,
+      "activeSampleMilliseconds": 481.6,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 130.5,
+        "selectNodeDeclarationProgram": 11.1,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 0.0,
+        "isAuthorizedResolutionPath": 13.2,
+        "normalizeResolutionProbe": 0.0,
+        "observeFile": 1.3,
+        "observeResolution": 0.0,
+        "snapshot": 9.8,
+        "realpathSync": 10.6,
+        "(garbage collector)": 22.5
+      },
+      "largestSelfTimes": [
+        {
+          "function": "wrapSafe",
+          "milliseconds": 83.2
+        },
+        {
+          "function": "",
+          "milliseconds": 58.2
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 34.1
+        },
+        {
+          "function": "parse",
+          "milliseconds": 28.9
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 22.5
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 22.0
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 10.9
+        },
+        {
+          "function": "scan",
+          "milliseconds": 8.2
+        },
+        {
+          "function": "isThisIdentifier",
+          "milliseconds": 5.2
+        },
+        {
+          "function": "getPackageScopeConfig",
+          "milliseconds": 5.2
+        },
+        {
+          "function": "normalizeString",
+          "milliseconds": 5.1
+        },
+        {
+          "function": "realpathSync",
+          "milliseconds": 4.1
+        }
+      ]
+    },
+    {
+      "stage": "after",
+      "file": "worker-typescript.cpuprofile",
+      "sha256": "b3477a0b2c0037a5561d41e0d84be6e9b8899a6a1f245ad26c3f741e901d3456",
+      "elapsedMilliseconds": 563.8,
+      "activeSampleMilliseconds": 561.6,
+      "inclusiveMilliseconds": {
+        "materializeInstalledProgram": 208.0,
+        "selectNodeDeclarationProgram": 37.1,
+        "standardGlobals": 0.0,
+        "resolveModuleLiteral": 3.8,
+        "isAuthorizedResolutionPath": 16.0,
+        "normalizeResolutionProbe": 1.2,
+        "observeFile": 1.2,
+        "observeResolution": 1.2,
+        "snapshot": 9.0,
+        "realpathSync": 13.6,
+        "(garbage collector)": 25.9
+      },
+      "largestSelfTimes": [
+        {
+          "function": "wrapSafe",
+          "milliseconds": 82.8
+        },
+        {
+          "function": "",
+          "milliseconds": 47.4
+        },
+        {
+          "function": "compileForInternalLoader",
+          "milliseconds": 30.0
+        },
+        {
+          "function": "(garbage collector)",
+          "milliseconds": 25.9
+        },
+        {
+          "function": "parse",
+          "milliseconds": 25.0
+        },
+        {
+          "function": "compileSourceTextModule",
+          "milliseconds": 24.0
+        },
+        {
+          "function": "scan",
+          "milliseconds": 11.5
+        },
+        {
+          "function": "internalModuleStat",
+          "milliseconds": 8.8
+        },
+        {
+          "function": "(program)",
+          "milliseconds": 8.6
+        },
+        {
+          "function": "open",
+          "milliseconds": 7.8
+        },
+        {
+          "function": "compileFunction",
+          "milliseconds": 6.4
+        },
+        {
+          "function": "createIdentifier",
+          "milliseconds": 5.8
+        }
+      ]
+    }
+  ]
+}

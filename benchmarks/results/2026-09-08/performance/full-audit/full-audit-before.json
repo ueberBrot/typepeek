@@ -1,0 +1,3023 @@
+{
+  "kind": "discovery-benchmark",
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T17:43:52.776Z",
+  "identity": {
+    "workspace": "/private/tmp/typepeek-inspection-performance-20260908",
+    "node": "v24.18.0",
+    "compiler": "6.0.3",
+    "ripgrep": "ripgrep 15.2.0 (rev e89fff89ac)",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "osRelease": "25.6.0",
+    "cpu": "Apple M1 Max",
+    "hostname": "MacBookPro.fritz.box",
+    "adapter": "package",
+    "evidenceHash": "6ccd153ccf9993aaafe3fbad1dada035da25e62b036631ae0211a2b7b6bef18f",
+    "lockfileHash": "372ac1a51597d70746e45dd5a5390b8ffc584b6607d35a692b7ee2e45dbf5369",
+    "artifactHash": "9d0a1540a30c268a4a85f363463e798168f4e226aad1c978c2162c3ba962ff8f",
+    "harnessHash": "b07b8f175b86046cdc7fc4a2d4f24a91bcef2308a8bdaaccd62c7c5a0ba08b44",
+    "commit": "de95966abfffaccde96a6f2689585f5773cb8bbc"
+  },
+  "options": {
+    "iterations": 5,
+    "warmups": 1,
+    "seed": 1729,
+    "timeoutMs": 15000,
+    "tolerancePercent": 10,
+    "toleranceMs": 10,
+    "maxCvPercent": 20
+  },
+  "evidenceUnchanged": true,
+  "inputsUnchanged": true,
+  "rows": [
+    {
+      "workload": "execa-command",
+      "condition": "files",
+      "question": "Find every public call signature of Execa's parseCommandString export.",
+      "expectedFacts": ["call:( command : string ) : string [ ]"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 73.79266700000062,
+          "stdoutBytes": 1220,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 72.64441600000009,
+          "stdoutBytes": 1220,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 68.80804100000023,
+          "stdoutBytes": 1220,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 68.78595800000039,
+          "stdoutBytes": 1220,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 68.70004100000006,
+          "stdoutBytes": 1220,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        }
+      ]
+    },
+    {
+      "workload": "execa-command",
+      "condition": "compiler",
+      "question": "Find every public call signature of Execa's parseCommandString export.",
+      "expectedFacts": ["call:( command : string ) : string [ ]"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 461.2874160000001,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 599.1420409999992,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 404.96587499999987,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 409.3839169999992,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 421.9732500000009,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-command",
+      "condition": "typepeek-cold",
+      "question": "Find every public call signature of Execa's parseCommandString export.",
+      "expectedFacts": ["call:( command : string ) : string [ ]"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 977.9237499999999,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 900.2834999999995,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 855.899542000001,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 880.9994169999991,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 868.588832999998,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-command",
+      "condition": "typepeek-warm",
+      "question": "Find every public call signature of Execa's parseCommandString export.",
+      "expectedFacts": ["call:( command : string ) : string [ ]"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 930.9644170000001,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 895.7511250000007,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 904.5316249999996,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 874.9724580000002,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 857.204749999999,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-cancellation",
+      "condition": "files",
+      "question": "Find every public call signature of Execa's getCancelSignal export.",
+      "expectedFacts": ["call:( ) : Promise < AbortSignal >"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 69.21554200000173,
+          "stdoutBytes": 5595,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 67.20570800000132,
+          "stdoutBytes": 5595,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 69.109375,
+          "stdoutBytes": 5595,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 71.83429099999921,
+          "stdoutBytes": 5595,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 70.58795800000007,
+          "stdoutBytes": 5595,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 2
+        }
+      ]
+    },
+    {
+      "workload": "execa-cancellation",
+      "condition": "compiler",
+      "question": "Find every public call signature of Execa's getCancelSignal export.",
+      "expectedFacts": ["call:( ) : Promise < AbortSignal >"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 413.57754099999875,
+          "stdoutBytes": 85,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 405.4510829999999,
+          "stdoutBytes": 85,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 409.8782500000016,
+          "stdoutBytes": 85,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 410.8659579999985,
+          "stdoutBytes": 85,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 413.1235420000012,
+          "stdoutBytes": 85,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-cancellation",
+      "condition": "typepeek-cold",
+      "question": "Find every public call signature of Execa's getCancelSignal export.",
+      "expectedFacts": ["call:( ) : Promise < AbortSignal >"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1026.106416999999,
+          "stdoutBytes": 381,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 952.127625000001,
+          "stdoutBytes": 381,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 941.6183749999982,
+          "stdoutBytes": 381,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 951.7702500000014,
+          "stdoutBytes": 381,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 940.6915410000001,
+          "stdoutBytes": 381,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-cancellation",
+      "condition": "typepeek-warm",
+      "question": "Find every public call signature of Execa's getCancelSignal export.",
+      "expectedFacts": ["call:( ) : Promise < AbortSignal >"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 945.711124999998,
+          "stdoutBytes": 381,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1005.2873749999999,
+          "stdoutBytes": 381,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 955.7645830000001,
+          "stdoutBytes": 381,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 983.8054169999996,
+          "stdoutBytes": 381,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 969.9279999999999,
+          "stdoutBytes": 381,
+          "passed": true,
+          "error": null,
+          "factsHash": "e1e7effe553fe72ead1e0b664063eeb31507b0bfb2753eb64ef926621fb0ee8c",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-invocation",
+      "condition": "compiler",
+      "question": "Find every public call signature of the installed execa export.",
+      "expectedFacts": [
+        "call:< NewOptionsType extends Options = { } > ( options : NewOptionsType ) : ExecaMethod < { } & NewOptionsType >",
+        "call:( templateString_0 : TemplateStringsArray , ... templateString : TemplateExpression [ ] ) : ResultPromise < { } >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , arguments ? : readonly string [ ] , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 433.5429579999982,
+          "stdoutBytes": 629,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 443.65095799999835,
+          "stdoutBytes": 629,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 443.039291999994,
+          "stdoutBytes": 629,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 447.72954200000095,
+          "stdoutBytes": 629,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 443.6721249999973,
+          "stdoutBytes": 629,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-invocation",
+      "condition": "typepeek-cold",
+      "question": "Find every public call signature of the installed execa export.",
+      "expectedFacts": [
+        "call:< NewOptionsType extends Options = { } > ( options : NewOptionsType ) : ExecaMethod < { } & NewOptionsType >",
+        "call:( templateString_0 : TemplateStringsArray , ... templateString : TemplateExpression [ ] ) : ResultPromise < { } >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , arguments ? : readonly string [ ] , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1358.6690000000017,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1409.8284589999967,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1392.9472079999978,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1358.023417000004,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1360.5307919999977,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-invocation",
+      "condition": "typepeek-warm",
+      "question": "Find every public call signature of the installed execa export.",
+      "expectedFacts": [
+        "call:< NewOptionsType extends Options = { } > ( options : NewOptionsType ) : ExecaMethod < { } & NewOptionsType >",
+        "call:( templateString_0 : TemplateStringsArray , ... templateString : TemplateExpression [ ] ) : ResultPromise < { } >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , arguments ? : readonly string [ ] , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >",
+        "call:< NewOptionsType extends Options = { } > ( file : string | URL , options ? : NewOptionsType | undefined ) : ResultPromise < { } & NewOptionsType >"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1351.7436249999955,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1373.6842499999984,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1365.5154580000017,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1365.458375000002,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1354.882792000004,
+          "stdoutBytes": 2448,
+          "passed": true,
+          "error": null,
+          "factsHash": "f0f66dd15d0dbd335109d23c8989d4c2ae6c1f55c12545abcddcb8738f1ee9b1",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-errors",
+      "condition": "compiler",
+      "question": "Find all public Execa export names containing error, ignoring case.",
+      "expectedFacts": ["ExecaError", "ExecaSyncError"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 398.57141599999886,
+          "stdoutBytes": 78,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 414.9147920000032,
+          "stdoutBytes": 78,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 416.38954099998955,
+          "stdoutBytes": 78,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 404.29266700000153,
+          "stdoutBytes": 78,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 413.87212500000896,
+          "stdoutBytes": 78,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-errors",
+      "condition": "typepeek-cold",
+      "question": "Find all public Execa export names containing error, ignoring case.",
+      "expectedFacts": ["ExecaError", "ExecaSyncError"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1263.8835830000025,
+          "stdoutBytes": 275,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1253.5236249999944,
+          "stdoutBytes": 275,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1226.7909579999978,
+          "stdoutBytes": 275,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1266.645000000004,
+          "stdoutBytes": 275,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1277.0900830000028,
+          "stdoutBytes": 275,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-errors",
+      "condition": "typepeek-warm",
+      "question": "Find all public Execa export names containing error, ignoring case.",
+      "expectedFacts": ["ExecaError", "ExecaSyncError"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1266.364542000003,
+          "stdoutBytes": 275,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1248.664791999996,
+          "stdoutBytes": 275,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1247.1706669999985,
+          "stdoutBytes": 275,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1263.5772089999955,
+          "stdoutBytes": 275,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1256.0179169999901,
+          "stdoutBytes": 275,
+          "passed": true,
+          "error": null,
+          "factsHash": "8101ce9a2f68d6e08b58e3eaa616955415f87a57b7eaf155466d2f10a481fba7",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-absent",
+      "condition": "compiler",
+      "question": "Does Execa export a name containing __typepeek_absent__?",
+      "expectedFacts": [],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 422.3016249999928,
+          "stdoutBytes": 49,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 407.0513340000034,
+          "stdoutBytes": 49,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 403.88087500000256,
+          "stdoutBytes": 49,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 411.9754580000008,
+          "stdoutBytes": 49,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 407.18229200001224,
+          "stdoutBytes": 49,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-absent",
+      "condition": "typepeek-cold",
+      "question": "Does Execa export a name containing __typepeek_absent__?",
+      "expectedFacts": [],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1280.8088330000028,
+          "stdoutBytes": 242,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1256.372000000003,
+          "stdoutBytes": 242,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1249.276291999995,
+          "stdoutBytes": 242,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1318.7010420000006,
+          "stdoutBytes": 242,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1327.3799579999904,
+          "stdoutBytes": 242,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-absent",
+      "condition": "typepeek-warm",
+      "question": "Does Execa export a name containing __typepeek_absent__?",
+      "expectedFacts": [],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1306.4151669999992,
+          "stdoutBytes": 242,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1262.3532919999998,
+          "stdoutBytes": 242,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1264.6582909999997,
+          "stdoutBytes": 242,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1258.934083,
+          "stdoutBytes": 242,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1261.5392079999874,
+          "stdoutBytes": 242,
+          "passed": true,
+          "error": null,
+          "factsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "node-read-file",
+      "condition": "files",
+      "question": "Find every public call signature of node:fs readFile, including overloads.",
+      "expectedFacts": [
+        "call:( path : PathOrFileDescriptor , options : ( { encoding ? : null | undefined ; flag ? : string | undefined ; } & Abortable ) | undefined | null , callback : ( err : NodeJS . ErrnoException | null , data : NonSharedBuffer ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , options : ( { encoding : BufferEncoding ; flag ? : string | undefined ; } & Abortable ) | BufferEncoding , callback : ( err : NodeJS . ErrnoException | null , data : string ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , options : ( ObjectEncodingOptions & { flag ? : string | undefined ; } & Abortable ) | BufferEncoding | undefined | null , callback : ( err : NodeJS . ErrnoException | null , data : string | NonSharedBuffer ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , callback : ( err : NodeJS . ErrnoException | null , data : NonSharedBuffer ) => void ) : void"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 73.5650830000086,
+          "stdoutBytes": 266120,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 3
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 75.43145799999184,
+          "stdoutBytes": 266120,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 3
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 72.81500000000233,
+          "stdoutBytes": 266120,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 3
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 70.91366700000071,
+          "stdoutBytes": 266120,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 3
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 72.29929200001061,
+          "stdoutBytes": 266120,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 3
+        }
+      ]
+    },
+    {
+      "workload": "node-read-file",
+      "condition": "compiler",
+      "question": "Find every public call signature of node:fs readFile, including overloads.",
+      "expectedFacts": [
+        "call:( path : PathOrFileDescriptor , options : ( { encoding ? : null | undefined ; flag ? : string | undefined ; } & Abortable ) | undefined | null , callback : ( err : NodeJS . ErrnoException | null , data : NonSharedBuffer ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , options : ( { encoding : BufferEncoding ; flag ? : string | undefined ; } & Abortable ) | BufferEncoding , callback : ( err : NodeJS . ErrnoException | null , data : string ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , options : ( ObjectEncodingOptions & { flag ? : string | undefined ; } & Abortable ) | BufferEncoding | undefined | null , callback : ( err : NodeJS . ErrnoException | null , data : string | NonSharedBuffer ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , callback : ( err : NodeJS . ErrnoException | null , data : NonSharedBuffer ) => void ) : void"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 589.5976250000094,
+          "stdoutBytes": 922,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 571.7385000000068,
+          "stdoutBytes": 922,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 551.0060830000002,
+          "stdoutBytes": 922,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 542.9390839999978,
+          "stdoutBytes": 922,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 552.9254159999982,
+          "stdoutBytes": 922,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "node-read-file",
+      "condition": "typepeek-cold",
+      "question": "Find every public call signature of node:fs readFile, including overloads.",
+      "expectedFacts": [
+        "call:( path : PathOrFileDescriptor , options : ( { encoding ? : null | undefined ; flag ? : string | undefined ; } & Abortable ) | undefined | null , callback : ( err : NodeJS . ErrnoException | null , data : NonSharedBuffer ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , options : ( { encoding : BufferEncoding ; flag ? : string | undefined ; } & Abortable ) | BufferEncoding , callback : ( err : NodeJS . ErrnoException | null , data : string ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , options : ( ObjectEncodingOptions & { flag ? : string | undefined ; } & Abortable ) | BufferEncoding | undefined | null , callback : ( err : NodeJS . ErrnoException | null , data : string | NonSharedBuffer ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , callback : ( err : NodeJS . ErrnoException | null , data : NonSharedBuffer ) => void ) : void"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1172.2398749999993,
+          "stdoutBytes": 3231,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1171.2217919999966,
+          "stdoutBytes": 3231,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1200.7272499999963,
+          "stdoutBytes": 3231,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1114.748166999998,
+          "stdoutBytes": 3231,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1195.6648330000025,
+          "stdoutBytes": 3231,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "node-read-file",
+      "condition": "typepeek-warm",
+      "question": "Find every public call signature of node:fs readFile, including overloads.",
+      "expectedFacts": [
+        "call:( path : PathOrFileDescriptor , options : ( { encoding ? : null | undefined ; flag ? : string | undefined ; } & Abortable ) | undefined | null , callback : ( err : NodeJS . ErrnoException | null , data : NonSharedBuffer ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , options : ( { encoding : BufferEncoding ; flag ? : string | undefined ; } & Abortable ) | BufferEncoding , callback : ( err : NodeJS . ErrnoException | null , data : string ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , options : ( ObjectEncodingOptions & { flag ? : string | undefined ; } & Abortable ) | BufferEncoding | undefined | null , callback : ( err : NodeJS . ErrnoException | null , data : string | NonSharedBuffer ) => void ) : void",
+        "call:( path : PathOrFileDescriptor , callback : ( err : NodeJS . ErrnoException | null , data : NonSharedBuffer ) => void ) : void"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1205.5139169999893,
+          "stdoutBytes": 3231,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1180.5827500000014,
+          "stdoutBytes": 3231,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1158.3530409999948,
+          "stdoutBytes": 3231,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1120.3101250000036,
+          "stdoutBytes": 3231,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1115.4570410000015,
+          "stdoutBytes": 3231,
+          "passed": true,
+          "error": null,
+          "factsHash": "1bb34a603515f8fee8b09af63dcf6ce6f404412155439fdc68384e7730eb0674",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "node-exists",
+      "condition": "files",
+      "question": "Find every public call signature of node:fs existsSync.",
+      "expectedFacts": ["call:( path : PathLike ) : boolean"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 74.24308299999393,
+          "stdoutBytes": 206706,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 74.1829160000052,
+          "stdoutBytes": 206706,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 74.07729099999415,
+          "stdoutBytes": 206706,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 72.38045900000725,
+          "stdoutBytes": 206706,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 73.38916700000118,
+          "stdoutBytes": 206706,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 2
+        }
+      ]
+    },
+    {
+      "workload": "node-exists",
+      "condition": "compiler",
+      "question": "Find every public call signature of node:fs existsSync.",
+      "expectedFacts": ["call:( path : PathLike ) : boolean"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 571.5342079999973,
+          "stdoutBytes": 85,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 618.5744169999962,
+          "stdoutBytes": 85,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 560.8602499999979,
+          "stdoutBytes": 85,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 572.6609999999928,
+          "stdoutBytes": 85,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 548.2970420000056,
+          "stdoutBytes": 85,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "node-exists",
+      "condition": "typepeek-cold",
+      "question": "Find every public call signature of node:fs existsSync.",
+      "expectedFacts": ["call:( path : PathLike ) : boolean"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1232.7354579999956,
+          "stdoutBytes": 490,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1145.1597080000065,
+          "stdoutBytes": 490,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1112.1725000000006,
+          "stdoutBytes": 490,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1110.9273329999996,
+          "stdoutBytes": 490,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1167.140167000005,
+          "stdoutBytes": 490,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "node-exists",
+      "condition": "typepeek-warm",
+      "question": "Find every public call signature of node:fs existsSync.",
+      "expectedFacts": ["call:( path : PathLike ) : boolean"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1146.1434579999914,
+          "stdoutBytes": 490,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1187.2909579999978,
+          "stdoutBytes": 490,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1116.7954579999932,
+          "stdoutBytes": 490,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1165.5193750000035,
+          "stdoutBytes": 490,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1118.949667000008,
+          "stdoutBytes": 490,
+          "passed": true,
+          "error": null,
+          "factsHash": "b0cded8c5015de03243f97bd5590875a5533343d829d30f40b01ff4d65ee10eb",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "effect-option",
+      "condition": "compiler",
+      "question": "Find every public call signature of effect/Option getOrNull.",
+      "expectedFacts": ["call:< A > ( self : Option < A > ) : A | null"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 669.5231670000067,
+          "stdoutBytes": 96,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 694.2421669999894,
+          "stdoutBytes": 96,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 678.3849589999882,
+          "stdoutBytes": 96,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 686.2154999999912,
+          "stdoutBytes": 96,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 667.2942079999775,
+          "stdoutBytes": 96,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "effect-option",
+      "condition": "typepeek-cold",
+      "question": "Find every public call signature of effect/Option getOrNull.",
+      "expectedFacts": ["call:< A > ( self : Option < A > ) : A | null"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1442.7437499999942,
+          "stdoutBytes": 543,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1431.8394580000022,
+          "stdoutBytes": 543,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1440.6665840000205,
+          "stdoutBytes": 543,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1467.864917000028,
+          "stdoutBytes": 543,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1460.6942920000001,
+          "stdoutBytes": 543,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "effect-option",
+      "condition": "typepeek-warm",
+      "question": "Find every public call signature of effect/Option getOrNull.",
+      "expectedFacts": ["call:< A > ( self : Option < A > ) : A | null"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 1428.1710410000233,
+          "stdoutBytes": 543,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 1449.809500000003,
+          "stdoutBytes": 543,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 1443.398749999993,
+          "stdoutBytes": 543,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 1449.5347499999916,
+          "stdoutBytes": 543,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 1465.566583000007,
+          "stdoutBytes": 543,
+          "passed": true,
+          "error": null,
+          "factsHash": "e645e1b67971b6bb1f8d9bfe8f3aa43cfc6267295ade5f0e40ecd8320ca682c5",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "stricli-routes",
+      "condition": "files",
+      "question": "Find every public call signature of @stricli/core buildRouteMap, including its generic parameters.",
+      "expectedFacts": [
+        "call:< R extends string , CONTEXT extends CommandContext = CommandContext > ( { routes , defaultCommand : defaultCommandRoute , docs , aliases } : RouteMapBuilderArguments < R , CONTEXT > ) : RouteMap < CONTEXT >"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 72.74083299998892,
+          "stdoutBytes": 155176,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 3
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 73.94391699999687,
+          "stdoutBytes": 155176,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 3
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 74.81845799999428,
+          "stdoutBytes": 155176,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 3
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 72.19766599999275,
+          "stdoutBytes": 155176,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 3
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 70.30654200000572,
+          "stdoutBytes": 155176,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 3
+        }
+      ]
+    },
+    {
+      "workload": "stricli-routes",
+      "condition": "compiler",
+      "question": "Find every public call signature of @stricli/core buildRouteMap, including its generic parameters.",
+      "expectedFacts": [
+        "call:< R extends string , CONTEXT extends CommandContext = CommandContext > ( { routes , defaultCommand : defaultCommandRoute , docs , aliases } : RouteMapBuilderArguments < R , CONTEXT > ) : RouteMap < CONTEXT >"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 407.234375,
+          "stdoutBytes": 263,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 416.26204199998756,
+          "stdoutBytes": 263,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 404.4399589999812,
+          "stdoutBytes": 263,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 439.51766700000735,
+          "stdoutBytes": 263,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 406.35920900001656,
+          "stdoutBytes": 263,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "stricli-routes",
+      "condition": "typepeek-cold",
+      "question": "Find every public call signature of @stricli/core buildRouteMap, including its generic parameters.",
+      "expectedFacts": [
+        "call:< R extends string , CONTEXT extends CommandContext = CommandContext > ( { routes , defaultCommand : defaultCommandRoute , docs , aliases } : RouteMapBuilderArguments < R , CONTEXT > ) : RouteMap < CONTEXT >"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 846.8209590000042,
+          "stdoutBytes": 911,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 822.7748750000028,
+          "stdoutBytes": 911,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 833.5119579999882,
+          "stdoutBytes": 911,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 826.1833340000012,
+          "stdoutBytes": 911,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 832.4855830000015,
+          "stdoutBytes": 911,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "stricli-routes",
+      "condition": "typepeek-warm",
+      "question": "Find every public call signature of @stricli/core buildRouteMap, including its generic parameters.",
+      "expectedFacts": [
+        "call:< R extends string , CONTEXT extends CommandContext = CommandContext > ( { routes , defaultCommand : defaultCommandRoute , docs , aliases } : RouteMapBuilderArguments < R , CONTEXT > ) : RouteMap < CONTEXT >"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 686.0042079999985,
+          "stdoutBytes": 911,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 687.7571670000034,
+          "stdoutBytes": 911,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 692.8806249999907,
+          "stdoutBytes": 911,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 726.6266670000041,
+          "stdoutBytes": 911,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 701.0081250000221,
+          "stdoutBytes": 911,
+          "passed": true,
+          "error": null,
+          "factsHash": "7d88a53a3cafba4c11822be7889adf1b25753d194b2aeb762543ff268c1a827d",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "typescript-program",
+      "condition": "compiler",
+      "question": "Find every public call signature of @typescript/typescript6 createProgram.",
+      "expectedFacts": [
+        "call:( createProgramOptions : CreateProgramOptions ) : Program",
+        "call:( rootNames : readonly string [ ] , options : CompilerOptions , host ? : CompilerHost , oldProgram ? : Program , configFileParsingDiagnostics ? : readonly Diagnostic [ ] ) : Program"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 454.1922080000222,
+          "stdoutBytes": 302,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 449.074500000017,
+          "stdoutBytes": 302,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 457.18875000000116,
+          "stdoutBytes": 302,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 449.2395839999954,
+          "stdoutBytes": 302,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 451.5749170000199,
+          "stdoutBytes": 302,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "typescript-program",
+      "condition": "typepeek-cold",
+      "question": "Find every public call signature of @typescript/typescript6 createProgram.",
+      "expectedFacts": [
+        "call:( createProgramOptions : CreateProgramOptions ) : Program",
+        "call:( rootNames : readonly string [ ] , options : CompilerOptions , host ? : CompilerHost , oldProgram ? : Program , configFileParsingDiagnostics ? : readonly Diagnostic [ ] ) : Program"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 937.3677089999837,
+          "stdoutBytes": 1510,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 932.371124999976,
+          "stdoutBytes": 1510,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 910.4890420000011,
+          "stdoutBytes": 1510,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 923.785292000015,
+          "stdoutBytes": 1510,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 956.3925410000084,
+          "stdoutBytes": 1510,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "typescript-program",
+      "condition": "typepeek-warm",
+      "question": "Find every public call signature of @typescript/typescript6 createProgram.",
+      "expectedFacts": [
+        "call:( createProgramOptions : CreateProgramOptions ) : Program",
+        "call:( rootNames : readonly string [ ] , options : CompilerOptions , host ? : CompilerHost , oldProgram ? : Program , configFileParsingDiagnostics ? : readonly Diagnostic [ ] ) : Program"
+      ],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 702.8698330000043,
+          "stdoutBytes": 1510,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 699.3451250000217,
+          "stdoutBytes": 1510,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 719.4649169999757,
+          "stdoutBytes": 1510,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 702.8652920000022,
+          "stdoutBytes": 1510,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 708.5481250000012,
+          "stdoutBytes": 1510,
+          "passed": true,
+          "error": null,
+          "factsHash": "8faa5bd6d2a3688ffcb347e78b88606bc1bdd8119e65ed33dab9bdc92f16c1d5",
+          "toolCalls": 1
+        }
+      ]
+    }
+  ],
+  "evaluation": {
+    "correctness": true,
+    "stable": true,
+    "baselineCompatible": true,
+    "incompatibilities": [],
+    "passed": true,
+    "rows": [
+      {
+        "workload": "execa-command",
+        "condition": "files",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 68.70004100000006,
+          "median": 68.80804100000023,
+          "p95": 73.56301680000051,
+          "max": 73.79266700000062,
+          "mean": 70.54622460000027,
+          "standardDeviation": 2.4733585477467286,
+          "coefficientOfVariationPercent": 3.5060112171427513,
+          "meanCi95HalfWidth": 3.0705879238170715
+        },
+        "medianStdoutBytes": 1220,
+        "medianToolCalls": 2,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-command",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 404.96587499999987,
+          "median": 421.9732500000009,
+          "p95": 571.5711159999993,
+          "max": 599.1420409999992,
+          "mean": 459.35049979999985,
+          "standardDeviation": 81.2355098608277,
+          "coefficientOfVariationPercent": 17.684863714352648,
+          "meanCi95HalfWidth": 100.85103746524133
+        },
+        "medianStdoutBytes": 89,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-command",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 855.899542000001,
+          "median": 880.9994169999991,
+          "p95": 962.3956999999998,
+          "max": 977.9237499999999,
+          "mean": 896.7390083999995,
+          "standardDeviation": 48.248198975940376,
+          "coefficientOfVariationPercent": 5.380405951339944,
+          "meanCi95HalfWidth": 59.89844750022725
+        },
+        "medianStdoutBytes": 489,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-command",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 857.204749999999,
+          "median": 895.7511250000007,
+          "p95": 925.6778586,
+          "max": 930.9644170000001,
+          "mean": 892.6848749999999,
+          "standardDeviation": 28.22959305565859,
+          "coefficientOfVariationPercent": 3.1623245611345876,
+          "meanCi95HalfWidth": 35.046050080342695
+        },
+        "medianStdoutBytes": 489,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-cancellation",
+        "condition": "files",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 67.20570800000132,
+          "median": 69.21554200000173,
+          "p95": 71.58502439999938,
+          "max": 71.83429099999921,
+          "mean": 69.59057480000047,
+          "standardDeviation": 1.7384496064102488,
+          "coefficientOfVariationPercent": 2.4981107160078193,
+          "meanCi95HalfWidth": 2.158224238241122
+        },
+        "medianStdoutBytes": 5595,
+        "medianToolCalls": 2,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-cancellation",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 405.4510829999999,
+          "median": 410.8659579999985,
+          "p95": 413.48674119999924,
+          "max": 413.57754099999875,
+          "mean": 410.5792748,
+          "standardDeviation": 3.2532625914618,
+          "coefficientOfVariationPercent": 0.7923591839959575,
+          "meanCi95HalfWidth": 4.038811451517603
+        },
+        "medianStdoutBytes": 85,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-cancellation",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 940.6915410000001,
+          "median": 951.7702500000014,
+          "p95": 1011.3106585999994,
+          "max": 1026.106416999999,
+          "mean": 962.4628415999999,
+          "standardDeviation": 35.98657466557066,
+          "coefficientOfVariationPercent": 3.7390092489956817,
+          "meanCi95HalfWidth": 44.67607079786712
+        },
+        "medianStdoutBytes": 381,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-cancellation",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 945.711124999998,
+          "median": 969.9279999999999,
+          "p95": 1000.9909833999998,
+          "max": 1005.2873749999999,
+          "mean": 972.0992999999995,
+          "standardDeviation": 23.485925574767712,
+          "coefficientOfVariationPercent": 2.4160006672947634,
+          "meanCi95HalfWidth": 29.156953210543122
+        },
+        "medianStdoutBytes": 381,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-invocation",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 433.5429579999982,
+          "median": 443.65095799999835,
+          "p95": 446.9180586000002,
+          "max": 447.72954200000095,
+          "mean": 442.3269749999978,
+          "standardDeviation": 5.253961359323985,
+          "coefficientOfVariationPercent": 1.1878003504814534,
+          "meanCi95HalfWidth": 6.522608829536244
+        },
+        "medianStdoutBytes": 629,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-invocation",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1358.023417000004,
+          "median": 1360.5307919999977,
+          "p95": 1406.452208799997,
+          "max": 1409.8284589999967,
+          "mean": 1375.9997751999995,
+          "standardDeviation": 23.94989556636933,
+          "coefficientOfVariationPercent": 1.7405450202844874,
+          "meanCi95HalfWidth": 29.732955688842654
+        },
+        "medianStdoutBytes": 2448,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-invocation",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1351.7436249999955,
+          "median": 1365.458375000002,
+          "p95": 1372.050491599999,
+          "max": 1373.6842499999984,
+          "mean": 1362.2569000000003,
+          "standardDeviation": 8.89323324863912,
+          "coefficientOfVariationPercent": 0.6528308462698276,
+          "meanCi95HalfWidth": 11.040637291280433
+        },
+        "medianStdoutBytes": 2448,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-errors",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 398.57141599999886,
+          "median": 413.87212500000896,
+          "p95": 416.0945911999923,
+          "max": 416.38954099998955,
+          "mean": 409.6081082000004,
+          "standardDeviation": 7.784488629848407,
+          "coefficientOfVariationPercent": 1.9004722987679372,
+          "meanCi95HalfWidth": 9.664169718409738
+        },
+        "medianStdoutBytes": 78,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-errors",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1226.7909579999978,
+          "median": 1263.8835830000025,
+          "p95": 1275.001066400003,
+          "max": 1277.0900830000028,
+          "mean": 1257.5866498000003,
+          "standardDeviation": 19.150533847809335,
+          "coefficientOfVariationPercent": 1.5228003454755927,
+          "meanCi95HalfWidth": 23.774716375555137
+        },
+        "medianStdoutBytes": 275,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-errors",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1247.1706669999985,
+          "median": 1256.0179169999901,
+          "p95": 1265.8070754000014,
+          "max": 1266.364542000003,
+          "mean": 1256.3590253999967,
+          "standardDeviation": 8.601686601436844,
+          "coefficientOfVariationPercent": 0.6846519527885956,
+          "meanCi95HalfWidth": 10.678692350081258
+        },
+        "medianStdoutBytes": 275,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-absent",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 403.88087500000256,
+          "median": 407.18229200001224,
+          "p95": 420.23639159999436,
+          "max": 422.3016249999928,
+          "mean": 410.47831680000235,
+          "standardDeviation": 7.213984292031634,
+          "coefficientOfVariationPercent": 1.757458067035124,
+          "meanCi95HalfWidth": 8.955908584260246
+        },
+        "medianStdoutBytes": 49,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-absent",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1249.276291999995,
+          "median": 1280.8088330000028,
+          "p95": 1325.6441747999925,
+          "max": 1327.3799579999904,
+          "mean": 1286.5076249999984,
+          "standardDeviation": 35.474526016407076,
+          "coefficientOfVariationPercent": 2.7574283530894053,
+          "meanCi95HalfWidth": 44.040380351788876
+        },
+        "medianStdoutBytes": 242,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "execa-absent",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1258.934083,
+          "median": 1262.3532919999998,
+          "p95": 1298.0637917999993,
+          "max": 1306.4151669999992,
+          "mean": 1270.7800081999972,
+          "standardDeviation": 20.025407875208376,
+          "coefficientOfVariationPercent": 1.5758359232904104,
+          "meanCi95HalfWidth": 24.860841808456904
+        },
+        "medianStdoutBytes": 242,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "node-read-file",
+        "condition": "files",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 70.91366700000071,
+          "median": 72.81500000000233,
+          "p95": 75.05818299999518,
+          "max": 75.43145799999184,
+          "mean": 73.00490000000282,
+          "standardDeviation": 1.6665224901540607,
+          "coefficientOfVariationPercent": 2.2827542947856876,
+          "meanCi95HalfWidth": 2.0689292450940737
+        },
+        "medianStdoutBytes": 266120,
+        "medianToolCalls": 3,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "node-read-file",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 542.9390839999978,
+          "median": 552.9254159999982,
+          "p95": 586.0258000000089,
+          "max": 589.5976250000094,
+          "mean": 561.6413416000025,
+          "standardDeviation": 18.857073693888353,
+          "coefficientOfVariationPercent": 3.357493883938167,
+          "meanCi95HalfWidth": 23.410395882850114
+        },
+        "medianStdoutBytes": 922,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "node-read-file",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1114.748166999998,
+          "median": 1172.2398749999993,
+          "p95": 1199.7147665999976,
+          "max": 1200.7272499999963,
+          "mean": 1170.9203833999986,
+          "standardDeviation": 34.124356708340756,
+          "coefficientOfVariationPercent": 2.91431912810792,
+          "meanCi95HalfWidth": 42.36419249126465
+        },
+        "medianStdoutBytes": 3231,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "node-read-file",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1115.4570410000015,
+          "median": 1158.3530409999948,
+          "p95": 1200.5276835999916,
+          "max": 1205.5139169999893,
+          "mean": 1156.0433747999982,
+          "standardDeviation": 38.66188585453576,
+          "coefficientOfVariationPercent": 3.344328309586522,
+          "meanCi95HalfWidth": 47.997375845520935
+        },
+        "medianStdoutBytes": 3231,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "node-exists",
+        "condition": "files",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 72.38045900000725,
+          "median": 74.07729099999415,
+          "p95": 74.23104959999618,
+          "max": 74.24308299999393,
+          "mean": 73.65458320000035,
+          "standardDeviation": 0.7902511756649133,
+          "coefficientOfVariationPercent": 1.0729151416403775,
+          "meanCi95HalfWidth": 0.9810691292572769
+        },
+        "medianStdoutBytes": 206706,
+        "medianToolCalls": 2,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "node-exists",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 548.2970420000056,
+          "median": 571.5342079999973,
+          "p95": 609.3917335999955,
+          "max": 618.5744169999962,
+          "mean": 574.385383399998,
+          "standardDeviation": 26.58620027506707,
+          "coefficientOfVariationPercent": 4.628634544579389,
+          "meanCi95HalfWidth": 33.00583555876853
+        },
+        "medianStdoutBytes": 85,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "node-exists",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1110.9273329999996,
+          "median": 1145.1597080000065,
+          "p95": 1219.6163997999975,
+          "max": 1232.7354579999956,
+          "mean": 1153.6270332000015,
+          "standardDeviation": 50.13528192669211,
+          "coefficientOfVariationPercent": 4.345883069992195,
+          "meanCi95HalfWidth": 62.24119482454793
+        },
+        "medianStdoutBytes": 490,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "node-exists",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1116.7954579999932,
+          "median": 1146.1434579999914,
+          "p95": 1182.936641399999,
+          "max": 1187.2909579999978,
+          "mean": 1146.9397831999988,
+          "standardDeviation": 30.274492645095293,
+          "coefficientOfVariationPercent": 2.6395886766285575,
+          "meanCi95HalfWidth": 37.58472122871427
+        },
+        "medianStdoutBytes": 490,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "effect-option",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 667.2942079999775,
+          "median": 678.3849589999882,
+          "p95": 692.6368335999898,
+          "max": 694.2421669999894,
+          "mean": 679.1320001999906,
+          "standardDeviation": 11.308339625368305,
+          "coefficientOfVariationPercent": 1.665116593245235,
+          "meanCi95HalfWidth": 14.038907187035802
+        },
+        "medianStdoutBytes": 96,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "effect-option",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1431.8394580000022,
+          "median": 1442.7437499999942,
+          "p95": 1466.4307920000224,
+          "max": 1467.864917000028,
+          "mean": 1448.761800200009,
+          "standardDeviation": 14.961856093919396,
+          "coefficientOfVariationPercent": 1.032734027902574,
+          "meanCi95HalfWidth": 18.574619794502265
+        },
+        "medianStdoutBytes": 543,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "effect-option",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 1428.1710410000233,
+          "median": 1449.5347499999916,
+          "p95": 1462.4151664000062,
+          "max": 1465.566583000007,
+          "mean": 1447.2961248000036,
+          "standardDeviation": 13.4730889294929,
+          "coefficientOfVariationPercent": 0.930914461707323,
+          "meanCi95HalfWidth": 16.726367554394177
+        },
+        "medianStdoutBytes": 543,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "stricli-routes",
+        "condition": "files",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 70.30654200000572,
+          "median": 72.74083299998892,
+          "p95": 74.6435497999948,
+          "max": 74.81845799999428,
+          "mean": 72.80148319999572,
+          "standardDeviation": 1.7296204482777524,
+          "coefficientOfVariationPercent": 2.375803860377743,
+          "meanCi95HalfWidth": 2.14726314796013
+        },
+        "medianStdoutBytes": 155176,
+        "medianToolCalls": 3,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "stricli-routes",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 404.4399589999812,
+          "median": 407.234375,
+          "p95": 434.8665420000034,
+          "max": 439.51766700000735,
+          "mean": 414.7626503999985,
+          "standardDeviation": 14.568027814686998,
+          "coefficientOfVariationPercent": 3.5123769704522676,
+          "meanCi95HalfWidth": 18.085695793018395
+        },
+        "medianStdoutBytes": 263,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "stricli-routes",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 822.7748750000028,
+          "median": 832.4855830000015,
+          "p95": 844.159158800001,
+          "max": 846.8209590000042,
+          "mean": 832.3553417999996,
+          "standardDeviation": 9.226156149372361,
+          "coefficientOfVariationPercent": 1.1084395913673664,
+          "meanCi95HalfWidth": 11.453949400632691
+        },
+        "medianStdoutBytes": 911,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "stricli-routes",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 686.0042079999985,
+          "median": 692.8806249999907,
+          "p95": 721.5029586000077,
+          "max": 726.6266670000041,
+          "mean": 698.8553584000038,
+          "standardDeviation": 16.582365207852867,
+          "coefficientOfVariationPercent": 2.3727893059040723,
+          "meanCi95HalfWidth": 20.586425046196467
+        },
+        "medianStdoutBytes": 911,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "typescript-program",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 449.074500000017,
+          "median": 451.5749170000199,
+          "p95": 456.5894416000054,
+          "max": 457.18875000000116,
+          "mean": 452.25399180001114,
+          "standardDeviation": 3.4556289443950416,
+          "coefficientOfVariationPercent": 0.7640903136402027,
+          "meanCi95HalfWidth": 4.290042183944086
+        },
+        "medianStdoutBytes": 302,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "typescript-program",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 910.4890420000011,
+          "median": 932.371124999976,
+          "p95": 952.5875746000034,
+          "max": 956.3925410000084,
+          "mean": 932.0811417999969,
+          "standardDeviation": 16.98614076059806,
+          "coefficientOfVariationPercent": 1.8223886310793846,
+          "meanCi95HalfWidth": 21.087698239006084
+        },
+        "medianStdoutBytes": 1510,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      },
+      {
+        "workload": "typescript-program",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 5,
+          "min": 699.3451250000217,
+          "median": 702.8698330000043,
+          "p95": 717.2815585999808,
+          "max": 719.4649169999757,
+          "mean": 706.618658400001,
+          "standardDeviation": 7.902451213244772,
+          "coefficientOfVariationPercent": 1.1183473744011116,
+          "meanCi95HalfWidth": 9.810616130058841
+        },
+        "medianStdoutBytes": 1510,
+        "medianToolCalls": 1,
+        "previousMedian": null,
+        "tolerance": null,
+        "regressed": false
+      }
+    ],
+    "comparisons": [
+      {
+        "workload": "execa-command",
+        "baseline": "files",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.07909385705860233,
+          "speedupCi95": [0.07545850788469001, 0.08069060023870273],
+          "medianSavedMilliseconds": -812.2134589999987
+        }
+      },
+      {
+        "workload": "execa-command",
+        "baseline": "files",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.07926475561525206,
+          "speedupCi95": [0.07607035409071547, 0.08109888335334219],
+          "medianSavedMilliseconds": -823.1067090000006
+        }
+      },
+      {
+        "workload": "execa-command",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.4731465027469303,
+          "speedupCi95": [0.4646812575586524, 0.6655037452091473],
+          "medianSavedMilliseconds": -450.93366700000115
+        }
+      },
+      {
+        "workload": "execa-command",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.4922665792507583,
+          "speedupCi95": [0.4477078123166783, 0.6688711007758976],
+          "medianSavedMilliseconds": -465.588541000001
+        }
+      },
+      {
+        "workload": "execa-cancellation",
+        "baseline": "files",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.07339425061665787,
+          "speedupCi95": [0.06745454550646456, 0.07547440256721526],
+          "medianSavedMilliseconds": -879.9359590000022
+        }
+      },
+      {
+        "workload": "execa-cancellation",
+        "baseline": "files",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.07277649268811714,
+          "speedupCi95": [0.0668522351631058, 0.0731888841849057],
+          "medianSavedMilliseconds": -899.3400419999998
+        }
+      },
+      {
+        "workload": "execa-cancellation",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.4316860691957937,
+          "speedupCi95": [0.4030552135217756, 0.4391700403310006],
+          "medianSavedMilliseconds": -540.9042920000029
+        }
+      },
+      {
+        "workload": "execa-cancellation",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.4259321743469631,
+          "speedupCi95": [0.4033185863892899, 0.4373191031246456],
+          "medianSavedMilliseconds": -556.8044579999987
+        }
+      },
+      {
+        "workload": "execa-invocation",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.31909387643347836,
+          "speedupCi95": [0.3146843540913366, 0.32969206303457993],
+          "medianSavedMilliseconds": -925.1260420000035
+        }
+      },
+      {
+        "workload": "execa-invocation",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.32444839009650633,
+          "speedupCi95": [0.32072868699491713, 0.32789688078188417],
+          "medianSavedMilliseconds": -918.2006669999973
+        }
+      },
+      {
+        "workload": "execa-errors",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.3240743393980361,
+          "speedupCi95": [0.31535453214285325, 0.3394136044814167],
+          "medianSavedMilliseconds": -862.3523330000025
+        }
+      },
+      {
+        "workload": "execa-errors",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.3295113225681893,
+          "speedupCi95": [0.3147367150461466, 0.3338673302841479],
+          "medianSavedMilliseconds": -842.1457919999812
+        }
+      },
+      {
+        "workload": "execa-absent",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.32329187513309837,
+          "speedupCi95": [0.3067563959708477, 0.32971479749311805],
+          "medianSavedMilliseconds": -858.50720800001
+        }
+      },
+      {
+        "workload": "execa-absent",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.32276625999246494,
+          "speedupCi95": [0.31935968622847755, 0.3272414843343317],
+          "medianSavedMilliseconds": -855.3019579999964
+        }
+      },
+      {
+        "workload": "node-read-file",
+        "baseline": "files",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.0627559977858701,
+          "speedupCi95": [0.06046785855414588, 0.06440407659354075],
+          "medianSavedMilliseconds": -1098.6747919999907
+        }
+      },
+      {
+        "workload": "node-read-file",
+        "baseline": "files",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.06329824699210006,
+          "speedupCi95": [0.06102383552989646, 0.06481584618910528],
+          "medianSavedMilliseconds": -1085.5380409999925
+        }
+      },
+      {
+        "workload": "node-read-file",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.48705088743150976,
+          "speedupCi95": [0.4588936271746993, 0.5029667029540432],
+          "medianSavedMilliseconds": -599.4832919999899
+        }
+      },
+      {
+        "workload": "node-read-file",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.48463284574884663,
+          "speedupCi95": [0.4756806116072541, 0.495694047979027],
+          "medianSavedMilliseconds": -607.3469579999946
+        }
+      },
+      {
+        "workload": "node-exists",
+        "baseline": "files",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.06477953728354961,
+          "speedupCi95": [0.060226289848469824, 0.06660593657907754],
+          "medianSavedMilliseconds": -1070.9767920000013
+        }
+      },
+      {
+        "workload": "node-exists",
+        "baseline": "files",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.06477643132871634,
+          "speedupCi95": [0.06210146356426467, 0.06633022230646876],
+          "medianSavedMilliseconds": -1071.9003749999974
+        }
+      },
+      {
+        "workload": "node-exists",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.5042924995897647,
+          "speedupCi95": [0.4636308660474982, 0.540164321778594],
+          "medianSavedMilliseconds": -551.3122500000027
+        }
+      },
+      {
+        "workload": "node-exists",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.49865852656640264,
+          "speedupCi95": [0.49001046085480593, 0.5209964860188865],
+          "medianSavedMilliseconds": -570.6526250000024
+        }
+      },
+      {
+        "workload": "effect-option",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.46749226856818327,
+          "speedupCi95": [0.45683358362844717, 0.48486034039717624],
+          "medianSavedMilliseconds": -773.2205829999875
+        }
+      },
+      {
+        "workload": "effect-option",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.4699913721000461,
+          "speedupCi95": [0.4553148357367905, 0.47885061244252297],
+          "medianSavedMilliseconds": -763.3192500000005
+        }
+      },
+      {
+        "workload": "stricli-routes",
+        "baseline": "files",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.08738697941344899,
+          "speedupCi95": [0.08445376524917621, 0.08987138432003848],
+          "medianSavedMilliseconds": -758.693499999994
+        }
+      },
+      {
+        "workload": "stricli-routes",
+        "baseline": "files",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.10603554927463227,
+          "speedupCi95": [0.09936005555379974, 0.10798174360842502],
+          "medianSavedMilliseconds": -618.0621669999964
+        }
+      },
+      {
+        "workload": "stricli-routes",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.48812762322637826,
+          "speedupCi95": [0.48089784584559153, 0.5319856367376284],
+          "medianSavedMilliseconds": -426.12637399998493
+        }
+      },
+      {
+        "workload": "stricli-routes",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.5936324737529903,
+          "speedupCi95": [0.5796783154260926, 0.6052456622382032],
+          "medianSavedMilliseconds": -287.10899999999674
+        }
+      },
+      {
+        "workload": "typescript-program",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.48454006217535506,
+          "speedupCi95": [0.4721648252587281, 0.5021353678191776],
+          "medianSavedMilliseconds": -483.1755009999615
+        }
+      },
+      {
+        "workload": "typescript-program",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.6391545992002035,
+          "speedupCi95": [0.6354566278316759, 0.6461967588812699],
+          "medianSavedMilliseconds": -253.62570800000685
+        }
+      }
+    ]
+  }
+}

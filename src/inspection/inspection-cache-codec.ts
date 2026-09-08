@@ -1,8 +1,9 @@
-import ts from "@typescript/typescript6";
-import { Result, Schema } from "effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { isAbsolute } from "node:path";
 
 import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
+import { COMPILER_VERSION } from "#typepeek/inspection/compiler-metadata";
 import { installedEvidenceProofSchema } from "#typepeek/inspection/installed-evidence-fingerprint";
 import {
   packageInspectionResultIdentitySchema,
@@ -68,7 +69,7 @@ const boundedAnalysisRequestSchema = analysisRequestSchema.check(
 const inspectionCacheIdentityValueSchema = Schema.Struct({
   budgetPolicy: Schema.Literal(INSPECTION_BUDGET_POLICY.identity),
   cacheSemantics: Schema.Literal(INSPECTION_CACHE_SEMANTICS),
-  compilerVersion: Schema.Literal(ts.version),
+  compilerVersion: Schema.Literal(COMPILER_VERSION),
   evidence: cacheEvidenceIdentitySchema,
   request: boundedAnalysisRequestSchema,
   typepeekVersion: Schema.Literal(TYPEPEEK_VERSION),

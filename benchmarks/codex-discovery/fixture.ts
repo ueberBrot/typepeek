@@ -185,14 +185,16 @@ export async function verifyCodexIsolation(
   trial: Awaited<ReturnType<typeof createCodexTrial>>,
   condition: CodexCondition,
 ): Promise<void> {
+  const protectedPaths = await repositoryEvidencePaths();
   const probe = `
     const fs = require('node:fs');
     const cp = require('node:child_process');
     const readable = path => { try { fs.readFileSync(path); return true; } catch { return false; } };
     if (!fs.realpathSync(${JSON.stringify(fixture.modules)}).startsWith(fs.realpathSync(${JSON.stringify(trial.workspace)}) + require('node:path').sep)) throw new Error('installed declarations outside consumer boundary');
     if (!readable(${JSON.stringify(join(trial.workspace, "package.json"))})) throw new Error('consumer unavailable');
-    if (readable(${JSON.stringify(resolve("benchmarks/discovery/compiler.ts"))})) throw new Error('grader leaked');
-    if (readable(${JSON.stringify(resolve("src/cli.ts"))})) throw new Error('host Typepeek source leaked');
+    for (const path of ${JSON.stringify(protectedPaths)}) {
+      if (readable(path)) throw new Error('repository evidence leaked: ' + path);
+    }
     if (readable(${JSON.stringify(join(fixture.toolRoot, "dist/cli.js"))}) !== ${condition !== "files"}) throw new Error('incorrect Typepeek access');
     fs.writeFileSync(${JSON.stringify(join(trial.scratch, "permission-probe"))}, 'ok');
     let couldWrite = false;
@@ -223,4 +225,19 @@ export async function verifyCodexIsolation(
       `Codex isolation preflight failed; no model trial was started. ${result.stderr}\n${result.stdout}`,
     );
   }
+}
+
+/** Other checkouts can contain the same grader and archived answers as this checkout. */
+async function repositoryEvidencePaths(): Promise<readonly string[]> {
+  const listing = await execa("git", ["worktree", "list", "--porcelain", "-z"]);
+  const roots = new Set([
+    resolve("."),
+    ...listing.stdout
+      .split("\0")
+      .filter((field) => field.startsWith("worktree "))
+      .map((field) => field.slice("worktree ".length)),
+  ]);
+  return [...roots].flatMap((root) =>
+    ["benchmarks/discovery/compiler.ts", "src/cli.ts"].map((path) => join(root, path)),
+  );
 }

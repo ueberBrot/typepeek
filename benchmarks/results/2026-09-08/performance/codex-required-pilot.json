@@ -608,7 +608,8 @@
     "Four-attempt verification pilot, not a comparative timing/token or reliability study. Every first attempt is retained.",
     "An earlier isolation preflight from a checkout under /private/tmp found the grader readable and stopped before any model requests. This pilot ran from detached commit d39e91c under the repository ignored .benchmarks directory, where isolation passed. No isolation check was relaxed.",
     "The exact prepacked CLI artifact is unchanged from execa-chunked-reads.json. Fixture creation and packing are outside model-trial timers.",
-    "The archived original telemetry may repeat an evidence item for trailing-newline JSON output. A subsequent parser fix deduplicates those records; command counts, tool-use grades, final-answer grades, times, and tokens are unaffected. The original records are preserved."
+    "The archived original telemetry may repeat an evidence item for trailing-newline JSON output. A subsequent parser fix deduplicates those records; command counts, tool-use grades, final-answer grades, times, and tokens are unaffected. The original records are preserved.",
+    "Retrospective audit: the original preflight checked only the active checkout. A later native probe found that the sibling development checkout under /private/tmp, including archived answers, remained readable. All six recorded pilot commands are Typepeek invocations and show no access to that sibling, but the original isolation check did not exclude it. The follow-up benchmark preflight checks all registered worktrees; the sibling was relocated before the new campaign. Original grades, commands, times, and usage are unchanged."
   ],
   "traceReview": {
     "reviewedAttempts": 4,

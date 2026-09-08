@@ -1,4 +1,5 @@
-import { Result, Schema } from "effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { readFileSync } from "node:fs";
 
 declare const __TYPEPEEK_VERSION__: string | undefined;

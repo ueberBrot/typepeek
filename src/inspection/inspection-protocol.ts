@@ -1,4 +1,7 @@
-import { Effect, Predicate, Result, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
 import { invokeInspectionCore } from "#typepeek/inspection/core";
 import {

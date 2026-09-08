@@ -1,5 +1,5 @@
 import ts from "@typescript/typescript6";
-import { Predicate } from "effect";
+import * as Predicate from "effect/Predicate";
 import { opendirSync, type Dirent } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 

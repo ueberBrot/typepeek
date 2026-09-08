@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 
 import {
   assertArtifactCacheReuse,
+  assertCompilerLoadsOnlyInWorker,
   assertRepositoryProfilingExcluded,
 } from "./artifact-boundary.ts";
 
@@ -156,3 +157,5 @@ try {
 } finally {
   await rm(signatureConsumer, { recursive: true, force: true });
 }
+
+assertCompilerLoadsOnlyInWorker("dist/cli.js");

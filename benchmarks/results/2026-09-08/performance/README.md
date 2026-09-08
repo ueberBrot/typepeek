@@ -1,6 +1,10 @@
 # Inspection performance investigation
 
-Execa's complete invocation-signature inspection fell from **1,672 ms to 1,379 ms**, a 17.5% reduction in mean cold latency. All measured answers matched the independent compiler oracle, including generics, overload order, array types, and rest parameters. The compiler query still took 447 ms; this improvement does not establish a Typepeek speed advantage for this workload.
+The [follow-up performance audit](full-audit/README.md) measures the final implementation across ten workloads. Cold latency falls by another 17.5–26.2% relative to the first improvements below. The original measurements and agent pilot remain recorded here.
+
+## First performance improvements
+
+Typepeek’s inspection of the exported `execa` function in the installed `execa` package fell from **1,672 ms to 1,379 ms**, a 17.5% reduction in mean cold latency. All measured answers matched the independent compiler oracle, including generics, overload order, array types, and rest parameters. The compiler query still took 447 ms; this improvement does not establish a Typepeek speed advantage for this workload.
 
 | Implementation                          | Cold mean ± 95% CI | Cache-enabled mean ± 95% CI |
 | --------------------------------------- | -----------------: | --------------------------: |
@@ -41,7 +45,7 @@ Both models passed both tasks at low effort, with one fresh attempt per task and
 
 All four traces contain successful installed-evidence inspections whose signature text matches the independent oracle. All four final answers preserve the generic parameter and declared overloads. Total reported usage is **121,000 tokens**, including cached input within input totals. The [archive](codex-required-pilot.json) retains prompts, answers, command outputs, grades, timing, usage, and identities. This four-attempt pilot has no control arm and cannot establish a reliability improvement, time advantage, or token savings.
 
-The first isolation preflight was attempted from the performance worktree under `/private/tmp`. It detected that the grader was readable and stopped before any model calls. The pilot then used the same committed harness and prepacked artifact in a detached checkout outside shared temporary directories. Isolation passed without weakening any check. An evidence-parser follow-up removes duplicate records caused by trailing-newline JSON; replaying all four traces preserves every original tool-use grade. Archived original telemetry remains unchanged.
+The first isolation preflight was attempted from the performance worktree under `/private/tmp`. It detected that the grader was readable and stopped before any model calls. The pilot then used the same committed harness and prepacked artifact in a detached checkout outside shared temporary directories. Isolation passed without weakening any check. A later audit found that this preflight had not excluded a readable sibling checkout under `/private/tmp`. The six recorded pilot commands are all Typepeek invocations, but the limitation is retained in the archive; the [follow-up audit](full-audit/README.md#isolation-correction-before-the-agent-rerun) documents the stronger check. An evidence-parser follow-up removes duplicate records caused by trailing-newline JSON; replaying all four traces preserves every original tool-use grade. Archived original telemetry remains unchanged.
 
 ## Verification
 

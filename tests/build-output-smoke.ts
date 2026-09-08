@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 
 import {
   assertArtifactCacheReuse,
+  assertCompilerLoadsOnlyInWorker,
   assertRepositoryProfilingExcluded,
 } from "./artifact-boundary.ts";
 
@@ -72,3 +73,5 @@ assert.equal(protocolResponse.protocolVersion, "1");
 assert.equal(protocolResponse.projection?.signatureEvidence, "structured");
 assert.equal(protocolResponse.outcome.status, "success");
 await assertArtifactCacheReuse(".vite-plus/build/cli.js");
+
+assertCompilerLoadsOnlyInWorker(".vite-plus/build/cli.js");

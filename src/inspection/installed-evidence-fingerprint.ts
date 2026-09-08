@@ -1,4 +1,5 @@
-import { Result, Schema } from "effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { createHash } from "node:crypto";
 import { opendirSync, type Dirent } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
@@ -116,7 +117,15 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
   const directories = new Map<string, InstalledEvidenceDirectoryFingerprint>();
   const resolutions = new Map<string, InstalledEvidenceResolutionProbe>();
   let directoryEntryCount = 0;
+  let proofBytes = Buffer.byteLength('{"directories":[],"files":[],"resolutions":[]}');
   let cacheable = true;
+
+  const reserveProofEntry = (serialized: string, entries: number): void => {
+    proofBytes += Buffer.byteLength(serialized) + (entries === 0 ? 0 : 1);
+    if (proofBytes > MAX_INSTALLED_EVIDENCE_PROOF_BYTES) {
+      cacheable = false;
+    }
+  };
 
   return {
     observeFile: (fileName, contents, kind) => {
@@ -141,7 +150,10 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
         cacheable = false;
         return;
       }
-      fingerprints.set(path, fingerprint);
+      if (previous === undefined) {
+        reserveProofEntry(JSON.stringify(fingerprint), fingerprints.size);
+        fingerprints.set(path, fingerprint);
+      }
       if (fingerprints.size > MAX_FINGERPRINTED_FILES) {
         cacheable = false;
       }
@@ -163,7 +175,10 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
         cacheable = false;
         return;
       }
-      directories.set(fingerprint.path, fingerprint);
+      if (previous === undefined) {
+        reserveProofEntry(JSON.stringify(fingerprint), directories.size);
+        directories.set(fingerprint.path, fingerprint);
+      }
       directoryEntryCount += previous === undefined ? fingerprint.entries : 0;
       if (
         directories.size > MAX_FINGERPRINTED_DIRECTORIES ||
@@ -181,7 +196,11 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
         cacheable = false;
         return;
       }
-      resolutions.set(JSON.stringify(normalized), normalized);
+      const key = JSON.stringify(normalized);
+      if (!resolutions.has(key)) {
+        reserveProofEntry(key, resolutions.size);
+        resolutions.set(key, normalized);
+      }
       if (resolutions.size > MAX_RESOLUTION_PROBES) {
         cacheable = false;
       }

@@ -1,4 +1,4 @@
-import { Predicate } from "effect";
+import * as Predicate from "effect/Predicate";
 
 /** Snapshots only named own data properties without enumeration or accessor evaluation. */
 export function snapshotDataProperties(
