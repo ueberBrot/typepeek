@@ -48,7 +48,7 @@ it("preserves canonical cache identity serialization and its SHA-256 key", () =>
   const identity = createInspectionCacheIdentity(request, selection);
   const expectedSerialized = JSON.stringify({
     budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
-    cacheSemantics: "installed-evidence-proof-member-projection",
+    cacheSemantics: "installed-evidence-proof-qualified-member-discovery",
     compilerVersion: ts.version,
     evidence: {
       declarationPath: "/repository/node_modules/example/index.d.ts",
@@ -363,4 +363,30 @@ it("does not observe inherited toJSON behavior while validating hostile evidence
       Object.defineProperty(Object.prototype, "toJSON", previous);
     }
   }
+});
+
+it("separates Member Discovery cache identities by qualified path and search", () => {
+  const target = { ...request.request, exportName: "Example" };
+  const requests: AnalysisRequest[] = [
+    { intent: "member-discovery", request: { ...target, memberPath: [] } },
+    { intent: "member-discovery", request: { ...target, memberPath: [], query: "value" } },
+    { intent: "member-discovery", request: { ...target, memberPath: ["nested"] } },
+    {
+      intent: "member-discovery",
+      request: { ...target, memberPath: [{ name: "nested", space: "type" }] },
+    },
+    {
+      intent: "member-discovery",
+      request: { ...target, memberPath: [{ name: "nested", space: "value" }] },
+    },
+    {
+      intent: "member-inspection",
+      request: { ...target, memberPath: [{ name: "nested", space: "type" }] },
+    },
+  ];
+  const keys = requests.map(
+    (candidate) => createInspectionCacheIdentity(candidate, selection)?.key,
+  );
+  expect(keys).not.toContain(undefined);
+  expect(new Set(keys).size).toBe(requests.length);
 });

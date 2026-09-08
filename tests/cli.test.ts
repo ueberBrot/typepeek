@@ -536,6 +536,91 @@ describe("typepeek CLI", () => {
     expect(result.stdout).not.toContain("Signatures");
   });
 
+  it("discovers public members with an executable name filter", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "members",
+      "@typepeek-fixture/focused",
+      "PublicShape",
+      "--match",
+      "VIS",
+      "--workspace",
+      fixture.resolutionContext,
+      "--json",
+    ]);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "success",
+      result: {
+        intent: "member-discovery",
+        moduleExportName: "PublicShape",
+        memberPath: [],
+        query: "VIS",
+        totalMembers: 2,
+        members: [{ name: "visible", spaces: ["type"] }],
+      },
+    });
+  });
+
+  it("discovers nested members and renders their selectors", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "members",
+      "@typepeek-fixture/focused",
+      "NestedShape",
+      '["nested"]',
+      "--workspace",
+      fixture.resolutionContext,
+    ]);
+
+    expect(result.stdout).toContain("Member Discovery");
+    expect(result.stdout).toContain("Members of: NestedShape.nested");
+    expect(result.stdout).toContain("leaf (value)");
+    expect(result.stdout).not.toContain("Declaration Spaces");
+  });
+
+  it("uses a qualified Member path to select an ambiguous instance member", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "member",
+      "@typepeek-fixture/focused",
+      "AmbiguousShape",
+      '[{"name":"shared","space":"type"}]',
+      "--workspace",
+      fixture.resolutionContext,
+      "--json",
+    ]);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "success",
+      result: {
+        memberPath: [{ name: "shared", space: "type" }],
+        declarations: [{ text: "readonly shared: string;" }],
+      },
+    });
+  });
+
+  it("rejects an invalid Member space through machine diagnostics", async () => {
+    const result = await execa(
+      process.execPath,
+      [
+        "src/cli.ts",
+        "member",
+        "@typepeek-fixture/focused",
+        "AmbiguousShape",
+        '[{"name":"shared","space":"static"}]',
+        "--workspace",
+        fixture.resolutionContext,
+        "--json",
+      ],
+      { reject: false },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({ status: "invalid-invocation" });
+  });
+
   it("renders one exact public member", async () => {
     const result = await execa(process.execPath, [
       "src/cli.ts",

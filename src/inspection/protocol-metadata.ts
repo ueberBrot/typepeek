@@ -130,6 +130,11 @@ const requestDescriptorsSchema = Schema.Tuple([
     inspectionRequestFieldNames["member-inspection"],
   ),
   requestDescriptorSchema(
+    "member-discovery",
+    inspectionRequestSchemas["member-discovery"],
+    inspectionRequestFieldNames["member-discovery"],
+  ),
+  requestDescriptorSchema(
     "inspection-plan",
     inspectionRequestSchemas["inspection-plan"],
     inspectionRequestFieldNames["inspection-plan"],

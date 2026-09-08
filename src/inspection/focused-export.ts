@@ -1,6 +1,14 @@
 import ts from "@typescript/typescript6";
 
 import { UnsupportedInspectionError } from "#typepeek/inspection/errors";
+import { memberDeclarationSpaceSchema } from "#typepeek/inspection/member-path";
+import type { DeclarationSpace } from "#typepeek/inspection/protocol";
+
+const SYMBOL_FLAGS_BY_SPACE: Readonly<Record<DeclarationSpace, ts.SymbolFlags>> = {
+  type: ts.SymbolFlags.Type,
+  value: ts.SymbolFlags.Value,
+  namespace: ts.SymbolFlags.Namespace,
+};
 
 export type AliasDeclaration =
   | ts.ExportAssignment
@@ -9,8 +17,10 @@ export type AliasDeclaration =
   | ts.NamespaceExport;
 
 export interface FocusedExportResolution {
+  readonly aliasDeclaration: AliasDeclaration | undefined;
   readonly aliasTargetName?: string;
   readonly exportedSymbol: ts.Symbol;
+  readonly spaces: readonly DeclarationSpace[];
   readonly targetSymbol: ts.Symbol;
   readonly valueAccessible: boolean;
 }
@@ -38,13 +48,18 @@ export function resolveFocusedExportSymbol(
   const targetSymbol = resolveFocusedExportTarget(checker, exportedSymbol);
   const aliasDeclaration = findFocusedExportAliasDeclaration(exportedSymbol);
   const aliasTargetName = focusedAliasTargetName(exportedSymbol, targetSymbol, aliasDeclaration);
+  const typeOnly = aliasDeclaration !== undefined && isTypeOnlyAlias(aliasDeclaration);
   return {
+    aliasDeclaration,
     exportedSymbol,
     targetSymbol,
+    spaces: typeOnly
+      ? ["type"]
+      : memberDeclarationSpaceSchema.literals.filter(
+          (space) => (targetSymbol.flags & SYMBOL_FLAGS_BY_SPACE[space]) !== 0,
+        ),
     ...(aliasTargetName === undefined ? {} : { aliasTargetName }),
-    valueAccessible:
-      (targetSymbol.flags & ts.SymbolFlags.Value) !== 0 &&
-      (aliasDeclaration === undefined || !isTypeOnlyAlias(aliasDeclaration)),
+    valueAccessible: (targetSymbol.flags & ts.SymbolFlags.Value) !== 0 && !typeOnly,
   };
 }
 
@@ -62,7 +77,7 @@ export function resolveFocusedExportTarget(checker: ts.TypeChecker, symbol: ts.S
   return targetSymbol;
 }
 
-export function findFocusedExportAliasDeclaration(
+function findFocusedExportAliasDeclaration(
   exportedSymbol: ts.Symbol,
 ): AliasDeclaration | undefined {
   if ((exportedSymbol.flags & ts.SymbolFlags.Alias) === 0) {

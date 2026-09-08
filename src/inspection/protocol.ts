@@ -1,6 +1,16 @@
 import { Schema } from "effect";
 
-import { MAX_INSPECTION_PLAN_QUERIES } from "#typepeek/inspection/inspection-plan-query";
+import { MAX_MEMBER_CANDIDATES, MAX_MEMBER_MATCHES } from "#typepeek/inspection/budget-policy";
+import {
+  MAX_INSPECTION_PLAN_QUERIES,
+  isBoundedExportSearchQuery,
+} from "#typepeek/inspection/inspection-plan-query";
+import {
+  memberPathSchema,
+  memberDiscoveryPathSchema,
+  memberNameSchema,
+  memberDeclarationSpaceSchema,
+} from "#typepeek/inspection/member-path";
 import { packageIdentitySchema } from "#typepeek/inspection/package-identity";
 import {
   inspectionBudgetDimensionSchema,
@@ -31,7 +41,7 @@ const inspectionResultIdentitySchema = Schema.Union([
   platformInspectionResultIdentitySchema,
 ]);
 const resolutionVariantSchema = Schema.Struct({ accessStyle: accessStyleSchema });
-const declarationSpaceSchema = Schema.Literals(["type", "value", "namespace"]);
+const declarationSpaceSchema = memberDeclarationSpaceSchema;
 const declarationKindSchema = Schema.Literals([
   "accessor",
   "alias",
@@ -231,8 +241,29 @@ const declarationInspectionSchema = inspectionResultWithIdentity({
 const memberInspectionSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("member-inspection"),
   moduleExportName: Schema.String,
-  memberPath: Schema.Array(Schema.String),
+  memberPath: memberPathSchema,
   declarations: Schema.Array(inspectedDeclarationSchema),
+});
+const memberDiscoverySchema = inspectionResultWithIdentity({
+  intent: Schema.Literal("member-discovery"),
+  moduleExportName: Schema.String,
+  memberPath: memberDiscoveryPathSchema,
+  query: Schema.optionalKey(
+    Schema.String.check(
+      Schema.makeFilter(isBoundedExportSearchQuery, { expected: "a bounded search query" }),
+    ),
+  ),
+  totalMembers: Schema.Natural.check(Schema.isLessThanOrEqualTo(MAX_MEMBER_CANDIDATES)),
+  members: Schema.Array(
+    Schema.Struct({
+      name: memberNameSchema,
+      spaces: Schema.Array(declarationSpaceSchema).check(
+        Schema.isMinLength(1),
+        Schema.isMaxLength(3),
+        Schema.isUnique(),
+      ),
+    }),
+  ).check(Schema.isMaxLength(MAX_MEMBER_MATCHES)),
 });
 const comparisonTargetSchema = inspectionResultWithIdentity({});
 const moduleExportIndexDeltaSchema = Schema.Struct({
@@ -259,6 +290,7 @@ export const atomicInspectionResultSchemas = {
   "public-subpath-discovery": publicSubpathDiscoverySchema,
   "declaration-inspection": declarationInspectionSchema,
   "member-inspection": memberInspectionSchema,
+  "member-discovery": memberDiscoverySchema,
 } as const;
 const atomicInspectionResultSchema = Schema.Union([
   atomicInspectionResultSchemas["interface-overview"],
@@ -268,6 +300,7 @@ const atomicInspectionResultSchema = Schema.Union([
   atomicInspectionResultSchemas["public-subpath-discovery"],
   atomicInspectionResultSchemas["declaration-inspection"],
   atomicInspectionResultSchemas["member-inspection"],
+  atomicInspectionResultSchemas["member-discovery"],
 ]);
 const inspectionPlanSchema = Schema.Struct({
   intent: Schema.Literal("inspection-plan"),
@@ -289,6 +322,7 @@ const inspectionResultSchema = Schema.Union([
   inspectionResultSchemas["public-subpath-discovery"],
   inspectionResultSchemas["declaration-inspection"],
   inspectionResultSchemas["member-inspection"],
+  inspectionResultSchemas["member-discovery"],
   inspectionResultSchemas["inspection-plan"],
   inspectionResultSchemas["public-interface-comparison"],
 ]);
@@ -361,6 +395,7 @@ export type ExportSearch = typeof exportSearchSchema.Type;
 export type PublicSubpathDiscovery = typeof publicSubpathDiscoverySchema.Type;
 export type InspectedModuleExportDeclarations = typeof inspectedModuleExportDeclarationsSchema.Type;
 export type DeclarationInspection = typeof declarationInspectionSchema.Type;
+export type MemberDiscovery = typeof memberDiscoverySchema.Type;
 export type MemberInspection = typeof memberInspectionSchema.Type;
 export type PublicInterfaceComparisonTarget = typeof comparisonTargetSchema.Type;
 export type PublicInterfaceComparison = typeof publicInterfaceComparisonSchema.Type;
@@ -387,10 +422,9 @@ export type {
   InspectionRequestByIntent,
   InterfaceOverviewRequest,
   MemberInspectionRequest,
-  NormalizedDeclarationInspectionRequest,
+  MemberDiscoveryRequest,
   NormalizedInspectionPlanRequest,
   NormalizedInspectionTarget,
-  NormalizedMemberInspectionRequest,
   NormalizedPublicInterfaceComparisonRequest,
   PublicInterfaceComparisonRequest,
   PublicSubpathDiscoveryRequest,

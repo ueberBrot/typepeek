@@ -9,7 +9,9 @@ import {
   readInspectionPlanQueries,
 } from "#typepeek/inspection/inspection-plan-query";
 import {
+  memberDeclarationSpaceSchema,
   memberPathSchema,
+  memberDiscoveryPathSchema,
   MAX_MEMBER_PATH_SEGMENTS,
   MAX_MEMBER_PATH_SEGMENT_BYTES,
   readBoundedMemberPath,
@@ -30,10 +32,7 @@ import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
 type InspectionRequestDefinition<
   Intent extends InspectionIntent,
-  RequestSchema extends Schema.Struct<Schema.Struct.Fields> &
-    Schema.ConstraintDecoder<NormalizedInspectionRequestByIntent[Intent]> =
-    Schema.Struct<Schema.Struct.Fields> &
-      Schema.ConstraintDecoder<NormalizedInspectionRequestByIntent[Intent]>,
+  RequestSchema extends Schema.Struct<Schema.Struct.Fields> & Schema.ConstraintDecoder<unknown>,
 > = {
   readonly intent: Intent;
   readonly schema: RequestSchema;
@@ -84,10 +83,27 @@ const exportSearchQuerySchema = withRequestFieldCapability(
 );
 const requestMemberPathSchema = withRequestFieldCapability(memberPathSchema, {
   kind: "member-path",
+  unqualified: true,
+  qualified: { name: "name", space: "space", values: memberDeclarationSpaceSchema.literals },
   minItems: 1,
   maxItems: MAX_MEMBER_PATH_SEGMENTS,
   maxItemBytes: MAX_MEMBER_PATH_SEGMENT_BYTES,
 });
+const requestDiscoveryMemberPathSchema = withRequestFieldCapability(
+  memberDiscoveryPathSchema.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  {
+    kind: "member-path",
+    minItems: 0,
+    maxItems: MAX_MEMBER_PATH_SEGMENTS,
+    maxItemBytes: MAX_MEMBER_PATH_SEGMENT_BYTES,
+    unqualified: true,
+    qualified: { name: "name", space: "space", values: memberDeclarationSpaceSchema.literals },
+  },
+);
+const requestDiscoveryQuerySchema = withRequestFieldCapability(
+  Schema.optionalKey(exportSearchQuerySchema),
+  { kind: "string", minBytes: 1, maxBytes: MAX_EXPORT_SEARCH_QUERY_BYTES },
+);
 const requestPlanQueriesSchema = withRequestFieldCapability(inspectionPlanQueriesSchema, {
   kind: "inspection-plan-queries",
   minItems: 1,
@@ -106,6 +122,11 @@ const EXPORT_SEARCH_FIELD_ENTRIES = [
 const MEMBER_FIELD_ENTRIES = [
   ...EXPORT_FIELD_ENTRIES,
   ["memberPath", requestMemberPathSchema],
+] as const;
+const MEMBER_DISCOVERY_FIELD_ENTRIES = [
+  ...EXPORT_FIELD_ENTRIES,
+  ["memberPath", requestDiscoveryMemberPathSchema],
+  ["query", requestDiscoveryQuerySchema],
 ] as const;
 const PLAN_FIELD_ENTRIES = [
   ...TARGET_FIELD_ENTRIES,
@@ -140,6 +161,15 @@ const normalizedMemberSchema = Schema.Struct(requestFields(MEMBER_FIELD_ENTRIES)
     specifier: "zod",
     exportName: "ZodError",
     memberPath: ["issues"],
+  },
+});
+const normalizedMemberDiscoverySchema = Schema.Struct(
+  requestFields(MEMBER_DISCOVERY_FIELD_ENTRIES),
+).annotate({
+  inspectionRequestExample: {
+    resolutionContext: "/absolute/path/to/consumer",
+    specifier: "zod",
+    exportName: "ZodError",
   },
 });
 const normalizedPlanSchema = Schema.Struct(requestFields(PLAN_FIELD_ENTRIES)).annotate({
@@ -185,6 +215,7 @@ export const inspectionRequestSchemas = {
   "public-subpath-discovery": normalizedTargetSchema,
   "declaration-inspection": normalizedExportSchema,
   "member-inspection": normalizedMemberSchema,
+  "member-discovery": normalizedMemberDiscoverySchema,
   "inspection-plan": normalizedPlanSchema,
   "public-interface-comparison": normalizedComparisonSchema,
 } as const satisfies Readonly<Record<InspectionIntent, Schema.Constraint>>;
@@ -196,6 +227,7 @@ export const inspectionRequestFieldNames = Object.freeze({
   "public-subpath-discovery": requestFieldNames(TARGET_FIELD_ENTRIES),
   "declaration-inspection": requestFieldNames(EXPORT_FIELD_ENTRIES),
   "member-inspection": requestFieldNames(MEMBER_FIELD_ENTRIES),
+  "member-discovery": requestFieldNames(MEMBER_DISCOVERY_FIELD_ENTRIES),
   "inspection-plan": requestFieldNames(PLAN_FIELD_ENTRIES),
   "public-interface-comparison": requestFieldNames(COMPARISON_FIELD_ENTRIES),
 } as const satisfies Readonly<Record<InspectionIntent, readonly string[]>>);
@@ -216,11 +248,8 @@ export type SignatureInspectionRequest = InspectionRequestByIntent["signature-in
 export type ExportSearchRequest = InspectionRequestByIntent["export-search"];
 export type PublicSubpathDiscoveryRequest = InspectionRequestByIntent["public-subpath-discovery"];
 export type DeclarationInspectionRequest = InspectionRequestByIntent["declaration-inspection"];
-export type NormalizedDeclarationInspectionRequest =
-  NormalizedInspectionRequestByIntent["declaration-inspection"];
+export type MemberDiscoveryRequest = InspectionRequestByIntent["member-discovery"];
 export type MemberInspectionRequest = InspectionRequestByIntent["member-inspection"];
-export type NormalizedMemberInspectionRequest =
-  NormalizedInspectionRequestByIntent["member-inspection"];
 export type InspectionPlanRequest = InspectionRequestByIntent["inspection-plan"];
 export type NormalizedInspectionPlanRequest =
   NormalizedInspectionRequestByIntent["inspection-plan"];
@@ -240,7 +269,12 @@ const INVALID_ANALYSIS_REQUEST_OUTCOME: InspectionFailure = {
 };
 const ANALYSIS_REQUEST_FIELDS = ["intent", "request"] as const;
 
-const REQUEST_DEFINITIONS = Object.freeze({
+const REQUEST_DEFINITIONS: {
+  readonly [Intent in InspectionIntent]: InspectionRequestDefinition<
+    Intent,
+    (typeof inspectionRequestSchemas)[Intent]
+  >;
+} = Object.freeze({
   "interface-overview": defineRequest({
     intent: "interface-overview",
     schema: inspectionRequestSchemas["interface-overview"],
@@ -277,6 +311,18 @@ const REQUEST_DEFINITIONS = Object.freeze({
     invalidOutcome: invalidRequest("Member Inspection"),
     prepareCandidate: prepareMemberCandidate,
   }),
+  "member-discovery": defineRequest({
+    intent: "member-discovery",
+    schema: inspectionRequestSchemas["member-discovery"],
+    invalidOutcome: invalidRequest("Member Discovery"),
+    prepareCandidate(value) {
+      const memberPath = readBoundedMemberPath(
+        value["memberPath"] === undefined ? [] : value["memberPath"],
+        true,
+      );
+      return memberPath === undefined ? undefined : { ...value, memberPath };
+    },
+  }),
   "inspection-plan": defineRequest({
     intent: "inspection-plan",
     schema: inspectionRequestSchemas["inspection-plan"],
@@ -289,8 +335,6 @@ const REQUEST_DEFINITIONS = Object.freeze({
     invalidOutcome: invalidRequest("Public Interface Comparison"),
     prepareCandidate: prepareComparisonCandidate,
   }),
-} as const satisfies {
-  readonly [Intent in InspectionIntent]: InspectionRequestDefinition<Intent>;
 });
 
 export const analysisRequestSchema = Schema.Union(
@@ -327,9 +371,7 @@ export function readInspectionRequest<Intent extends InspectionIntent>(
   intent: Intent,
   value: unknown,
 ): InspectionRequestReading<NormalizedInspectionRequestByIntent[Intent]> {
-  const request = REQUEST_DEFINITIONS[intent].read(value) as
-    | NormalizedInspectionRequestByIntent[Intent]
-    | undefined;
+  const request = REQUEST_DEFINITIONS[intent].read(value);
   return request === undefined
     ? { accepted: false, outcome: REQUEST_DEFINITIONS[intent].invalidOutcome }
     : { accepted: true, request };

@@ -216,9 +216,21 @@ async function verifyExecutableTarget(
     expectedCliEntry,
   ).replaceAll("\\", "/");
   if (!normalizedShim.includes(normalizedRelativeTarget)) {
-    throw new Error(
-      `${packageManager.manager} consumer Resolution Context ${resolutionContext} executable shim does not target ${expectedCliEntry}.`,
+    // Installers may target the installed package link instead of its physical store path.
+    const installedModulesDirectory = await realpath(join(resolutionContext, "node_modules"));
+    const linkedCliEntry = join(installedModulesDirectory, "typepeek", "dist", "cli.js");
+    const normalizedLinkedTarget = relative(executablePhysicalDirectory, linkedCliEntry).replaceAll(
+      "\\",
+      "/",
     );
+    if (
+      (await realpath(linkedCliEntry)) !== expectedCliEntry ||
+      !normalizedShim.includes(normalizedLinkedTarget)
+    ) {
+      throw new Error(
+        `${packageManager.manager} consumer Resolution Context ${resolutionContext} executable shim does not target ${expectedCliEntry}.`,
+      );
+    }
   }
   return "shim";
 }

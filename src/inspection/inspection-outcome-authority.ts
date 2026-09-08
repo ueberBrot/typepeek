@@ -1,7 +1,12 @@
 import { Predicate, Result, Schema } from "effect";
 
+import { MAX_MEMBER_CANDIDATES, MAX_MEMBER_MATCHES } from "#typepeek/inspection/budget-policy";
 import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection-plan-query";
-import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
+import {
+  memberDeclarationSpaceSchema,
+  memberPathsEqual,
+  readBoundedMemberPath,
+} from "#typepeek/inspection/member-path";
 import type { PackageIdentity } from "#typepeek/inspection/package-identity";
 import {
   type AnalysisRequest,
@@ -18,10 +23,9 @@ import {
   type InspectionResultByIntent,
   type InterfaceOverview,
   type MemberInspection,
-  type NormalizedDeclarationInspectionRequest,
+  type MemberDiscovery,
   type NormalizedInspectionPlanRequest,
   type NormalizedInspectionTarget,
-  type NormalizedMemberInspectionRequest,
   type PublicInterfaceComparison,
   type PublicSubpathDiscovery,
   type SignatureInspection,
@@ -79,6 +83,10 @@ export function enforceInspectionOutcome(
   value: unknown,
 ): InspectionOutcome<DeclarationInspection>;
 export function enforceInspectionOutcome(
+  intent: "member-discovery",
+  value: unknown,
+): InspectionOutcome<MemberDiscovery>;
+export function enforceInspectionOutcome(
   intent: "member-inspection",
   value: unknown,
 ): InspectionOutcome<MemberInspection>;
@@ -119,24 +127,15 @@ export function enforceAnalysisRequestOutcome(
   if (request.intent === "inspection-plan") {
     return enforceInspectionPlanOutcome(request.request, value);
   }
-  if (request.intent === "declaration-inspection") {
-    return enforceDeclarationInspectionOutcome(request.request, value);
-  }
-  if (request.intent === "member-inspection") {
-    return enforceMemberInspectionOutcome(request.request, value);
-  }
   const outcome = enforceInspectionOutcome(request.intent, value);
-  return outcome.status !== "success" || simpleResultMatchesRequest(outcome.result, request)
+  return outcome.status !== "success" || atomicResultMatchesRequest(outcome.result, request)
     ? outcome
     : INVALID_RESULT_OUTCOME;
 }
 
-function simpleResultMatchesRequest(
+function atomicResultMatchesRequest(
   result: InspectionResult,
-  request: Exclude<
-    AnalysisRequest,
-    { readonly intent: "inspection-plan" | "declaration-inspection" | "member-inspection" }
-  >,
+  request: Exclude<AnalysisRequest, { readonly intent: "inspection-plan" }>,
 ): boolean {
   const query = inspectionPlanQueriesForRequest(request)[0];
   return (
@@ -166,36 +165,6 @@ function enforceInspectionPlanOutcome(
         inspectionMatchesIdentity(inspection, sharedIdentity) &&
         inspectionMatchesPlanQuery(inspection, request.queries[index]),
     )
-    ? outcome
-    : INVALID_RESULT_OUTCOME;
-}
-
-/** Requires a declaration-only result for the exact requested Module Export. */
-function enforceDeclarationInspectionOutcome(
-  request: NormalizedDeclarationInspectionRequest,
-  value: unknown,
-): InspectionOutcome<DeclarationInspection> {
-  const outcome = enforceInspectionOutcome("declaration-inspection", value);
-  return outcome.status !== "success" ||
-    (inspectionMatchesTarget(outcome.result, request) &&
-      outcome.result.moduleExport.name === request.exportName)
-    ? outcome
-    : INVALID_RESULT_OUTCOME;
-}
-
-/** Requires a bounded Member result for the exact requested export and path. */
-function enforceMemberInspectionOutcome(
-  request: NormalizedMemberInspectionRequest,
-  value: unknown,
-): InspectionOutcome<MemberInspection> {
-  const outcome = enforceInspectionOutcome("member-inspection", value);
-  if (outcome.status !== "success") {
-    return outcome;
-  }
-  return inspectionMatchesTarget(outcome.result, request) &&
-    outcome.result.moduleExportName === request.exportName &&
-    memberPathsEqual(outcome.result.memberPath, request.memberPath) &&
-    isAuthoritativeMemberInspection(outcome.result)
     ? outcome
     : INVALID_RESULT_OUTCOME;
 }
@@ -273,6 +242,13 @@ const INSPECTION_PLAN_QUERY_MATCHERS = {
   "signature-inspection": matchesFocusedPlanQuery,
   "declaration-inspection": matchesFocusedPlanQuery,
   "member-inspection": matchesMemberPlanQuery,
+  "member-discovery": (inspection, query) =>
+    inspection.intent === "member-discovery" &&
+    query.intent === "member-discovery" &&
+    inspection.moduleExportName === query.exportName &&
+    memberPathsEqual(inspection.memberPath, query.memberPath) &&
+    inspection.query === query.query &&
+    isAuthoritativeMemberDiscovery(inspection),
 } as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryMatcher>>;
 
 function matchesFocusedPlanQuery(
@@ -309,8 +285,25 @@ function isAuthoritativeMemberInspection(inspection: MemberInspection): boolean 
   );
 }
 
-function memberPathsEqual(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((segment, index) => segment === right[index]);
+function isAuthoritativeMemberDiscovery(inspection: MemberDiscovery): boolean {
+  return (
+    inspection.totalMembers <= MAX_MEMBER_CANDIDATES &&
+    inspection.members.length <= MAX_MEMBER_MATCHES &&
+    inspection.members.length <= inspection.totalMembers &&
+    (inspection.query !== undefined || inspection.members.length === inspection.totalMembers) &&
+    inspection.members.every(
+      (member, index) =>
+        (index === 0 || (inspection.members[index - 1]?.name ?? "") < member.name) &&
+        (inspection.query === undefined ||
+          member.name.toLowerCase().includes(inspection.query.toLowerCase())) &&
+        member.spaces.every(
+          (space, index) =>
+            index === 0 ||
+            memberDeclarationSpaceSchema.literals.indexOf(member.spaces[index - 1] ?? space) <
+              memberDeclarationSpaceSchema.literals.indexOf(space),
+        ),
+    )
+  );
 }
 
 function readInspectionOutcome(value: unknown): InspectionOutcome | undefined {
@@ -323,7 +316,7 @@ function readInspectionOutcome(value: unknown): InspectionOutcome | undefined {
   if (snapshot === undefined || !hasBoundedNamespaceGraph(snapshot)) {
     return undefined;
   }
-  return Result.getOrUndefined(decodeInspectionOutcome(snapshot)) as InspectionOutcome | undefined;
+  return Result.getOrUndefined(decodeInspectionOutcome(snapshot));
 }
 
 function hasBoundedNamespaceGraph(value: unknown): boolean {

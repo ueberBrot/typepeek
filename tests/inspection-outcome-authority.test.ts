@@ -672,8 +672,8 @@ it("accepts only the bounded Signature Inspection result shape", () => {
         ...outcome.result,
         moduleExport: {
           ...outcome.result.moduleExport,
-          signatures: outcome.result.moduleExport.signatures.map(
-            ({ returns: _, ...signature }) => signature,
+          signatures: outcome.result.moduleExport.signatures.map((signature) =>
+            Object.fromEntries(Object.entries(signature).filter(([key]) => key !== "returns")),
           ),
         },
       },
@@ -1075,3 +1075,72 @@ function namespaceOutcome(members: readonly MutableNamespaceMember[]) {
     },
   };
 }
+
+it("correlates qualified Member Discovery selectors, searches, and ordered plan outcomes", () => {
+  const target = {
+    resolutionContext: "/repository",
+    specifier: "example",
+    accessStyle: "import",
+  } as const;
+  const query = {
+    intent: "member-discovery",
+    exportName: "Example",
+    memberPath: [{ name: "nested", space: "type" }],
+    query: "VaL",
+  } as const;
+  const result = {
+    intent: "member-discovery",
+    specifier: "example",
+    resolutionVariant: { accessStyle: "import" },
+    packageIdentity: { name: "example" },
+    moduleExportName: "Example",
+    memberPath: [{ name: "nested", space: "type" }],
+    query: "VaL",
+    totalMembers: 4,
+    members: [{ name: "value", spaces: ["type", "value"] }],
+  } as const;
+  const outcome = { status: "success", result } as const;
+  expect(
+    enforceAnalysisRequestOutcome(
+      { intent: query.intent, request: { ...target, ...query } },
+      outcome,
+    ),
+  ).toEqual(outcome);
+  const wrongResults = [
+    { ...result, memberPath: ["nested"] },
+    { ...result, memberPath: [{ name: "nested", space: "value" }] },
+    { ...result, moduleExportName: "Other" },
+    { ...result, query: "val" },
+    { ...result, totalMembers: 0 },
+    { ...result, members: [{ name: "missing", spaces: ["type"] }] },
+    { ...result, members: [{ name: "value", spaces: ["value", "type"] }] },
+    {
+      ...result,
+      members: [
+        { name: "value", spaces: ["type"] },
+        { name: "value", spaces: ["value"] },
+      ],
+    },
+  ];
+  for (const wrong of wrongResults) {
+    expect(
+      enforceAnalysisRequestOutcome(
+        { intent: query.intent, request: { ...target, ...query } },
+        { status: "success", result: wrong },
+      ),
+    ).toMatchObject({ status: "unsupported", reason: "invalid-result" });
+    expect(
+      enforceInspectionPlanOutcome(
+        { ...target, queries: [query] },
+        { status: "success", result: { intent: "inspection-plan", inspections: [wrong] } },
+      ),
+    ).toMatchObject({ status: "unsupported", reason: "invalid-result" });
+  }
+  const empty = { status: "success", result: { ...result, members: [] } };
+  expect(
+    enforceAnalysisRequestOutcome(
+      { intent: query.intent, request: { ...target, ...query } },
+      empty,
+    ),
+  ).toEqual(empty);
+});

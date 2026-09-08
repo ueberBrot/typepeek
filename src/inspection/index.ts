@@ -4,6 +4,7 @@ export {
   inspectExport,
   inspectExportDeclarations,
   inspectExportMember,
+  inspectExportMembers,
   inspectExportSearch,
   inspectExportSignatures,
   inspectInterfaceOverview,
@@ -31,6 +32,7 @@ export type {
   InspectionRequestByIntent,
   InterfaceOverview,
   MemberInspection,
+  MemberDiscovery,
   PackageIdentity,
   PublicSubpathDiscovery,
   PublicInterfaceComparison,
@@ -43,3 +45,5 @@ export type {
   InspectionProtocolResponse,
 } from "#typepeek/inspection/inspection-protocol-schema";
 export type { InspectionIntent } from "#typepeek/inspection/protocol-metadata";
+
+export type { MemberPath } from "#typepeek/inspection/member-path";

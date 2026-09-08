@@ -32,6 +32,18 @@ const collectionFieldCapabilityFields = {
   minItems: Schema.Natural,
   maxItems: positiveNaturalSchema,
   maxItemBytes: Schema.optionalKey(positiveNaturalSchema),
+  unqualified: Schema.optionalKey(Schema.Literal(true)),
+  qualified: Schema.optionalKey(
+    Schema.Struct({
+      name: Schema.Literal("name"),
+      space: Schema.Literal("space"),
+      values: Schema.Tuple([
+        Schema.Literal("type"),
+        Schema.Literal("value"),
+        Schema.Literal("namespace"),
+      ]),
+    }),
+  ),
 } as const;
 
 const stringFieldCapabilityStruct = Schema.Struct(stringFieldCapabilityFields);

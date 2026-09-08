@@ -55,11 +55,6 @@ export interface InspectableModuleEvidence {
   };
 }
 
-export interface InspectableModuleDiscoveryEvidence {
-  readonly resultIdentity: InspectionResultIdentity;
-  readonly publicSubpaths: readonly PublicSubpath[];
-}
-
 /** Couples a declaration entrypoint to its canonical and logical authorization roots. */
 export interface DeclarationProviderAuthority {
   readonly declarationPath: string;
@@ -120,18 +115,6 @@ export function materializeInspectableModuleEvidence(
   return profileInspectionPhase("program-materialization", () =>
     materializeInspectableModule(selection, queries),
   );
-}
-
-/** Reads manifest-only evidence from one previously selected module. */
-export function inspectableModuleDiscoveryEvidence(
-  selection: InspectableModuleSelection,
-): InspectableModuleDiscoveryEvidence {
-  return {
-    resultIdentity: selection.resultIdentity,
-    get publicSubpaths() {
-      return selection.readPublicSubpaths();
-    },
-  };
 }
 
 function selectDeclarationProvider(

@@ -6,6 +6,8 @@ import {
   publicDeclarations,
   renderPublicDeclaration,
 } from "#typepeek/inspection/declaration-projection";
+import { createModuleExportInspection } from "#typepeek/inspection/export-inspection";
+import { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
 
 describe("Public Interface declaration rendering", () => {
   it("recovers inferred types while removing source implementation", () => {
@@ -281,29 +283,43 @@ describe("Public Interface declaration rendering", () => {
     );
   });
 
-  it("charges declaration projections to one caller-owned traversal budget", () => {
-    const first = exportedDeclarations("export type First = string;", "First");
-    let reservations = 0;
-    let limit = Number.POSITIVE_INFINITY;
-    const context = {
-      moduleSymbol: first.moduleSymbol,
-      reserveTraversal: () => {
-        reservations += 1;
-        if (reservations > limit) {
-          throw new Error("aggregate projection traversal exhausted");
-        }
-      },
-      reserveTypeTraversal: () => {},
-      validatedTypes: new Set<ts.Type>(),
-    };
-    expect(
-      projectPublicDeclaration(first.checker, first.declarations[0]!, context).syntax,
-    ).toBeDefined();
-    limit = reservations;
-
-    expect(
-      () => projectPublicDeclaration(first.checker, first.declarations[0]!, context).syntax,
-    ).toThrow("aggregate projection traversal exhausted");
+  it("shares traversal across focused inspections and isolates separate plans", () => {
+    const source = Array.from({ length: 16 }, (_, index) => {
+      const values = Array.from({ length: 260 }, (_, offset) => index * 260 + offset).join(", ");
+      return `export const tuple${index} = [${values}] as const;`;
+    }).join("\n");
+    const { checker, moduleSymbol } = exportedDeclarations(source, "tuple0");
+    const packageIdentity = { name: "projection-fixture" };
+    const createInspection = () =>
+      createModuleExportInspection(
+        {
+          checker,
+          moduleSymbol,
+          resultIdentity: { packageIdentity },
+          publicSubpaths: [],
+          supportingTypeScope: { kind: "package" },
+          declarationProvenance: () => ({ packageIdentity, file: "index.ts" }),
+        },
+        InspectionResultConstruction.create({
+          identity: { packageIdentity },
+          specifier: "projection-fixture",
+          resolutionVariant: { accessStyle: "import" },
+        }),
+      );
+    const inspection = createInspection();
+    expect(inspection.inspectDeclarations("tuple0")).toMatchObject({
+      intent: "declaration-inspection",
+      moduleExport: { name: "tuple0" },
+    });
+    expect(() => {
+      for (let index = 1; index < 16; index += 1) {
+        inspection.inspectDeclarations(`tuple${index}`);
+      }
+    }).toThrow("Inspection exceeded its Supporting Type traversal limit.");
+    expect(createInspection().inspectDeclarations("tuple15")).toMatchObject({
+      intent: "declaration-inspection",
+      moduleExport: { name: "tuple15" },
+    });
   });
 });
 

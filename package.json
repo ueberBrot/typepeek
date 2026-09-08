@@ -50,12 +50,12 @@
     "taze": "^19.16.0",
     "typescript": "7.0.2",
     "unplugin-unused": "^0.6.0",
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.6",
-    "vite-plus": "0.2.6",
-    "vitest": "4.1.10"
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.0",
+    "vite-plus": "0.3.0",
+    "vitest": "4.1.11"
   },
   "engines": {
     "node": ">=24.18.0 <25"
   },
-  "packageManager": "pnpm@11.20.0"
+  "packageManager": "pnpm@12.3.4"
 }

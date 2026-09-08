@@ -18,6 +18,7 @@ import type {
   InspectionPlanQuery,
   InspectionRequestByIntent,
   InspectionResult,
+  MemberPath,
 } from "#typepeek/inspection";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
 import {
@@ -58,6 +59,7 @@ const INSPECTION_COMMANDS = new Set([
   "subpaths",
   "declarations",
   "member",
+  "members",
   "compare",
 ]);
 const INVALID_INVOCATION_EXIT_CODES = new Set([-5, -4]);
@@ -99,6 +101,10 @@ interface ComparisonOptions extends CliOutputOptions {
 interface OverviewOptions extends InspectionTargetOptions {
   readonly match?: string;
   readonly subpaths: boolean;
+}
+
+interface MemberDiscoveryOptions extends InspectionTargetOptions {
+  readonly match?: string;
 }
 
 class InspectionFailureError extends Error {}
@@ -218,7 +224,7 @@ const exportSearchQueryParameter = {
 
 const memberPathParameter = {
   parse: parseMemberPath,
-  brief: "One exact Member name or a JSON string array for a nested Member path.",
+  brief: "One exact Member name or a JSON array of names and {name, space} selectors.",
   placeholder: "member-path",
 } as const;
 
@@ -348,7 +354,7 @@ const declarationsCommand = buildCommand<
 
 const memberCommand = buildCommand<
   InspectionTargetOptions,
-  [string, string, readonly string[]],
+  [string, string, MemberPath],
   ApplicationContext
 >({
   async func(options, specifier, exportName, memberPath) {
@@ -369,6 +375,50 @@ const memberCommand = buildCommand<
     brief: "Inspect exactly one public Member path of a Module Export.",
     fullDescription:
       "Example: typepeek member zod ZodError issues avoids unrelated declaration traversal.",
+  },
+});
+
+const membersCommand = buildCommand<
+  MemberDiscoveryOptions,
+  [string, string, MemberPath?],
+  ApplicationContext
+>({
+  async func(options, specifier, exportName, memberPath) {
+    return runCliTargetInspection(this, "member-discovery", options, specifier, (target) => ({
+      ...target,
+      exportName,
+      ...(memberPath === undefined ? {} : { memberPath }),
+      ...(options.match === undefined ? {} : { query: options.match }),
+    }));
+  },
+  parameters: {
+    flags: {
+      ...inspectionTargetFlags,
+      match: {
+        kind: "parsed",
+        parse: (input: string) => input,
+        optional: true,
+        placeholder: "substring",
+        brief: "Filter public Member names case-insensitively in every output format.",
+      },
+    },
+    positional: {
+      kind: "tuple",
+      parameters: [
+        specifierParameter,
+        exportNameParameter,
+        {
+          ...memberPathParameter,
+          parse: (input: string) => parseMemberPath(input, true),
+          optional: true,
+        },
+      ],
+    },
+  },
+  docs: {
+    brief: "Discover immediate public Members and their declaration spaces.",
+    fullDescription:
+      'Example: typepeek members zod ZodError --match issue lists matching names. Omit member-path to inspect the export; pass a JSON path such as \'[{"name":"shared","space":"type"}]\' to select a declaration space at a nested step. Discovery returns a complete count before filtering.',
   },
 });
 
@@ -566,6 +616,7 @@ const rootRoute = buildRouteMap({
     subpaths: subpathsCommand,
     declarations: declarationsCommand,
     member: memberCommand,
+    members: membersCommand,
     compare: compareCommand,
     capabilities: capabilitiesCommand,
     protocol: protocolCommand,
@@ -574,7 +625,7 @@ const rootRoute = buildRouteMap({
   docs: {
     brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
     fullDescription:
-      "Start with overview to discover exports. Use search or subpaths for lighter discovery; declarations or member for narrow declaration questions; signatures for parameters; export for declarations and Supporting Types; plan to share one evidence snapshot; and compare to diff two overview indexes. Agents can run capabilities before invoking protocol through bounded stdin/stdout. Common flags may precede or follow an explicit inspection command.",
+      "Start with overview to discover exports. Use search or subpaths for lighter discovery; members to discover public members; declarations or member for narrow declaration questions; signatures for parameters; export for declarations and Supporting Types; plan to share one evidence snapshot; and compare to diff two overview indexes. Agents can run capabilities before invoking protocol through bounded stdin/stdout. Common flags may precede or follow an explicit inspection command.",
   },
 });
 
@@ -893,12 +944,15 @@ function parseAccessStyle(input: string): "import" | "require" {
   throw new Error('Access Style must be "import" or "require".');
 }
 
-function parseMemberPath(input: string): readonly string[] {
+function parseMemberPath(input: string, allowEmpty = false): MemberPath {
   const memberPath = readBoundedMemberPath(
     input.startsWith("[") ? parseMemberPathJson(input) : [input],
+    allowEmpty,
   );
   if (memberPath === undefined) {
-    throw new Error("Member path must contain from 1 through 16 bounded non-empty segments.");
+    throw new Error(
+      `Member path must contain from ${allowEmpty ? 0 : 1} through 16 non-empty names (at most 256 bytes each), optionally qualified with type, value, or namespace.`,
+    );
   }
   return memberPath;
 }
@@ -907,7 +961,7 @@ function parseMemberPathJson(input: string): unknown {
   try {
     return JSON.parse(input) as unknown;
   } catch {
-    throw new Error("Member path must be a valid JSON string array.");
+    throw new Error("Member path must be a valid JSON array of names or {name, space} selectors.");
   }
 }
 
@@ -938,6 +992,8 @@ function inspectionPlanQueryIssueMessage(issue: InspectionPlanQueryIssue): strin
     "invalid-search": "Each Export Search query requires a bounded non-empty query string.",
     "invalid-focused": "Each focused Inspection Plan query requires a string exportName.",
     "invalid-member": "Each Member Inspection query requires an exportName and memberPath.",
+    "invalid-member-discovery":
+      "Each Member Discovery query requires an exportName; optional memberPath and query must be bounded.",
   } as const satisfies Readonly<Record<InspectionPlanQueryIssue, string>>;
   return messages[issue];
 }

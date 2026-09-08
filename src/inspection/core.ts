@@ -18,6 +18,8 @@ import {
   type InterfaceOverview,
   type InterfaceOverviewRequest,
   type MemberInspection,
+  type MemberDiscovery,
+  type MemberDiscoveryRequest,
   type MemberInspectionRequest,
   type NormalizedPublicInterfaceComparisonRequest,
   type PublicInterfaceComparison,
@@ -131,6 +133,13 @@ export function inspectExportMember(
   request: MemberInspectionRequest,
 ): Promise<InspectionOutcome<MemberInspection>> {
   return invokeTypedInspection("member-inspection", request);
+}
+
+/** Lists immediate public Members without rendering declarations or Supporting Types. */
+export function inspectExportMembers(
+  request: MemberDiscoveryRequest,
+): Promise<InspectionOutcome<MemberDiscovery>> {
+  return invokeTypedInspection("member-discovery", request);
 }
 
 const invokePreparedInspectionCore = Effect.fn("invokePreparedInspectionCore")(function* (
