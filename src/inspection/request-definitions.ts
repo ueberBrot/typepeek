@@ -251,12 +251,8 @@ export type SignatureInspectionRequest = InspectionRequestByIntent["signature-in
 export type ExportSearchRequest = InspectionRequestByIntent["export-search"];
 export type PublicSubpathDiscoveryRequest = InspectionRequestByIntent["public-subpath-discovery"];
 export type DeclarationInspectionRequest = InspectionRequestByIntent["declaration-inspection"];
-export type NormalizedDeclarationInspectionRequest =
-  NormalizedInspectionRequestByIntent["declaration-inspection"];
 export type MemberDiscoveryRequest = InspectionRequestByIntent["member-discovery"];
 export type MemberInspectionRequest = InspectionRequestByIntent["member-inspection"];
-export type NormalizedMemberInspectionRequest =
-  NormalizedInspectionRequestByIntent["member-inspection"];
 export type InspectionPlanRequest = InspectionRequestByIntent["inspection-plan"];
 export type NormalizedInspectionPlanRequest =
   NormalizedInspectionRequestByIntent["inspection-plan"];

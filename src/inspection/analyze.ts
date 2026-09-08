@@ -4,10 +4,8 @@ import {
   UnsupportedInspectionError,
 } from "#typepeek/inspection/errors";
 import {
-  inspectFocusedModuleExport,
-  inspectFocusedModuleExportDeclarations,
-  inspectFocusedModuleExportMember,
-  discoverFocusedModuleExportMembers,
+  createModuleExportInspection,
+  type ModuleExportInspection,
 } from "#typepeek/inspection/export-inspection";
 import {
   createInspectionCacheIdentity,
@@ -131,10 +129,16 @@ function inspectInstalledPackageProgram(
     identity: evidence.resultIdentity,
   });
 
+  const context = {
+    evidence,
+    construction,
+    moduleExport: createModuleExportInspection(evidence, construction),
+  };
+
   if (analysisRequest.intent === "inspection-plan") {
     const inspections: AtomicInspectionResult[] = [];
     for (const query of queries) {
-      const inspection = inspectEvidenceQuery(evidence, query, construction);
+      const inspection = inspectEvidenceQuery(context, query);
       if ("status" in inspection) {
         return inspection;
       }
@@ -150,7 +154,7 @@ function inspectInstalledPackageProgram(
   if (query === undefined) {
     throw new UnsupportedInspectionError("Inspection has no query to execute.");
   }
-  const inspection = inspectEvidenceQuery(evidence, query, construction);
+  const inspection = inspectEvidenceQuery(context, query);
   return "status" in inspection ? inspection : { status: "success", result: inspection };
 }
 
@@ -194,20 +198,24 @@ function inspectionResultConstruction(
   });
 }
 
+interface EvidenceQueryContext {
+  readonly evidence: InspectableModuleEvidence;
+  readonly construction: InspectionResultConstruction;
+  readonly moduleExport: ModuleExportInspection;
+}
+
 function inspectEvidenceQuery(
-  evidence: InspectableModuleEvidence,
+  context: EvidenceQueryContext,
   query: InspectionPlanQuery,
-  construction: InspectionResultConstruction,
 ): AtomicInspectionResult | InspectionFailure {
   const handler = INSPECTION_QUERY_HANDLERS[query.intent] as EvidenceQueryHandler;
-  return handler(evidence, query, construction);
+  return handler(context, query);
 }
 
 type EvidenceQueryResult = AtomicInspectionResult | InspectionFailure;
 type EvidenceQueryHandler<Query extends InspectionPlanQuery = InspectionPlanQuery> = (
-  evidence: InspectableModuleEvidence,
+  context: EvidenceQueryContext,
   query: Query,
-  construction: InspectionResultConstruction,
 ) => EvidenceQueryResult;
 
 const INSPECTION_QUERY_HANDLERS = {
@@ -226,29 +234,26 @@ const INSPECTION_QUERY_HANDLERS = {
 };
 
 function inspectInterfaceOverviewQuery(
-  evidence: InspectableModuleEvidence,
+  { evidence, construction }: EvidenceQueryContext,
   _query: Extract<InspectionPlanQuery, { readonly intent: "interface-overview" }>,
-  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   return construction.interfaceOverview(evidence.publicSubpaths, inspectModuleExports(evidence));
 }
 
 function inspectExportQuery(
-  evidence: InspectableModuleEvidence,
+  { moduleExport, construction }: EvidenceQueryContext,
   query: Extract<InspectionPlanQuery, { readonly intent: "export-inspection" }>,
-  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   return focusedQueryResult(
-    inspectFocusedModuleExport(evidence, query.exportName, construction),
+    moduleExport.inspectExport(query.exportName),
     query.exportName,
     construction.specifier,
   );
 }
 
 function inspectSignatureQuery(
-  evidence: InspectableModuleEvidence,
+  { evidence, construction }: EvidenceQueryContext,
   query: Extract<InspectionPlanQuery, { readonly intent: "signature-inspection" }>,
-  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   return focusedQueryResult(
     inspectModuleExportSignatures(evidence, query.exportName, construction),
@@ -258,12 +263,11 @@ function inspectSignatureQuery(
 }
 
 function inspectDeclarationQuery(
-  evidence: InspectableModuleEvidence,
+  { moduleExport, construction }: EvidenceQueryContext,
   query: Extract<InspectionPlanQuery, { readonly intent: "declaration-inspection" }>,
-  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   return focusedQueryResult(
-    inspectFocusedModuleExportDeclarations(evidence, query.exportName, construction),
+    moduleExport.inspectDeclarations(query.exportName),
     query.exportName,
     construction.specifier,
   );
@@ -278,30 +282,22 @@ function focusedQueryResult(
 }
 
 function inspectMemberQuery(
-  evidence: InspectableModuleEvidence,
+  { moduleExport, construction }: EvidenceQueryContext,
   query: Extract<InspectionPlanQuery, { readonly intent: "member-inspection" }>,
-  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   return memberQueryResult(
-    inspectFocusedModuleExportMember(evidence, query.exportName, query.memberPath, construction),
+    moduleExport.inspectMember(query.exportName, query.memberPath),
     query,
     construction.specifier,
   );
 }
 
 function inspectMemberDiscoveryQuery(
-  evidence: InspectableModuleEvidence,
+  { moduleExport, construction }: EvidenceQueryContext,
   query: Extract<InspectionPlanQuery, { readonly intent: "member-discovery" }>,
-  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   return memberQueryResult(
-    discoverFocusedModuleExportMembers(
-      evidence,
-      query.exportName,
-      query.memberPath,
-      query.query,
-      construction,
-    ),
+    moduleExport.discoverMembers(query.exportName, query.memberPath, query.query),
     query,
     construction.specifier,
   );
@@ -309,8 +305,8 @@ function inspectMemberDiscoveryQuery(
 
 function memberQueryResult(
   outcome:
-    | ReturnType<typeof inspectFocusedModuleExportMember>
-    | ReturnType<typeof discoverFocusedModuleExportMembers>,
+    | ReturnType<ModuleExportInspection["inspectMember"]>
+    | ReturnType<ModuleExportInspection["discoverMembers"]>,
   query: { readonly exportName: string; readonly memberPath: MemberPath },
   specifier: string,
 ): EvidenceQueryResult {
@@ -329,18 +325,16 @@ function memberQueryResult(
 }
 
 function inspectExportSearchQuery(
-  evidence: InspectableModuleEvidence,
+  { evidence, construction }: EvidenceQueryContext,
   query: Extract<InspectionPlanQuery, { readonly intent: "export-search" }>,
-  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   const search = searchModuleExports(evidence, query.query);
   return construction.exportSearch(query.query, search.totalModuleExports, search.matches);
 }
 
 function inspectPublicSubpathQuery(
-  evidence: InspectableModuleEvidence,
+  { evidence, construction }: EvidenceQueryContext,
   _query: Extract<InspectionPlanQuery, { readonly intent: "public-subpath-discovery" }>,
-  construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
   return construction.publicSubpathDiscovery(evidence.publicSubpaths);
 }

@@ -24,10 +24,8 @@ import {
   type InterfaceOverview,
   type MemberInspection,
   type MemberDiscovery,
-  type NormalizedDeclarationInspectionRequest,
   type NormalizedInspectionPlanRequest,
   type NormalizedInspectionTarget,
-  type NormalizedMemberInspectionRequest,
   type PublicInterfaceComparison,
   type PublicSubpathDiscovery,
   type SignatureInspection,
@@ -129,24 +127,15 @@ export function enforceAnalysisRequestOutcome(
   if (request.intent === "inspection-plan") {
     return enforceInspectionPlanOutcome(request.request, value);
   }
-  if (request.intent === "declaration-inspection") {
-    return enforceDeclarationInspectionOutcome(request.request, value);
-  }
-  if (request.intent === "member-inspection") {
-    return enforceMemberInspectionOutcome(request.request, value);
-  }
   const outcome = enforceInspectionOutcome(request.intent, value);
-  return outcome.status !== "success" || simpleResultMatchesRequest(outcome.result, request)
+  return outcome.status !== "success" || atomicResultMatchesRequest(outcome.result, request)
     ? outcome
     : INVALID_RESULT_OUTCOME;
 }
 
-function simpleResultMatchesRequest(
+function atomicResultMatchesRequest(
   result: InspectionResult,
-  request: Exclude<
-    AnalysisRequest,
-    { readonly intent: "inspection-plan" | "declaration-inspection" | "member-inspection" }
-  >,
+  request: Exclude<AnalysisRequest, { readonly intent: "inspection-plan" }>,
 ): boolean {
   const query = inspectionPlanQueriesForRequest(request)[0];
   return (
@@ -176,36 +165,6 @@ function enforceInspectionPlanOutcome(
         inspectionMatchesIdentity(inspection, sharedIdentity) &&
         inspectionMatchesPlanQuery(inspection, request.queries[index]),
     )
-    ? outcome
-    : INVALID_RESULT_OUTCOME;
-}
-
-/** Requires a declaration-only result for the exact requested Module Export. */
-function enforceDeclarationInspectionOutcome(
-  request: NormalizedDeclarationInspectionRequest,
-  value: unknown,
-): InspectionOutcome<DeclarationInspection> {
-  const outcome = enforceInspectionOutcome("declaration-inspection", value);
-  return outcome.status !== "success" ||
-    (inspectionMatchesTarget(outcome.result, request) &&
-      outcome.result.moduleExport.name === request.exportName)
-    ? outcome
-    : INVALID_RESULT_OUTCOME;
-}
-
-/** Requires a bounded Member result for the exact requested export and path. */
-function enforceMemberInspectionOutcome(
-  request: NormalizedMemberInspectionRequest,
-  value: unknown,
-): InspectionOutcome<MemberInspection> {
-  const outcome = enforceInspectionOutcome("member-inspection", value);
-  if (outcome.status !== "success") {
-    return outcome;
-  }
-  return inspectionMatchesTarget(outcome.result, request) &&
-    outcome.result.moduleExportName === request.exportName &&
-    memberPathsEqual(outcome.result.memberPath, request.memberPath) &&
-    isAuthoritativeMemberInspection(outcome.result)
     ? outcome
     : INVALID_RESULT_OUTCOME;
 }
