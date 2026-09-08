@@ -587,20 +587,25 @@ it("returns unsupported rather than not-found for source-backed inferred object 
   });
 });
 
-it.each(["InferredArrayMember", "InferredPromiseMember"])(
-  "rejects the degraded source-inferred Member type %s",
-  async (exportName) => {
+it.each([
+  ["InferredArrayMember", "type InferredArrayMember = number[];"],
+  ["InferredPromiseMember", "type InferredPromiseMember = Promise<number>;"],
+])(
+  "preserves the standard-library type of source-inferred Member %s",
+  async (exportName, declaration) => {
     const outcome = await inspectExport({
       resolutionContext: fixture.resolutionContext,
       specifier: "@typepeek-fixture/private-constructor-source",
       exportName,
     });
 
-    expect(outcome).toEqual({
-      status: "unsupported",
-      reason: "unsupported-evidence",
-      message:
-        "An inferred Public Interface type cannot be represented statically without standard libraries.",
+    expect(outcome).toMatchObject({
+      status: "success",
+      result: {
+        moduleExport: {
+          spaces: [{ space: "type", declarations: [{ text: declaration }] }],
+        },
+      },
     });
   },
 );

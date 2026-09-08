@@ -37,7 +37,7 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
   });
 
   it("runs the installed executable with equivalent semantic outcomes", async () => {
-    const outcomes = await Promise.all(
+    const results = await Promise.allSettled(
       matrix.consumers.map(async (consumer) => {
         const overviewArguments = ["publint"];
         const expandedOverviewArguments = ["publint", "--subpaths"];
@@ -72,6 +72,13 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
       }),
     );
 
+    // Wait for every consumer process before fixture cleanup, including on failure.
+    const outcomes = results.map((result) => {
+      if (result.status === "rejected") {
+        throw result.reason;
+      }
+      return result.value;
+    });
     const baseline = outcomes[0];
     expect(baseline).toBeDefined();
     if (baseline === undefined) {

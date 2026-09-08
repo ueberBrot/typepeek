@@ -352,6 +352,12 @@ describe("pinned real-package corpus", () => {
   );
 
   it("uses the effective generic default from ExecaError's selected constructor signature", async () => {
+    const probe = await corpus.compileProbe({
+      exportName: "ExecaError",
+      source: 'import { ExecaError } from "execa"; const error = new ExecaError(); void error;',
+      specifier: "execa",
+    });
+    expect(probe.diagnostics).toEqual([]);
     const outcome = await inspectExportSignatures({
       exportName: "ExecaError",
       resolutionContext: corpus.resolutionContext,
@@ -363,10 +369,11 @@ describe("pinned real-package corpus", () => {
       return;
     }
     const signature = outcome.result.moduleExport.signatures[0];
-    expect(signature?.text).toContain("<OptionsType extends Options = any>");
+    expect(signature?.text).toBe(probe.signatures[0]?.text);
+    expect(signature?.text).toContain("<OptionsType extends Options = Options>");
     expect(signature?.typeParameters[0]).toMatchObject({
       constraint: "Options",
-      default: "any",
+      default: "Options",
     });
   });
 });

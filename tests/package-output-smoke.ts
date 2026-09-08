@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
   assertArtifactCacheReuse,
@@ -79,6 +79,7 @@ const protocolCli = spawnSync(process.execPath, ["dist/cli.js", "protocol"], {
   input: JSON.stringify({
     protocolVersion: "1",
     intent: "signature-inspection",
+    response: { signatureEvidence: "both" },
     request: {
       resolutionContext: process.cwd(),
       specifier: "execa",
@@ -92,4 +93,66 @@ assert.equal(
   (JSON.parse(protocolCli.stdout) as { readonly protocolVersion?: unknown }).protocolVersion,
   "1",
 );
+const execaSignatures = (
+  JSON.parse(protocolCli.stdout) as {
+    readonly outcome: {
+      readonly result: {
+        readonly moduleExport: {
+          readonly signatures: ReadonlyArray<{
+            readonly text: string;
+            readonly parameters: ReadonlyArray<{ readonly type: string }>;
+          }>;
+        };
+      };
+    };
+  }
+).outcome.result.moduleExport.signatures;
+assert.equal(execaSignatures[2]?.parameters[0]?.type, "string | URL");
+assert.equal(
+  execaSignatures[1]?.parameters[0]?.type,
+  "readonly [TemplateStringsArray, ...TemplateExpression[]]",
+);
+assert.equal(
+  execaSignatures[1]?.text,
+  "(templateString_0: TemplateStringsArray, ...templateString: TemplateExpression[]): ResultPromise<{}>",
+);
 await assertArtifactCacheReuse("dist/cli.js");
+
+const signatureConsumer = await mkdtemp(join(tmpdir(), "typepeek-signature-consumer-"));
+try {
+  const installedPackage = join(signatureConsumer, "node_modules", "array-signatures");
+  await mkdir(installedPackage, { recursive: true });
+  await writeFile(join(signatureConsumer, "package.json"), '{"type":"module"}');
+  await writeFile(
+    join(installedPackage, "package.json"),
+    '{"name":"array-signatures","version":"1.0.0","types":"index.d.ts"}',
+  );
+  await writeFile(
+    join(installedPackage, "index.d.ts"),
+    "export declare function split(command: string): string[];\n",
+  );
+  const signatures = spawnSync(
+    process.execPath,
+    [
+      resolve("dist/cli.js"),
+      "signatures",
+      "array-signatures",
+      "split",
+      "--workspace",
+      signatureConsumer,
+      "--json",
+    ],
+    { encoding: "utf8", env: { ...process.env, TYPEPEEK_CACHE_BYPASS: "1" } },
+  );
+  assert.equal(signatures.status, 0, signatures.stderr || signatures.stdout);
+  const outcome = JSON.parse(signatures.stdout) as {
+    readonly result: {
+      readonly moduleExport: {
+        readonly signatures: ReadonlyArray<{ readonly returns: { readonly type: string } }>;
+      };
+    };
+  };
+  assert.equal(outcome.result.moduleExport.signatures[0]?.returns.type, "string[]");
+} finally {
+  await rm(signatureConsumer, { recursive: true, force: true });
+}

@@ -48,7 +48,7 @@ it("preserves canonical cache identity serialization and its SHA-256 key", () =>
   const identity = createInspectionCacheIdentity(request, selection);
   const expectedSerialized = JSON.stringify({
     budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
-    cacheSemantics: "installed-evidence-proof-qualified-member-discovery",
+    cacheSemantics: "installed-evidence-proof-signature-type-fidelity",
     compilerVersion: ts.version,
     evidence: {
       declarationPath: "/repository/node_modules/example/index.d.ts",

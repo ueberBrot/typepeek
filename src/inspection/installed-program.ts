@@ -104,7 +104,7 @@ export interface InstalledProgramEvidence {
 
 interface InstalledProgramRequirements {
   readonly focusedExportNames: readonly string[];
-  readonly needsMemberStandardLibrary: boolean;
+  readonly needsStandardLibrary: boolean;
   readonly needsNodeAugmentation: boolean;
   readonly nodeAugmentationExportName: string | undefined;
 }
@@ -114,7 +114,7 @@ type NodeAugmentationScope = "none" | "complete-module" | "focused-export";
 const NODE_AUGMENTATION_SCOPE_BY_QUERY = {
   "interface-overview": "complete-module",
   "export-inspection": "focused-export",
-  "signature-inspection": "none",
+  "signature-inspection": "focused-export",
   "export-search": "complete-module",
   "public-subpath-discovery": "none",
   "declaration-inspection": "focused-export",
@@ -130,7 +130,7 @@ export function materializeInstalledProgram(
   const { declarationPath, root: declarationRoot } = selection.declarationAuthority;
   const requirements = installedProgramRequirements(queries);
   const traversal: DeclarationGraphTraversalState = { nodeCount: 0 };
-  const compilerOptions = inspectionCompilerOptions(requirements.needsMemberStandardLibrary);
+  const compilerOptions = inspectionCompilerOptions(requirements.needsStandardLibrary);
   const host = createBoundedCompilerHost(
     [declarationRoot.canonical, declarationRoot.logical],
     selection.resolutionContextDirectory,
@@ -144,7 +144,7 @@ export function materializeInstalledProgram(
   });
   const initialEvidence = initialPackageEvidence(initialProgram, selection);
   const publicInterfaceProgram =
-    !requirements.needsMemberStandardLibrary &&
+    !requirements.needsStandardLibrary &&
     initialEvidence !== undefined &&
     requirements.focusedExportNames.some((exportName) =>
       selectedExportNeedsStandardLibrary(
@@ -226,8 +226,13 @@ function installedProgramRequirements(
 
   return {
     focusedExportNames,
-    needsMemberStandardLibrary: queries.some(
-      (query) => query.intent === "member-inspection" || query.intent === "member-discovery",
+    // The checker needs standard declarations to preserve arrays and generic types.
+    needsStandardLibrary: queries.some(
+      (query) =>
+        query.intent === "signature-inspection" ||
+        query.intent === "export-inspection" ||
+        query.intent === "member-inspection" ||
+        query.intent === "member-discovery",
     ),
     needsNodeAugmentation,
     nodeAugmentationExportName:

@@ -366,11 +366,13 @@ describe("workspace Resolution Contexts", () => {
         result: { supportingTypes: [{ name: "PublicCarrier" }] },
       });
       expect(JSON.stringify(carrier)).not.toContain("HiddenMemberShape");
-      expect(values).toEqual({
-        status: "unsupported",
-        reason: "unsupported-evidence",
-        message:
-          "An inferred Public Interface type cannot be represented statically without standard libraries.",
+      expect(values).toMatchObject({
+        status: "success",
+        result: {
+          moduleExport: {
+            spaces: [{ space: "value", declarations: [{ text: "workspaceValues: number[]" }] }],
+          },
+        },
       });
       expect(nestedAsync).toEqual({
         status: "unsupported",
