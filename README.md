@@ -163,7 +163,7 @@ Typepeek ships a CLI. Programmatic adapters invoke the `protocol` command over s
 
 ## Development
 
-Install [Vite+](https://viteplus.dev/guide/) for development. It manages Node.js 24.18 and downloads the pnpm 12.3.4 version pinned in `package.json`. Install the locked dependencies and run the full validation suite:
+Install [Vite+ CLI 0.3.0](https://viteplus.dev/guide/) or newer for development; pnpm 12 requires its native-binary support. It manages Node.js 24.18 and downloads the pnpm 12.3.4 version pinned in `package.json`. Install the locked dependencies and run the full validation suite:
 
 ```bash
 vp install --frozen-lockfile
