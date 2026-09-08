@@ -933,7 +933,6 @@ function createBoundedResolutionHost(
   const { defaultHost } = state;
   return {
     fileExists: (fileName) => {
-      assertNoResolutionSymlinkEscape(allowedRoots, fileName);
       return (
         isAuthorizedResolutionPath(allowedRoots, fileName) &&
         cachedCompilerHostResult(state, state.fileExistsCache, fileName, () =>
@@ -942,7 +941,6 @@ function createBoundedResolutionHost(
       );
     },
     readFile: (fileName) => {
-      assertNoResolutionSymlinkEscape(allowedRoots, fileName);
       if (!isAuthorizedResolutionPath(allowedRoots, fileName)) {
         return undefined;
       }
@@ -961,9 +959,8 @@ function createBoundedResolutionHost(
       ? {}
       : {
           directoryExists: (directoryName: string) => {
-            assertNoResolutionSymlinkEscape(allowedRoots, directoryName);
             return (
-              isAuthorizedResolutionDirectory(allowedRoots, directoryName) &&
+              isAuthorizedResolutionPath(allowedRoots, directoryName, true) &&
               cachedCompilerHostResult(
                 state,
                 state.directoryExistsCache,
@@ -977,7 +974,6 @@ function createBoundedResolutionHost(
       ? {}
       : {
           getDirectories: (directoryName: string) => {
-            assertNoResolutionSymlinkEscape(allowedRoots, directoryName);
             if (!isAuthorizedResolutionPath(allowedRoots, directoryName)) {
               return [];
             }
@@ -1011,7 +1007,6 @@ function createBoundedResolutionHost(
       ? {}
       : {
           realpath: (path: string) => {
-            assertNoResolutionSymlinkEscape(allowedRoots, path);
             return isAuthorizedResolutionPath(allowedRoots, path)
               ? cachedCompilerHostResult(
                   state,
@@ -1027,58 +1022,34 @@ function createBoundedResolutionHost(
   };
 }
 
-function assertNoResolutionSymlinkEscape(
+function isAuthorizedResolutionPath(
   allowedRoots: ReadonlySet<string>,
   candidate: string,
-): void {
+  allowAncestor = false,
+): boolean {
   const lexicalCandidate = resolve(candidate);
-  if (![...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, lexicalCandidate))) {
-    return;
-  }
-  const canonicalCandidate = canonicalEvidenceCandidatePath(candidate);
+  const withinRoot = [...allowedRoots].some((root) => isPathWithin(root, lexicalCandidate));
   if (
-    canonicalCandidate === undefined ||
-    ![...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, canonicalCandidate))
+    !withinRoot &&
+    !(allowAncestor && [...allowedRoots].some((root) => isPathWithin(lexicalCandidate, root)))
   ) {
+    return false;
+  }
+  // Canonicalize once per probe, including cache hits, so symlink changes are checked.
+  const canonicalCandidate = canonicalEvidenceCandidatePath(candidate);
+  const canonicalWithinRoot =
+    canonicalCandidate !== undefined &&
+    [...allowedRoots].some((root) => isPathWithin(root, canonicalCandidate));
+  if (withinRoot && !canonicalWithinRoot) {
     throw new StaticBoundaryInspectionError(
       "A declaration references source outside its installed package boundary.",
     );
   }
-}
-
-function isAuthorizedResolutionPath(allowedRoots: ReadonlySet<string>, candidate: string): boolean {
-  const lexicalCandidate = resolve(candidate);
-  if (![...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, lexicalCandidate))) {
-    return false;
-  }
-  const canonicalCandidate = canonicalEvidenceCandidatePath(candidate);
   return (
-    canonicalCandidate !== undefined &&
-    [...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, canonicalCandidate))
-  );
-}
-
-function isAuthorizedResolutionDirectory(
-  allowedRoots: ReadonlySet<string>,
-  candidate: string,
-): boolean {
-  const lexicalCandidate = resolve(candidate);
-  if (
-    ![...allowedRoots].some(
-      (allowedRoot) =>
-        isPathWithin(allowedRoot, lexicalCandidate) || isPathWithin(lexicalCandidate, allowedRoot),
-    )
-  ) {
-    return false;
-  }
-  const canonicalCandidate = canonicalEvidenceCandidatePath(candidate);
-  return (
-    canonicalCandidate !== undefined &&
-    [...allowedRoots].some(
-      (allowedRoot) =>
-        isPathWithin(allowedRoot, canonicalCandidate) ||
-        isPathWithin(canonicalCandidate, allowedRoot),
-    )
+    canonicalWithinRoot ||
+    (allowAncestor &&
+      canonicalCandidate !== undefined &&
+      [...allowedRoots].some((root) => isPathWithin(canonicalCandidate, root)))
   );
 }
 

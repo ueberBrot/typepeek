@@ -24,6 +24,7 @@ import {
   codexPrompt,
   codexTelemetry,
   gradeCodexAnswer,
+  gradeCodexExecution,
   selectCodexScenarios,
 } from "./scenarios.ts";
 
@@ -200,13 +201,7 @@ async function runStudy(): Promise<void> {
         ? (result.shortMessage ?? "Codex process failed.")
         : !evidenceUnchanged
           ? "Installed evidence changed during the trial."
-          : telemetry.completedTurns !== 1
-            ? "Expected exactly one completed Codex turn."
-            : telemetry.commands.length === 0
-              ? "No command was recorded."
-              : condition === "files" && telemetry.usedTypepeek
-                ? "Control condition attempted Typepeek."
-                : grade.error;
+          : (gradeCodexExecution(plan.scenario, condition, telemetry) ?? grade.error);
       const attempt: CodexAttempt = {
         classification:
           result.failed &&
@@ -396,7 +391,7 @@ async function saveSummary(status: string): Promise<void> {
     ),
   );
   const table = [
-    "Codex installed-dependency discovery: autonomous strategies, verified final answers",
+    "Codex installed-dependency discovery: verified final answers by tool-use condition",
     "Model | Effort | Tools | Correct / attempts | Successful mean seconds ± 95% CI | Reported input | Cached input | Output | Tokens per correct answer",
     "--- | --- | --- | --- | --- | --- | --- | --- | ---",
     ...groups.map((group) =>
@@ -458,7 +453,7 @@ function readOptions() {
   --cases IDS               Comma-separated workload IDs or all (default: five-package suite)
   --models IDS              Codex model IDs (default: gpt-5.6-luna)
   --efforts LEVELS          low,medium,high (default: low)
-  --conditions VALUES       files,typepeek,typepeek-skill (default: files,typepeek)
+  --conditions VALUES       files,typepeek,typepeek-skill,typepeek-required (default: files,typepeek)
   --repeats N               Fresh trials per task/model/effort/condition (default: 3)
   --deadline-seconds N      Hard per-trial deadline (default: 120)
   --trial-token-limit N     Codex rollout budget per trial (default: 60000)
@@ -511,7 +506,12 @@ The fixtures and grading are deterministic; live Codex time and token usage are 
   if (efforts.some((effort) => !["low", "medium", "high"].includes(effort)))
     throw new Error("Use the common low, medium, or high effort levels.");
   const conditions = list(values.conditions);
-  if (conditions.some((condition) => !["files", "typepeek", "typepeek-skill"].includes(condition)))
+  if (
+    conditions.some(
+      (condition) =>
+        !["files", "typepeek", "typepeek-skill", "typepeek-required"].includes(condition),
+    )
+  )
     throw new Error("Unknown condition.");
   return {
     cases: list(values.cases),

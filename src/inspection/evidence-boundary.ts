@@ -27,28 +27,25 @@ function readBoundedUtf8(
   exceededBudget: InspectionBudgetDimension,
   limitMessage: string,
 ): string {
-  // The sentinel byte proves overflow without reading the complete untrusted file.
-  const buffer = Buffer.allocUnsafe(maxBytes + 1);
+  const chunks: Buffer[] = [];
   let totalBytesRead = 0;
 
-  while (totalBytesRead < buffer.length) {
-    const bytesRead = readSync(
-      fileDescriptor,
-      buffer,
-      totalBytesRead,
-      buffer.length - totalBytesRead,
-      null,
-    );
+  for (;;) {
+    // Keep one sentinel byte for overflow without allocating the entire remaining budget.
+    const buffer = Buffer.allocUnsafe(Math.min(64 * 1_024, maxBytes - totalBytesRead + 1));
+    const bytesRead = readSync(fileDescriptor, buffer, 0, buffer.length, null);
     if (bytesRead === 0) {
       break;
     }
     totalBytesRead += bytesRead;
+    if (totalBytesRead > maxBytes) {
+      throw new InspectionLimitError(exceededBudget, limitMessage);
+    }
+    chunks.push(buffer.subarray(0, bytesRead));
   }
 
-  if (totalBytesRead > maxBytes) {
-    throw new InspectionLimitError(exceededBudget, limitMessage);
-  }
-  return buffer.toString("utf8", 0, totalBytesRead);
+  // Decode only after joining bytes, so UTF-8 characters can cross read boundaries.
+  return Buffer.concat(chunks, totalBytesRead).toString("utf8");
 }
 
 /** Checks containment with the host platform's path and case semantics. */

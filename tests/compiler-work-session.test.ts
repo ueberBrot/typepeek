@@ -77,6 +77,28 @@ describe("compiler work session", () => {
     );
   });
 
+  it("preserves UTF-8 across large reads and rejects the first byte beyond the budget", async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "typepeek-chunked-evidence-"));
+    try {
+      const fileName = join(fixtureRoot, "declaration.txt");
+      const text = "x".repeat(65_535) + "🌍" + "y".repeat(65_535);
+      await writeFile(fileName, text);
+      const bytes = Buffer.byteLength(text);
+      expect(
+        createCompilerWorkSession({ resolutionBytes: bytes }).readResolutionFile(fileName),
+      ).toBe(text);
+      expect(() =>
+        createCompilerWorkSession({ resolutionBytes: bytes - 1 }).readResolutionFile(fileName),
+      ).toThrow("Inspection exceeded its compiler host byte limit.");
+      await writeFile(fileName, "");
+      expect(createCompilerWorkSession({ resolutionBytes: 0 }).readResolutionFile(fileName)).toBe(
+        "",
+      );
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
   it("bounds package resolution before it can return authoritative evidence", async () => {
     const fixtureRoot = await mkdtemp(join(tmpdir(), "typepeek-resolution-budget-"));
     const packageRoot = join(fixtureRoot, "node_modules", "bounded-package");

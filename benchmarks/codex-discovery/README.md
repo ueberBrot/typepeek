@@ -30,6 +30,16 @@ node benchmarks/codex-discovery/run.ts --models gpt-5.6-luna,gpt-5.6-sol --effor
 
 This schedules 90 attempts: five tasks × two models × three conditions × three repetitions. The skill condition supplies the checked-in `skills/typepeek/SKILL.md` verbatim in the task prompt. It measures explicit skill guidance, including its input-token cost; automatic skill discovery and invocation overhead are outside this comparison. CLI use remains the model's choice. Compare skill versus CLI-only as well as both treatments versus files-only, retaining failures and all reported usage.
 
+To test a prescribed Typepeek workflow instead of voluntary adoption:
+
+```bash
+caffeinate -i node benchmarks/codex-discovery/run.ts --models gpt-5.6-luna,gpt-5.6-sol --conditions files,typepeek-required --repeats 3 --output .benchmarks/codex-required
+```
+
+`typepeek-required` includes the same skill text and requires a successful JSON inspection of the requested module and export before completion. Help output, failed commands, and results for another module do not satisfy this condition. The independent oracle still grades the final answer; a successful tool call cannot excuse missing generics, overloads, or an altered signature. The prompt tells the model to copy the signature's `text` field rather than reconstruct it from parameter metadata. Use this condition to measure a prescribed workflow, and keep it separate from the optional-use adoption study. On platforms without `caffeinate`, run the same command with the host's sleep prevention enabled.
+
+Every study remains a single-turn experiment. Unresolved answers and failures stay in the denominator; the harness does not rerun failures until they pass. A study of recovery would need a separate protocol that records the first-attempt outcome and charges every additional attempt's time and tokens.
+
 For a larger matrix:
 
 ```bash
@@ -40,7 +50,7 @@ Model access depends on the current account. Unsupported models and authenticati
 
 ## Fair comparison
 
-Each study copies installed dependencies into one read-only snapshot. The installation is physically inside the consumer directory, preserving repository-relative declaration provenance. Before each sequential trial, the runner removes every consumer file except the read-only installation and recreates the manifest and scratch space. The directory path is reused, while its mutable contents and Codex session are fresh. The sandbox prevents reads of the source repository, grader, prior trial artifacts, and host configuration. Only treatment trials can read and execute the separately copied packaged CLI. Tool commands cannot use the network. Host skills, plugins, MCP servers, agents, project instructions, and persistent Codex sessions are disabled. The optional `typepeek-skill` condition explicitly includes the checked-in skill text and accounts for its input tokens.
+Each study copies installed dependencies into one read-only snapshot. The installation is physically inside the consumer directory, preserving repository-relative declaration provenance. Before each sequential trial, the runner removes every consumer file except the read-only installation and recreates the manifest and scratch space. The directory path is reused, while its mutable contents and Codex session are fresh. The sandbox prevents reads of the source repository, grader, prior trial artifacts, and host configuration. Only treatment trials can read and execute the separately copied packaged CLI. Tool commands cannot use the network. Host skills, plugins, MCP servers, agents, project instructions, and persistent Codex sessions are disabled. The `typepeek-skill` and `typepeek-required` conditions explicitly include the checked-in skill text and accounts for its input tokens.
 
 The prompt requires installed evidence and permits any local static inspection strategy. It does not supply the oracle's file paths. Four tasks also withhold the export name and describe the needed capability. Both conditions must return the same JSON answer format. Typepeek's persistent cache is bypassed; OS caches are not flushed. The condition order within each task/repetition pair and the order of pairs use a recorded shuffle seed. This reproduces scheduling, not model generation.
 
