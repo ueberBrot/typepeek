@@ -20,10 +20,24 @@ beforeAll(async () => {
       name: specifier,
       version: "1.0.0",
       type: "module",
-      exports: { ".": { types: "./index.d.ts" } },
+      exports: {
+        ".": { types: "./index.d.ts" },
+        "./too-many": { types: "./too-many.d.ts" },
+        "./broad-barrel": { types: "./broad-entry.d.ts" },
+      },
     }),
   );
   await writeFile(join(packageRoot, "bar.d.ts"), 'export * from "./inner.js";');
+  await writeFile(
+    join(packageRoot, "too-many.d.ts"),
+    `export interface TooMany {
+    ${Array.from({ length: 4097 }, (_, index) => `entry${index}: number;`).join("\n")}
+  }`,
+  );
+  await writeFile(
+    join(packageRoot, "broad-entry.d.ts"),
+    'export * as BroadBarrel from "./broad-barrel.js";',
+  );
   await writeFile(join(packageRoot, "broad-barrel.d.ts"), 'export * from "./broad-types.js";');
   await writeFile(
     join(packageRoot, "broad-types.d.ts"),
@@ -63,7 +77,6 @@ beforeAll(async () => {
     }
     export type Mapped = { [K in "foo" | "bar"]: string };
     export * as Bar from "./bar.js";
-    export * as BroadBarrel from "./broad-barrel.js";
     export * as Cycle from "./cycle-a.js";
     export interface Recursive { next: Recursive; }
     export interface EmptyDeep { ${"next: {".repeat(16)} ${"}".repeat(16)} }
@@ -76,9 +89,6 @@ beforeAll(async () => {
     export interface LiteralInternalName { readonly "__@literal": string; }
     declare const Symbol: { readonly iterator: unique symbol };
     export interface SymbolName { [Symbol.iterator](): unknown; }
-    export interface TooMany {
-      ${Array.from({ length: 4097 }, (_, index) => `entry${index}: number;`).join("\n")}
-    }
   `,
   );
 });
@@ -318,24 +328,27 @@ it("searches wide namespaces without rendering their complete declarations", asy
 });
 
 it.each([
-  ["Wide", undefined, "member-matches"],
-  ["TooMany", "absent", "member-candidates"],
-])("fails atomically at the %s member budget", async (exportName, query, exceededBudget) => {
-  const { outcome } = await Effect.runPromise(
-    invokeInspectionCore("member-discovery", {
-      resolutionContext,
-      specifier,
-      exportName,
-      ...(query === undefined ? {} : { query }),
-    }),
-  );
-  expect(outcome).toMatchObject({
-    status: "limit-exceeded",
-    reason: "budget-exceeded",
-    exceededBudget,
-  });
-  expect(outcome).not.toHaveProperty("result");
-});
+  [specifier, "Wide", undefined, "member-matches"],
+  [`${specifier}/too-many`, "TooMany", "absent", "member-candidates"],
+])(
+  "fails atomically for %s at its member budget",
+  async (selectedSpecifier, exportName, query, exceededBudget) => {
+    const { outcome } = await Effect.runPromise(
+      invokeInspectionCore("member-discovery", {
+        resolutionContext,
+        specifier: selectedSpecifier,
+        exportName,
+        ...(query === undefined ? {} : { query }),
+      }),
+    );
+    expect(outcome).toMatchObject({
+      status: "limit-exceeded",
+      reason: "budget-exceeded",
+      exceededBudget,
+    });
+    expect(outcome).not.toHaveProperty("result");
+  },
+);
 
 it.each([
   ["missing", [], "export-not-found"],
@@ -552,7 +565,7 @@ it("bounds barrel expansion before namespace and value member lookup", async () 
     const { outcome } = await Effect.runPromise(
       invokeInspectionCore("member-inspection", {
         resolutionContext,
-        specifier,
+        specifier: `${specifier}/broad-barrel`,
         exportName: "BroadBarrel",
         memberPath: [{ name: "Type4096", space }],
       }),
@@ -566,7 +579,7 @@ it("bounds barrel expansion before namespace and value member lookup", async () 
   const { outcome } = await Effect.runPromise(
     invokeInspectionCore("member-discovery", {
       resolutionContext,
-      specifier,
+      specifier: `${specifier}/broad-barrel`,
       exportName: "BroadBarrel",
       query: "absent",
     }),
