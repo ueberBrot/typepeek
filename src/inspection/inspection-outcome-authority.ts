@@ -316,7 +316,7 @@ function readInspectionOutcome(value: unknown): InspectionOutcome | undefined {
   if (snapshot === undefined || !hasBoundedNamespaceGraph(snapshot)) {
     return undefined;
   }
-  return Result.getOrUndefined(decodeInspectionOutcome(snapshot)) as InspectionOutcome | undefined;
+  return Result.getOrUndefined(decodeInspectionOutcome(snapshot));
 }
 
 function hasBoundedNamespaceGraph(value: unknown): boolean {

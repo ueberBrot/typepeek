@@ -32,10 +32,7 @@ import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
 type InspectionRequestDefinition<
   Intent extends InspectionIntent,
-  RequestSchema extends Schema.Struct<Schema.Struct.Fields> &
-    Schema.ConstraintDecoder<NormalizedInspectionRequestByIntent[Intent]> =
-    Schema.Struct<Schema.Struct.Fields> &
-      Schema.ConstraintDecoder<NormalizedInspectionRequestByIntent[Intent]>,
+  RequestSchema extends Schema.Struct<Schema.Struct.Fields> & Schema.ConstraintDecoder<unknown>,
 > = {
   readonly intent: Intent;
   readonly schema: RequestSchema;
@@ -272,7 +269,12 @@ const INVALID_ANALYSIS_REQUEST_OUTCOME: InspectionFailure = {
 };
 const ANALYSIS_REQUEST_FIELDS = ["intent", "request"] as const;
 
-const REQUEST_DEFINITIONS = Object.freeze({
+const REQUEST_DEFINITIONS: {
+  readonly [Intent in InspectionIntent]: InspectionRequestDefinition<
+    Intent,
+    (typeof inspectionRequestSchemas)[Intent]
+  >;
+} = Object.freeze({
   "interface-overview": defineRequest({
     intent: "interface-overview",
     schema: inspectionRequestSchemas["interface-overview"],
@@ -333,8 +335,6 @@ const REQUEST_DEFINITIONS = Object.freeze({
     invalidOutcome: invalidRequest("Public Interface Comparison"),
     prepareCandidate: prepareComparisonCandidate,
   }),
-} as const satisfies {
-  readonly [Intent in InspectionIntent]: InspectionRequestDefinition<Intent>;
 });
 
 export const analysisRequestSchema = Schema.Union(
@@ -371,9 +371,7 @@ export function readInspectionRequest<Intent extends InspectionIntent>(
   intent: Intent,
   value: unknown,
 ): InspectionRequestReading<NormalizedInspectionRequestByIntent[Intent]> {
-  const request = REQUEST_DEFINITIONS[intent].read(value) as
-    | NormalizedInspectionRequestByIntent[Intent]
-    | undefined;
+  const request = REQUEST_DEFINITIONS[intent].read(value);
   return request === undefined
     ? { accepted: false, outcome: REQUEST_DEFINITIONS[intent].invalidOutcome }
     : { accepted: true, request };

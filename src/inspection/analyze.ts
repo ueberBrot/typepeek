@@ -19,9 +19,7 @@ import {
 import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection-plan-query";
 import {
   type InspectableModuleEvidence,
-  type InspectableModuleDiscoveryEvidence,
   type InspectableModuleSelection,
-  inspectableModuleDiscoveryEvidence,
   materializeInspectableModuleEvidence,
   selectInspectableModule,
 } from "#typepeek/inspection/installed-evidence";
@@ -70,7 +68,7 @@ export function analyzeInspection(
       return cached;
     }
     profileInspectionPhase("inspection-cache-miss", () => undefined);
-    const outcome = inspectSelectedPackage(analysisRequest, selection);
+    const outcome = inspectSelectedModule(analysisRequest, selection);
     return prepareAnalyzedCacheWrite(identity, recorder.snapshot(), outcome);
   } catch (error) {
     return { outcome: errorOutcome(error) };
@@ -106,96 +104,53 @@ function prepareAnalyzedCacheWrite(
   return cacheMessage === undefined ? { outcome } : { cacheMessage, outcome };
 }
 
-function inspectSelectedPackage(
+function inspectSelectedModule(
   analysisRequest: AnalysisRequest,
   selection: InspectableModuleSelection,
-): InspectionOutcome {
-  const queries = inspectionPlanQueriesForRequest(analysisRequest);
-  return analysisRequiresProgram(queries)
-    ? inspectInstalledPackageProgram(analysisRequest, selection, queries)
-    : inspectInstalledPackageDiscovery(analysisRequest, selection, queries);
-}
-
-function inspectInstalledPackageProgram(
-  analysisRequest: AnalysisRequest,
-  selection: InspectableModuleSelection,
-  queries: readonly InspectionPlanQuery[],
 ): InspectionOutcome {
   const { request } = analysisRequest;
-  const evidence = materializeInspectableModuleEvidence(selection, queries);
+  const queries = inspectionPlanQueriesForRequest(analysisRequest);
   const construction = InspectionResultConstruction.create({
     specifier: request.specifier,
     resolutionVariant: { accessStyle: request.accessStyle },
-    identity: evidence.resultIdentity,
+    identity: selection.resultIdentity,
   });
+  const inspectQuery = prepareQueryInspection(selection, queries, construction);
+  const inspections: AtomicInspectionResult[] = [];
+  for (const query of queries) {
+    const inspection = inspectQuery(query);
+    if ("status" in inspection) {
+      return inspection;
+    }
+    inspections.push(inspection);
+  }
+  if (analysisRequest.intent === "inspection-plan") {
+    return { status: "success", result: construction.plan(inspections) };
+  }
+  const result = inspections[0];
+  if (result === undefined) {
+    throw new UnsupportedInspectionError("Inspection has no query to execute.");
+  }
+  return { status: "success", result };
+}
 
+/** Selects one evidence path while keeping query order and atomicity in the caller. */
+function prepareQueryInspection(
+  selection: InspectableModuleSelection,
+  queries: readonly InspectionPlanQuery[],
+  construction: InspectionResultConstruction,
+): (query: InspectionPlanQuery) => EvidenceQueryResult {
+  if (queries.every((query) => query.intent === "public-subpath-discovery")) {
+    const publicSubpaths = selection.readPublicSubpaths();
+    return () => construction.publicSubpathDiscovery(publicSubpaths);
+  }
+  const evidence = materializeInspectableModuleEvidence(selection, queries);
   const context = {
     evidence,
     construction,
     moduleExport: createModuleExportInspection(evidence, construction),
   };
-
-  if (analysisRequest.intent === "inspection-plan") {
-    const inspections: AtomicInspectionResult[] = [];
-    for (const query of queries) {
-      const inspection = inspectEvidenceQuery(context, query);
-      if ("status" in inspection) {
-        return inspection;
-      }
-      inspections.push(inspection);
-    }
-    return {
-      status: "success",
-      result: construction.plan(inspections),
-    };
-  }
-
-  const query = queries[0];
-  if (query === undefined) {
-    throw new UnsupportedInspectionError("Inspection has no query to execute.");
-  }
-  const inspection = inspectEvidenceQuery(context, query);
-  return "status" in inspection ? inspection : { status: "success", result: inspection };
-}
-
-function inspectInstalledPackageDiscovery(
-  analysisRequest: AnalysisRequest,
-  selection: InspectableModuleSelection,
-  queries: readonly InspectionPlanQuery[],
-): InspectionOutcome {
-  const { request } = analysisRequest;
-  const evidence = inspectableModuleDiscoveryEvidence(selection);
-  const construction = inspectionResultConstruction(request, evidence.resultIdentity);
-  const publicSubpaths = evidence.publicSubpaths;
-  if (analysisRequest.intent === "public-subpath-discovery") {
-    return {
-      status: "success",
-      result: construction.publicSubpathDiscovery(publicSubpaths),
-    };
-  }
-  if (analysisRequest.intent !== "inspection-plan") {
-    throw new UnsupportedInspectionError("Inspection requires TypeScript program evidence.");
-  }
-  const inspections = queries.map(() => construction.publicSubpathDiscovery(publicSubpaths));
-  return {
-    status: "success",
-    result: construction.plan(inspections),
-  };
-}
-
-function analysisRequiresProgram(queries: readonly InspectionPlanQuery[]): boolean {
-  return queries.some((query) => query.intent !== "public-subpath-discovery");
-}
-
-function inspectionResultConstruction(
-  request: AnalysisRequest["request"],
-  identity: InspectableModuleDiscoveryEvidence["resultIdentity"],
-): InspectionResultConstruction {
-  return InspectionResultConstruction.create({
-    specifier: request.specifier,
-    resolutionVariant: { accessStyle: request.accessStyle },
-    identity,
-  });
+  return (query) => inspectEvidenceQuery(context, query);
 }
 
 interface EvidenceQueryContext {
