@@ -20,7 +20,6 @@ export const memberDiscoveryPathSchema = Schema.Array(memberPathSegmentSchema).c
 );
 export const memberPathSchema = memberDiscoveryPathSchema.check(Schema.isMinLength(1));
 export type MemberPath = typeof memberDiscoveryPathSchema.Type;
-export type MemberPathSegment = typeof memberPathSegmentSchema.Type;
 
 const decodeMemberPath = Schema.decodeUnknownResult(memberDiscoveryPathSchema, {
   onExcessProperty: "error",

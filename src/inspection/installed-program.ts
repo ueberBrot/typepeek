@@ -104,6 +104,7 @@ export interface InstalledProgramEvidence {
 
 interface InstalledProgramRequirements {
   readonly focusedExportNames: readonly string[];
+  readonly needsMemberStandardLibrary: boolean;
   readonly needsNodeAugmentation: boolean;
   readonly nodeAugmentationExportName: string | undefined;
 }
@@ -129,7 +130,7 @@ export function materializeInstalledProgram(
   const { declarationPath, root: declarationRoot } = selection.declarationAuthority;
   const requirements = installedProgramRequirements(queries);
   const traversal: DeclarationGraphTraversalState = { nodeCount: 0 };
-  const compilerOptions = inspectionCompilerOptions();
+  const compilerOptions = inspectionCompilerOptions(requirements.needsMemberStandardLibrary);
   const host = createBoundedCompilerHost(
     [declarationRoot.canonical, declarationRoot.logical],
     selection.resolutionContextDirectory,
@@ -143,6 +144,7 @@ export function materializeInstalledProgram(
   });
   const initialEvidence = initialPackageEvidence(initialProgram, selection);
   const publicInterfaceProgram =
+    !requirements.needsMemberStandardLibrary &&
     initialEvidence !== undefined &&
     requirements.focusedExportNames.some((exportName) =>
       selectedExportNeedsStandardLibrary(
@@ -224,6 +226,9 @@ function installedProgramRequirements(
 
   return {
     focusedExportNames,
+    needsMemberStandardLibrary: queries.some(
+      (query) => query.intent === "member-inspection" || query.intent === "member-discovery",
+    ),
     needsNodeAugmentation,
     nodeAugmentationExportName:
       !nodeAugmentationRequiresCompleteModule && nodeAugmentationExportNames.size === 1

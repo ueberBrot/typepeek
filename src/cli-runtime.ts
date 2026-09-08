@@ -18,13 +18,14 @@ import type {
   InspectionPlanQuery,
   InspectionRequestByIntent,
   InspectionResult,
+  MemberPath,
 } from "#typepeek/inspection";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
 import {
   type InspectionPlanQueryIssue,
   readInspectionPlanQueries,
 } from "#typepeek/inspection/inspection-plan-query";
-import { readBoundedMemberPath, type MemberPath } from "#typepeek/inspection/member-path";
+import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { renderJsonOutcome } from "#typepeek/json-rendering";
 import { serializeTerminalSafeJson, terminalSafeLine } from "#typepeek/output-safety";

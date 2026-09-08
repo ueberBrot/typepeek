@@ -423,7 +423,6 @@ export type {
   InterfaceOverviewRequest,
   MemberInspectionRequest,
   MemberDiscoveryRequest,
-  NormalizedMemberDiscoveryRequest,
   NormalizedDeclarationInspectionRequest,
   NormalizedInspectionPlanRequest,
   NormalizedInspectionTarget,

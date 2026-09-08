@@ -282,25 +282,11 @@ function inspectMemberQuery(
   query: Extract<InspectionPlanQuery, { readonly intent: "member-inspection" }>,
   construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
-  const outcome = inspectFocusedModuleExportMember(
-    evidence,
-    query.exportName,
-    query.memberPath,
-    construction,
+  return memberQueryResult(
+    inspectFocusedModuleExportMember(evidence, query.exportName, query.memberPath, construction),
+    query,
+    construction.specifier,
   );
-  if (outcome.status === "success") {
-    return outcome.result;
-  }
-  if (outcome.status === "export-not-found") {
-    return missingExportOutcome(query.exportName, construction.specifier);
-  }
-  if (outcome.status === "ambiguous-member") {
-    return ambiguousMemberOutcome(query.exportName, query.memberPath);
-  }
-  if (outcome.status === "unsupported-member") {
-    return unsupportedMemberOutcome(query.exportName, query.memberPath);
-  }
-  return missingMemberOutcome(query.exportName, query.memberPath, construction.specifier);
 }
 
 function inspectMemberDiscoveryQuery(
@@ -308,23 +294,38 @@ function inspectMemberDiscoveryQuery(
   query: Extract<InspectionPlanQuery, { readonly intent: "member-discovery" }>,
   construction: InspectionResultConstruction,
 ): EvidenceQueryResult {
-  const outcome = discoverFocusedModuleExportMembers(
-    evidence,
-    query.exportName,
-    query.memberPath,
-    query.query,
-    construction,
+  return memberQueryResult(
+    discoverFocusedModuleExportMembers(
+      evidence,
+      query.exportName,
+      query.memberPath,
+      query.query,
+      construction,
+    ),
+    query,
+    construction.specifier,
   );
-  if (outcome.status === "success") {
-    return outcome.result;
+}
+
+function memberQueryResult(
+  outcome:
+    | ReturnType<typeof inspectFocusedModuleExportMember>
+    | ReturnType<typeof discoverFocusedModuleExportMembers>,
+  query: { readonly exportName: string; readonly memberPath: MemberPath },
+  specifier: string,
+): EvidenceQueryResult {
+  switch (outcome.status) {
+    case "success":
+      return outcome.result;
+    case "export-not-found":
+      return missingExportOutcome(query.exportName, specifier);
+    case "ambiguous-member":
+      return ambiguousMemberOutcome(query.exportName, query.memberPath);
+    case "unsupported-member":
+      return unsupportedMemberOutcome(query.exportName, query.memberPath);
+    case "member-not-found":
+      return missingMemberOutcome(query.exportName, query.memberPath, specifier);
   }
-  if (outcome.status === "export-not-found") {
-    return missingExportOutcome(query.exportName, construction.specifier);
-  }
-  if (outcome.status === "ambiguous-member") {
-    return ambiguousMemberOutcome(query.exportName, query.memberPath);
-  }
-  return missingMemberOutcome(query.exportName, query.memberPath, construction.specifier);
 }
 
 function inspectExportSearchQuery(

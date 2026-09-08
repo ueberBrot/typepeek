@@ -2,7 +2,11 @@ import { Predicate, Result, Schema } from "effect";
 
 import { MAX_MEMBER_CANDIDATES, MAX_MEMBER_MATCHES } from "#typepeek/inspection/budget-policy";
 import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection-plan-query";
-import { memberPathsEqual, readBoundedMemberPath } from "#typepeek/inspection/member-path";
+import {
+  memberDeclarationSpaceSchema,
+  memberPathsEqual,
+  readBoundedMemberPath,
+} from "#typepeek/inspection/member-path";
 import type { PackageIdentity } from "#typepeek/inspection/package-identity";
 import {
   type AnalysisRequest,
@@ -323,7 +327,6 @@ function isAuthoritativeMemberInspection(inspection: MemberInspection): boolean 
 }
 
 function isAuthoritativeMemberDiscovery(inspection: MemberDiscovery): boolean {
-  const order = ["type", "value", "namespace"];
   return (
     inspection.totalMembers <= MAX_MEMBER_CANDIDATES &&
     inspection.members.length <= MAX_MEMBER_MATCHES &&
@@ -336,7 +339,9 @@ function isAuthoritativeMemberDiscovery(inspection: MemberDiscovery): boolean {
           member.name.toLowerCase().includes(inspection.query.toLowerCase())) &&
         member.spaces.every(
           (space, index) =>
-            index === 0 || order.indexOf(member.spaces[index - 1] ?? "") < order.indexOf(space),
+            index === 0 ||
+            memberDeclarationSpaceSchema.literals.indexOf(member.spaces[index - 1] ?? space) <
+              memberDeclarationSpaceSchema.literals.indexOf(space),
         ),
     )
   );

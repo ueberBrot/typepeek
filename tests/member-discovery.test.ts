@@ -23,6 +23,27 @@ beforeAll(async () => {
       exports: { ".": { types: "./index.d.ts" } },
     }),
   );
+  await writeFile(join(packageRoot, "bar.d.ts"), 'export * from "./inner.js";');
+  await writeFile(join(packageRoot, "broad-barrel.d.ts"), 'export * from "./broad-types.js";');
+  await writeFile(
+    join(packageRoot, "broad-types.d.ts"),
+    Array.from(
+      { length: 4097 },
+      (_, index) => `export interface Type${index} { readonly value: number; }`,
+    ).join("\n"),
+  );
+  await writeFile(
+    join(packageRoot, "cycle-a.d.ts"),
+    'export * from "./cycle-b.js"; export interface A { readonly value: string; }',
+  );
+  await writeFile(
+    join(packageRoot, "cycle-b.d.ts"),
+    'export * from "./cycle-a.js"; export interface B { readonly value: number; }',
+  );
+  await writeFile(
+    join(packageRoot, "inner.d.ts"),
+    "export interface Options { readonly enabled: boolean; } export declare const value: number;",
+  );
   await writeFile(
     join(packageRoot, "index.d.ts"),
     `
@@ -40,6 +61,10 @@ beforeAll(async () => {
       namespace Choice { const shared: number; }
       export import Alias = Choice;
     }
+    export type Mapped = { [K in "foo" | "bar"]: string };
+    export * as Bar from "./bar.js";
+    export * as BroadBarrel from "./broad-barrel.js";
+    export * as Cycle from "./cycle-a.js";
     export interface Recursive { next: Recursive; }
     export interface EmptyDeep { ${"next: {".repeat(16)} ${"}".repeat(16)} }
     export interface Names { readonly "a.b": string; readonly "space:name": number; }
@@ -460,5 +485,107 @@ it("rejects discovery at the path-depth limit when a child selector cannot fit",
   expect(empty, JSON.stringify(empty)).toMatchObject({
     status: "success",
     result: { memberPath, totalMembers: 0, members: [] },
+  });
+});
+
+it("fails explicitly when mapped public members lack declaration evidence", async () => {
+  const { outcome } = await Effect.runPromise(
+    invokeInspectionCore("member-discovery", {
+      resolutionContext,
+      specifier,
+      exportName: "Mapped",
+    }),
+  );
+  expect(outcome, JSON.stringify(outcome)).toMatchObject({
+    status: "unsupported",
+    reason: "unsupported-evidence",
+  });
+  expect(outcome).not.toHaveProperty("result");
+  const { outcome: selected } = await Effect.runPromise(
+    invokeInspectionCore("member-inspection", {
+      resolutionContext,
+      specifier,
+      exportName: "Mapped",
+      memberPath: [{ name: "foo", space: "type" }],
+    }),
+  );
+  expect(selected).toMatchObject({ status: "unsupported", reason: "no-static-representation" });
+});
+
+it("discovers resolved namespace reexports and selects each advertised space", async () => {
+  const { outcome } = await Effect.runPromise(
+    invokeInspectionCore("member-discovery", { resolutionContext, specifier, exportName: "Bar" }),
+  );
+  expect(outcome, JSON.stringify(outcome)).toMatchObject({
+    status: "success",
+    result: {
+      totalMembers: 2,
+      members: [
+        { name: "Options", spaces: ["namespace"] },
+        { name: "value", spaces: ["value", "namespace"] },
+      ],
+    },
+  });
+  if (outcome.status !== "success" || outcome.result.intent !== "member-discovery") {
+    throw new Error(JSON.stringify(outcome));
+  }
+  for (const member of outcome.result.members) {
+    for (const space of member.spaces) {
+      const { outcome: selected } = await Effect.runPromise(
+        invokeInspectionCore("member-inspection", {
+          resolutionContext,
+          specifier,
+          exportName: "Bar",
+          memberPath: [{ name: member.name, space }],
+        }),
+      );
+      expect(selected, JSON.stringify(selected)).toMatchObject({
+        status: "success",
+        result: { declarations: expect.any(Array) },
+      });
+    }
+  }
+});
+
+it("bounds barrel expansion before namespace and value member lookup", async () => {
+  for (const space of ["namespace", "value"] as const) {
+    const { outcome } = await Effect.runPromise(
+      invokeInspectionCore("member-inspection", {
+        resolutionContext,
+        specifier,
+        exportName: "BroadBarrel",
+        memberPath: [{ name: "Type4096", space }],
+      }),
+    );
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({
+      status: "limit-exceeded",
+      exceededBudget: "member-candidates",
+    });
+    expect(outcome).not.toHaveProperty("result");
+  }
+  const { outcome } = await Effect.runPromise(
+    invokeInspectionCore("member-discovery", {
+      resolutionContext,
+      specifier,
+      exportName: "BroadBarrel",
+      query: "absent",
+    }),
+  );
+  expect(outcome).toMatchObject({ status: "limit-exceeded", exceededBudget: "member-candidates" });
+});
+
+it("resolves cyclic namespace barrels without duplicating names", async () => {
+  const { outcome } = await Effect.runPromise(
+    invokeInspectionCore("member-discovery", { resolutionContext, specifier, exportName: "Cycle" }),
+  );
+  expect(outcome, JSON.stringify(outcome)).toMatchObject({
+    status: "success",
+    result: {
+      totalMembers: 2,
+      members: [
+        { name: "A", spaces: ["namespace"] },
+        { name: "B", spaces: ["namespace"] },
+      ],
+    },
   });
 });

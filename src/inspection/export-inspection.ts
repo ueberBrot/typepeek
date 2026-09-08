@@ -25,8 +25,13 @@ import {
   publicMemberDeclarations,
   discoverPublicMembers,
   resolvePublicMemberPath,
+  type PublicMemberPathResolution,
 } from "#typepeek/inspection/member-inspection";
-import { MAX_MEMBER_PATH_SEGMENTS, type MemberPath } from "#typepeek/inspection/member-path";
+import {
+  MAX_MEMBER_PATH_SEGMENTS,
+  memberDeclarationSpaceSchema,
+  type MemberPath,
+} from "#typepeek/inspection/member-path";
 import { inspectPackageDocumentation } from "#typepeek/inspection/package-documentation";
 import type {
   MemberDiscovery,
@@ -80,7 +85,6 @@ const DECLARATION_KIND_BY_SYNTAX_KIND = new Map<ts.SyntaxKind, DeclarationKind>(
   [ts.SyntaxKind.SetAccessor, "accessor"],
   [ts.SyntaxKind.EnumMember, "enum-member"],
 ]);
-const DECLARATION_SPACES: readonly DeclarationSpace[] = ["type", "value", "namespace"];
 const SYMBOL_FLAGS_BY_SPACE: Readonly<Record<DeclarationSpace, ts.SymbolFlags>> = {
   type: ts.SymbolFlags.Type,
   value: ts.SymbolFlags.Value,
@@ -376,14 +380,11 @@ export function inspectFocusedModuleExportMember(
   memberPath: MemberPath,
   constructionOwner: InspectionResultConstruction,
 ): FocusedMemberInspection {
-  const resolution = resolveFocusedExport(evidence.checker, evidence.moduleSymbol, exportName);
-  if (resolution === undefined) {
-    return { status: "export-not-found" };
-  }
-  const memberResolution = resolvePublicMemberPath(
-    evidence.checker,
-    resolution.targetSymbol,
+  const memberResolution = resolveFocusedMember(
+    evidence,
+    exportName,
     memberPath,
+    constructionOwner,
   );
   if (memberResolution.status !== "success") {
     return { status: memberResolution.status };
@@ -411,18 +412,15 @@ export function discoverFocusedModuleExportMembers(
   exportName: string,
   memberPath: MemberPath,
   query: string | undefined,
-  construction: InspectionResultConstruction,
+  constructionOwner: InspectionResultConstruction,
 ):
   | { readonly status: "success"; readonly result: MemberDiscovery }
   | Exclude<FocusedMemberInspection, { readonly status: "success" }> {
-  const resolution = resolveFocusedExport(evidence.checker, evidence.moduleSymbol, exportName);
-  if (resolution === undefined) {
-    return { status: "export-not-found" };
-  }
-  const memberResolution = resolvePublicMemberPath(
-    evidence.checker,
-    resolution.targetSymbol,
+  const memberResolution = resolveFocusedMember(
+    evidence,
+    exportName,
     memberPath,
+    constructionOwner,
   );
   if (memberResolution.status !== "success") {
     return memberResolution;
@@ -431,7 +429,7 @@ export function discoverFocusedModuleExportMembers(
     evidence.checker,
     memberResolution.symbol,
     query,
-    construction,
+    constructionOwner,
   );
   if (memberPath.length === MAX_MEMBER_PATH_SEGMENTS && discovery.totalMembers > 0) {
     throw new UnsupportedInspectionError(
@@ -440,7 +438,7 @@ export function discoverFocusedModuleExportMembers(
   }
   return {
     status: "success",
-    result: construction.memberDiscovery(
+    result: constructionOwner.memberDiscovery(
       exportName,
       memberPath,
       query,
@@ -448,6 +446,18 @@ export function discoverFocusedModuleExportMembers(
       discovery.members,
     ),
   };
+}
+
+function resolveFocusedMember(
+  evidence: InspectableModuleEvidence,
+  exportName: string,
+  memberPath: MemberPath,
+  construction: InspectionResultConstruction,
+): PublicMemberPathResolution | { readonly status: "export-not-found" } {
+  const resolution = resolveFocusedExport(evidence.checker, evidence.moduleSymbol, exportName);
+  return resolution === undefined
+    ? { status: "export-not-found" }
+    : resolvePublicMemberPath(evidence.checker, resolution.targetSymbol, memberPath, construction);
 }
 
 function inspectableMemberDeclarations(
@@ -517,7 +527,9 @@ function occupiedDeclarationSpaces(
   }
   const symbol =
     (exportedSymbol.flags & ts.SymbolFlags.Alias) === 0 ? exportedSymbol : targetSymbol;
-  return DECLARATION_SPACES.filter((space) => symbolOccupiesSpace(symbol, space));
+  return memberDeclarationSpaceSchema.literals.filter((space) =>
+    symbolOccupiesSpace(symbol, space),
+  );
 }
 
 function inspectDeclarationSpaces(

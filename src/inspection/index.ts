@@ -46,4 +46,4 @@ export type {
 } from "#typepeek/inspection/inspection-protocol-schema";
 export type { InspectionIntent } from "#typepeek/inspection/protocol-metadata";
 
-export type { MemberPath, MemberPathSegment } from "#typepeek/inspection/member-path";
+export type { MemberPath } from "#typepeek/inspection/member-path";

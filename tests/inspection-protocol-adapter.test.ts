@@ -901,9 +901,9 @@ it("discovers filtered Members and executes qualified follow-up inspection throu
       },
     },
   });
-  expect(
-    Result.isSuccess(Schema.decodeUnknownResult(inspectionProtocolResponseSchema)(discovery)),
-  ).toBe(true);
+  expect(Result.isSuccess(Schema.decodeResult(inspectionProtocolResponseSchema)(discovery))).toBe(
+    true,
+  );
   const followup = await invokeInspectionProtocol({
     protocolVersion: "1",
     intent: "inspection-plan",
@@ -931,7 +931,7 @@ it("discovers filtered Members and executes qualified follow-up inspection throu
       },
     },
   });
-  expect(
-    Result.isSuccess(Schema.decodeUnknownResult(inspectionProtocolResponseSchema)(followup)),
-  ).toBe(true);
+  expect(Result.isSuccess(Schema.decodeResult(inspectionProtocolResponseSchema)(followup))).toBe(
+    true,
+  );
 });

@@ -7,7 +7,11 @@ import {
   publicDeclarations,
 } from "#typepeek/inspection/declaration-projection";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
-import { MAX_MEMBER_PATH_SEGMENT_BYTES, type MemberPath } from "#typepeek/inspection/member-path";
+import {
+  MAX_MEMBER_PATH_SEGMENT_BYTES,
+  memberDeclarationSpaceSchema,
+  type MemberPath,
+} from "#typepeek/inspection/member-path";
 import type { DeclarationSpace } from "#typepeek/inspection/protocol";
 import type { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
 
@@ -20,15 +24,20 @@ export function resolvePublicMemberPath(
   checker: ts.TypeChecker,
   root: ts.Symbol,
   memberPath: MemberPath,
+  construction: InspectionResultConstruction,
 ): PublicMemberPathResolution {
   let selected = root;
   for (const segment of memberPath) {
     const memberName = typeof segment === "string" ? segment : segment.name;
     const space = typeof segment === "string" ? undefined : segment.space;
     publicMemberDeclarations(checker, selected);
-    const members = publicMemberCandidates(checker, selected, memberName, space).filter(
-      (candidate) => hasPublicDeclaration(checker, candidate),
-    );
+    const members = publicMemberCandidates(
+      checker,
+      selected,
+      memberName,
+      space,
+      construction,
+    ).filter((candidate) => hasPublicDeclaration(checker, candidate));
     const member = members[0];
     if (member === undefined || members.length !== 1) {
       return { status: member === undefined ? "member-not-found" : "ambiguous-member" };
@@ -37,8 +46,6 @@ export function resolvePublicMemberPath(
   }
   return { status: "success", symbol: selected };
 }
-
-const MEMBER_SPACES = ["type", "value", "namespace"] as const;
 
 /** Lists immediate caller-accessible names without projecting their declarations. */
 export function discoverPublicMembers(
@@ -55,12 +62,16 @@ export function discoverPublicMembers(
 } {
   publicMemberDeclarations(checker, symbol);
   const names = new Map<string, DeclarationSpace[]>();
-  for (const space of MEMBER_SPACES) {
-    const candidates = membersInSpace(checker, symbol, space);
-    construction.consumeMemberCandidates(candidates.length);
+  for (const space of memberDeclarationSpaceSchema.literals) {
+    const candidates = membersInSpace(checker, symbol, space, construction);
     for (const candidate of candidates) {
       if (!hasPublicDeclaration(checker, candidate)) {
         continue;
+      }
+      if (isUndeclaredPublicProperty(resolveAliasTarget(checker, candidate))) {
+        throw new UnsupportedInspectionError(
+          "Member Discovery cannot describe public members without declaration evidence.",
+        );
       }
       const name = candidate.getName();
       if (
@@ -95,10 +106,11 @@ function publicMemberCandidates(
   symbol: ts.Symbol,
   memberName: string,
   space: DeclarationSpace | undefined,
+  construction: InspectionResultConstruction,
 ): readonly ts.Symbol[] {
-  const spaces = space === undefined ? MEMBER_SPACES : [space];
+  const spaces = space === undefined ? memberDeclarationSpaceSchema.literals : [space];
   const candidates = spaces
-    .map((selectedSpace) => memberInSpace(checker, symbol, memberName, selectedSpace))
+    .map((selectedSpace) => memberInSpace(checker, symbol, memberName, selectedSpace, construction))
     .filter((candidate): candidate is ts.Symbol => candidate !== undefined);
   return [...new Set(candidates)];
 }
@@ -108,11 +120,22 @@ function memberInSpace(
   symbol: ts.Symbol,
   name: string,
   space: DeclarationSpace,
+  construction: InspectionResultConstruction,
 ): ts.Symbol | undefined {
   if (space === "namespace") {
-    return (symbol.flags & ts.SymbolFlags.Module) === 0
-      ? undefined
-      : symbol.exports?.get(ts.escapeLeadingUnderscores(name));
+    if ((symbol.flags & ts.SymbolFlags.Module) === 0) {
+      return undefined;
+    }
+    const direct = symbol.exports?.get(ts.escapeLeadingUnderscores(name));
+    if (direct !== undefined || !symbol.exports?.has(ts.InternalSymbolName.ExportStar)) {
+      return direct;
+    }
+    return resolvedNamespaceMembers(checker, symbol, construction).find(
+      (member) => member.getName() === name,
+    );
+  }
+  if (space === "value" && symbol.exports?.has(ts.InternalSymbolName.ExportStar)) {
+    reserveNamespaceExpansion(checker, symbol, construction);
   }
   return memberType(checker, symbol, space)?.getProperty(name);
 }
@@ -121,13 +144,69 @@ function membersInSpace(
   checker: ts.TypeChecker,
   symbol: ts.Symbol,
   space: DeclarationSpace,
+  construction: InspectionResultConstruction,
 ): readonly ts.Symbol[] {
   if (space === "namespace") {
     return (symbol.flags & ts.SymbolFlags.Module) === 0
       ? []
-      : [...(symbol.exports?.values() ?? [])];
+      : resolvedNamespaceMembers(checker, symbol, construction);
   }
-  return memberType(checker, symbol, space)?.getProperties() ?? [];
+  const reserved =
+    space === "value" && (symbol.flags & ts.SymbolFlags.Module) !== 0
+      ? reserveNamespaceExpansion(checker, symbol, construction)
+      : 0;
+  const members = memberType(checker, symbol, space)?.getProperties() ?? [];
+  construction.consumeMemberCandidates(Math.max(0, members.length - reserved));
+  return members;
+}
+
+function resolvedNamespaceMembers(
+  checker: ts.TypeChecker,
+  symbol: ts.Symbol,
+  construction: InspectionResultConstruction,
+): readonly ts.Symbol[] {
+  reserveNamespaceExpansion(checker, symbol, construction);
+  return checker.getExportsOfModule(symbol);
+}
+
+/** Bounds raw export tables and star edges before either value or namespace expansion. */
+function reserveNamespaceExpansion(
+  checker: ts.TypeChecker,
+  symbol: ts.Symbol,
+  construction: InspectionResultConstruction,
+): number {
+  let reserved = 0;
+  const pending = [symbol];
+  const visited = new Set<ts.Symbol>();
+  for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+    const count = current.exports?.size ?? 0;
+    construction.consumeMemberCandidates(count);
+    reserved += count;
+    const stars = current.exports?.get(ts.InternalSymbolName.ExportStar);
+    const declarations = publicMemberDeclarations(checker, stars ?? current);
+    if (stars === undefined) {
+      continue;
+    }
+    for (const declaration of declarations) {
+      construction.consumeMemberCandidates(1);
+      reserved += 1;
+      if (!ts.isExportDeclaration(declaration) || declaration.moduleSpecifier === undefined) {
+        continue;
+      }
+      const target = checker.getSymbolAtLocation(declaration.moduleSpecifier);
+      if (target === undefined) {
+        throw new UnsupportedInspectionError(
+          "Member Discovery could not resolve a namespace reexport from Installed Evidence.",
+        );
+      }
+      pending.push(resolveAliasTarget(checker, target));
+    }
+  }
+  return reserved;
 }
 
 function memberType(
@@ -147,7 +226,16 @@ function memberType(
 }
 
 function hasPublicDeclaration(checker: ts.TypeChecker, symbol: ts.Symbol): boolean {
-  return publicMemberDeclarations(checker, resolveAliasTarget(checker, symbol)).length > 0;
+  const target = resolveAliasTarget(checker, symbol);
+  return publicMemberDeclarations(checker, target).length > 0 || isUndeclaredPublicProperty(target);
+}
+
+function isUndeclaredPublicProperty(symbol: ts.Symbol): boolean {
+  return (
+    (symbol.flags & ts.SymbolFlags.Property) !== 0 &&
+    (symbol.flags & ts.SymbolFlags.Prototype) === 0 &&
+    (symbol.declarations === undefined || symbol.declarations.length === 0)
+  );
 }
 
 /** Selects caller-accessible declarations and applies the shared merge bound. */

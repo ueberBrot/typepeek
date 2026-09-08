@@ -9,6 +9,7 @@ import {
   readInspectionPlanQueries,
 } from "#typepeek/inspection/inspection-plan-query";
 import {
+  memberDeclarationSpaceSchema,
   memberPathSchema,
   memberDiscoveryPathSchema,
   MAX_MEMBER_PATH_SEGMENTS,
@@ -86,7 +87,7 @@ const exportSearchQuerySchema = withRequestFieldCapability(
 const requestMemberPathSchema = withRequestFieldCapability(memberPathSchema, {
   kind: "member-path",
   unqualified: true,
-  qualified: { name: "name", space: "space", values: ["type", "value", "namespace"] },
+  qualified: { name: "name", space: "space", values: memberDeclarationSpaceSchema.literals },
   minItems: 1,
   maxItems: MAX_MEMBER_PATH_SEGMENTS,
   maxItemBytes: MAX_MEMBER_PATH_SEGMENT_BYTES,
@@ -99,7 +100,7 @@ const requestDiscoveryMemberPathSchema = withRequestFieldCapability(
     maxItems: MAX_MEMBER_PATH_SEGMENTS,
     maxItemBytes: MAX_MEMBER_PATH_SEGMENT_BYTES,
     unqualified: true,
-    qualified: { name: "name", space: "space", values: ["type", "value", "namespace"] },
+    qualified: { name: "name", space: "space", values: memberDeclarationSpaceSchema.literals },
   },
 );
 const requestDiscoveryQuerySchema = withRequestFieldCapability(
@@ -253,8 +254,6 @@ export type DeclarationInspectionRequest = InspectionRequestByIntent["declaratio
 export type NormalizedDeclarationInspectionRequest =
   NormalizedInspectionRequestByIntent["declaration-inspection"];
 export type MemberDiscoveryRequest = InspectionRequestByIntent["member-discovery"];
-export type NormalizedMemberDiscoveryRequest =
-  NormalizedInspectionRequestByIntent["member-discovery"];
 export type MemberInspectionRequest = InspectionRequestByIntent["member-inspection"];
 export type NormalizedMemberInspectionRequest =
   NormalizedInspectionRequestByIntent["member-inspection"];
