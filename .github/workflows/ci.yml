@@ -83,6 +83,9 @@ jobs:
       - name: Check performance regressions
         run: vp run benchmark:gate
 
+      - name: Check packaged discovery benchmark correctness
+        run: node tests/discovery-benchmark-package-smoke.ts
+
   consumer-compatibility:
     name: Consumer compatibility (${{ matrix.os }})
     needs: quality

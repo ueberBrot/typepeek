@@ -1,0 +1,110 @@
+import { expect, it } from "vite-plus/test";
+
+import {
+  codexPrompt,
+  codexTelemetry,
+  gradeCodexAnswer,
+  selectCodexScenarios,
+} from "../benchmarks/codex-discovery/scenarios.ts";
+import { signatureFact } from "../benchmarks/discovery/signature.ts";
+
+it("ignores an optional trailing comma in destructured parameters without changing fields", () => {
+  expect(signatureFact("call", "({ routes, aliases, }: Routes): Result")).toBe(
+    signatureFact("call", "({ routes, aliases }: Routes): Result"),
+  );
+  expect(signatureFact("call", "({ routes }: Routes): Result")).not.toBe(
+    signatureFact("call", "({ routes, aliases }: Routes): Result"),
+  );
+});
+
+it("lets both Codex conditions choose their strategy without giving away discovery answers", () => {
+  const scenario = selectCodexScenarios(["execa-command"])[0]!;
+  const baseline = codexPrompt(scenario, "files", "");
+  const treatment = codexPrompt(scenario, "typepeek", "");
+  for (const prompt of [baseline, treatment]) {
+    expect(prompt).toContain("Choose the fastest reliable local inspection strategy yourself");
+    expect(prompt).not.toContain("parseCommandString");
+    expect(prompt).not.toContain("types/methods/command.d.ts");
+  }
+  expect(baseline).toContain("Typepeek is unavailable");
+  expect(treatment).toContain("you are not required to call it");
+  expect(codexPrompt(scenario, "typepeek-skill", "SKILL CONTENT")).toContain("SKILL CONTENT");
+});
+
+it("counts complete Codex usage while retaining cached and reasoning breakdowns", () => {
+  const events = [
+    { type: "item.started", item: { type: "command_execution", command: "typepeek --help" } },
+    {
+      type: "item.completed",
+      item: {
+        type: "command_execution",
+        command: "typepeek signatures execa parseCommandString --json",
+        aggregated_output: "abc",
+      },
+    },
+    {
+      type: "turn.completed",
+      usage: {
+        input_tokens: 100,
+        cached_input_tokens: 60,
+        output_tokens: 20,
+        reasoning_output_tokens: 10,
+      },
+    },
+    {
+      type: "turn.completed",
+      usage: {
+        input_tokens: 50,
+        cached_input_tokens: 20,
+        output_tokens: 15,
+        reasoning_output_tokens: 5,
+      },
+    },
+  ]
+    .map((event) => JSON.stringify(event))
+    .join("\n");
+  expect(codexTelemetry(events)).toMatchObject({
+    completedTurns: 2,
+    inputTokens: 150,
+    cachedInputTokens: 80,
+    outputTokens: 35,
+    reasoningOutputTokens: 15,
+    toolOutputBytes: 3,
+    usedTypepeek: true,
+    invalidLines: 0,
+  });
+  expect(codexTelemetry(events).commands).toHaveLength(1);
+  expect(codexTelemetry('{"type":"turn.failed"}')).toMatchObject({
+    inputTokens: null,
+    outputTokens: null,
+    reasoningOutputTokens: null,
+  });
+});
+
+it("accepts a verified discovered export and rejects invented or incomplete signatures", () => {
+  const scenario = selectCodexScenarios(["execa-command"])[0]!;
+  const expected = ["call:( command : string ) : string [ ]"];
+  const answer = {
+    status: "answered",
+    specifier: "execa",
+    exportName: "parseCommandString",
+    signatures: ["(command:string):string[]"],
+    matches: [],
+  };
+  expect(gradeCodexAnswer(scenario, expected, JSON.stringify(answer)).passed).toBe(true);
+  expect(
+    gradeCodexAnswer(
+      scenario,
+      expected,
+      JSON.stringify({ ...answer, signatures: ["(command: string): {}"] }),
+    ).passed,
+  ).toBe(false);
+  expect(
+    gradeCodexAnswer(scenario, expected, JSON.stringify({ ...answer, signatures: [] })).passed,
+  ).toBe(false);
+  expect(
+    gradeCodexAnswer(scenario, expected, JSON.stringify({ ...answer, exportName: "invented" }))
+      .passed,
+  ).toBe(false);
+  expect(gradeCodexAnswer(scenario, expected, "not JSON").passed).toBe(false);
+});

@@ -173,6 +173,14 @@ export default defineConfig({
         command: "node benchmarks/agent-protocol.ts",
         output: [],
       },
+      "benchmark:discovery": {
+        command: "node benchmarks/discovery/run.ts --output .benchmarks/discovery/latest.json",
+        cache: false,
+      },
+      "benchmark:codex": {
+        command: "node benchmarks/codex-discovery/run.ts",
+        cache: false,
+      },
       "benchmark:gate": {
         command: "node benchmarks/regression-gates.ts",
         dependsOn: ["pack"],

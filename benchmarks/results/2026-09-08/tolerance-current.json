@@ -1,0 +1,746 @@
+{
+  "kind": "discovery-benchmark",
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-08T13:34:53.687Z",
+  "identity": {
+    "workspace": "/Users/debruyn/Code/privates/typepeek",
+    "node": "v24.18.0",
+    "compiler": "6.0.3",
+    "ripgrep": "ripgrep 15.2.0 (rev e89fff89ac)",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "osRelease": "25.6.0",
+    "cpu": "Apple M1 Max",
+    "hostname": "MacBook-Pro.local",
+    "adapter": "package",
+    "evidenceHash": "2d836e8b15b392b6c05bcd3d18ae0a76d0650bf891418fb704590f2dce0520a9",
+    "lockfileHash": "372ac1a51597d70746e45dd5a5390b8ffc584b6607d35a692b7ee2e45dbf5369",
+    "artifactHash": "054536d641956a70fe0da8108d8af84e34548953f60e215692f781e4701e85a4",
+    "harnessHash": "b07b8f175b86046cdc7fc4a2d4f24a91bcef2308a8bdaaccd62c7c5a0ba08b44",
+    "commit": "027fc3ab03ca12c05d8fe62d31b6544ccf7fc193"
+  },
+  "options": {
+    "iterations": 15,
+    "warmups": 2,
+    "seed": 1729,
+    "timeoutMs": 15000,
+    "tolerancePercent": 10,
+    "toleranceMs": 10,
+    "maxCvPercent": 20
+  },
+  "evidenceUnchanged": true,
+  "inputsUnchanged": true,
+  "rows": [
+    {
+      "workload": "execa-command",
+      "condition": "files",
+      "question": "Find every public call signature of Execa's parseCommandString export.",
+      "expectedFacts": ["call:( command : string ) : string [ ]"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 66.75458299999991,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 67.3377500000006,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 69.44520799999918,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 66.76945899999919,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 66.34083400000054,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 5,
+          "milliseconds": 69.64441599999918,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 6,
+          "milliseconds": 66.72962499999994,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 7,
+          "milliseconds": 68.16812500000015,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 8,
+          "milliseconds": 66.41262500000084,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 9,
+          "milliseconds": 75.71600000000035,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 10,
+          "milliseconds": 69.19754199999807,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 11,
+          "milliseconds": 70.64808300000004,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 12,
+          "milliseconds": 67.59295800000109,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 13,
+          "milliseconds": 68.1082499999975,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        },
+        {
+          "iteration": 14,
+          "milliseconds": 69.39241700000275,
+          "stdoutBytes": 1172,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 2
+        }
+      ]
+    },
+    {
+      "workload": "execa-command",
+      "condition": "compiler",
+      "question": "Find every public call signature of Execa's parseCommandString export.",
+      "expectedFacts": ["call:( command : string ) : string [ ]"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 403.78758299999936,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 408.45958299999984,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 406.12504199999967,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 402.93404199999895,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 401.4801249999982,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 5,
+          "milliseconds": 402.75737500000105,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 6,
+          "milliseconds": 402.1532920000027,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 7,
+          "milliseconds": 405.3525000000009,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 8,
+          "milliseconds": 402.44574999999895,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 9,
+          "milliseconds": 405.919249999999,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 10,
+          "milliseconds": 414.1958339999983,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 11,
+          "milliseconds": 396.5769580000051,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 12,
+          "milliseconds": 406.98895900000207,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 13,
+          "milliseconds": 406.8798749999987,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 14,
+          "milliseconds": 404.2185000000027,
+          "stdoutBytes": 89,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-command",
+      "condition": "typepeek-cold",
+      "question": "Find every public call signature of Execa's parseCommandString export.",
+      "expectedFacts": ["call:( command : string ) : string [ ]"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 963.4196249999995,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 946.3129169999993,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 960.8975840000003,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 971.6497920000002,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 966.3495000000003,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 5,
+          "milliseconds": 957.8078750000022,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 6,
+          "milliseconds": 959.9187500000007,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 7,
+          "milliseconds": 959.961209000001,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 8,
+          "milliseconds": 967.1825419999986,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 9,
+          "milliseconds": 955.2703330000004,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 10,
+          "milliseconds": 976.1910000000025,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 11,
+          "milliseconds": 967.5677080000023,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 12,
+          "milliseconds": 957.7190409999967,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 13,
+          "milliseconds": 995.7466249999998,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 14,
+          "milliseconds": 972.7191660000026,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        }
+      ]
+    },
+    {
+      "workload": "execa-command",
+      "condition": "typepeek-warm",
+      "question": "Find every public call signature of Execa's parseCommandString export.",
+      "expectedFacts": ["call:( command : string ) : string [ ]"],
+      "samples": [
+        {
+          "iteration": 0,
+          "milliseconds": 958.3532500000001,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 1,
+          "milliseconds": 962.8345830000017,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 2,
+          "milliseconds": 952.7696670000005,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 3,
+          "milliseconds": 968.6655420000006,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 4,
+          "milliseconds": 955.4154160000016,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 5,
+          "milliseconds": 966,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 6,
+          "milliseconds": 970.869999999999,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 7,
+          "milliseconds": 976.846458,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 8,
+          "milliseconds": 964.7452909999993,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 9,
+          "milliseconds": 958.8040000000001,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 10,
+          "milliseconds": 962.5157499999987,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 11,
+          "milliseconds": 954.9965420000008,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 12,
+          "milliseconds": 972.9657920000027,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 13,
+          "milliseconds": 1009.572417000003,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        },
+        {
+          "iteration": 14,
+          "milliseconds": 972.1630419999929,
+          "stdoutBytes": 489,
+          "passed": true,
+          "error": null,
+          "factsHash": "4c9a07ec51c3e4c131f0faa434d0586ac7a0521450389760fddc9ed068453845",
+          "toolCalls": 1
+        }
+      ]
+    }
+  ],
+  "evaluation": {
+    "correctness": true,
+    "stable": true,
+    "baselineCompatible": true,
+    "incompatibilities": [],
+    "passed": true,
+    "rows": [
+      {
+        "workload": "execa-command",
+        "condition": "files",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 15,
+          "min": 66.34083400000054,
+          "median": 68.1082499999975,
+          "p95": 72.16845810000012,
+          "max": 75.71600000000035,
+          "mean": 68.55052499999995,
+          "standardDeviation": 2.4018516051201004,
+          "coefficientOfVariationPercent": 3.503768359352612,
+          "meanCi95HalfWidth": 1.3302333711369134
+        },
+        "medianStdoutBytes": 1172,
+        "medianToolCalls": 2,
+        "previousMedian": 68.44745899999907,
+        "tolerance": 10,
+        "regressed": false
+      },
+      {
+        "workload": "execa-command",
+        "condition": "compiler",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 15,
+          "min": 396.5769580000051,
+          "median": 404.2185000000027,
+          "p95": 410.1804582999994,
+          "max": 414.1958339999983,
+          "mean": 404.68497786666705,
+          "standardDeviation": 3.9107153180623353,
+          "coefficientOfVariationPercent": 0.9663603869553101,
+          "meanCi95HalfWidth": 2.165897347701754
+        },
+        "medianStdoutBytes": 89,
+        "medianToolCalls": 1,
+        "previousMedian": 408.9218340000007,
+        "tolerance": 40.892183400000064,
+        "regressed": false
+      },
+      {
+        "workload": "execa-command",
+        "condition": "typepeek-cold",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 15,
+          "min": 946.3129169999993,
+          "median": 963.4196249999995,
+          "p95": 982.0576875000016,
+          "max": 995.7466249999998,
+          "mean": 965.2475778000005,
+          "standardDeviation": 11.357204967413328,
+          "coefficientOfVariationPercent": 1.1766105638201914,
+          "meanCi95HalfWidth": 6.290035994850603
+        },
+        "medianStdoutBytes": 489,
+        "medianToolCalls": 1,
+        "previousMedian": 959.7378749999989,
+        "tolerance": 95.97378749999989,
+        "regressed": false
+      },
+      {
+        "workload": "execa-command",
+        "condition": "typepeek-warm",
+        "correctness": true,
+        "stable": true,
+        "timings": {
+          "count": 15,
+          "min": 952.7696670000005,
+          "median": 964.7452909999993,
+          "p95": 986.6642457000008,
+          "max": 1009.572417000003,
+          "mean": 967.16785,
+          "standardDeviation": 13.771634942493634,
+          "coefficientOfVariationPercent": 1.4239136404806707,
+          "meanCi95HalfWidth": 7.627235727872615
+        },
+        "medianStdoutBytes": 489,
+        "medianToolCalls": 1,
+        "previousMedian": 968.1186249999955,
+        "tolerance": 96.81186249999955,
+        "regressed": false
+      }
+    ],
+    "comparisons": [
+      {
+        "workload": "execa-command",
+        "baseline": "files",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.0708852488908399,
+          "speedupCi95": [0.06871761775666513, 0.0722711859789619],
+          "medianSavedMilliseconds": -896.6650419999996
+        }
+      },
+      {
+        "workload": "execa-command",
+        "baseline": "files",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.06978386873569453,
+          "speedupCi95": [0.06943663760183709, 0.0720956687370592],
+          "medianSavedMilliseconds": -896.3555840000008
+        }
+      },
+      {
+        "workload": "execa-command",
+        "baseline": "compiler",
+        "treatment": "typepeek-cold",
+        "comparison": {
+          "medianSpeedup": 0.4191191174873561,
+          "speedupCi95": [0.41546058129072155, 0.4226517464113007],
+          "medianSavedMilliseconds": -559.6320420000002
+        }
+      },
+      {
+        "workload": "execa-command",
+        "baseline": "compiler",
+        "treatment": "typepeek-warm",
+        "comparison": {
+          "medianSpeedup": 0.4171523341490964,
+          "speedupCi95": [0.41526533401835586, 0.4233599880684676],
+          "medianSavedMilliseconds": -562.2995410000003
+        }
+      }
+    ]
+  }
+}

@@ -4,6 +4,11 @@
   // Package exports and bins are discovered automatically. These additional
   // roots cover repository-only executables that are not published.
   "entry": [
+    "tests/discovery-benchmark-package-smoke.ts",
+    "benchmarks/codex-discovery/run.ts",
+    "benchmarks/discovery/run.ts",
+    "benchmarks/discovery/compiler-worker.ts",
+    "benchmarks/discovery/files-worker.ts",
     "benchmarks/agent-protocol.ts",
     "benchmarks/regression-gates.ts",
     "src/inspection/analysis-process-entry.ts",
