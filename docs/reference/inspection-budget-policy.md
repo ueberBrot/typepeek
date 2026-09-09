@@ -24,10 +24,10 @@ Typepeek applies the following defensive thresholds to every inspection:
 | Aggregate result / Package Documentation        | 4,096 nodes / 16 KiB                                                                                        |
 | Untrusted protocol graph validation             | 4,096 objects / 16,384 queued values                                                                        |
 | Untrusted cache IPC graph                       | 4,096 objects / 32,768 serialized values / 4 KiB per string                                                 |
-| Installed Evidence Proof                        | 512 files; 512 directories / 4,096 entries; 1,024 probes; 64 KiB                                            |
+| Installed Evidence Proof                        | 512 files; 512 directories / 4,096 entries; 1,024 probes; 64 KiB encoded / 1 MiB expanded                   |
 | Inspection cache                                | 12 MiB reads; 96 KiB IPC receipt; 160 KiB entry; 256 entries                                                |
 
-Failed lookups, directory entries, containers, and rendered fragments consume these aggregate budgets. Hostile breadth therefore fails deterministically before elapsed time, memory, or final transport becomes the only guard.
+Failed lookups, directory entries, containers, and rendered fragments consume these aggregate budgets. Public Subpath patterns sharing a search root reuse one bounded directory traversal within an inspection. Hostile breadth therefore fails deterministically before elapsed time, memory, or final transport becomes the only guard.
 
 Member Discovery counts candidates in each declaration space and namespace re-export traversal against one shared 4,096-entry budget across an Inspection Plan. Exact Member Inspection shares this budget when a namespace lookup requires re-export traversal. The discovery result's `totalMembers` counts distinct public names before filtering. Each discovery query returns at most 256 names; the plan also shares the ordinary aggregate result-construction budget.
 

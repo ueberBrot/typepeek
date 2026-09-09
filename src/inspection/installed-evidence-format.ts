@@ -3,6 +3,18 @@ import { isAbsolute } from "node:path";
 
 import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted-data";
 
+export const EVIDENCE_PROOF_LIMITS = {
+  files: 512,
+  directories: 512,
+  directoryEntries: 4_096,
+  probes: 1_024,
+  rootsPerProbe: 16,
+  paths: 4_096,
+  objects: 4_096,
+  values: 32_768,
+  stringBytes: 4_096,
+} as const;
+
 export const MAX_INSTALLED_EVIDENCE_PROOF_BYTES = 64 * 1_024;
 export const MAX_EXPANDED_EVIDENCE_PROOF_BYTES = 1_024 * 1_024;
 
@@ -11,21 +23,21 @@ import type { InstalledEvidenceProof } from "#typepeek/inspection/installed-evid
 const indexSchema = Schema.Natural;
 const optionalIndexSchema = Schema.NullOr(indexSchema);
 const stringSchema = Schema.String.check(
-  Schema.makeFilter((value) => Buffer.byteLength(value) <= 4_096),
+  Schema.makeFilter((value) => Buffer.byteLength(value) <= EVIDENCE_PROOF_LIMITS.stringBytes),
 );
 
 /** A lossless path dictionary; indexes are validated before expanding any evidence. */
 export const compactEvidenceProofSchema = Schema.Struct({
   prefix: stringSchema,
-  paths: Schema.Array(stringSchema).check(Schema.isMaxLength(4_096)),
-  rootSets: Schema.Array(Schema.Array(indexSchema).check(Schema.isMaxLength(16))).check(
-    Schema.isMaxLength(1_024),
-  ),
+  paths: Schema.Array(stringSchema).check(Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.paths)),
+  rootSets: Schema.Array(
+    Schema.Array(indexSchema).check(Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.rootsPerProbe)),
+  ).check(Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.probes)),
   files: Schema.Array(
     Schema.Tuple([Schema.Literals(["declaration", "manifest"]), indexSchema, stringSchema]),
-  ).check(Schema.isMaxLength(512)),
+  ).check(Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.files)),
   directories: Schema.Array(Schema.Tuple([indexSchema, Schema.Natural, stringSchema])).check(
-    Schema.isMaxLength(512),
+    Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.directories),
   ),
   resolutions: Schema.Array(
     Schema.Tuple([
@@ -37,7 +49,7 @@ export const compactEvidenceProofSchema = Schema.Struct({
       optionalIndexSchema,
       optionalIndexSchema,
     ]),
-  ).check(Schema.isMaxLength(1_024)),
+  ).check(Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.probes)),
 }).check(
   Schema.makeFilter(hasValidReferences, { expected: "valid evidence dictionary references" }),
   Schema.makeFilter(hasBoundedExpansion, { expected: "bounded encoded and expanded evidence" }),
@@ -150,15 +162,20 @@ function hasValidReferences(proof: CompactInstalledEvidenceProof): boolean {
 function hasBoundedExpansion(proof: CompactInstalledEvidenceProof): boolean {
   if (
     snapshotBoundedDataPropertyGraph(proof, {
-      maximumObjects: 4_096,
-      maximumValues: 32_768,
+      maximumObjects: EVIDENCE_PROOF_LIMITS.objects,
+      maximumValues: EVIDENCE_PROOF_LIMITS.values,
       maximumSerializedBytes: MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
-      maximumStringBytes: 4_096,
+      maximumStringBytes: EVIDENCE_PROOF_LIMITS.stringBytes,
     }) === undefined
   )
     return false;
   const paths = proof.paths.map((suffix) => proof.prefix + suffix);
-  if (paths.some((path) => !isAbsolute(path) || Buffer.byteLength(path) > 4_096)) return false;
+  if (
+    paths.some(
+      (path) => !isAbsolute(path) || Buffer.byteLength(path) > EVIDENCE_PROOF_LIMITS.stringBytes,
+    )
+  )
+    return false;
   const sizes = paths.map((path) => Buffer.byteLength(path));
   const size = (index: number | null) => (index === null ? 0 : sizes[index]!);
   const rootSizes = proof.rootSets.map((roots) =>
