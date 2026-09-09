@@ -11,3 +11,5 @@ Reject changed evidence before replaying resolutions, and share bounded resoluti
 Preserve standard-library inference when declaration inspection also needs Node declarations.
 
 Preserve import and require conditions in type-reference declarations and cache proof replay.
+
+Keep Node declaration validation focused on the exports selected by an Inspection Plan.

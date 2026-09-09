@@ -273,6 +273,46 @@ describe("Installed Evidence program authority", () => {
     expect(overview).toMatchObject({ status: "unsupported" });
   });
 
+  it("preserves focused Node authority across multiple exports in a plan", async () => {
+    const request = {
+      resolutionContext: fixture.focusedNodeContext,
+      specifier: "@typepeek-fixture/focused-node",
+    };
+    const names = ["inspect", "second"];
+    const atomic = await Promise.all(
+      names.map((exportName) => inspectExport({ ...request, exportName })),
+    );
+    expect(atomic.map(({ status }) => status)).toEqual(["success", "success"]);
+    for (const orderedNames of [names, [...names].reverse()]) {
+      const plan = await inspectPlan({
+        ...request,
+        queries: orderedNames.map((exportName) => ({ intent: "export-inspection", exportName })),
+      });
+      expect(plan).toMatchObject({ status: "success" });
+      if (plan.status === "success") {
+        expect(plan.result.inspections).toEqual(
+          orderedNames.map((name) => {
+            const outcome = atomic[names.indexOf(name)]!;
+            return outcome.status === "success" ? outcome.result : undefined;
+          }),
+        );
+      }
+    }
+  });
+
+  it.each([
+    { intent: "export-inspection", exportName: "nodeOnly" },
+    { intent: "interface-overview" },
+  ] as const)("retains Node authority for a plan's $intent query", async (query) => {
+    const outcome = await inspectPlan({
+      resolutionContext: fixture.focusedNodeContext,
+      specifier: "@typepeek-fixture/focused-node",
+      queries: [{ intent: "export-inspection", exportName: "inspect" }, query],
+    });
+    expect(outcome).toMatchObject({ status: "unsupported", reason: "unsupported-evidence" });
+    expect(outcome).not.toHaveProperty("result");
+  });
+
   it("follows typed and external dependencies of a source-inferred return", async () => {
     const [typed, wholeModule, external] = await Promise.all([
       inspectExport({

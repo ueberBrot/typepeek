@@ -234,6 +234,7 @@ export async function materializeInstalledProgramAuthorityFixture(): Promise<Ins
       [
         "export declare const nodeOnly: typeof process;",
         "export declare function inspect(value: string): number;",
+        "export declare function second(value: number): string;",
         "",
       ].join("\n"),
       "",

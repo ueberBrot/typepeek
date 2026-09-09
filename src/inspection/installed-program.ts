@@ -106,7 +106,7 @@ interface InstalledProgramRequirements {
   readonly focusedExportNames: readonly string[];
   readonly needsStandardLibrary: boolean;
   readonly needsNodeAugmentation: boolean;
-  readonly nodeAugmentationExportName: string | undefined;
+  readonly nodeAugmentationExportNames: ReadonlySet<string> | undefined;
 }
 
 type NodeAugmentationScope = "none" | "complete-module" | "focused-export";
@@ -194,7 +194,7 @@ export function materializeInstalledProgram(
             };
           },
           () => reserveDeclarationGraphNodes(traversal, 1),
-          requirements.nodeAugmentationExportName,
+          requirements.nodeAugmentationExportNames,
         );
   const program = nodeProgram ?? publicInterfaceProgram;
   return inspectSelectedModule(program, selection, host, traversal);
@@ -235,10 +235,9 @@ function installedProgramRequirements(
         query.intent === "member-discovery",
     ),
     needsNodeAugmentation,
-    nodeAugmentationExportName:
-      !nodeAugmentationRequiresCompleteModule && nodeAugmentationExportNames.size === 1
-        ? nodeAugmentationExportNames.values().next().value
-        : undefined,
+    nodeAugmentationExportNames: nodeAugmentationRequiresCompleteModule
+      ? undefined
+      : nodeAugmentationExportNames,
   };
 }
 
