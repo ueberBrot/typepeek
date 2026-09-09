@@ -72,6 +72,7 @@ export function createCompilerWorkSession({
   const observeEvidenceFile = evidenceObserver?.observeFile ?? (() => undefined);
   const observeResolution = evidenceObserver?.observeResolution ?? (() => undefined);
   const packageManifestCache = new Map<string, Readonly<Record<string, unknown>>>();
+  const replayHosts = new Map<string, ReturnType<typeof createBoundedModuleResolutionHost>>();
   let operationCount = 0;
   let resolutionByteCount = 0;
 
@@ -131,35 +132,32 @@ export function createCompilerWorkSession({
     ...(observeEvidenceDirectory === undefined ? {} : { observeEvidenceDirectory }),
     observeEvidenceFile,
     observeResolution,
-    resolveEvidenceProbe: (probe, allowedRoots) =>
-      resolveEvidenceProbe(
-        probe,
-        allowedRoots,
-        reserveOperations,
-        remainingBytes,
-        reserveBytes,
-        observeEvidenceFile,
-      ),
+    resolveEvidenceProbe: (probe, allowedRoots) => {
+      reserveOperations();
+      const contextDirectory = dirname(probe.containingFile);
+      const key = JSON.stringify([contextDirectory, allowedRoots]);
+      let host = replayHosts.get(key);
+      if (host === undefined) {
+        host = createBoundedModuleResolutionHost(
+          contextDirectory,
+          allowedRoots,
+          reserveOperations,
+          remainingBytes,
+          reserveBytes,
+          observeEvidenceFile,
+        );
+        replayHosts.set(key, host);
+      }
+      return resolveEvidenceProbe(probe, host);
+    },
     reserveOperations,
   };
 }
 
 function resolveEvidenceProbe(
   probe: InstalledEvidenceResolutionProbe,
-  allowedRoots: readonly string[],
-  reserveOperations: (count?: number) => void,
-  remainingBytes: () => number,
-  reserveBytes: (count: number) => void,
-  observeEvidenceFile: ObserveInstalledEvidenceFile,
+  host: ReturnType<typeof createBoundedModuleResolutionHost>,
 ): string | undefined {
-  const host = createBoundedModuleResolutionHost(
-    dirname(probe.containingFile),
-    allowedRoots,
-    reserveOperations,
-    remainingBytes,
-    reserveBytes,
-    observeEvidenceFile,
-  );
   const compilerOptions = resolutionCompilerOptions();
   const resolvedPath =
     probe.kind === "module"
