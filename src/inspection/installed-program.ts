@@ -187,7 +187,7 @@ export function materializeInstalledProgram(
             return {
               program: ts.createProgram({
                 rootNames: [declarationPath, nodeProvider.declarationPath],
-                options: compilerOptions,
+                options: publicInterfaceProgram.getCompilerOptions(),
                 host,
               }),
               providerRoot: nodeProvider.root.canonical,

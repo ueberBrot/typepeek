@@ -188,6 +188,10 @@ export async function materializeInstalledProgramAuthorityFixture(): Promise<Ins
       "@typepeek-fixture/source-inferred-node",
       [
         "export const value = process;",
+        "export class Values extends Array<string> {",
+        "  readonly proc = process;",
+        "  first() { return this.at(0); }",
+        "}",
         "export class PrivateToken {",
         "  private constructor(public readonly processValue: typeof process) {}",
         "}",

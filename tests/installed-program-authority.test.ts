@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
-import { inspectExport, inspectInterfaceOverview } from "#typepeek/inspection";
+import {
+  inspectExport,
+  inspectExportDeclarations,
+  inspectInterfaceOverview,
+  inspectPlan,
+} from "#typepeek/inspection";
 
 import {
   type InstalledProgramAuthorityFixture,
@@ -174,6 +179,30 @@ describe("Installed Evidence program authority", () => {
     });
 
     expect(outcome).toMatchObject({ status: "unsupported" });
+  });
+
+  it("retains standard library inference when adding Node declarations", async () => {
+    const request = {
+      resolutionContext: fixture.sourceInferredNodeContext,
+      specifier: "@typepeek-fixture/source-inferred-node",
+      exportName: "Values",
+    };
+    const outcome = await inspectExportDeclarations(request);
+    expect(outcome).toMatchObject({ status: "success" });
+    expect(JSON.stringify(outcome)).toContain("first(): string | undefined;");
+
+    const plan = await inspectPlan({
+      resolutionContext: request.resolutionContext,
+      specifier: request.specifier,
+      queries: [
+        { intent: "declaration-inspection", exportName: request.exportName },
+        { intent: "signature-inspection", exportName: request.exportName },
+      ],
+    });
+    expect(plan).toMatchObject({ status: "success" });
+    if (outcome.status === "success" && plan.status === "success") {
+      expect(plan.result.inspections[0]).toEqual(outcome.result);
+    }
   });
 
   it("loads Node authority for isolated source-inferred public types", async () => {
