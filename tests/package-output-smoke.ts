@@ -8,9 +8,11 @@ import {
   assertArtifactCacheReuse,
   assertCompilerLoadsOnlyInWorker,
   assertRepositoryProfilingExcluded,
+  assertWorkerUsesCommonJsCompiler,
 } from "./artifact-boundary.ts";
 
 await assertRepositoryProfilingExcluded("dist");
+assertWorkerUsesCommonJsCompiler("dist/cli.js");
 
 const npmCache = await mkdtemp(join(tmpdir(), "typepeek-npm-cache-"));
 try {

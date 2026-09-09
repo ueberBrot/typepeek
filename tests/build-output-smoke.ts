@@ -7,6 +7,7 @@ import {
   assertArtifactCacheReuse,
   assertCompilerLoadsOnlyInWorker,
   assertRepositoryProfilingExcluded,
+  assertWorkerUsesCommonJsCompiler,
 } from "./artifact-boundary.ts";
 
 const worker = await lstat(".vite-plus/build/inspection/analysis-process-entry.js");
@@ -17,6 +18,7 @@ assert.equal(
   "The built analysis process entry must not be a symlink.",
 );
 await assertRepositoryProfilingExcluded(".vite-plus/build");
+assertWorkerUsesCommonJsCompiler(".vite-plus/build/cli.js");
 
 const packageVersion = (
   JSON.parse(await readFile("package.json", "utf8")) as { readonly version: string }

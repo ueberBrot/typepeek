@@ -17,6 +17,9 @@ const packageVersionDefine = {
 const releaseProfileAdapter = fileURLToPath(
   new URL("./src/inspection/performance-profile-disabled.ts", import.meta.url),
 );
+const compilerRuntimeAdapter = fileURLToPath(
+  new URL("./src/inspection/compiler-runtime.ts", import.meta.url),
+);
 
 function inspectionCoreChunk(moduleId: string): string | undefined {
   return moduleId.replaceAll("\\", "/").endsWith("/src/inspection/protocol.ts")
@@ -30,6 +33,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "#typepeek/inspection/performance-profile": releaseProfileAdapter,
+      "@typescript/typescript6": compilerRuntimeAdapter,
     },
   },
   build: {
@@ -43,13 +47,7 @@ export default defineConfig({
     },
     outDir: ".vite-plus/build",
     rolldownOptions: {
-      external: [
-        /^node:/u,
-        "@stricli/core",
-        "@typescript/typescript6",
-        /^effect(?:\/|$)/u,
-        "execa",
-      ],
+      external: [/^node:/u, "@stricli/core", /^effect(?:\/|$)/u, "execa"],
       output: {
         // analysis-process.ts resolves the emitted worker relative to a shared
         // implementation chunk, so shared chunks deliberately remain at root.
@@ -97,6 +95,11 @@ export default defineConfig({
   pack: {
     alias: {
       "#typepeek/inspection/performance-profile": releaseProfileAdapter,
+      "@typescript/typescript6": compilerRuntimeAdapter,
+    },
+    // Apply the local compiler loader alias before dependency externalization.
+    deps: {
+      alwaysBundle: ["@typescript/typescript6"],
     },
     entry: ["src/cli.ts", "src/inspection/analysis-process-entry.ts"],
     dts: true,

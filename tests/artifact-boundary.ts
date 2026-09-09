@@ -28,6 +28,31 @@ registerHooks({ resolve(specifier, context, nextResolve) {
   assert.equal((JSON.parse(result.stdout) as { readonly status: string }).status, "success");
 }
 
+/** ESM imports scan the compiler's CommonJS exports before loading it. */
+export function assertWorkerUsesCommonJsCompiler(cliPath: string): void {
+  const hook = `import { registerHooks } from 'node:module';
+registerHooks({ resolve(specifier, context, nextResolve) {
+  if (specifier === '@typescript/typescript6' && !context.conditions.includes('require')) {
+    throw new Error('Compiler load requires a CommonJS export scan');
+  }
+  return nextResolve(specifier, context);
+} });`;
+  const result = spawnSync(
+    process.execPath,
+    [cliPath, "signatures", "@stricli/core", "buildRouteMap", "--json"],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(hook)}`,
+        TYPEPEEK_CACHE_BYPASS: "1",
+      },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal((JSON.parse(result.stdout) as { readonly status: string }).status, "success");
+}
+
 /** Verifies that repository-only phase tracing is absent from every shipped JavaScript file. */
 export async function assertRepositoryProfilingExcluded(directory: string): Promise<void> {
   const entries = await readdir(directory, { withFileTypes: true, recursive: true });
