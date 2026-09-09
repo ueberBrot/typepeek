@@ -32,7 +32,6 @@ import { serializeTerminalSafeJson, terminalSafeLine } from "#typepeek/output-sa
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 import {
   internalProtocolWireError,
-  readProtocolWireInput,
   readProtocolWireStream,
   renderProtocolWireValue,
 } from "#typepeek/protocol-wire";
@@ -513,27 +512,21 @@ const capabilitiesCommand = buildCommand<CliOutputOptions, [], ApplicationContex
   },
 });
 
-const protocolCommand = buildCommand<{ readonly stream: boolean }, [], ApplicationContext>({
-  async func(options) {
-    await runProtocolCommand(this, options.stream);
+const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], ApplicationContext>({
+  async func() {
+    await runProtocolCommand(this);
   },
   parameters: {
-    flags: {
-      stream: {
-        kind: "boolean",
-        default: false,
-        brief: "Read successive JSON request lines and emit ordered response lines.",
-      },
-    },
+    flags: {},
     positional: {
       kind: "tuple",
       parameters: [],
     },
   },
   docs: {
-    brief: "Invoke the Inspection Protocol with one bounded JSON request on stdin.",
+    brief: "Invoke the Inspection Protocol with JSON request lines on stdin.",
     fullDescription:
-      "Read one bounded JSON request from stdin and emit one compact JSON response on stdout. With --stream, process successive request lines in order until stdin closes. Each line may contain at most 32 KiB of UTF-8 JSON; the final newline is optional. Invalid wire input ends the stream. Inspection failures allow further requests and leave exit status 1. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits.",
+      "Read compact JSON request lines from stdin and emit one compact JSON response line per request on stdout, in order, until stdin closes. Empty input closes without a response. Each line may contain at most 32 KiB of UTF-8 JSON; the final newline is optional. Invalid wire input ends the stream. Inspection failures allow further requests and leave exit status 1. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits.",
   },
 });
 
@@ -670,12 +663,9 @@ export async function runCli(rawInputs: readonly string[]): Promise<void> {
   session.complete(rawInputs);
 }
 
-async function runProtocolCommand(context: ApplicationContext, stream: boolean): Promise<void> {
+async function runProtocolCommand(context: ApplicationContext): Promise<void> {
   try {
-    const readings = stream
-      ? readProtocolWireStream(process.stdin)
-      : [await readProtocolWireInput(process.stdin)];
-    for await (const reading of readings) {
+    for await (const reading of readProtocolWireStream(process.stdin)) {
       if (!reading.accepted) {
         await writeProtocolWireValue(context, reading.error, INVALID_INVOCATION_EXIT_CODE);
         return;

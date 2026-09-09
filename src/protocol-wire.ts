@@ -23,12 +23,6 @@ export type ProtocolWireReading =
   | { readonly accepted: true; readonly value: unknown }
   | { readonly accepted: false; readonly error: ProtocolWireError };
 
-/** Reads one bounded UTF-8 JSON value without buffering an unbounded stream. */
-export async function readProtocolWireInput(input: Readable): Promise<ProtocolWireReading> {
-  const reading = await readBoundedWireBytes(input);
-  return Buffer.isBuffer(reading) ? parseProtocolWireInput(reading) : reading;
-}
-
 /** Reads newline-delimited requests with a separate byte limit for each line. */
 export async function* readProtocolWireStream(
   input: Readable,
@@ -59,21 +53,6 @@ export async function* readProtocolWireStream(
     }
   }
   if (bytes > 0) yield parseProtocolWireInput(Buffer.concat(chunks, bytes));
-}
-
-async function readBoundedWireBytes(input: Readable): Promise<Buffer | ProtocolWireReading> {
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  for await (const chunk of input) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-    bytes += buffer.byteLength;
-    if (bytes > MAX_PROTOCOL_INPUT_BYTES) {
-      input.destroy();
-      return invalidProtocolWireInput("input-too-large");
-    }
-    chunks.push(buffer);
-  }
-  return Buffer.concat(chunks, bytes);
 }
 
 function parseProtocolWireInput(inputBuffer: Buffer): ProtocolWireReading {

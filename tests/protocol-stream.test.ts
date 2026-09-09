@@ -14,7 +14,7 @@ it("returns ordered responses and retains failures after a successful request", 
       request: { resolutionContext: process.cwd(), specifier: "@stricli/core" },
     },
   ];
-  const result = await execa(process.execPath, ["src/cli.ts", "protocol", "--stream"], {
+  const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
     input: requests.map((request) => JSON.stringify(request)).join("\n") + "\n",
     reject: false,
   });
@@ -41,7 +41,7 @@ it("answers before stdin closes and reads declaration changes between requests",
     intent: "interface-overview",
     request: { resolutionContext, specifier: "stream-fixture" },
   });
-  const subprocess = execa(process.execPath, ["src/cli.ts", "protocol", "--stream"], {
+  const subprocess = execa(process.execPath, ["src/cli.ts", "protocol"], {
     env: { TYPEPEEK_CACHE_DIRECTORY: join(resolutionContext, "cache") },
     stdin: "pipe",
     reject: false,
@@ -77,7 +77,7 @@ it.each([
   [Buffer.from([0xc3, 0x28, 0x0a]), "invalid-utf8"],
   [Buffer.alloc(32 * 1_024 + 1, 0x20), "input-too-large"],
 ])("ends the stream with one wire error for invalid request bytes", async (input, reason) => {
-  const result = await execa(process.execPath, ["src/cli.ts", "protocol", "--stream"], {
+  const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
     input,
     reject: false,
   });
@@ -92,7 +92,7 @@ it.each([
 
 it("applies the input limit per line and accepts a final line without a newline", async () => {
   const input = `${" ".repeat(32 * 1_024 - 2)}{}`;
-  const result = await execa(process.execPath, ["src/cli.ts", "protocol", "--stream"], {
+  const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
     input: `${input}\n${input}`,
     reject: false,
   });
@@ -105,7 +105,7 @@ it("applies the input limit per line and accepts a final line without a newline"
 });
 
 it("closes an empty stream without emitting a response", async () => {
-  const result = await execa(process.execPath, ["src/cli.ts", "protocol", "--stream"], {
+  const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
     input: "",
   });
   expect(result.stdout).toBe("");
@@ -113,7 +113,7 @@ it("closes an empty stream without emitting a response", async () => {
 });
 
 it("stops without a stack trace when the caller closes the response pipe", async () => {
-  const subprocess = execa(process.execPath, ["src/cli.ts", "protocol", "--stream"], {
+  const subprocess = execa(process.execPath, ["src/cli.ts", "protocol"], {
     stdin: "pipe",
     reject: false,
     timeout: 5_000,

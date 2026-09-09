@@ -163,7 +163,7 @@ The skill teaches supported coding agents to choose the narrowest useful inspect
 
 Typepeek ships a CLI. Programmatic adapters invoke the `protocol` command over stdin and stdout. Typepeek exposes no JavaScript library and ships no MCP server.
 
-Use `typepeek protocol --stream` to send successive JSON request lines through one CLI process. It returns one response line per request, in order, while each inspection retains its isolated analysis process. See `typepeek protocol --help` for input limits and failure handling.
+Use `typepeek protocol` to send successive compact JSON request lines through one CLI process. It returns one response line per request, in order, while each inspection retains its isolated analysis process. See `typepeek protocol --help` for input limits and failure handling.
 
 ## Development
 

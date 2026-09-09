@@ -459,7 +459,7 @@ describe("typepeek CLI", () => {
   });
 
   it.each([
-    ["", "empty-input"],
+    ["\n", "empty-input"],
     ["{", "malformed-json"],
     ["{} {}", "malformed-json"],
   ])("returns one stable wire error for invalid protocol input", async (input, reason) => {
