@@ -56,14 +56,14 @@ export function selectNodeDeclarationProgram(
   entrypoint: ts.SourceFile,
   createProviderProgram: () => NodeProviderProgram | undefined,
   reserveTraversalNode: () => void,
-  selectedExportName?: string,
+  selectedExportNames?: ReadonlySet<string>,
 ): ts.Program | undefined {
   const { candidates, computedNames, directReference } = inspectInitialPublicInterface(
     initialProgram,
     initialModuleSymbol,
     entrypoint,
     reserveTraversalNode,
-    selectedExportName,
+    selectedExportNames,
   );
   if (!directReference && candidates.length === 0 && computedNames.length === 0) {
     return undefined;
@@ -89,7 +89,7 @@ function inspectInitialPublicInterface(
   moduleSymbol: ts.Symbol,
   entrypoint: ts.SourceFile,
   reserveTraversalNode: () => void,
-  selectedExportName: string | undefined,
+  selectedExportNames: ReadonlySet<string> | undefined,
 ): {
   readonly candidates: readonly GlobalCandidate[];
   readonly computedNames: readonly ts.Expression[];
@@ -101,11 +101,11 @@ function inspectInitialPublicInterface(
   computedNamesByChecker.set(checker, computedNames);
   const moduleExports = checker.getExportsOfModule(moduleSymbol);
   const pendingSymbols =
-    selectedExportName === undefined
+    selectedExportNames === undefined
       ? [...moduleExports]
-      : moduleExports.filter(({ name }) => name === selectedExportName);
+      : moduleExports.filter((symbol) => selectedExportNames.has(symbol.getName()));
   const pendingNodes: ts.Node[] = [
-    ...(selectedExportName === undefined ? exportedStatements(checker, entrypoint) : []),
+    ...(selectedExportNames === undefined ? exportedStatements(checker, entrypoint) : []),
     ...(moduleSymbol.declarations ?? []).filter(ts.isModuleDeclaration),
     entrypoint,
   ];
@@ -143,7 +143,7 @@ function inspectInitialPublicInterface(
         pendingSymbols,
         reserveTraversalNode,
         root,
-        selectedExportName,
+        selectedExportNames,
       }) || directReference;
   }
   return { candidates, computedNames, directReference };
@@ -250,24 +250,24 @@ function enqueueModuleExports(
   node: ts.Node,
   pendingNodes: ts.Node[],
   pendingSymbols: ts.Symbol[],
-  selectedExportName: string | undefined,
+  selectedExportNames: ReadonlySet<string> | undefined,
 ): void {
   if (!ts.isModuleDeclaration(node)) {
     return;
   }
   const symbol = checker.getSymbolAtLocation(node.name);
-  const nestedExportName = ts.isStringLiteralLike(node.name) ? selectedExportName : undefined;
+  const nestedExportNames = ts.isStringLiteralLike(node.name) ? selectedExportNames : undefined;
   if (symbol !== undefined) {
     const exports = checker.getExportsOfModule(symbol);
     pendingSymbols.push(
-      ...(nestedExportName === undefined
+      ...(nestedExportNames === undefined
         ? exports
-        : exports.filter(({ name }) => name === nestedExportName)),
+        : exports.filter((symbol) => nestedExportNames.has(symbol.getName()))),
     );
   }
   const body = node.body;
   if (body !== undefined && ts.isModuleBlock(body)) {
-    if (nestedExportName === undefined) {
+    if (nestedExportNames === undefined) {
       pendingNodes.push(...exportedStatements(checker, body));
     }
   }
@@ -441,7 +441,7 @@ function scanPublicDeclaration(options: {
   readonly pendingSymbols: ts.Symbol[];
   readonly reserveTraversalNode: () => void;
   readonly root: ts.Node;
-  readonly selectedExportName: string | undefined;
+  readonly selectedExportNames: ReadonlySet<string> | undefined;
 }): boolean {
   let found = false;
   const visit = (node: ts.Node, depth: number): void => {
@@ -470,7 +470,7 @@ function scanPublicDeclaration(options: {
       node,
       options.pendingNodes,
       options.pendingSymbols,
-      options.selectedExportName,
+      options.selectedExportNames,
     );
     ts.forEachChild(node, (child) => {
       if (isPublicProjectionChild(options.checker, node, child)) {

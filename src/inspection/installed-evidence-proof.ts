@@ -30,9 +30,9 @@ export function installedEvidenceProofStillMatches(
 ): boolean {
   return (
     currentManifestsMatch(cached, current) &&
-    resolutionProbesStillMatch(cached.resolutions, cached.files) &&
+    fileFingerprintsStillMatch(cached.files) &&
     directoryFingerprintsStillMatch(cached.directories) &&
-    fileFingerprintsStillMatch(cached.files)
+    resolutionProbesStillMatch(cached.resolutions, cached.files)
   );
 }
 

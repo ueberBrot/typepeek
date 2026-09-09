@@ -1,4 +1,4 @@
-import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import { InspectionLimitError } from "#typepeek/inspection/errors";
@@ -75,7 +75,7 @@ function normalizedAbsolutePath(path: string): string {
 /** Returns whether one Installed Evidence path is a readable filesystem file. */
 export function isEvidenceFile(fileName: string): boolean {
   try {
-    return statSync(fileName).isFile();
+    return statSync(fileName, { throwIfNoEntry: false })?.isFile() ?? false;
   } catch {
     return false;
   }
@@ -84,7 +84,7 @@ export function isEvidenceFile(fileName: string): boolean {
 /** Returns whether one Installed Evidence path is a readable filesystem directory. */
 export function isEvidenceDirectory(directory: string): boolean {
   try {
-    return statSync(directory).isDirectory();
+    return statSync(directory, { throwIfNoEntry: false })?.isDirectory() ?? false;
   } catch {
     return false;
   }
@@ -93,7 +93,8 @@ export function isEvidenceDirectory(directory: string): boolean {
 /** Canonicalizes an Installed Evidence path without turning absence into authority. */
 export function canonicalEvidencePath(fileName: string): string | undefined {
   try {
-    return realpathSync.native(fileName);
+    // Avoid exception allocation for missing resolution candidates.
+    return existsSync(fileName) ? realpathSync.native(fileName) : undefined;
   } catch {
     return undefined;
   }

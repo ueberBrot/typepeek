@@ -30,11 +30,7 @@ import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { renderJsonOutcome } from "#typepeek/json-rendering";
 import { serializeTerminalSafeJson, terminalSafeLine } from "#typepeek/output-safety";
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
-import {
-  internalProtocolWireError,
-  readProtocolWireInput,
-  renderProtocolWireValue,
-} from "#typepeek/protocol-wire";
+import { runProtocolWireStream } from "#typepeek/protocol-wire";
 import { renderInspection, type TerminalRenderingOptions } from "#typepeek/terminal-rendering";
 
 import { selectCliWorkspace } from "./cli-workspace.ts";
@@ -513,7 +509,8 @@ const capabilitiesCommand = buildCommand<CliOutputOptions, [], ApplicationContex
 
 const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], ApplicationContext>({
   async func() {
-    await runProtocolCommand(this);
+    const exitCode = await runProtocolWireStream(process.stdin, process.stdout);
+    this.process.exitCode = Math.max(Number(this.process.exitCode ?? 0), exitCode);
   },
   parameters: {
     flags: {},
@@ -523,9 +520,9 @@ const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], Applica
     },
   },
   docs: {
-    brief: "Invoke the Inspection Protocol with one bounded JSON request on stdin.",
+    brief: "Invoke the Inspection Protocol with JSON request lines on stdin.",
     fullDescription:
-      "Read one bounded JSON request from stdin and emit one compact JSON response on stdout. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits.",
+      "Read compact JSON request lines from stdin and emit one compact JSON response line per request on stdout, in order, until stdin closes. Empty input closes without a response. Each line may contain at most 32 KiB of UTF-8 JSON; the final newline is optional. Invalid wire input ends the stream. Inspection failures allow further requests and leave exit status 1. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits.",
   },
 });
 
@@ -660,60 +657,6 @@ export async function runCli(rawInputs: readonly string[]): Promise<void> {
   const inputs = rawInputs.length === 0 ? ["--help"] : normalizeCommonOptionPlacement(rawInputs);
   await run(app, inputs, { process: session.process });
   session.complete(rawInputs);
-}
-
-async function runProtocolCommand(context: ApplicationContext): Promise<void> {
-  try {
-    const reading = await readProtocolWireInput(process.stdin);
-    if (!reading.accepted) {
-      writeProtocolWireValue(context, reading.error, INVALID_INVOCATION_EXIT_CODE);
-      return;
-    }
-    const response = await invokeInspectionProtocol(reading.value);
-    writeProtocolResponse(context, response);
-  } catch {
-    writeProtocolWireValue(
-      context,
-      internalProtocolWireError("unexpected-error"),
-      INTERNAL_ERROR_EXIT_CODE,
-    );
-  }
-}
-
-function writeProtocolResponse(
-  context: ApplicationContext,
-  response: Awaited<ReturnType<typeof invokeInspectionProtocol>>,
-): void {
-  const exitCode = response.outcome.status === "success" ? 0 : INSPECTION_FAILURE_EXIT_CODE;
-  if (!writeProtocolWireValue(context, response, exitCode)) {
-    writeProtocolWireValue(context, protocolOutputLimitResponse(), INSPECTION_FAILURE_EXIT_CODE);
-  }
-}
-
-function writeProtocolWireValue(
-  context: ApplicationContext,
-  value: unknown,
-  exitCode: number,
-): boolean {
-  const rendering = renderProtocolWireValue(value);
-  if (rendering === undefined) {
-    return false;
-  }
-  context.process.stdout.write(rendering);
-  context.process.exitCode = exitCode;
-  return true;
-}
-
-function protocolOutputLimitResponse() {
-  return {
-    protocolVersion: INSPECTION_PROTOCOL_VERSION,
-    outcome: {
-      status: "limit-exceeded",
-      reason: "budget-exceeded",
-      exceededBudget: "json-output",
-      message: "Inspection exceeded its protocol output limit.",
-    },
-  } as const;
 }
 
 function normalizeCommonOptionPlacement(inputs: readonly string[]): readonly string[] {
