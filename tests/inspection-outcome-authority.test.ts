@@ -10,6 +10,141 @@ function enforceInspectionPlanOutcome(request: NormalizedInspectionPlanRequest, 
   return enforceAnalysisRequestOutcome({ intent: "inspection-plan", request }, value);
 }
 
+it("validates Member evidence before request correlation for atomic and plan outcomes", () => {
+  const discovery = {
+    intent: "member-discovery",
+    specifier: "example",
+    packageIdentity: { name: "example" },
+    resolutionVariant: { accessStyle: "import" },
+    moduleExportName: "Example",
+    memberPath: [],
+    totalMembers: 2,
+    members: [
+      { name: "alpha", spaces: ["type", "value"] },
+      { name: "beta", spaces: ["type"] },
+    ],
+  } as const;
+  for (const result of [
+    discovery,
+    { ...discovery, totalMembers: 0, members: [] },
+    { ...discovery, query: "AL", members: [discovery.members[0]] },
+    { ...discovery, query: "missing", members: [] },
+  ]) {
+    const outcome = { status: "success", result };
+    expect(enforceInspectionOutcome(result.intent, outcome)).toEqual(outcome);
+  }
+  const invalidResults = [
+    { ...discovery, totalMembers: 1 },
+    { ...discovery, totalMembers: 3 },
+    { ...discovery, members: [] },
+    { ...discovery, members: [discovery.members[0], discovery.members[0]] },
+    { ...discovery, members: [...discovery.members].reverse() },
+    { ...discovery, query: "AL" },
+    { ...discovery, totalMembers: 1, members: [{ name: "alpha", spaces: ["value", "type"] }] },
+    {
+      intent: "member-inspection",
+      specifier: discovery.specifier,
+      packageIdentity: discovery.packageIdentity,
+      resolutionVariant: discovery.resolutionVariant,
+      moduleExportName: discovery.moduleExportName,
+      memberPath: ["alpha"],
+      declarations: [],
+    },
+  ] as const;
+  for (const result of invalidResults) {
+    expect(enforceInspectionOutcome(result.intent, { status: "success", result })).toMatchObject({
+      status: "unsupported",
+      reason: "invalid-result",
+    });
+    expect(
+      enforceInspectionOutcome("inspection-plan", {
+        status: "success",
+        result: { intent: "inspection-plan", inspections: [result] },
+      }),
+    ).toMatchObject({ status: "unsupported", reason: "invalid-result" });
+  }
+});
+
+it("rejects malformed export indexes through atomic and plan outcome validation", () => {
+  const identity = {
+    specifier: "example",
+    packageIdentity: { name: "example" },
+    resolutionVariant: { accessStyle: "import" },
+  } as const;
+  const overview = {
+    ...identity,
+    intent: "interface-overview",
+    publicSubpaths: [],
+    moduleExports: [{ name: "Alpha" }, { name: "Beta" }],
+  } as const;
+  const search = {
+    ...identity,
+    intent: "export-search",
+    query: "aL",
+    totalModuleExports: 2,
+    matches: [{ name: "Alpha" }],
+  } as const;
+  const page = { cursor: "start", totalModuleExports: 2, complete: true } as const;
+  for (const result of [
+    overview,
+    { ...overview, exportPage: page },
+    search,
+    { ...search, matches: [] },
+  ]) {
+    const outcome = { status: "success", result };
+    expect(enforceInspectionOutcome(result.intent, outcome)).toEqual(outcome);
+  }
+  const oversized = Array.from({ length: 321 }, (_, index) => ({
+    name: `Alpha${String(index).padStart(3, "0")}`,
+  }));
+  const invalidResults = [
+    { ...overview, moduleExports: [{ name: "Beta" }, { name: "Alpha" }] },
+    { ...overview, moduleExports: [{ name: "Alpha" }, { name: "Alpha" }] },
+    { ...overview, moduleExports: oversized },
+    { ...overview, exportPage: page, moduleExports: [{ name: "Alpha" }, { name: "Alpha" }] },
+    { ...search, totalModuleExports: 0 },
+    { ...search, totalModuleExports: 16_385 },
+    { ...search, matches: [{ name: "Beta" }] },
+    { ...search, matches: [{ name: "Alpha" }, { name: "Alpha" }] },
+    { ...search, matches: [{ name: "Alpine" }, { name: "Alpha" }] },
+    { ...search, totalModuleExports: 321, matches: oversized },
+  ];
+  for (const result of invalidResults) {
+    expect(enforceInspectionOutcome(result.intent, { status: "success", result })).toMatchObject({
+      status: "unsupported",
+      reason: "invalid-result",
+    });
+    expect(
+      enforceInspectionOutcome("inspection-plan", {
+        status: "success",
+        result: { intent: "inspection-plan", inspections: [result] },
+      }),
+    ).toMatchObject({ status: "unsupported", reason: "invalid-result" });
+  }
+});
+
+it.each([
+  { cursor: "start", totalModuleExports: 2, complete: true },
+  { cursor: "start", totalModuleExports: 1, complete: false },
+  { cursor: "start", totalModuleExports: 1, complete: true, nextCursor: `${"a".repeat(64)}.100` },
+  { cursor: `${"a".repeat(64)}.1`, totalModuleExports: 2, complete: false },
+])("rejects inconsistent export page metadata: %j", (exportPage) => {
+  expect(
+    enforceInspectionOutcome("interface-overview", {
+      status: "success",
+      result: {
+        intent: "interface-overview",
+        specifier: "example",
+        packageIdentity: { name: "example" },
+        resolutionVariant: { accessStyle: "import" },
+        publicSubpaths: [],
+        moduleExports: [{ name: "Value" }],
+        exportPage,
+      },
+    }),
+  ).toMatchObject({ status: "unsupported", reason: "invalid-result" });
+});
+
 it("correlates direct declaration and Member outcomes with their exact requests", () => {
   const declaration = {
     status: "success",
@@ -920,6 +1055,33 @@ it("accepts a shared noncyclic namespace member", () => {
 
   expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual(outcome);
 });
+
+it.each(["declaration-inspection", "inspection-plan"] as const)(
+  "bounds declaration namespace depth in %s outcomes",
+  (intent) => {
+    const outcomeAtDepth = (depth: number) => {
+      const focused = namespaceOutcome([namespaceMemberChain(depth)]).result;
+      const declaration = {
+        intent: "declaration-inspection",
+        specifier: focused.specifier,
+        resolutionVariant: focused.resolutionVariant,
+        packageIdentity: focused.packageIdentity,
+        moduleExport: { name: focused.moduleExport.name, spaces: focused.moduleExport.spaces },
+      };
+      return {
+        status: "success",
+        result: intent === "inspection-plan" ? { intent, inspections: [declaration] } : declaration,
+      };
+    };
+    const accepted = outcomeAtDepth(9);
+    expect(enforceInspectionOutcome(intent, accepted)).toEqual(accepted);
+    expect(enforceInspectionOutcome(intent, outcomeAtDepth(10))).toEqual({
+      status: "unsupported",
+      reason: "invalid-result",
+      message: "Inspection returned an invalid result.",
+    });
+  },
+);
 
 it("rejects flattened declarations in a namespace space", () => {
   expect(

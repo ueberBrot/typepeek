@@ -5,8 +5,6 @@ description: Inspect installed TypeScript interfaces with Typepeek when discover
 
 # Typepeek
 
-Use Typepeek to answer questions about the TypeScript-visible Public Interface selected from Installed Evidence. Typepeek performs Static Inspection; its results establish type-level evidence, not runtime behavior.
-
 ## Establish the target
 
 - Resolve the repository-local `typepeek` executable through the consumer's package manager. If it is unavailable, report the missing prerequisite; installing or downloading it requires the user's authorization.
@@ -33,21 +31,29 @@ The target is established when the Resolution Context, Specifier, and Access Sty
 | Which answers share one Specifier and evidence snapshot?                           | `typepeek plan <specifier> '<queries-json>' --json`                                    |
 | Which export names or subpaths differ between two workspaces?                      | `typepeek compare <before> <after> --before-workspace <path> --after-workspace <path>` |
 
-Start with `overview` only when the exact export is unknown. Use `search` for name discovery without returning an overview. Run discovery and focused inspection sequentially when the focused query depends on the discovery result; use `plan` when every query is already known.
+Use `overview` when the export is unknown and `search` when a name hint can narrow the result. Read discovery results before choosing a focused query. Use `plan` when every query is already known.
 
 Add `--json` when structured fields matter. Keep compact JSON for machine consumption; add `--pretty` only when a human will read it.
+
+## Browse large export indexes
+
+Use `overview <specifier> --cursor start --json` when the question requires browsing a large index. Prefer `search` when a name hint can narrow discovery.
+
+1. Read `result.moduleExports` for this page and `result.exportPage.totalModuleExports` for the whole index's count.
+2. Stop when the needed export is found. Otherwise, pass the returned `result.exportPage.nextCursor` unchanged as `--cursor`, preserving the Specifier, workspace, and Access Style.
+3. For exhaustive discovery, collect pages until `nextCursor` is absent. `complete` describes only the current page: it is true when that page contains the entire index, and can remain false on the final page.
+
+If a cursor is rejected because the target or index changed, discard the collected pages and restart with `--cursor start`. Inspect selected exports for declaration details. Run `compare` with complete overview requests; paginated requests are ineligible.
 
 ## Discover and select Members
 
 Use `members` before `member` when the exact Member name is unknown or an export's declarations exceed a budget. Omit the path to list the export's immediate Members; supply a path to list that Member's children. Use `--match` when a name hint can narrow the returned list.
 
-Read `totalMembers` as the complete count before filtering. An empty filtered list means no names matched; an unfiltered success with zero Members identifies a leaf. Filtering narrows the returned names in both JSON and terminal output; candidate traversal and evidence validation still cover the complete index. A typed failure supplies no partial list.
+`totalMembers` counts all names before filtering. An empty filtered list means no names matched; an unfiltered success with zero Members identifies a leaf. Filters narrow JSON and terminal output, but traversal and validation still cover the complete index. A typed failure supplies no partial list.
 
 For a nested Member Path, pass a JSON array such as `'["shape","keyof"]'`. If a segment is ambiguous, list its parent's Members and replace that segment with a selector using a returned space: `'[{"name":"shared","space":"type"},"leaf"]'`. `type` selects instance/type members, `value` selects value/static members, and `namespace` selects namespace exports. Qualified and unqualified segments can be mixed at any depth. The same paths work in `members`, `member`, and Inspection Plans.
 
 Discovery establishes names and declaration spaces, including inherited Members. Inspect a selected path with `member` when declarations are needed. A discovered standard-library Member can still return `unsupported-evidence` when its declaration lacks Installed Evidence provenance.
-
-The inspection is complete when each question has either the narrowest complete Inspection Result or an explicit typed failure.
 
 ## Interpret the evidence
 
@@ -57,4 +63,6 @@ The inspection is complete when each question has either the narrowest complete 
 - Treat `compare` as a directional name and subpath delta. A retained name does not prove unchanged declarations or signatures.
 - State any behavioral conclusion separately from Typepeek evidence; types alone do not establish runtime semantics.
 
-For Inspection Protocol integration, run `typepeek capabilities --json` and construct requests from its current descriptors. Execute bounded recovery requests as provided instead of guessing fields. Run `typepeek --help` or `typepeek <command> --help` when the installed version's CLI syntax is the question.
+For protocol integration or streaming requests, read [PROTOCOL.md](PROTOCOL.md). For the installed version's CLI syntax, run `typepeek --help` or `typepeek <command> --help`.
+
+Finish when every question has a complete Inspection Result for its scope or an explicit typed failure.

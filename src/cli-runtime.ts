@@ -30,11 +30,7 @@ import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { renderJsonOutcome } from "#typepeek/json-rendering";
 import { serializeTerminalSafeJson, terminalSafeLine } from "#typepeek/output-safety";
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
-import {
-  internalProtocolWireError,
-  readProtocolWireInput,
-  renderProtocolWireValue,
-} from "#typepeek/protocol-wire";
+import { runProtocolWireStream } from "#typepeek/protocol-wire";
 import { renderInspection, type TerminalRenderingOptions } from "#typepeek/terminal-rendering";
 
 import { selectCliWorkspace } from "./cli-workspace.ts";
@@ -99,6 +95,7 @@ interface ComparisonOptions extends CliOutputOptions {
 }
 
 interface OverviewOptions extends InspectionTargetOptions {
+  readonly cursor?: string;
   readonly match?: string;
   readonly subpaths: boolean;
 }
@@ -169,14 +166,14 @@ const inspectionTargetFlags = {
     parse: parseAccessStyle,
     default: "import",
     placeholder: "import|require",
-    brief: "Access Style whose package conditions select the Resolution Variant.",
+    brief: "Resolve declarations using import or require conditions.",
   },
   workspace: {
     kind: "parsed",
     parse: resolve,
     optional: true,
     placeholder: "path",
-    brief: "Consuming workspace from which Typepeek resolves the package.",
+    brief: "Resolve the package from this consuming workspace.",
   },
   json: {
     kind: "boolean",
@@ -188,7 +185,7 @@ const inspectionTargetFlags = {
     kind: "boolean",
     default: false,
     withNegated: false,
-    brief: "Indent JSON output for human readability; requires --json.",
+    brief: "Indent JSON output; requires --json.",
   },
 } as const;
 
@@ -230,7 +227,7 @@ const memberPathParameter = {
 
 const inspectionPlanQueriesParameter = {
   parse: parseInspectionPlanQueries,
-  brief: "Bounded JSON array of overview, focused, search, or subpath inspection queries.",
+  brief: "JSON array of inspection queries to run together.",
   placeholder: "queries-json",
 } as const;
 
@@ -245,7 +242,10 @@ const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationConte
       "interface-overview",
       options,
       specifier,
-      (target) => target,
+      (target) => ({
+        ...target,
+        ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
+      }),
       {
         includePublicSubpaths: options.subpaths,
         ...(options.match === undefined ? {} : { moduleExportMatch: options.match }),
@@ -255,6 +255,13 @@ const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationConte
   parameters: {
     flags: {
       ...inspectionTargetFlags,
+      cursor: {
+        kind: "parsed",
+        parse: (input: string) => input,
+        optional: true,
+        placeholder: "cursor",
+        brief: 'Return 100 export names; use "start" for the first page, then the returned cursor.',
+      },
       match: {
         kind: "parsed",
         parse: (input: string) => input,
@@ -275,7 +282,7 @@ const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationConte
     },
   },
   docs: {
-    brief: "Index the Module Exports and Public Subpaths of one Inspectable Module.",
+    brief: "List the module exports and public subpaths.",
     fullDescription:
       "Example: typepeek overview zod. Use --json for one structured Inspection Outcome.",
   },
@@ -296,7 +303,7 @@ const exportCommand = buildCommand<InspectionTargetOptions, [string, string], Ap
     },
   },
   docs: {
-    brief: "Inspect one Module Export with declarations and bounded Supporting Types.",
+    brief: "Show an export's declarations, signatures, documentation, and supporting types.",
     fullDescription:
       "Example: typepeek export zod ZodError. Use it when you need declarations or Supporting Types.",
   },
@@ -321,7 +328,7 @@ const signaturesCommand = buildCommand<
     },
   },
   docs: {
-    brief: "Inspect only the public call and construct signatures of one Module Export.",
+    brief: "Show every public call and construct signature of an export.",
     fullDescription:
       "Example: typepeek signatures execa execa --json emits structured type parameters, parameters, and return semantics.",
   },
@@ -346,7 +353,7 @@ const declarationsCommand = buildCommand<
     },
   },
   docs: {
-    brief: "Inspect only the declarations of one Module Export.",
+    brief: "Show an export's declarations.",
     fullDescription:
       "Example: typepeek declarations zod ZodError avoids Signature and Supporting Type traversal.",
   },
@@ -372,7 +379,7 @@ const memberCommand = buildCommand<
     },
   },
   docs: {
-    brief: "Inspect exactly one public Member path of a Module Export.",
+    brief: "Show the declarations for one public member path.",
     fullDescription:
       "Example: typepeek member zod ZodError issues avoids unrelated declaration traversal.",
   },
@@ -416,7 +423,7 @@ const membersCommand = buildCommand<
     },
   },
   docs: {
-    brief: "Discover immediate public Members and their declaration spaces.",
+    brief: "List immediate public members and their declaration spaces.",
     fullDescription:
       'Example: typepeek members zod ZodError --match issue lists matching names. Omit member-path to inspect the export; pass a JSON path such as \'[{"name":"shared","space":"type"}]\' to select a declaration space at a nested step. Discovery returns a complete count before filtering.',
   },
@@ -441,7 +448,7 @@ const planCommand = buildCommand<
     },
   },
   docs: {
-    brief: "Execute a bounded query list over one shared Installed Evidence snapshot.",
+    brief: "Run several queries against the same installed evidence.",
     fullDescription:
       'Example: typepeek plan zod \'[{"intent":"interface-overview"}]\' --json returns one atomic outcome.',
   },
@@ -462,7 +469,7 @@ const searchCommand = buildCommand<InspectionTargetOptions, [string, string], Ap
     },
   },
   docs: {
-    brief: "Search the bounded Module Export index without returning an overview.",
+    brief: "Find export names containing a case-insensitive substring.",
     fullDescription:
       "Example: typepeek search zod error returns matching Module Export names and the complete count.",
   },
@@ -486,7 +493,7 @@ const subpathsCommand = buildCommand<InspectionTargetOptions, [string], Applicat
     },
   },
   docs: {
-    brief: "Discover manifest Public Subpaths without materializing a TypeScript program.",
+    brief: "List public subpaths exposed by the package manifest.",
     fullDescription: "Example: typepeek subpaths zod lists only bounded manifest Public Subpaths.",
   },
 });
@@ -505,7 +512,7 @@ const capabilitiesCommand = buildCommand<CliOutputOptions, [], ApplicationContex
     },
   },
   docs: {
-    brief: "Print the Inspection Core capabilities as JSON.",
+    brief: "List supported protocol requests and limits as JSON.",
     fullDescription:
       "Capability output is always JSON. Pass --json to select machine-mode diagnostics; add --pretty for indented output.",
   },
@@ -513,7 +520,8 @@ const capabilitiesCommand = buildCommand<CliOutputOptions, [], ApplicationContex
 
 const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], ApplicationContext>({
   async func() {
-    await runProtocolCommand(this);
+    const exitCode = await runProtocolWireStream(process.stdin, process.stdout);
+    this.process.exitCode = Math.max(Number(this.process.exitCode ?? 0), exitCode);
   },
   parameters: {
     flags: {},
@@ -523,9 +531,9 @@ const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], Applica
     },
   },
   docs: {
-    brief: "Invoke the Inspection Protocol with one bounded JSON request on stdin.",
+    brief: "Invoke the Inspection Protocol with JSON request lines on stdin.",
     fullDescription:
-      "Read one bounded JSON request from stdin and emit one compact JSON response on stdout. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits.",
+      "Read compact JSON request lines from stdin and emit one compact JSON response line per request on stdout, in order, until stdin closes. Empty input closes without a response. Each line may contain at most 32 KiB of UTF-8 JSON; the final newline is optional. Invalid wire input ends the stream. Inspection failures allow further requests and leave exit status 1. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits.",
   },
 });
 
@@ -600,7 +608,7 @@ const compareCommand = buildCommand<ComparisonOptions, [string, string], Applica
     },
   },
   docs: {
-    brief: "Compare two complete Interface Overview indexes without merging variants.",
+    brief: "Compare export names and public subpaths in two complete indexes.",
     fullDescription:
       "Example: typepeek compare zod zod --before-workspace old --after-workspace new compares installed versions directionally.",
   },
@@ -623,9 +631,9 @@ const rootRoute = buildRouteMap({
   },
   defaultCommand: "overview",
   docs: {
-    brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
+    brief: "Inspect TypeScript interfaces from installed packages and Node platform modules.",
     fullDescription:
-      "Start with overview to discover exports. Use search or subpaths for lighter discovery; members to discover public members; declarations or member for narrow declaration questions; signatures for parameters; export for declarations and Supporting Types; plan to share one evidence snapshot; and compare to diff two overview indexes. Agents can run capabilities before invoking protocol through bounded stdin/stdout. Common flags may precede or follow an explicit inspection command.",
+      "Use overview or search to find exports, subpaths to find public entrypoints, and members to find public members. Inspect signatures, declarations, or a member for details; use export to include documentation and supporting types. Run known queries together with plan, or compare export names and subpaths with compare. For machine integration, run capabilities before sending requests to protocol. Common flags may precede or follow an explicit inspection command.",
   },
 });
 
@@ -648,7 +656,6 @@ const app = buildApplication(rootRoute, {
   },
 });
 
-/** Runs the CLI adapter and normalizes all process-facing behavior. */
 export async function runCli(rawInputs: readonly string[]): Promise<void> {
   const session = new CliProcessSession();
   if (requestsPretty(rawInputs) && !requestsJson(rawInputs)) {
@@ -660,60 +667,6 @@ export async function runCli(rawInputs: readonly string[]): Promise<void> {
   const inputs = rawInputs.length === 0 ? ["--help"] : normalizeCommonOptionPlacement(rawInputs);
   await run(app, inputs, { process: session.process });
   session.complete(rawInputs);
-}
-
-async function runProtocolCommand(context: ApplicationContext): Promise<void> {
-  try {
-    const reading = await readProtocolWireInput(process.stdin);
-    if (!reading.accepted) {
-      writeProtocolWireValue(context, reading.error, INVALID_INVOCATION_EXIT_CODE);
-      return;
-    }
-    const response = await invokeInspectionProtocol(reading.value);
-    writeProtocolResponse(context, response);
-  } catch {
-    writeProtocolWireValue(
-      context,
-      internalProtocolWireError("unexpected-error"),
-      INTERNAL_ERROR_EXIT_CODE,
-    );
-  }
-}
-
-function writeProtocolResponse(
-  context: ApplicationContext,
-  response: Awaited<ReturnType<typeof invokeInspectionProtocol>>,
-): void {
-  const exitCode = response.outcome.status === "success" ? 0 : INSPECTION_FAILURE_EXIT_CODE;
-  if (!writeProtocolWireValue(context, response, exitCode)) {
-    writeProtocolWireValue(context, protocolOutputLimitResponse(), INSPECTION_FAILURE_EXIT_CODE);
-  }
-}
-
-function writeProtocolWireValue(
-  context: ApplicationContext,
-  value: unknown,
-  exitCode: number,
-): boolean {
-  const rendering = renderProtocolWireValue(value);
-  if (rendering === undefined) {
-    return false;
-  }
-  context.process.stdout.write(rendering);
-  context.process.exitCode = exitCode;
-  return true;
-}
-
-function protocolOutputLimitResponse() {
-  return {
-    protocolVersion: INSPECTION_PROTOCOL_VERSION,
-    outcome: {
-      status: "limit-exceeded",
-      reason: "budget-exceeded",
-      exceededBudget: "json-output",
-      message: "Inspection exceeded its protocol output limit.",
-    },
-  } as const;
 }
 
 function normalizeCommonOptionPlacement(inputs: readonly string[]): readonly string[] {

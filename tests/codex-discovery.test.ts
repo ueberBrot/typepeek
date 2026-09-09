@@ -4,6 +4,7 @@ import {
   codexPrompt,
   codexTelemetry,
   gradeCodexAnswer,
+  gradeCodexExecution,
   selectCodexScenarios,
 } from "../benchmarks/codex-discovery/scenarios.ts";
 import { signatureFact } from "../benchmarks/discovery/signature.ts";
@@ -107,4 +108,87 @@ it("accepts a verified discovered export and rejects invented or incomplete sign
       .passed,
   ).toBe(false);
   expect(gradeCodexAnswer(scenario, expected, "not JSON").passed).toBe(false);
+});
+
+it("requires task evidence in the required-use condition and keeps availability optional", () => {
+  const scenario = selectCodexScenarios(["execa-command"])[0]!;
+  const completion = JSON.stringify({
+    type: "turn.completed",
+    usage: { input_tokens: 10, output_tokens: 5 },
+  });
+  const command = (output: string, exitCode = 0) =>
+    codexTelemetry(
+      [
+        JSON.stringify({
+          type: "item.completed",
+          item: {
+            type: "command_execution",
+            command: "typepeek signatures execa parseCommandString --json",
+            aggregated_output: output,
+            exit_code: exitCode,
+          },
+        }),
+        completion,
+      ].join("\n"),
+    );
+  const evidence = JSON.stringify({
+    status: "success",
+    result: {
+      intent: "signature-inspection",
+      specifier: "execa",
+      moduleExport: { name: "parseCommandString" },
+    },
+  });
+  expect(gradeCodexExecution(scenario, "typepeek-required", codexTelemetry(completion))).toContain(
+    "No command",
+  );
+  expect(gradeCodexExecution(scenario, "typepeek-required", command("Usage: typepeek"))).toContain(
+    "inspection",
+  );
+  expect(gradeCodexExecution(scenario, "typepeek-required", command(evidence, 1))).toContain(
+    "inspection",
+  );
+  expect(
+    gradeCodexExecution(scenario, "typepeek-required", command(evidence.replace("execa", "other"))),
+  ).toContain("inspection");
+  expect(gradeCodexExecution(scenario, "typepeek-required", command(evidence))).toBeNull();
+  expect(command(`${evidence}\n`).typepeekEvidence).toHaveLength(1);
+  const plan = JSON.stringify({
+    status: "success",
+    result: { intent: "inspection-plan", inspections: [JSON.parse(evidence).result] },
+  });
+  expect(gradeCodexExecution(scenario, "typepeek-required", command(plan))).toBeNull();
+  expect(gradeCodexExecution(scenario, "typepeek", command("Usage: typepeek"))).toBeNull();
+  expect(gradeCodexExecution(scenario, "files", command(evidence))).toContain("Control");
+  const prompt = codexPrompt(scenario, "typepeek-required", "SKILL CONTENT");
+  expect(prompt).toContain("must inspect");
+  expect(prompt).toContain("SKILL CONTENT");
+  expect(prompt).not.toContain("you are not required");
+  expect(prompt).not.toContain("parseCommandString");
+});
+
+it("requires the requested name search rather than an unrelated query in the same module", () => {
+  const scenario = selectCodexScenarios(["execa-errors"])[0]!;
+  const telemetry = (query: string) =>
+    codexTelemetry(
+      [
+        JSON.stringify({
+          type: "item.completed",
+          item: {
+            type: "command_execution",
+            command: `typepeek search execa ${query} --json`,
+            exit_code: 0,
+            aggregated_output: JSON.stringify({
+              status: "success",
+              result: { intent: "export-search", specifier: "execa", query },
+            }),
+          },
+        }),
+        JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 5 } }),
+      ].join("\n"),
+    );
+  expect(gradeCodexExecution(scenario, "typepeek-required", telemetry("unrelated"))).toContain(
+    "inspection",
+  );
+  expect(gradeCodexExecution(scenario, "typepeek-required", telemetry("ERROR"))).toBeNull();
 });

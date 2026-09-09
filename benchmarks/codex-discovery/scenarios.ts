@@ -3,7 +3,7 @@ import { Schema } from "effect";
 import { signatureFact } from "../discovery/signature.ts";
 import { type DiscoveryWorkload, selectDiscoveryWorkloads } from "../discovery/workloads.ts";
 
-export type CodexCondition = "files" | "typepeek" | "typepeek-skill";
+export type CodexCondition = "files" | "typepeek" | "typepeek-skill" | "typepeek-required";
 export interface CodexScenario {
   readonly workload: DiscoveryWorkload;
   readonly question: string;
@@ -56,7 +56,9 @@ Return the requested JSON only. The specifier field is the exact import module s
   const availability =
     condition === "files"
       ? "Typepeek is unavailable in this condition. Use any other local static inspection approach you judge effective."
-      : `The typepeek CLI is installed on PATH. You may use it or any other available local inspection approach; you are not required to call it. Run typepeek --help when you need its command reference.${condition === "typepeek-skill" ? `\n\nInstalled Typepeek skill:\n${skill}` : ""}`;
+      : condition === "typepeek-required"
+        ? `The typepeek CLI is installed on PATH. You must inspect the requested module with Typepeek before answering. For signature questions, obtain the selected export's signatures with --json; for name searches, obtain the matching exports with --json. A help command alone does not count. Copy each signature's text field exactly, including generic parameters and all overloads; do not reconstruct it from structured parameter types. Other static tools may help you discover the export. Run typepeek --help if needed.\n\nInstalled Typepeek skill:\n${skill}`
+        : `The typepeek CLI is installed on PATH. You may use it or any other available local inspection approach; you are not required to call it. Run typepeek --help when you need its command reference.${condition === "typepeek-skill" ? `\n\nInstalled Typepeek skill:\n${skill}` : ""}`;
   return `${common}\n${availability}\n\nQuestion: ${scenario.question}\n`;
 }
 
@@ -112,6 +114,7 @@ const commandSchema = Schema.Struct({
     type: Schema.Literal("command_execution"),
     command: Schema.String,
     aggregated_output: Schema.optional(Schema.String),
+    exit_code: Schema.optional(Schema.Int),
   }),
 });
 
@@ -125,6 +128,12 @@ export function codexTelemetry(events: string) {
   let completedTurns = 0;
   const commands: string[] = [];
   let toolOutputBytes = 0;
+  const typepeekEvidence: {
+    intent: string;
+    specifier: string;
+    exportName?: string;
+    query?: string;
+  }[] = [];
   let invalidLines = 0;
   for (const line of events.split("\n").filter(Boolean)) {
     let value: unknown;
@@ -146,6 +155,9 @@ export function codexTelemetry(events: string) {
     }
     if (Schema.is(commandSchema)(value)) {
       commands.push(value.item.command);
+      if (usesTypepeek(value.item.command) && value.item.exit_code === 0) {
+        typepeekEvidence.push(...readTypepeekEvidence(value.item.aggregated_output ?? ""));
+      }
       toolOutputBytes += Buffer.byteLength(value.item.aggregated_output ?? "");
     }
   }
@@ -158,6 +170,77 @@ export function codexTelemetry(events: string) {
     commands,
     toolOutputBytes,
     invalidLines,
-    usedTypepeek: commands.some((command) => /(?:^|[\s/"'])typepeek(?:[\s"']|$)/u.test(command)),
+    usedTypepeek: commands.some(usesTypepeek),
+    typepeekEvidence,
   };
+}
+
+function usesTypepeek(command: string): boolean {
+  return /(?:^|[\s/"'])typepeek(?:[\s"']|$)/u.test(command);
+}
+
+const atomicEvidenceSchema = Schema.Struct({
+  intent: Schema.String,
+  specifier: Schema.String,
+  moduleExport: Schema.optional(Schema.Struct({ name: Schema.String })),
+  query: Schema.optional(Schema.String),
+});
+const inspectionEvidenceSchema = Schema.Struct({
+  status: Schema.Literal("success"),
+  result: Schema.Union([
+    atomicEvidenceSchema,
+    Schema.Struct({
+      intent: Schema.Literal("inspection-plan"),
+      inspections: Schema.Array(atomicEvidenceSchema),
+    }),
+  ]),
+});
+
+function readTypepeekEvidence(output: string) {
+  const evidence: { intent: string; specifier: string; exportName?: string; query?: string }[] = [];
+  // Accept a complete JSON result or newline-delimited results from a command chain.
+  for (const text of new Set([output, ...output.split("\n")].map((text) => text.trim()))) {
+    try {
+      const value: unknown = JSON.parse(text);
+      if (!Schema.is(inspectionEvidenceSchema)(value)) continue;
+      const results = "inspections" in value.result ? value.result.inspections : [value.result];
+      for (const { intent, specifier, moduleExport, query } of results) {
+        evidence.push({
+          intent,
+          specifier,
+          ...(query === undefined ? {} : { query }),
+          ...(moduleExport === undefined ? {} : { exportName: moduleExport.name }),
+        });
+      }
+    } catch {
+      // Help, diagnostics, and malformed output are not inspection evidence.
+    }
+  }
+  return evidence;
+}
+
+/** Checks required tool use separately from final-answer correctness. */
+export function gradeCodexExecution(
+  scenario: CodexScenario,
+  condition: CodexCondition,
+  telemetry: ReturnType<typeof codexTelemetry>,
+): string | null {
+  if (telemetry.completedTurns !== 1) return "Expected exactly one completed Codex turn.";
+  if (telemetry.commands.length === 0) return "No command was recorded.";
+  if (condition === "files" && telemetry.usedTypepeek)
+    return "Control condition attempted Typepeek.";
+  if (
+    condition === "typepeek-required" &&
+    !telemetry.typepeekEvidence.some(
+      (evidence) =>
+        evidence.specifier === scenario.workload.specifier &&
+        (scenario.workload.kind === "search"
+          ? evidence.intent === "export-search" &&
+            evidence.query?.toLowerCase() === scenario.workload.target.toLowerCase()
+          : evidence.intent === "signature-inspection" &&
+            evidence.exportName === scenario.workload.target),
+    )
+  )
+    return "No successful Typepeek inspection of the requested Public Interface was recorded.";
+  return null;
 }

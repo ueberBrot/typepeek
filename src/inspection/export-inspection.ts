@@ -1,5 +1,6 @@
 import ts from "@typescript/typescript6";
 
+import { MAX_NAMESPACE_DEPTH } from "#typepeek/inspection/budget-policy";
 import { assertMergedDeclarationLimit } from "#typepeek/inspection/declaration-limits";
 import {
   declarationOwnerIsMember,
@@ -53,8 +54,6 @@ import { isTypeScriptStandardLibraryDeclaration } from "#typepeek/inspection/typ
 const MAX_DECLARATION_BYTES = 64 * 1024;
 
 const MAX_NAMESPACE_MEMBERS = 128;
-
-const MAX_NAMESPACE_DEPTH = 8;
 
 const MAX_SUPPORTING_TYPE_DEPTH = 12;
 
@@ -150,7 +149,6 @@ type FocusedMemberInspection =
         | "unsupported-member";
     };
 
-/** Owns focused Module Export inspection and traversal for one Inspection Plan. */
 export function createModuleExportInspection(
   evidence: InspectableModuleEvidence,
   constructionOwner: InspectionResultConstruction,
@@ -274,7 +272,6 @@ export function createModuleExportInspection(
     };
   }
 
-  /** Inspects exactly one public member path without traversing unrelated declarations. */
   function inspectFocusedModuleExportMember(
     exportName: string,
     memberPath: MemberPath,
@@ -300,7 +297,6 @@ export function createModuleExportInspection(
     };
   }
 
-  /** Discovers one export's immediate members after resolving an optional exact path. */
   function discoverFocusedModuleExportMembers(
     exportName: string,
     memberPath: MemberPath,
@@ -442,8 +438,6 @@ export function createModuleExportInspection(
     namespaceMembers: readonly NamespaceMemberEvidence[],
     construction: FocusedInspectionConstruction,
   ): readonly SupportingType[] {
-    // Traverse only references reachable from the selected Public Interface. The
-    // visited set prevents cycles while depth and count budgets bound expansion.
     const supportingTypes: SupportingType[] = [];
     const visited = new Set<ts.Symbol>([selectedSymbol]);
     const visitedInferredTypes = new Set<ts.Type>();
@@ -579,8 +573,7 @@ export function createModuleExportInspection(
     symbol: ts.Symbol,
     referenceKind: SupportingReferenceKind,
   ): readonly ts.Declaration[] {
-    // `typeof X` needs X's value declaration; ordinary type references admit only
-    // named type declarations and must not drift into implementation symbols.
+    // `typeof X` needs X's value declaration; ordinary type references need named type declarations.
     const declarations = (symbol.declarations ?? []).filter(
       (declaration) =>
         !isTypeScriptStandardLibraryDeclaration(declaration.getSourceFile().fileName) &&
@@ -705,7 +698,7 @@ function collectNamespaceMembers(
   const exportedMembers = checker.getExportsOfModule(symbol);
   reserveNamespaceMembers(state, exportedMembers.length);
   const members = exportedMembers.map((member) =>
-    inspectNamespaceMember(checker, member, state, depth),
+    inspectNamespaceMember(checker, symbol, member, state, depth),
   );
   state.visited.delete(symbol);
   return members;
@@ -741,11 +734,16 @@ function reserveNamespaceMembers(state: NamespaceTraversalState, count: number):
 
 function inspectNamespaceMember(
   checker: ts.TypeChecker,
+  moduleSymbol: ts.Symbol,
   member: ts.Symbol,
   state: NamespaceTraversalState,
   depth: number,
 ): NamespaceMemberEvidence {
-  const { aliasDeclaration, targetSymbol } = resolveFocusedExportSymbol(checker, member);
+  const { aliasDeclaration, targetSymbol } = resolveFocusedExportSymbol(
+    checker,
+    member,
+    moduleSymbol,
+  );
   const namespaceAliasDeclaration =
     aliasDeclaration !== undefined && ts.isNamespaceExport(aliasDeclaration)
       ? [aliasDeclaration]

@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
-import { inspectExport, inspectInterfaceOverview } from "#typepeek/inspection";
+import {
+  inspectExport,
+  inspectExportDeclarations,
+  inspectExportMembers,
+  inspectInterfaceOverview,
+  inspectPlan,
+} from "#typepeek/inspection";
 
 import {
   type InstalledProgramAuthorityFixture,
@@ -16,6 +22,28 @@ describe("Installed Evidence program authority", () => {
 
   afterAll(async () => {
     await fixture?.cleanup();
+  });
+
+  it.each([
+    ["explicit-import", ["importOnly"]],
+    ["explicit-require", ["requireOnly"]],
+    ["implicit-import", ["importOnly"]],
+    ["implicit-require", ["requireOnly"]],
+    ["dual-modes", ["importOnly", "requireOnly"]],
+  ] as const)("preserves %s type-reference resolution conditions", async (subpath, names) => {
+    const outcome = await inspectExportMembers({
+      resolutionContext: fixture.conditionalTypeReferenceContext,
+      specifier: `@typepeek-fixture/conditional-type-reference/${subpath}`,
+      exportName: "Value",
+    });
+
+    expect(outcome).toMatchObject({
+      status: "success",
+      result: {
+        totalMembers: names.length,
+        members: names.map((name) => ({ name, spaces: ["type"] })),
+      },
+    });
   });
 
   it("does not treat ordinary builtin-looking string literals as Node references", async () => {
@@ -176,6 +204,30 @@ describe("Installed Evidence program authority", () => {
     expect(outcome).toMatchObject({ status: "unsupported" });
   });
 
+  it("retains standard library inference when adding Node declarations", async () => {
+    const request = {
+      resolutionContext: fixture.sourceInferredNodeContext,
+      specifier: "@typepeek-fixture/source-inferred-node",
+      exportName: "Values",
+    };
+    const outcome = await inspectExportDeclarations(request);
+    expect(outcome).toMatchObject({ status: "success" });
+    expect(JSON.stringify(outcome)).toContain("first(): string | undefined;");
+
+    const plan = await inspectPlan({
+      resolutionContext: request.resolutionContext,
+      specifier: request.specifier,
+      queries: [
+        { intent: "declaration-inspection", exportName: request.exportName },
+        { intent: "signature-inspection", exportName: request.exportName },
+      ],
+    });
+    expect(plan).toMatchObject({ status: "success" });
+    if (outcome.status === "success" && plan.status === "success") {
+      expect(plan.result.inspections[0]).toEqual(outcome.result);
+    }
+  });
+
   it("loads Node authority for isolated source-inferred public types", async () => {
     const [value, getProcess, local, helper] = await Promise.all([
       inspectExport({
@@ -219,6 +271,46 @@ describe("Installed Evidence program authority", () => {
 
     expect(focused).toMatchObject({ status: "success" });
     expect(overview).toMatchObject({ status: "unsupported" });
+  });
+
+  it("preserves focused Node authority across multiple exports in a plan", async () => {
+    const request = {
+      resolutionContext: fixture.focusedNodeContext,
+      specifier: "@typepeek-fixture/focused-node",
+    };
+    const names = ["inspect", "second"];
+    const atomic = await Promise.all(
+      names.map((exportName) => inspectExport({ ...request, exportName })),
+    );
+    expect(atomic.map(({ status }) => status)).toEqual(["success", "success"]);
+    for (const orderedNames of [names, [...names].reverse()]) {
+      const plan = await inspectPlan({
+        ...request,
+        queries: orderedNames.map((exportName) => ({ intent: "export-inspection", exportName })),
+      });
+      expect(plan).toMatchObject({ status: "success" });
+      if (plan.status === "success") {
+        expect(plan.result.inspections).toEqual(
+          orderedNames.map((name) => {
+            const outcome = atomic[names.indexOf(name)]!;
+            return outcome.status === "success" ? outcome.result : undefined;
+          }),
+        );
+      }
+    }
+  });
+
+  it.each([
+    { intent: "export-inspection", exportName: "nodeOnly" },
+    { intent: "interface-overview" },
+  ] as const)("retains Node authority for a plan's $intent query", async (query) => {
+    const outcome = await inspectPlan({
+      resolutionContext: fixture.focusedNodeContext,
+      specifier: "@typepeek-fixture/focused-node",
+      queries: [{ intent: "export-inspection", exportName: "inspect" }, query],
+    });
+    expect(outcome).toMatchObject({ status: "unsupported", reason: "unsupported-evidence" });
+    expect(outcome).not.toHaveProperty("result");
   });
 
   it("follows typed and external dependencies of a source-inferred return", async () => {

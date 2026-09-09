@@ -69,7 +69,7 @@ A package-manifest wildcard that describes a family of potential Public Subpaths
 _Avoid_: wildcard Specifier, Public Subpath
 
 **Platform Module**:
-An Inspectable Module provided by a known runtime rather than an installed package, with declarations supplied by an installed, context-visible Declaration Provider. Initially, this means Node built-ins such as `node:fs` backed by `@types/node`.
+An Inspectable Module provided by a known runtime rather than an installed package, with declarations supplied by an installed, context-visible Declaration Provider. Supported Platform Modules are Node built-ins such as `node:fs` backed by `@types/node`.
 _Avoid_: global type, standard library
 
 **Declaration Provider**:
@@ -87,8 +87,12 @@ A bounded, deterministic presentation of Installed Evidence produced by a suppor
 _Avoid_: answer, summary
 
 **Interface Overview**:
-A bounded index of the Module Exports at a selected entrypoint. At a package root, it may also advertise Public Subpaths without inspecting them.
+A bounded index of the Module Exports at a selected entrypoint, returned either in full or as an explicitly identified Export Page. At a package root, it may also advertise Public Subpaths without inspecting them.
 _Avoid_: list, search results
+
+**Export Page**:
+A contiguous portion of a Module Export name index for one Resolution Variant, with the complete index count and explicit continuation. Its completeness describes whether that page contains the entire index.
+_Avoid_: truncated overview, partial evidence
 
 **Public Interface Comparison**:
 A bounded directional delta between two complete Interface Overview indexes. It preserves each side's Specifier, Package or Declaration Provider identity, and Resolution Variant, and reports added or removed Module Export names and Public Subpaths without implying that retained names have unchanged declarations or signatures.
@@ -111,7 +115,7 @@ A bounded Inspection Result containing every statically visible public call and 
 _Avoid_: partial Export Inspection, fallback result
 
 **Declaration Inspection**:
-A bounded Inspection Result containing the complete declaration spaces of one Module Export in a Resolution Variant. It excludes signatures, Supporting Types, and Package Documentation rather than returning a partial Export Inspection.
+A bounded Inspection Result containing the complete declaration spaces of one Module Export in a Resolution Variant. It excludes signatures, Supporting Types, and Package Documentation.
 _Avoid_: stripped Export Inspection, declaration preview
 
 **Member Discovery**:

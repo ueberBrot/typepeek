@@ -1,6 +1,12 @@
-import { Effect, Result, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { isAbsolute } from "node:path";
 
+import {
+  exportCursorSchema,
+  MAX_EXPORT_CURSOR_BYTES,
+} from "#typepeek/inspection/export-pagination";
 import {
   inspectionPlanQueriesSchema,
   isBoundedExportSearchQuery,
@@ -115,6 +121,16 @@ const TARGET_FIELD_ENTRIES = [
   ["accessStyle", requestAccessStyleSchema],
 ] as const;
 const EXPORT_FIELD_ENTRIES = [...TARGET_FIELD_ENTRIES, ["exportName", exportNameSchema]] as const;
+const OVERVIEW_FIELD_ENTRIES = [
+  ...TARGET_FIELD_ENTRIES,
+  [
+    "cursor",
+    withRequestFieldCapability(Schema.optionalKey(exportCursorSchema), {
+      kind: "string",
+      maxBytes: MAX_EXPORT_CURSOR_BYTES,
+    }),
+  ],
+] as const;
 const EXPORT_SEARCH_FIELD_ENTRIES = [
   ...TARGET_FIELD_ENTRIES,
   ["query", exportSearchQuerySchema],
@@ -208,7 +224,13 @@ const normalizedComparisonSchema = Schema.Struct(requestFields(COMPARISON_FIELD_
   },
 });
 export const inspectionRequestSchemas = {
-  "interface-overview": normalizedTargetSchema,
+  "interface-overview": Schema.Struct(requestFields(OVERVIEW_FIELD_ENTRIES)).annotate({
+    inspectionRequestExample: {
+      resolutionContext: "/absolute/path/to/consumer",
+      specifier: "zod",
+      cursor: "start",
+    },
+  }),
   "export-inspection": normalizedExportSchema,
   "signature-inspection": normalizedExportSchema,
   "export-search": normalizedExportSearchSchema,
@@ -220,7 +242,7 @@ export const inspectionRequestSchemas = {
   "public-interface-comparison": normalizedComparisonSchema,
 } as const satisfies Readonly<Record<InspectionIntent, Schema.Constraint>>;
 export const inspectionRequestFieldNames = Object.freeze({
-  "interface-overview": requestFieldNames(TARGET_FIELD_ENTRIES),
+  "interface-overview": requestFieldNames(OVERVIEW_FIELD_ENTRIES),
   "export-inspection": requestFieldNames(EXPORT_FIELD_ENTRIES),
   "signature-inspection": requestFieldNames(EXPORT_FIELD_ENTRIES),
   "export-search": requestFieldNames(EXPORT_SEARCH_FIELD_ENTRIES),
@@ -242,7 +264,7 @@ export type NormalizedInspectionRequestByIntent = {
 
 export type AccessStyle = NormalizedInspectionTarget["accessStyle"];
 export type InterfaceOverviewRequest = InspectionRequestByIntent["interface-overview"];
-export type NormalizedInspectionTarget = NormalizedInspectionRequestByIntent["interface-overview"];
+export type NormalizedInspectionTarget = typeof normalizedTargetSchema.Type;
 export type ExportInspectionRequest = InspectionRequestByIntent["export-inspection"];
 export type SignatureInspectionRequest = InspectionRequestByIntent["signature-inspection"];
 export type ExportSearchRequest = InspectionRequestByIntent["export-search"];
@@ -366,7 +388,6 @@ export const INSPECTION_REQUEST_DESCRIPTORS = Object.freeze(
   ),
 ) satisfies readonly SchemaDerivedRequestDescriptor[];
 
-/** Validates one untrusted caller request through its published executable definition. */
 export function readInspectionRequest<Intent extends InspectionIntent>(
   intent: Intent,
   value: unknown,
@@ -377,7 +398,6 @@ export function readInspectionRequest<Intent extends InspectionIntent>(
     : { accepted: true, request };
 }
 
-/** Validates and correlates one analysis intent with its normalized request. */
 function readAnalysisRequestForIntent(
   intent: AnalysisIntent,
   value: unknown,
@@ -394,7 +414,6 @@ function readAnalysisRequestForIntent(
     : { accepted: true, request };
 }
 
-/** Validates and correlates one transport-neutral Inspection Core request. */
 export function readInspectionCoreRequest(
   intent: InspectionIntent,
   value: unknown,
@@ -409,7 +428,7 @@ export function readInspectionCoreRequest(
   return reading.accepted ? { accepted: true, preparedRequest: reading.request } : reading;
 }
 
-/** Revalidates the structured-cloned request at the isolated analysis-process seam. */
+/** Validates the request received by the analysis subprocess. */
 export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
   try {
     const envelope = snapshotDataProperties(value, ANALYSIS_REQUEST_FIELDS);
@@ -488,7 +507,12 @@ function prepareComparisonCandidate(
 ): Readonly<Record<string, unknown>> | undefined {
   const before = REQUEST_DEFINITIONS["interface-overview"].read(value["before"]);
   const after = REQUEST_DEFINITIONS["interface-overview"].read(value["after"]);
-  return before === undefined || after === undefined ? undefined : { before, after };
+  return before === undefined ||
+    after === undefined ||
+    before.cursor !== undefined ||
+    after.cursor !== undefined
+    ? undefined
+    : { before, after };
 }
 
 function invalidRequest(name: string): InspectionFailure {

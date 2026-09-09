@@ -1,20 +1,20 @@
 # Benchmarking agent discovery with Typepeek
 
-Research and proposed experiment, 2026-09-08. Initial repository inspection: `441ea8ce2f305ac84de2521179a925b25e87a843`. The broader thresholds and run sizes below are proposals. Implemented runners now cover [autonomous Codex time and token usage](codex-discovery/README.md) and [deterministic local retrieval](discovery/README.md). The initial study uses a narrower exact-signature/name rubric and the repository's installed dependencies; it does not yet implement every task category proposed here.
+Research design dated 2026-09-08, based on commit `441ea8ce2f305ac84de2521179a925b25e87a843`. The thresholds and run sizes below are proposed. Existing runners cover [autonomous Codex time and token usage](codex-discovery/README.md) and [deterministic local retrieval](discovery/README.md). The initial study uses a narrower exact-signature/name rubric and the repository's installed dependencies; it does not yet implement every task category proposed here.
 
-Measure whether an agent reaches a correct, version-specific understanding of an installed package's Public Interface faster and at lower cost with Typepeek. The most useful product result would be that a cheaper model with Typepeek matches a stronger model inspecting declarations directly.
+Measure whether an agent reaches a correct, version-specific understanding of an installed package's Public Interface faster and at lower cost with Typepeek. Test whether a cheaper model with Typepeek matches a stronger model inspecting declarations directly.
 
-There are two separate questions: what Typepeek adds to the **same model and reasoning setting**, and which **model, reasoning setting, and tool combination** offers the best quality for a given time or cost budget.
+Compare Typepeek against file inspection at the same model and reasoning setting. Then compare model, reasoning, and tool combinations for quality under a fixed time or cost budget.
 
-**What the project already provides.**
+## Existing benchmarks
 
 The existing [latency benchmark](inspection-latency.ts) measures CLI execution through source, build, and packaged adapters. The [agent protocol benchmark](agent-protocol.ts) checks deterministic payload and recovery workloads; it does not involve a language model. Keep these as inexpensive regression checks, and add a separate agent evaluation.
 
-Reuse the [real-package corpus](../tests/fixtures/real-package-corpus/package.json), its [lockfile](../tests/fixtures/real-package-corpus/package-lock.json), and the installation and compiler-probe patterns in [the corpus helper](../tests/helpers/real-package-corpus.ts). The lockfile currently selects, among others, Execa 10.0.1, React 19.2.8, date-fns 4.4.0, Zod 4.4.3, and Zod 3.25.76 in a legacy workspace. Manifest ranges alone do not identify the tested version.
+Reuse the [real-package corpus](../tests/fixtures/real-package-corpus/package.json), its [lockfile](../tests/fixtures/real-package-corpus/package-lock.json), and the installation and compiler-probe patterns in [the corpus helper](../tests/helpers/real-package-corpus.ts). At the research date, the lockfile selected Execa 10.0.1, React 19.2.8, date-fns 4.4.0, Zod 4.4.3, and Zod 3.25.76 in a legacy workspace. Manifest ranges alone do not identify the tested version.
 
 Use the corpus's actual Installed Evidence, including separate Declaration Providers such as `@types/react`. A task's identity includes its Resolution Context, exact Specifier, Access Style, package version, Declaration Provider version, and compiler configuration. These distinctions follow the project's [domain definitions](../CONTEXT.md).
 
-**Experimental conditions.**
+## Experimental conditions
 
 | Condition                        | Agent access                                                                                                        | What it measures                                                    |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
@@ -31,7 +31,7 @@ Both primary conditions receive the same question, consumer project, static comp
 
 Install dependencies before timing. Use identical read-only consumer snapshots and a writable scratch directory per run. Install Typepeek in a separate tool location so its own dependencies do not change the consumer's resolution. A must not be able to invoke or read that tool installation. Keep the Typepeek repository, tests, prior transcripts, and grader files outside the agent workspace. Disable network lookup and installation during discovery. Both conditions inspect the same local material without executing dependency code, consistent with [Static Inspection](../docs/adr/0002-keep-inspection-static.md).
 
-**Tasks that expose useful differences.**
+## Tasks
 
 Start with 24 development tasks across at least eight package families. Spread them across the following categories; use the [existing corpus questions](../tests/real-package-corpus.test.ts) as seeds, not as the full evaluation set.
 
@@ -50,7 +50,7 @@ For version tasks, first verify that the selected feature actually differs. Two 
 
 Add a separate stress set of fresh synthetic packages with randomized names, unfamiliar declarations, conditional exports, and intentionally absent members. Freeze each generated fixture across paired conditions. These reduce the usefulness of memorized library facts, but report their results separately from real packages.
 
-**Ground truth must be independent of Typepeek.**
+## Independent ground truth
 
 Build and review answer keys from installed declarations, manifest exports, and a separately implemented TypeScript consumer probe. Reuse installation helpers where useful, but do not import Typepeek inspection or rendering code into the grader. Sharing the compiler version aligns language semantics; it does not make the oracle independent of compiler bugs. Include human-reviewed fixtures and record that limitation.
 
@@ -60,9 +60,9 @@ Compilation alone is insufficient. A snippet can compile through `any`, assertio
 
 Use binary task success as the headline: all required facts correct, no material false claims, valid public imports, and required probes passing. Add fact precision/recall and failure labels for diagnosis. A correct statement that the CLI hit a limit is honest, but it is not a solved answerable task; report safe abstention separately. For deliberately unanswerable tasks, correct abstention can be success. An LLM judge may assist with explanatory prose, but should not determine type correctness.
 
-A local smoke check demonstrates why this matters. The pre-fix packaged CLI returned exact text `(command: string): string[]` for Execa 10.0.0's `parseCommandString`, while `returns.type` was `{}`. The installed declaration at `node_modules/execa/types/methods/command.d.ts` declares `string[]`. Follow-up checks found an erased rest-argument array and a `string | URL` parameter reduced to `any`. The inspection program omitted standard-library or Node declarations needed to resolve those types. A separate product fix restores that evidence, invalidates older cache entries, and checks exact and structured signatures through the packaged CLI. The [results report](results/2026-09-08/README.md) distinguishes measurements made before and after the fix. The repository's Execa 10.0.0 installation also differs from the corpus's Execa 10.0.1.
+A local smoke check found that the pre-fix packaged CLI returned exact text `(command: string): string[]` for Execa 10.0.0's `parseCommandString`, while `returns.type` was `{}`. The installed declaration at `node_modules/execa/types/methods/command.d.ts` declares `string[]`. Follow-up checks found an erased rest-argument array and a `string | URL` parameter reduced to `any`. The inspection program omitted standard-library or Node declarations needed to resolve those types. A separate product fix restores that evidence, invalidates older cache entries, and checks exact and structured signatures through the packaged CLI. The [results report](results/2026-09-08/README.md) distinguishes measurements made before and after the fix. The repository's Execa 10.0.0 installation also differs from the corpus's Execa 10.0.1.
 
-**Model and reasoning matrix.**
+## Model and reasoning matrix
 
 The following candidates and common effort levels are documented as of the research date. Availability to a particular API account still needs a preflight check.
 
@@ -73,11 +73,9 @@ The following candidates and common effort levels are documented as of the resea
 | [`gpt-5.6-sol`](https://developers.openai.com/api/docs/models/gpt-5.6-sol)     | Stronger GPT-5.6 reference | `low`, `medium`, `high` |
 | [`gpt-6-astra`](https://developers.openai.com/api/docs/models/gpt-6-astra)     | Flagship reference         | `low`, `medium`, `high` |
 
-Set effort explicitly. The same effort label does not guarantee the same compute or reasoning-token budget across models. Test `none` separately for the GPT-5.6 models; Astra does not support it. Reserve higher efforts for difficult tasks if the initial results justify their cost. The cited pages currently list undated snapshot IDs; record requested and returned IDs and execution dates, and use a dated snapshot only if officially available.
+Set effort explicitly. The same effort label does not guarantee the same compute or reasoning-token budget across models. Test `none` separately for the GPT-5.6 models; Astra does not support it. Reserve higher efforts for difficult tasks if the initial results justify their cost. At the research date, the cited pages listed undated snapshot IDs; record requested and returned IDs and execution dates, and use a dated snapshot only if officially available.
 
-Start the pilot with Luna and Terra at `low` and `medium`. A complete exploratory matrix of four models, three efforts, two conditions, 24 tasks, and three repeats would contain **1,728 runs**. This is a design-space search; the final claim needs a separate held-out comparison. The decision of greatest interest is whether Luna or Terra with Typepeek reaches the success rate of Sol or Astra inspecting files at lower total cost or latency.
-
-**Agent harness and reproducibility.**
+Start the pilot with Luna and Terra at `low` and `medium`. A complete exploratory matrix of four models, three efforts, two conditions, 24 tasks, and three repeats would contain 1,728 runs. This is a design-space search; the final claim needs a separate held-out comparison. ## Agent harness and reproducibility
 
 Use one small Responses API harness with a bounded local command executor. The executor runs the real packaged CLI through its public process boundary; the main experiment should not call Typepeek's internal functions. Freeze the Typepeek artifact hash, tool descriptions, prompt, model ID, reasoning effort, service tier, compiler, Node and package-manager versions, lockfile, task set, and harness commit.
 
@@ -87,7 +85,7 @@ Proposed initial limits are 120 seconds, 20 local tool invocations, and a fixed 
 
 Record each model request, usage response, command, stdout/stderr, exit status, truncation, timestamps, final answer, and grader outcome as a run artifact. Keep infrastructure failures distinct from task failures. Retain failed attempts and their cost when retrying, and apply the same retry policy across conditions.
 
-**Measurements and interpretation.**
+## Measurements and interpretation
 
 | Measure              | Definition and use                                                                                                             |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -113,12 +111,10 @@ Select configurations on a development set and evaluate finalists on an untouche
 
 Report the configurations that offer the best tradeoffs among correctness, speed, and cost. This answers both whether Typepeek helps within a model and whether a cheaper model with Typepeek can replace a stronger baseline at comparable quality.
 
-**Staged implementation.**
+## Proposed implementation
 
 1. Build the task schema, isolated corpus materialization, hidden compiler-based grader, trace format, and two primary conditions under a proposed `benchmarks/agent-discovery/` directory. Validate the grader against intentionally wrong answers before paying for model runs.
-2. Run a small pilot across two models and two reasoning settings: 24 tasks × 2 models × 2 settings × 2 conditions × 3 independent repeats = **576 runs**. Measure spend, task difficulty, failures, and variance before expanding.
+2. Run a small pilot across two models and two reasoning settings: 24 tasks × 2 models × 2 settings × 2 conditions × 3 independent repeats = 576 runs. Measure spend, task difficulty, failures, and variance before expanding.
 3. Use a broader matrix to locate promising configurations, then confirm a small number of comparisons on held-out tasks. Preflight model access and supported settings and estimate the campaign budget from pilot usage. Do not infer cost from run count alone.
 4. Add the skill condition, CLI text versus JSON, and protocol `structured`/`exact`/`both` as separate experiments. The [protocol projection](../src/inspection/signature-evidence-projection.ts) changes available evidence; do not pool it with ordinary CLI JSON. Evaluate `plan` and cache reuse after establishing the baseline.
 5. Keep deterministic grading and tool checks in ordinary CI. Run model evaluations on demand or on a scheduled budget, saving immutable raw traces and a compact report with model, effort, condition, success interval, success-by-deadline, latency, cost per solved task, and tokens.
-
-The first deliverable should be a trustworthy paired experiment and error analysis. A leaderboard becomes useful once it distinguishes model limitations, tool evidence defects, discovery failures, and genuine savings from Typepeek.

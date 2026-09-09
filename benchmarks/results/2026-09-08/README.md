@@ -167,7 +167,7 @@ The [baseline](tolerance-baseline.json) and [comparison](tolerance-current.json)
 
 The packaged CLI could report an array return as `{}`, erase Execa's rest-argument array from exact signature text, or report its `string | URL` parameter as `any`. Signature and Export Inspections now load the standard-library declarations needed by the checker. Signature Inspection also selects the installed Node Declaration Provider when the selected export references it. The separate fix includes a cache-identity change and regressions through the packaged CLI and Inspection Protocol.
 
-The product fixes were merged in [PR #63](https://github.com/ueberBrot/typepeek/pull/63), commit `027fc3ab03ca12c05d8fe62d31b6544ccf7fc193`. Standard-library paths also needed a Windows comparison fix. All eight CI jobs passed before merge. Loading complete declarations adds compiler work; Execa’s proof now exceeds the optional cache’s 64 KiB limit, so those inspections run uncached.
+The product fixes were merged in [PR #63](https://github.com/ueberBrot/typepeek/pull/63), commit `027fc3ab03ca12c05d8fe62d31b6544ccf7fc193`. Standard-library paths also needed a Windows comparison fix. All eight CI jobs passed before merge. Loading complete declarations added compiler work. In that build, Execa’s proof exceeded the optional cache’s 64 KiB limit, so those inspections ran uncached.
 
 The benchmark itself also needed corrections: consumer-relative Node declaration resolution in the independent oracle, optional trailing-comma normalization, and deduplication of identical ESM/CJS declaration interfaces. The duplicated interfaces were collapsed as complete units, preserving actual overloads within each file. Saved results identify any regrading; measured times and usage were retained.
 

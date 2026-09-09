@@ -32,9 +32,8 @@ import {
   isTypeScriptStandardLibraryDeclaration,
 } from "#typepeek/inspection/typescript-standard-library";
 
-const MAX_SOURCE_FILES = 384;
+const MAX_PACKAGE_LOOKUP_CACHE_ENTRIES = 4_096;
 const MAX_DECLARATION_GRAPH_DEPTH = 256;
-const MAX_DECLARATION_GRAPH_NODES = 250_000;
 
 interface CompilerHostState {
   readonly defaultHost: ts.CompilerHost;
@@ -49,6 +48,8 @@ interface CompilerHostState {
   readonly directoriesCache: Map<string, string[]>;
   readonly realpathCache: Map<string, string>;
   readonly sourceFileCache: Map<string, ts.SourceFile | undefined>;
+  readonly packageLookups: Map<string, PackageRootCapability | undefined>;
+  readonly moduleResolutionCaches: Map<string, ts.ModuleResolutionCache>;
   readonly compilerWorkSession: CompilerWorkSession;
   sourceFileCount: number;
   sourceByteCount: number;
@@ -106,7 +107,7 @@ interface InstalledProgramRequirements {
   readonly focusedExportNames: readonly string[];
   readonly needsStandardLibrary: boolean;
   readonly needsNodeAugmentation: boolean;
-  readonly nodeAugmentationExportName: string | undefined;
+  readonly nodeAugmentationExportNames: ReadonlySet<string> | undefined;
 }
 
 type NodeAugmentationScope = "none" | "complete-module" | "focused-export";
@@ -122,7 +123,6 @@ const NODE_AUGMENTATION_SCOPE_BY_QUERY = {
   "member-discovery": "focused-export",
 } as const satisfies Readonly<Record<InspectionPlanQuery["intent"], NodeAugmentationScope>>;
 
-/** Materializes and validates one bounded TypeScript declaration program. */
 export function materializeInstalledProgram(
   selection: InstalledProgramSelection,
   queries: readonly InspectionPlanQuery[],
@@ -187,14 +187,14 @@ export function materializeInstalledProgram(
             return {
               program: ts.createProgram({
                 rootNames: [declarationPath, nodeProvider.declarationPath],
-                options: compilerOptions,
+                options: publicInterfaceProgram.getCompilerOptions(),
                 host,
               }),
               providerRoot: nodeProvider.root.canonical,
             };
           },
           () => reserveDeclarationGraphNodes(traversal, 1),
-          requirements.nodeAugmentationExportName,
+          requirements.nodeAugmentationExportNames,
         );
   const program = nodeProgram ?? publicInterfaceProgram;
   return inspectSelectedModule(program, selection, host, traversal);
@@ -235,10 +235,9 @@ function installedProgramRequirements(
         query.intent === "member-discovery",
     ),
     needsNodeAugmentation,
-    nodeAugmentationExportName:
-      !nodeAugmentationRequiresCompleteModule && nodeAugmentationExportNames.size === 1
-        ? nodeAugmentationExportNames.values().next().value
-        : undefined,
+    nodeAugmentationExportNames: nodeAugmentationRequiresCompleteModule
+      ? undefined
+      : nodeAugmentationExportNames,
   };
 }
 
@@ -481,7 +480,10 @@ function descendantImportTypeSpecifiers(
   const specifiers: ts.Expression[] = [];
   const visit = (node: ts.Node, depth: number): void => {
     traversal.nodeCount += 1;
-    if (depth > MAX_DECLARATION_GRAPH_DEPTH || traversal.nodeCount > MAX_DECLARATION_GRAPH_NODES) {
+    if (
+      depth > MAX_DECLARATION_GRAPH_DEPTH ||
+      traversal.nodeCount > INSPECTION_BUDGET_POLICY.declarationGraphNodes
+    ) {
       throw new InspectionLimitError(
         "declaration-graph",
         "Inspection exceeded its declaration graph traversal limit.",
@@ -555,7 +557,6 @@ function assertResolvedReExportGraph(
   host: BoundedCompilerHost,
   traversal: DeclarationGraphTraversalState,
 ): void {
-  // Reject unresolved re-export graphs before returning a result.
   const state: ReExportGraphState = {
     pendingEntries: [{ declaration: entrypoint, expandSourceExports: true }],
     visitedDeclarations: new Set(),
@@ -656,7 +657,7 @@ function referencedDeclarationSourceFiles(
       ),
     ),
     ...declaration.typeReferenceDirectives.map((reference) =>
-      resolvedTypeReferenceSourceFile(program, declaration, reference.fileName, host),
+      resolvedTypeReferenceSourceFile(program, declaration, reference, host),
     ),
   ];
 }
@@ -666,7 +667,7 @@ function reserveDeclarationGraphNodes(
   count: number,
 ): void {
   traversal.nodeCount += count;
-  if (traversal.nodeCount > MAX_DECLARATION_GRAPH_NODES) {
+  if (traversal.nodeCount > INSPECTION_BUDGET_POLICY.declarationGraphNodes) {
     throw new InspectionLimitError(
       "declaration-graph",
       "Inspection exceeded its declaration graph traversal limit.",
@@ -677,15 +678,15 @@ function reserveDeclarationGraphNodes(
 function resolvedTypeReferenceSourceFile(
   program: ts.Program,
   containingFile: ts.SourceFile,
-  typeReferenceName: string,
+  reference: ts.FileReference,
   host: BoundedCompilerHost,
 ): ts.SourceFile {
   const resolution = host.resolveTypeReferenceDirectiveReferences(
-    [typeReferenceName],
+    [reference],
     containingFile.fileName,
     undefined,
     program.getCompilerOptions(),
-    undefined,
+    containingFile,
     undefined,
   )[0]?.resolvedTypeReferenceDirective;
   const resolvedFileName = resolution?.resolvedFileName;
@@ -800,7 +801,10 @@ function createBoundedCompilerHost(
     writeFile: rejectCompilerWrite,
   };
   const authorizedPackageRoots = packageRoots.flatMap((packageRoot) => {
-    const canonicalPackageRoot = canonicalPath(packageRoot);
+    const canonicalPackageRoot = canonicalPath(
+      packageRoot,
+      compilerWorkSession.packageBoundaryObserver,
+    );
     if (canonicalPackageRoot === undefined) {
       throw new UnsupportedInspectionError(
         "The installed package boundary could not be canonicalized.",
@@ -821,6 +825,8 @@ function createBoundedCompilerHost(
     directoriesCache: new Map(),
     realpathCache: new Map(),
     sourceFileCache: new Map(),
+    packageLookups: new Map(),
+    moduleResolutionCaches: new Map(),
     compilerWorkSession,
     sourceFileCount: 0,
     sourceByteCount: 0,
@@ -903,6 +909,7 @@ function createBoundedCompilerHost(
       containingFile,
       redirectedReference,
       options,
+      containingSourceFile,
     ) =>
       typeDirectiveReferences.map((reference) =>
         resolveTypeReferenceDirectiveReference(
@@ -911,6 +918,7 @@ function createBoundedCompilerHost(
           containingFile,
           redirectedReference,
           options,
+          containingSourceFile,
         ),
       ),
     getSourceFile: (fileName, languageVersion, onError) =>
@@ -933,7 +941,6 @@ function createBoundedResolutionHost(
   const { defaultHost } = state;
   return {
     fileExists: (fileName) => {
-      assertNoResolutionSymlinkEscape(allowedRoots, fileName);
       return (
         isAuthorizedResolutionPath(allowedRoots, fileName) &&
         cachedCompilerHostResult(state, state.fileExistsCache, fileName, () =>
@@ -942,7 +949,6 @@ function createBoundedResolutionHost(
       );
     },
     readFile: (fileName) => {
-      assertNoResolutionSymlinkEscape(allowedRoots, fileName);
       if (!isAuthorizedResolutionPath(allowedRoots, fileName)) {
         return undefined;
       }
@@ -961,9 +967,8 @@ function createBoundedResolutionHost(
       ? {}
       : {
           directoryExists: (directoryName: string) => {
-            assertNoResolutionSymlinkEscape(allowedRoots, directoryName);
             return (
-              isAuthorizedResolutionDirectory(allowedRoots, directoryName) &&
+              isAuthorizedResolutionPath(allowedRoots, directoryName, true) &&
               cachedCompilerHostResult(
                 state,
                 state.directoryExistsCache,
@@ -977,7 +982,6 @@ function createBoundedResolutionHost(
       ? {}
       : {
           getDirectories: (directoryName: string) => {
-            assertNoResolutionSymlinkEscape(allowedRoots, directoryName);
             if (!isAuthorizedResolutionPath(allowedRoots, directoryName)) {
               return [];
             }
@@ -1011,7 +1015,6 @@ function createBoundedResolutionHost(
       ? {}
       : {
           realpath: (path: string) => {
-            assertNoResolutionSymlinkEscape(allowedRoots, path);
             return isAuthorizedResolutionPath(allowedRoots, path)
               ? cachedCompilerHostResult(
                   state,
@@ -1027,58 +1030,34 @@ function createBoundedResolutionHost(
   };
 }
 
-function assertNoResolutionSymlinkEscape(
+function isAuthorizedResolutionPath(
   allowedRoots: ReadonlySet<string>,
   candidate: string,
-): void {
+  allowAncestor = false,
+): boolean {
   const lexicalCandidate = resolve(candidate);
-  if (![...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, lexicalCandidate))) {
-    return;
-  }
-  const canonicalCandidate = canonicalEvidenceCandidatePath(candidate);
+  const withinRoot = [...allowedRoots].some((root) => isPathWithin(root, lexicalCandidate));
   if (
-    canonicalCandidate === undefined ||
-    ![...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, canonicalCandidate))
+    !withinRoot &&
+    !(allowAncestor && [...allowedRoots].some((root) => isPathWithin(lexicalCandidate, root)))
   ) {
+    return false;
+  }
+  // Canonicalize once per probe, including cache hits, so symlink changes are checked.
+  const canonicalCandidate = canonicalEvidenceCandidatePath(candidate);
+  const canonicalWithinRoot =
+    canonicalCandidate !== undefined &&
+    [...allowedRoots].some((root) => isPathWithin(root, canonicalCandidate));
+  if (withinRoot && !canonicalWithinRoot) {
     throw new StaticBoundaryInspectionError(
       "A declaration references source outside its installed package boundary.",
     );
   }
-}
-
-function isAuthorizedResolutionPath(allowedRoots: ReadonlySet<string>, candidate: string): boolean {
-  const lexicalCandidate = resolve(candidate);
-  if (![...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, lexicalCandidate))) {
-    return false;
-  }
-  const canonicalCandidate = canonicalEvidenceCandidatePath(candidate);
   return (
-    canonicalCandidate !== undefined &&
-    [...allowedRoots].some((allowedRoot) => isPathWithin(allowedRoot, canonicalCandidate))
-  );
-}
-
-function isAuthorizedResolutionDirectory(
-  allowedRoots: ReadonlySet<string>,
-  candidate: string,
-): boolean {
-  const lexicalCandidate = resolve(candidate);
-  if (
-    ![...allowedRoots].some(
-      (allowedRoot) =>
-        isPathWithin(allowedRoot, lexicalCandidate) || isPathWithin(lexicalCandidate, allowedRoot),
-    )
-  ) {
-    return false;
-  }
-  const canonicalCandidate = canonicalEvidenceCandidatePath(candidate);
-  return (
-    canonicalCandidate !== undefined &&
-    [...allowedRoots].some(
-      (allowedRoot) =>
-        isPathWithin(allowedRoot, canonicalCandidate) ||
-        isPathWithin(canonicalCandidate, allowedRoot),
-    )
+    canonicalWithinRoot ||
+    (allowAncestor &&
+      canonicalCandidate !== undefined &&
+      [...allowedRoots].some((root) => isPathWithin(canonicalCandidate, root)))
   );
 }
 
@@ -1107,9 +1086,11 @@ function resolveTypeReferenceDirectiveReference(
   containingFile: string,
   redirectedReference: ts.ResolvedProjectReference | undefined,
   options: ts.CompilerOptions,
+  containingSourceFile: ts.SourceFile | undefined,
 ): ts.ResolvedTypeReferenceDirectiveWithFailedLookupLocations {
   const referenceName = typeof reference === "string" ? reference : reference.fileName;
-  const cacheKey = `${containingFile}\0${referenceName}`;
+  const mode = ts.getModeForFileReference(reference, containingSourceFile?.impliedNodeFormat);
+  const cacheKey = `${containingFile}\0${referenceName}\0${mode}`;
   const cachedResolution = state.typeReferenceResolutions.get(cacheKey);
   if (cachedResolution !== undefined) {
     return cachedResolution;
@@ -1121,6 +1102,8 @@ function resolveTypeReferenceDirectiveReference(
     options,
     createBoundedResolutionHost(state, resolutionRoots),
     redirectedReference,
+    undefined,
+    mode,
   );
   const authorizedResolution = authorizeTypeReferenceDirective(
     state,
@@ -1132,6 +1115,9 @@ function resolveTypeReferenceDirectiveReference(
     : { ...resolution, resolvedTypeReferenceDirective: undefined };
   const resolvedPath = authorizedResolution.resolvedTypeReferenceDirective?.resolvedFileName;
   state.compilerWorkSession.observeResolution({
+    ...(mode === undefined
+      ? {}
+      : { accessStyle: mode === ts.ModuleKind.CommonJS ? "require" : "import" }),
     allowedRoots: [...resolutionRoots],
     containingFile,
     kind: "type-reference",
@@ -1277,6 +1263,36 @@ function visibleTypeReferenceCandidatePackageRoots(
   physicalPackageName: string,
   expectedPackageIdentity?: string,
 ): PackageRootCapability | undefined {
+  reserveCompilerHostOperations(state, 1);
+  // Declarations in one directory share package visibility. Include both names
+  // in the key to distinguish package aliases and @types fallbacks.
+  const key = JSON.stringify([
+    dirname(containingFile),
+    declaredPackageName,
+    physicalPackageName,
+    expectedPackageIdentity,
+  ]);
+  if (state.packageLookups.has(key)) return state.packageLookups.get(key);
+  const roots = readVisibleTypeReferenceCandidatePackageRoots(
+    state,
+    containingFile,
+    declaredPackageName,
+    physicalPackageName,
+    expectedPackageIdentity,
+  );
+  if (state.packageLookups.size < MAX_PACKAGE_LOOKUP_CACHE_ENTRIES) {
+    state.packageLookups.set(key, roots);
+  }
+  return roots;
+}
+
+function readVisibleTypeReferenceCandidatePackageRoots(
+  state: CompilerHostState,
+  containingFile: string,
+  declaredPackageName: string,
+  physicalPackageName: string,
+  expectedPackageIdentity: string | undefined,
+): PackageRootCapability | undefined {
   const packageSegments = parsePackageNameSegments(physicalPackageName);
   if (packageSegments === undefined) {
     return undefined;
@@ -1344,7 +1360,7 @@ function resolveModuleLiteral(
     containingFile,
     options,
     createBoundedResolutionHost(state, resolutionRoots),
-    undefined,
+    moduleResolutionCache(state, resolutionRoots, options),
     redirectedReference,
     mode,
   );
@@ -1367,6 +1383,25 @@ function resolveModuleLiteral(
     specifier: moduleLiteral.text,
   });
   return authorizedResolution;
+}
+
+function moduleResolutionCache(
+  state: CompilerHostState,
+  resolutionRoots: ReadonlySet<string>,
+  options: ts.CompilerOptions,
+): ts.ModuleResolutionCache {
+  const key = JSON.stringify([...resolutionRoots].sort());
+  const existing = state.moduleResolutionCaches.get(key);
+  if (existing !== undefined) return existing;
+  const cache = ts.createModuleResolutionCache(
+    state.defaultHost.getCurrentDirectory(),
+    (fileName) => state.defaultHost.getCanonicalFileName(fileName),
+    options,
+  );
+  if (state.moduleResolutionCaches.size < MAX_PACKAGE_LOOKUP_CACHE_ENTRIES) {
+    state.moduleResolutionCaches.set(key, cache);
+  }
+  return cache;
 }
 
 function moduleResolutionRoots(
@@ -1520,6 +1555,20 @@ function getBoundedSourceFile(
     sourceText === undefined
       ? undefined
       : ts.createSourceFile(fileName, sourceText, languageVersion, true);
+  if (sourceFile !== undefined && sourceText !== undefined) {
+    // Standard-library format is controlled by the pinned compiler, not Installed Evidence.
+    const mode = isTypeScriptStandardLibraryDeclaration(installedSourcePath)
+      ? undefined
+      : sourceFile.impliedNodeFormat;
+    state.compilerWorkSession.observeEvidenceFile(
+      installedSourcePath,
+      sourceText,
+      "declaration",
+      mode === undefined
+        ? undefined
+        : { accessStyle: mode === ts.ModuleKind.CommonJS ? "require" : "import", path: fileName },
+    );
+  }
   state.sourceFileCache.set(fileName, sourceFile);
   return sourceFile;
 }
@@ -1537,7 +1586,7 @@ function resolveReadablePath(
 ): string | undefined {
   try {
     // Canonicalize before containment checks to reject symlink escapes.
-    return realpathSync(fileName);
+    return realpathSync.native(fileName);
   } catch (error) {
     onError?.(String(error));
     return undefined;
@@ -1557,7 +1606,7 @@ function assertAllowedSource(allowedRoots: ReadonlySet<string>, sourcePath: stri
 
 function incrementSourceFileCount(state: CompilerHostState): void {
   state.sourceFileCount += 1;
-  if (state.sourceFileCount > MAX_SOURCE_FILES) {
+  if (state.sourceFileCount > INSPECTION_BUDGET_POLICY.declarationSourceFiles) {
     throw new InspectionLimitError(
       "declaration-files",
       "Inspection exceeded its declaration file limit.",
@@ -1578,7 +1627,6 @@ function readSourceText(
       "Inspection exceeded its declaration byte limit.",
     );
     state.sourceByteCount += Buffer.byteLength(sourceText);
-    state.compilerWorkSession.observeEvidenceFile(sourcePath, sourceText, "declaration");
     return sourceText;
   } catch (error) {
     if (error instanceof InspectionLimitError) {

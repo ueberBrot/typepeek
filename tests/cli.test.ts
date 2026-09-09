@@ -42,7 +42,7 @@ describe("typepeek CLI", () => {
     const result = await execa(process.execPath, ["src/cli.ts", "--help"]);
 
     expect(result.stdout).toContain("typepeek");
-    expect(result.stdout).toContain("Start with overview to discover exports");
+    expect(result.stdout).toContain("Use overview or search to find exports");
     expect(result.stdout).toContain("overview");
     expect(result.stdout).toContain("export");
     expect(result.stdout).toContain("signatures");
@@ -65,68 +65,88 @@ describe("typepeek CLI", () => {
     expect(result.stdout).toContain(manifest.version);
   });
 
-  it("infers the only workspace that declares a package", async () => {
-    const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-workspace-inference-"));
-    const workspaceRoot = join(repositoryRoot, "packages", "consumer");
-    const packageRoot = join(workspaceRoot, "node_modules", "workspace-only-package");
-    await Promise.all([
-      mkdir(packageRoot, { recursive: true }),
-      writeFile(
-        join(repositoryRoot, "package.json"),
-        JSON.stringify({ private: true, workspaces: ["./packages/*"] }),
-      ),
-    ]);
-    await Promise.all([
-      writeFile(
-        join(workspaceRoot, "package.json"),
-        JSON.stringify({
-          name: "workspace-consumer",
-          private: true,
-          dependencies: { "workspace-only-package": "1.0.0" },
-        }),
-      ),
-      writeFile(
-        join(packageRoot, "package.json"),
-        JSON.stringify({
-          name: "workspace-only-package",
-          version: "1.0.0",
-          types: "./index.d.ts",
-        }),
-      ),
-      writeFile(join(packageRoot, "index.d.ts"), "export declare const workspaceValue: string;\n"),
-    ]);
+  it.each(["./packages/*", "@(packages|apps)/*", "+(packages)/*", "packages/!(excluded)"])(
+    "infers the only workspace that declares a package using %s",
+    async (workspacePattern) => {
+      const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-workspace-inference-"));
+      const workspaceRoot = join(repositoryRoot, "packages", "consumer");
+      const packageRoot = join(workspaceRoot, "node_modules", "workspace-only-package");
+      await Promise.all([
+        mkdir(packageRoot, { recursive: true }),
+        writeFile(
+          join(repositoryRoot, "package.json"),
+          JSON.stringify({ private: true, workspaces: [workspacePattern] }),
+        ),
+      ]);
+      await Promise.all([
+        writeFile(
+          join(workspaceRoot, "package.json"),
+          JSON.stringify({
+            name: "workspace-consumer",
+            private: true,
+            dependencies: { "workspace-only-package": "1.0.0" },
+          }),
+        ),
+        writeFile(
+          join(packageRoot, "package.json"),
+          JSON.stringify({
+            name: "workspace-only-package",
+            version: "1.0.0",
+            types: "./index.d.ts",
+          }),
+        ),
+        writeFile(
+          join(packageRoot, "index.d.ts"),
+          "export declare const workspaceValue: string;\n",
+        ),
+      ]);
 
-    try {
-      const result = await execa(
-        process.execPath,
-        [join(process.cwd(), "src/cli.ts"), "workspace-only-package", "--json"],
-        { cwd: repositoryRoot, reject: false },
-      );
+      try {
+        const result = await execa(
+          process.execPath,
+          [join(process.cwd(), "src/cli.ts"), "workspace-only-package", "--json"],
+          { cwd: repositoryRoot, reject: false },
+        );
 
-      expect(result.exitCode).toBe(0);
-      expect(result.stderr).toBe("");
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        status: "success",
-        result: {
-          packageIdentity: { name: "workspace-only-package", version: "1.0.0" },
-          moduleExports: [{ name: "workspaceValue" }],
-        },
-      });
-    } finally {
-      await rm(repositoryRoot, { recursive: true, force: true });
-    }
-  });
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          status: "success",
+          result: {
+            packageIdentity: { name: "workspace-only-package", version: "1.0.0" },
+            moduleExports: [{ name: "workspaceValue" }],
+          },
+        });
+      } finally {
+        await rm(repositoryRoot, { recursive: true, force: true });
+      }
+    },
+  );
 
-  it("infers a declared pnpm workspace with a quoted pattern and inline comment", async () => {
+  it.each([
+    ["indented sequence", "packages:\n  - 'packages/*' # consuming \"workspaces\"\n"],
+    ["indentless sequence", "packages:\n- 'packages/*' # consuming \"workspaces\"\n"],
+    ["commented key", "packages: # consuming workspaces\n  - 'packages/*'\n"],
+  ])("infers a declared pnpm workspace using %s", async (_description, workspaceConfig) => {
     const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-pnpm-workspace-"));
     const workspaceRoot = join(repositoryRoot, "packages", "consumer");
     const packageRoot = join(workspaceRoot, "node_modules", "pnpm-workspace-package");
+    const ignoredWorkspaceRoot = join(repositoryRoot, "ignored", "consumer");
     await mkdir(packageRoot, { recursive: true });
+    await mkdir(ignoredWorkspaceRoot, { recursive: true });
     await Promise.all([
       writeFile(join(repositoryRoot, "package.json"), JSON.stringify({ private: true })),
       writeFile(
         join(repositoryRoot, "pnpm-workspace.yaml"),
-        "packages:\n  - 'packages/*' # consuming \"workspaces\"\n",
+        `${workspaceConfig}onlyBuiltDependencies:\n  - 'ignored/*'\n`,
+      ),
+      writeFile(
+        join(ignoredWorkspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "ignored-consumer",
+          private: true,
+          dependencies: { "pnpm-workspace-package": "1.0.0" },
+        }),
       ),
       writeFile(
         join(workspaceRoot, "package.json"),
@@ -459,7 +479,7 @@ describe("typepeek CLI", () => {
   });
 
   it.each([
-    ["", "empty-input"],
+    ["\n", "empty-input"],
     ["{", "malformed-json"],
     ["{} {}", "malformed-json"],
   ])("returns one stable wire error for invalid protocol input", async (input, reason) => {
@@ -955,7 +975,7 @@ describe("typepeek CLI", () => {
     }
   });
 
-  it("reads the retained authenticated cache wire format through the complete cache-hit path", async () => {
+  it("reads the versioned authenticated cache wire format through the complete cache-hit path", async () => {
     const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-cache-wire-format-test-"));
     const arguments_ = [
       "src/cli.ts",
@@ -995,7 +1015,7 @@ describe("typepeek CLI", () => {
         JSON.stringify({
           integrity: createHmac("sha256", integrityKey).update(retainedPayload).digest("hex"),
           payload: retainedPayload,
-          schemaVersion: 1,
+          schemaVersion: 2,
         }),
       );
 

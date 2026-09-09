@@ -14,7 +14,6 @@ export interface JsonOutcomeRendering {
   readonly text: string;
 }
 
-/** Serializes one complete outcome without allowing terminal control semantics. */
 export function renderJsonOutcome(
   outcome: InspectionOutcome,
   pretty = false,

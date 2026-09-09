@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 import { MAX_INSPECTION_PLAN_QUERIES } from "#typepeek/inspection/inspection-plan-query";
 import {
