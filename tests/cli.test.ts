@@ -42,7 +42,7 @@ describe("typepeek CLI", () => {
     const result = await execa(process.execPath, ["src/cli.ts", "--help"]);
 
     expect(result.stdout).toContain("typepeek");
-    expect(result.stdout).toContain("Start with overview to discover exports");
+    expect(result.stdout).toContain("Use overview or search to find exports");
     expect(result.stdout).toContain("overview");
     expect(result.stdout).toContain("export");
     expect(result.stdout).toContain("signatures");

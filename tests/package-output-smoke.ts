@@ -65,13 +65,13 @@ const cli = spawnSync(process.execPath, ["dist/cli.js", "--help"], {
 assert.equal(cli.status, 0, cli.stderr);
 for (const expected of [
   /typepeek/u,
-  /Start with overview to discover exports/u,
-  /signatures\s+Inspect only the public call and construct signatures/u,
-  /plan\s+Execute a bounded query list/u,
-  /search\s+Search the bounded Module Export index/u,
-  /subpaths\s+Discover manifest Public Subpaths/u,
-  /compare\s+Compare two complete Interface Overview indexes/u,
-  /capabilities\s+Print the Inspection Core capabilities/u,
+  /Use overview or search to find exports/u,
+  /signatures\s+Show every public call and construct signature of an export/u,
+  /plan\s+Run several queries against the same installed evidence/u,
+  /search\s+Find export names containing a case-insensitive substring/u,
+  /subpaths\s+List public subpaths exposed by the package manifest/u,
+  /compare\s+Compare export names and public subpaths in two complete indexes/u,
+  /capabilities\s+List supported protocol requests and limits as JSON/u,
   /protocol\s+Invoke the Inspection Protocol/u,
 ]) {
   assert.match(cli.stdout, expected);
