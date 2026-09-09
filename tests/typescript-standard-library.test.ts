@@ -6,10 +6,8 @@ vi.mock("node:path", async (importOriginal) => {
 });
 vi.mock("node:fs", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs")>();
-  return {
-    ...fs,
-    realpathSync: () => "C:\\typepeek\\node_modules\\typescript\\lib",
-  };
+  const realpath = () => "C:\\typepeek\\node_modules\\typescript\\lib";
+  return { ...fs, realpathSync: Object.assign(realpath, { native: realpath }) };
 });
 
 import { isTypeScriptStandardLibraryDeclaration } from "#typepeek/inspection/typescript-standard-library";
