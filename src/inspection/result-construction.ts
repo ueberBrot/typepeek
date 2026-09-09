@@ -178,9 +178,11 @@ export class InspectionResultConstruction {
   interfaceOverview(
     publicSubpaths: readonly PublicSubpath[],
     moduleExports: readonly { readonly name: string }[],
+    exportPage?: InterfaceOverview["exportPage"],
   ): InterfaceOverview {
     const retainedSubpaths = publicSubpaths.map((subpath) => this.#budget.leaf(subpath));
     const retainedExports = moduleExports.map((moduleExport) => this.#budget.leaf(moduleExport));
+    const retainedPage = exportPage === undefined ? undefined : this.#budget.leaf(exportPage);
     return this.#budget.container(
       {
         intent: "interface-overview",
@@ -189,8 +191,13 @@ export class InspectionResultConstruction {
         ...this.#target.identity,
         publicSubpaths: retainedSubpaths,
         moduleExports: retainedExports,
+        ...(retainedPage === undefined ? {} : { exportPage: retainedPage }),
       },
-      [...retainedSubpaths, ...retainedExports],
+      [
+        ...retainedSubpaths,
+        ...retainedExports,
+        ...(retainedPage === undefined ? [] : [retainedPage]),
+      ],
     );
   }
 

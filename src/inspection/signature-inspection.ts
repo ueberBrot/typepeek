@@ -1,6 +1,6 @@
 import ts from "@typescript/typescript6";
 
-import { InspectionLimitError } from "#typepeek/inspection/errors";
+import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import {
   type FocusedExportResolution,
   resolveFocusedExport,
@@ -23,6 +23,19 @@ const MAX_SIGNATURE_BYTES = 16 * 1_024;
 const MAX_SIGNATURE_TOTAL_BYTES = 48 * 1_024;
 const MAX_SIGNATURE_PARAMETERS = 256;
 const MAX_SIGNATURE_TYPE_PARAMETERS = 64;
+const signatureConstraintPrinter = ts.createPrinter({
+  newLine: ts.NewLineKind.LineFeed,
+  removeComments: true,
+});
+// The checker requires parsed syntax for getTypeFromTypeNode. This trusted
+// expression only describes an empty call argument list; it is never a program
+// root, Installed Evidence, or returned declaration. Each checker caches its type.
+const EMPTY_ARGUMENTS_DECLARATION = ts.createSourceFile(
+  "typepeek-empty-arguments.d.ts",
+  "type EmptyArguments = [];",
+  ts.ScriptTarget.Latest,
+  true,
+).statements[0];
 const SIGNATURE_TYPE_FORMAT_FLAGS =
   ts.TypeFormatFlags.NoTruncation |
   ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope |
@@ -203,25 +216,18 @@ function inspectSignatureParameter(
   };
 }
 
-function restParameterMayBeOmitted(
-  checker: ts.TypeChecker,
-  type: ts.Type,
-  ancestors = new Set<ts.Type>(),
-): boolean {
-  if (ancestors.has(type)) return true;
-  ancestors.add(type);
-  try {
-    if ((type.flags & ts.TypeFlags.TypeParameter) !== 0) {
-      const constraint = checker.getBaseConstraintOfType(type);
-      return constraint === undefined || restParameterMayBeOmitted(checker, constraint, ancestors);
-    }
-    if (type.isUnion()) {
-      return type.types.some((item) => restParameterMayBeOmitted(checker, item, ancestors));
-    }
-    return !checker.isTupleType(type) || (type as ts.TupleTypeReference).target.minLength === 0;
-  } finally {
-    ancestors.delete(type);
+function restParameterMayBeOmitted(checker: ts.TypeChecker, type: ts.Type): boolean {
+  if (
+    EMPTY_ARGUMENTS_DECLARATION === undefined ||
+    !ts.isTypeAliasDeclaration(EMPTY_ARGUMENTS_DECLARATION)
+  ) {
+    throw new UnsupportedInspectionError("The compiler could not describe an empty argument list.");
   }
+  const emptyArguments = checker.getTypeFromTypeNode(EMPTY_ARGUMENTS_DECLARATION.type);
+  if (!checker.isTupleType(emptyArguments)) {
+    throw new UnsupportedInspectionError("The compiler could not describe an empty argument list.");
+  }
+  return checker.isTypeAssignableTo(emptyArguments, checker.getBaseConstraintOfType(type) ?? type);
 }
 
 function inspectSignatureBinding(
@@ -284,16 +290,33 @@ function signatureTypeParameterConstraint(
   declaration: ts.TypeParameterDeclaration | undefined,
   location: ts.Node,
 ): Partial<Pick<SignatureTypeParameter, "constraint">> {
-  if (declaration?.constraint !== undefined) {
-    return { constraint: declaration.constraint.getText(declaration.getSourceFile()) };
+  if (declaration !== undefined && checker.getTypeAtLocation(declaration) === typeParameter) {
+    return declaration.constraint === undefined
+      ? {}
+      : { constraint: declaration.constraint.getText(declaration.getSourceFile()) };
   }
-  if (declaration !== undefined) {
-    return {};
+  // Project the immediate constraint after substitution. The base constraint
+  // would erase references to other type parameters in this same signature.
+  const projected = checker.typeParameterToDeclaration(
+    typeParameter,
+    location,
+    ts.NodeBuilderFlags.NoTruncation |
+      ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope |
+      ts.NodeBuilderFlags.NoTypeReduction |
+      ts.NodeBuilderFlags.UseSingleQuotesForStringLiteralType,
+  );
+  if (projected === undefined) {
+    throw new UnsupportedInspectionError("A signature type parameter could not be represented.");
   }
-  const constraint = checker.getBaseConstraintOfType(typeParameter);
-  return constraint === undefined
+  return projected.constraint === undefined
     ? {}
-    : { constraint: renderSignatureType(checker, constraint, location) };
+    : {
+        constraint: signatureConstraintPrinter.printNode(
+          ts.EmitHint.Unspecified,
+          projected.constraint,
+          location.getSourceFile(),
+        ),
+      };
 }
 
 function signatureTypeParameterDefault(

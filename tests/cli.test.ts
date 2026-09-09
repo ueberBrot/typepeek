@@ -65,57 +65,63 @@ describe("typepeek CLI", () => {
     expect(result.stdout).toContain(manifest.version);
   });
 
-  it("infers the only workspace that declares a package", async () => {
-    const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-workspace-inference-"));
-    const workspaceRoot = join(repositoryRoot, "packages", "consumer");
-    const packageRoot = join(workspaceRoot, "node_modules", "workspace-only-package");
-    await Promise.all([
-      mkdir(packageRoot, { recursive: true }),
-      writeFile(
-        join(repositoryRoot, "package.json"),
-        JSON.stringify({ private: true, workspaces: ["./packages/*"] }),
-      ),
-    ]);
-    await Promise.all([
-      writeFile(
-        join(workspaceRoot, "package.json"),
-        JSON.stringify({
-          name: "workspace-consumer",
-          private: true,
-          dependencies: { "workspace-only-package": "1.0.0" },
-        }),
-      ),
-      writeFile(
-        join(packageRoot, "package.json"),
-        JSON.stringify({
-          name: "workspace-only-package",
-          version: "1.0.0",
-          types: "./index.d.ts",
-        }),
-      ),
-      writeFile(join(packageRoot, "index.d.ts"), "export declare const workspaceValue: string;\n"),
-    ]);
+  it.each(["./packages/*", "@(packages|apps)/*", "+(packages)/*", "packages/!(excluded)"])(
+    "infers the only workspace that declares a package using %s",
+    async (workspacePattern) => {
+      const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-workspace-inference-"));
+      const workspaceRoot = join(repositoryRoot, "packages", "consumer");
+      const packageRoot = join(workspaceRoot, "node_modules", "workspace-only-package");
+      await Promise.all([
+        mkdir(packageRoot, { recursive: true }),
+        writeFile(
+          join(repositoryRoot, "package.json"),
+          JSON.stringify({ private: true, workspaces: [workspacePattern] }),
+        ),
+      ]);
+      await Promise.all([
+        writeFile(
+          join(workspaceRoot, "package.json"),
+          JSON.stringify({
+            name: "workspace-consumer",
+            private: true,
+            dependencies: { "workspace-only-package": "1.0.0" },
+          }),
+        ),
+        writeFile(
+          join(packageRoot, "package.json"),
+          JSON.stringify({
+            name: "workspace-only-package",
+            version: "1.0.0",
+            types: "./index.d.ts",
+          }),
+        ),
+        writeFile(
+          join(packageRoot, "index.d.ts"),
+          "export declare const workspaceValue: string;\n",
+        ),
+      ]);
 
-    try {
-      const result = await execa(
-        process.execPath,
-        [join(process.cwd(), "src/cli.ts"), "workspace-only-package", "--json"],
-        { cwd: repositoryRoot, reject: false },
-      );
+      try {
+        const result = await execa(
+          process.execPath,
+          [join(process.cwd(), "src/cli.ts"), "workspace-only-package", "--json"],
+          { cwd: repositoryRoot, reject: false },
+        );
 
-      expect(result.exitCode).toBe(0);
-      expect(result.stderr).toBe("");
-      expect(JSON.parse(result.stdout)).toMatchObject({
-        status: "success",
-        result: {
-          packageIdentity: { name: "workspace-only-package", version: "1.0.0" },
-          moduleExports: [{ name: "workspaceValue" }],
-        },
-      });
-    } finally {
-      await rm(repositoryRoot, { recursive: true, force: true });
-    }
-  });
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          status: "success",
+          result: {
+            packageIdentity: { name: "workspace-only-package", version: "1.0.0" },
+            moduleExports: [{ name: "workspaceValue" }],
+          },
+        });
+      } finally {
+        await rm(repositoryRoot, { recursive: true, force: true });
+      }
+    },
+  );
 
   it.each([
     ["indented sequence", "packages:\n  - 'packages/*' # consuming \"workspaces\"\n"],

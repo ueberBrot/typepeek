@@ -20,6 +20,10 @@ import {
   type InstalledEvidenceProof,
   MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
 } from "#typepeek/inspection/installed-evidence-fingerprint";
+import {
+  compactEvidenceProof,
+  expandEvidenceProof,
+} from "#typepeek/inspection/installed-evidence-format";
 import type { AnalysisRequest } from "#typepeek/inspection/protocol";
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 
@@ -70,7 +74,7 @@ it("preserves canonical cache identity serialization and its SHA-256 key", () =>
   const identity = createInspectionCacheIdentity(request, selection);
   const expectedSerialized = JSON.stringify({
     budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
-    cacheSemantics: "installed-evidence-proof-inferred-type-edges",
+    cacheSemantics: "installed-evidence-proof-file-presence-and-signature-constraints",
     compilerVersion: ts.version,
     evidence: {
       declarationPath: "/repository/node_modules/example/index.d.ts",
@@ -119,6 +123,8 @@ it("retains the authenticated cache envelope and payload structure", () => {
   for (const cacheSemantics of [
     "installed-evidence-proof-focused-plan-authority",
     "installed-evidence-proof-contextual-export-access",
+    "installed-evidence-proof-inferred-type-edges",
+    "installed-evidence-proof-format-and-rest-authority",
   ]) {
     expect(
       readInspectionCachePayload({
@@ -346,7 +352,7 @@ it("rejects a proof beyond its own byte limit even when the outer receipt remain
   }
   const proof = {
     directories: [],
-    files: Array.from({ length: 18 }, (_, index) => ({
+    files: Array.from({ length: 280 }, (_, index) => ({
       kind: "declaration" as const,
       path: `/${index}-${"x".repeat(3_700)}`,
       sha256: "a".repeat(64),
@@ -362,7 +368,7 @@ it("rejects a proof beyond its own byte limit even when the outer receipt remain
   expect(Buffer.byteLength(JSON.stringify(proof))).toBeGreaterThan(
     MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
   );
-  expect(Buffer.byteLength(JSON.stringify(receipt))).toBeLessThan(96 * 1_024);
+  expect(Buffer.byteLength(JSON.stringify(receipt))).toBeLessThan(1_056 * 1_024);
   expect(createInspectionCacheWriteReceipt(identity, proof)).toBeUndefined();
   expect(readInspectionCacheWriteReceiptMessage(receipt)).toBeUndefined();
 });
@@ -426,6 +432,62 @@ it("separates Member Discovery cache identities by qualified path and search", (
   expect(new Set(keys).size).toBe(requests.length);
 });
 
+it("compacts shared source formats and preserves aliases and absolute ancestor outliers", () => {
+  const declarationPath = "/repository/node_modules/example/index.d.ts";
+  const logicalPath = "/repository/node_modules/example/alias.d.ts";
+  const proof: InstalledEvidenceProof = {
+    files: [
+      {
+        kind: "declaration",
+        path: declarationPath,
+        sha256: "a".repeat(64),
+        sourceFormat: { accessStyle: "require", path: declarationPath },
+      },
+      {
+        kind: "declaration",
+        path: "/repository/node_modules/example/other.d.ts",
+        sha256: "b".repeat(64),
+        sourceFormat: { accessStyle: "import", path: logicalPath },
+      },
+    ],
+    fileChecks: [
+      { path: "/package.json", exists: false },
+      { path: "/repository", exists: false },
+      { path: logicalPath, exists: true, canonicalPath: declarationPath },
+    ],
+    directories: [],
+    resolutions: [],
+  };
+  const compact = compactEvidenceProof(proof);
+  expect(compact.prefix).toBe("/repository/node_modules/example/");
+  expect(compact.files[0]?.[3]).toBe("require");
+  expect(compact.files[1]?.[3]).toEqual(["import", expect.any(Number)]);
+  expect(compact.paths).toContain("/package.json");
+  expect(compact.paths).toContain("/repository");
+  expect(expandEvidenceProof(compact)).toEqual(proof);
+  expect(compactEvidenceProof({ ...proof, files: [...proof.files].reverse() }).prefix).toBe(
+    compact.prefix,
+  );
+  const identity = createInspectionCacheIdentity(request, selection)!;
+  const receipt = createInspectionCacheWriteReceipt(identity, proof)!;
+  expect(
+    readInspectionCacheWriteReceiptMessage(encodeInspectionCacheWriteReceipt(receipt))?.proof,
+  ).toEqual(proof);
+});
+
+it.each([
+  ["/foo\\/a", "/foo\\bar/b"],
+  ["/foo//a", "/foo/b"],
+])("preserves absolute-looking suffixes when compacting %s and %s", (...paths) => {
+  const proof: InstalledEvidenceProof = {
+    files: paths.map((path) => ({ kind: "declaration", path, sha256: "a".repeat(64) })),
+    fileChecks: [],
+    directories: [],
+    resolutions: [],
+  };
+  expect(expandEvidenceProof(compactEvidenceProof(proof))).toEqual(proof);
+});
+
 it("rejects invalid dictionary references and excessive proof expansion", () => {
   const identity = createInspectionCacheIdentity(request, selection)!;
   const receipt = { identity: identity.value, kind: "inspection-cache-write" };
@@ -433,21 +495,47 @@ it("rejects invalid dictionary references and excessive proof expansion", () => 
     prefix: "/repository/",
     paths: ["index.d.ts"],
     rootSets: [[0]],
-    files: [["declaration", 0, "a".repeat(64)]],
+    files: [["declaration", 0, "a".repeat(64), null]],
     directories: [],
     resolutions: [["module", "import", 0, null, "example", 0, 0]],
   };
   expect(readInspectionCacheWriteReceiptMessage({ ...receipt, proof })).toBeDefined();
+  const formatted = readInspectionCacheWriteReceiptMessage({
+    ...receipt,
+    proof: { ...proof, files: [["declaration", 0, "a".repeat(64), ["require", 0]]] },
+  });
+  expect(formatted?.proof.files[0]?.sourceFormat).toEqual({
+    accessStyle: "require",
+    path: "/repository/index.d.ts",
+  });
+  expect(
+    readInspectionCacheWriteReceiptMessage(encodeInspectionCacheWriteReceipt(formatted))?.proof,
+  ).toEqual(formatted?.proof);
+  const checked = readInspectionCacheWriteReceiptMessage({
+    ...receipt,
+    proof: { ...proof, fileChecks: [[0, false, null]] },
+  });
+  expect(checked?.proof.fileChecks).toEqual([{ path: "/repository/index.d.ts", exists: false }]);
+  expect(
+    readInspectionCacheWriteReceiptMessage(encodeInspectionCacheWriteReceipt(checked))?.proof,
+  ).toEqual(checked?.proof);
   for (const invalid of [
-    { ...proof, files: [["declaration", 1, "a".repeat(64)]] },
+    { ...proof, files: [["declaration", 1, "a".repeat(64), null]] },
+    { ...proof, files: [["declaration", 0, "a".repeat(64), ["require", 1]]] },
+    { ...proof, files: [["manifest", 0, "a".repeat(64), ["require", 0]]] },
     { ...proof, rootSets: [[-1]] },
+    { ...proof, fileChecks: [[1, false, null]] },
+    { ...proof, fileChecks: [[0, "false", null]] },
+    { ...proof, fileChecks: [[0, true, 1]] },
+    { ...proof, fileChecks: [[0, true, null]] },
+    { ...proof, fileChecks: [[0, false, 0]] },
     { ...proof, resolutions: [["module", "import", 0, null, "example", 0, 1]] },
     { ...proof, prefix: "relative/" },
     { ...proof, prefix: "/" + "x".repeat(4_095) },
     {
       ...proof,
       prefix: "/" + "x".repeat(3_500),
-      resolutions: Array.from({ length: 400 }, () => [
+      resolutions: Array.from({ length: 1_000 }, () => [
         "module",
         "import",
         0,

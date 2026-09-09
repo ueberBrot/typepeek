@@ -2,7 +2,11 @@ import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
-import { MAX_MEMBER_CANDIDATES, MAX_MEMBER_MATCHES } from "#typepeek/inspection/budget-policy";
+import {
+  MAX_MEMBER_CANDIDATES,
+  MAX_MEMBER_MATCHES,
+  MAX_NAMESPACE_DEPTH,
+} from "#typepeek/inspection/budget-policy";
 import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection-plan-query";
 import {
   memberDeclarationSpaceSchema,
@@ -187,7 +191,11 @@ type InspectionPlanQueryMatcher = (
 ) => boolean;
 
 const INSPECTION_PLAN_QUERY_MATCHERS = {
-  "interface-overview": () => true,
+  "interface-overview": (inspection, query) =>
+    inspection.intent === "interface-overview" &&
+    query.intent === "interface-overview" &&
+    readOwnOptionalProperty(inspection, "exportPage")?.cursor ===
+      readOwnOptionalProperty(query, "cursor"),
   "public-subpath-discovery": () => true,
   "export-search": (inspection, query) =>
     inspection.intent === "export-search" &&
@@ -292,7 +300,10 @@ function hasBoundedNamespaceGraph(value: unknown): boolean {
 }
 
 function hasBoundedInspectionNamespaceGraph(result: unknown): boolean {
-  if (!Predicate.isReadonlyObject(result) || result["intent"] !== "export-inspection") {
+  if (
+    !Predicate.isReadonlyObject(result) ||
+    (result["intent"] !== "export-inspection" && result["intent"] !== "declaration-inspection")
+  ) {
     return true;
   }
   const moduleExport = result["moduleExport"];
@@ -315,7 +326,7 @@ function hasBoundedInspectionNamespaceGraph(result: unknown): boolean {
 }
 
 function hasBoundedNamespaceMember(value: unknown, ancestors: Set<object>, depth: number): boolean {
-  if (depth > 8 || (Predicate.isReadonlyObject(value) && ancestors.has(value))) {
+  if (depth > MAX_NAMESPACE_DEPTH || (Predicate.isReadonlyObject(value) && ancestors.has(value))) {
     return false;
   }
   if (!Predicate.isReadonlyObject(value) || !Array.isArray(value["members"])) {

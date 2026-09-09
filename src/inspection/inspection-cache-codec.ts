@@ -3,13 +3,18 @@ import * as Schema from "effect/Schema";
 import * as SchemaGetter from "effect/SchemaGetter";
 import { isAbsolute } from "node:path";
 
-import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
+import {
+  INSPECTION_BUDGET_POLICY,
+  MAX_ANALYSIS_RESULT_BYTES,
+} from "#typepeek/inspection/budget-policy";
 import { COMPILER_VERSION } from "#typepeek/inspection/compiler-metadata";
 import { installedEvidenceProofSchema } from "#typepeek/inspection/installed-evidence-fingerprint";
 import {
   compactEvidenceProof,
   compactEvidenceProofSchema,
   expandEvidenceProof,
+  MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
+  EVIDENCE_PROOF_LIMITS,
 } from "#typepeek/inspection/installed-evidence-format";
 import {
   packageInspectionResultIdentitySchema,
@@ -21,13 +26,15 @@ import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 
 export const CACHE_SCHEMA_VERSION = 2;
 /** Identifies the evidence rules that permit cache reuse. */
-export const INSPECTION_CACHE_SEMANTICS = "installed-evidence-proof-inferred-type-edges";
-export const MAX_CACHE_ENTRY_BYTES = 160 * 1_024;
-const MAX_CACHE_RECEIPT_BYTES = 96 * 1_024;
+export const INSPECTION_CACHE_SEMANTICS =
+  "installed-evidence-proof-file-presence-and-signature-constraints";
+const MAX_CACHE_RECEIPT_BYTES = MAX_INSTALLED_EVIDENCE_PROOF_BYTES + 32 * 1_024;
+export const MAX_CACHE_ENTRY_BYTES =
+  MAX_CACHE_RECEIPT_BYTES + MAX_ANALYSIS_RESULT_BYTES + 8 * 1_024;
 const MAX_CACHE_PATH_BYTES = 4 * 1_024;
 
-const MAX_CACHE_IPC_GRAPH_OBJECTS = 4_096;
-const MAX_CACHE_IPC_GRAPH_VALUES = 32_768;
+const MAX_CACHE_IPC_GRAPH_OBJECTS = EVIDENCE_PROOF_LIMITS.objects + 4_096;
+const MAX_CACHE_IPC_GRAPH_VALUES = EVIDENCE_PROOF_LIMITS.values + 32_768;
 const MAX_CACHE_HIT_NOTICE_BYTES = 1_024;
 const SHA256_PATTERN = /^[\da-f]{64}$/u;
 const STRICT_CACHE_PARSE_OPTIONS = { onExcessProperty: "error" } as const;

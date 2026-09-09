@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import { MAX_MEMBER_CANDIDATES, MAX_MEMBER_MATCHES } from "#typepeek/inspection/budget-policy";
+import { exportPageSchema, isConsistentExportPage } from "#typepeek/inspection/export-pagination";
 import {
   MAX_INSPECTION_PLAN_QUERIES,
   isBoundedExportSearchQuery,
@@ -213,7 +214,16 @@ const interfaceOverviewSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("interface-overview"),
   publicSubpaths: Schema.Array(publicSubpathSchema),
   moduleExports: Schema.Array(moduleExportIndexEntrySchema),
-});
+  exportPage: Schema.optionalKey(exportPageSchema),
+}).check(
+  Schema.makeFilter(
+    (value) =>
+      !Object.hasOwn(value, "exportPage") ||
+      (value.exportPage !== undefined &&
+        isConsistentExportPage(value.exportPage, value.moduleExports.length)),
+    { expected: "consistent export page counts and continuation" },
+  ),
+);
 const exportInspectionSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("export-inspection"),
   moduleExport: inspectedModuleExportSchema,

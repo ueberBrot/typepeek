@@ -95,6 +95,7 @@ interface ComparisonOptions extends CliOutputOptions {
 }
 
 interface OverviewOptions extends InspectionTargetOptions {
+  readonly cursor?: string;
   readonly match?: string;
   readonly subpaths: boolean;
 }
@@ -241,7 +242,10 @@ const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationConte
       "interface-overview",
       options,
       specifier,
-      (target) => target,
+      (target) => ({
+        ...target,
+        ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
+      }),
       {
         includePublicSubpaths: options.subpaths,
         ...(options.match === undefined ? {} : { moduleExportMatch: options.match }),
@@ -251,6 +255,13 @@ const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationConte
   parameters: {
     flags: {
       ...inspectionTargetFlags,
+      cursor: {
+        kind: "parsed",
+        parse: (input: string) => input,
+        optional: true,
+        placeholder: "cursor",
+        brief: 'Return 100 export names; use "start" for the first page, then the returned cursor.',
+      },
       match: {
         kind: "parsed",
         parse: (input: string) => input,

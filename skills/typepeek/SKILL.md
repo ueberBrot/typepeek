@@ -37,6 +37,8 @@ Start with `overview` only when the exact export is unknown. Use `search` for na
 
 Add `--json` when structured fields matter. Keep compact JSON for machine consumption; add `--pretty` only when a human will read it.
 
+For a large export index, use `overview <specifier> --cursor start --json`. Continue with `result.exportPage.nextCursor`, preserving the target, until it is absent or the needed export is found. `totalModuleExports` counts the whole index; `complete` says whether this single page contains it all. Restart with `start` after an invalid cursor. Inspect selected exports for declaration details, and use complete indexes for comparisons.
+
 ## Discover and select Members
 
 Use `members` before `member` when the exact Member name is unknown or an export's declarations exceed a budget. Omit the path to list the export's immediate Members; supply a path to list that Member's children. Use `--match` when a name hint can narrow the returned list.

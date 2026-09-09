@@ -32,9 +32,8 @@ import {
   isTypeScriptStandardLibraryDeclaration,
 } from "#typepeek/inspection/typescript-standard-library";
 
-const MAX_SOURCE_FILES = 384;
+const MAX_PACKAGE_LOOKUP_CACHE_ENTRIES = 4_096;
 const MAX_DECLARATION_GRAPH_DEPTH = 256;
-const MAX_DECLARATION_GRAPH_NODES = 250_000;
 
 interface CompilerHostState {
   readonly defaultHost: ts.CompilerHost;
@@ -49,6 +48,8 @@ interface CompilerHostState {
   readonly directoriesCache: Map<string, string[]>;
   readonly realpathCache: Map<string, string>;
   readonly sourceFileCache: Map<string, ts.SourceFile | undefined>;
+  readonly packageLookups: Map<string, PackageRootCapability | undefined>;
+  readonly moduleResolutionCaches: Map<string, ts.ModuleResolutionCache>;
   readonly compilerWorkSession: CompilerWorkSession;
   sourceFileCount: number;
   sourceByteCount: number;
@@ -480,7 +481,10 @@ function descendantImportTypeSpecifiers(
   const specifiers: ts.Expression[] = [];
   const visit = (node: ts.Node, depth: number): void => {
     traversal.nodeCount += 1;
-    if (depth > MAX_DECLARATION_GRAPH_DEPTH || traversal.nodeCount > MAX_DECLARATION_GRAPH_NODES) {
+    if (
+      depth > MAX_DECLARATION_GRAPH_DEPTH ||
+      traversal.nodeCount > INSPECTION_BUDGET_POLICY.declarationGraphNodes
+    ) {
       throw new InspectionLimitError(
         "declaration-graph",
         "Inspection exceeded its declaration graph traversal limit.",
@@ -665,7 +669,7 @@ function reserveDeclarationGraphNodes(
   count: number,
 ): void {
   traversal.nodeCount += count;
-  if (traversal.nodeCount > MAX_DECLARATION_GRAPH_NODES) {
+  if (traversal.nodeCount > INSPECTION_BUDGET_POLICY.declarationGraphNodes) {
     throw new InspectionLimitError(
       "declaration-graph",
       "Inspection exceeded its declaration graph traversal limit.",
@@ -823,6 +827,8 @@ function createBoundedCompilerHost(
     directoriesCache: new Map(),
     realpathCache: new Map(),
     sourceFileCache: new Map(),
+    packageLookups: new Map(),
+    moduleResolutionCaches: new Map(),
     compilerWorkSession,
     sourceFileCount: 0,
     sourceByteCount: 0,
@@ -1259,6 +1265,36 @@ function visibleTypeReferenceCandidatePackageRoots(
   physicalPackageName: string,
   expectedPackageIdentity?: string,
 ): PackageRootCapability | undefined {
+  reserveCompilerHostOperations(state, 1);
+  // Package visibility is shared by declarations in the same logical directory.
+  // Keep the declaring name distinct from @types fallbacks and package aliases.
+  const key = JSON.stringify([
+    dirname(containingFile),
+    declaredPackageName,
+    physicalPackageName,
+    expectedPackageIdentity,
+  ]);
+  if (state.packageLookups.has(key)) return state.packageLookups.get(key);
+  const roots = readVisibleTypeReferenceCandidatePackageRoots(
+    state,
+    containingFile,
+    declaredPackageName,
+    physicalPackageName,
+    expectedPackageIdentity,
+  );
+  if (state.packageLookups.size < MAX_PACKAGE_LOOKUP_CACHE_ENTRIES) {
+    state.packageLookups.set(key, roots);
+  }
+  return roots;
+}
+
+function readVisibleTypeReferenceCandidatePackageRoots(
+  state: CompilerHostState,
+  containingFile: string,
+  declaredPackageName: string,
+  physicalPackageName: string,
+  expectedPackageIdentity: string | undefined,
+): PackageRootCapability | undefined {
   const packageSegments = parsePackageNameSegments(physicalPackageName);
   if (packageSegments === undefined) {
     return undefined;
@@ -1326,7 +1362,7 @@ function resolveModuleLiteral(
     containingFile,
     options,
     createBoundedResolutionHost(state, resolutionRoots),
-    undefined,
+    moduleResolutionCache(state, resolutionRoots, options),
     redirectedReference,
     mode,
   );
@@ -1349,6 +1385,25 @@ function resolveModuleLiteral(
     specifier: moduleLiteral.text,
   });
   return authorizedResolution;
+}
+
+function moduleResolutionCache(
+  state: CompilerHostState,
+  resolutionRoots: ReadonlySet<string>,
+  options: ts.CompilerOptions,
+): ts.ModuleResolutionCache {
+  const key = JSON.stringify([...resolutionRoots].sort());
+  const existing = state.moduleResolutionCaches.get(key);
+  if (existing !== undefined) return existing;
+  const cache = ts.createModuleResolutionCache(
+    state.defaultHost.getCurrentDirectory(),
+    (fileName) => state.defaultHost.getCanonicalFileName(fileName),
+    options,
+  );
+  if (state.moduleResolutionCaches.size < MAX_PACKAGE_LOOKUP_CACHE_ENTRIES) {
+    state.moduleResolutionCaches.set(key, cache);
+  }
+  return cache;
 }
 
 function moduleResolutionRoots(
@@ -1502,6 +1557,20 @@ function getBoundedSourceFile(
     sourceText === undefined
       ? undefined
       : ts.createSourceFile(fileName, sourceText, languageVersion, true);
+  if (sourceFile !== undefined && sourceText !== undefined) {
+    // Standard-library format is controlled by the pinned compiler, not Installed Evidence.
+    const mode = isTypeScriptStandardLibraryDeclaration(installedSourcePath)
+      ? undefined
+      : sourceFile.impliedNodeFormat;
+    state.compilerWorkSession.observeEvidenceFile(
+      installedSourcePath,
+      sourceText,
+      "declaration",
+      mode === undefined
+        ? undefined
+        : { accessStyle: mode === ts.ModuleKind.CommonJS ? "require" : "import", path: fileName },
+    );
+  }
   state.sourceFileCache.set(fileName, sourceFile);
   return sourceFile;
 }
@@ -1539,7 +1608,7 @@ function assertAllowedSource(allowedRoots: ReadonlySet<string>, sourcePath: stri
 
 function incrementSourceFileCount(state: CompilerHostState): void {
   state.sourceFileCount += 1;
-  if (state.sourceFileCount > MAX_SOURCE_FILES) {
+  if (state.sourceFileCount > INSPECTION_BUDGET_POLICY.declarationSourceFiles) {
     throw new InspectionLimitError(
       "declaration-files",
       "Inspection exceeded its declaration file limit.",
@@ -1560,7 +1629,6 @@ function readSourceText(
       "Inspection exceeded its declaration byte limit.",
     );
     state.sourceByteCount += Buffer.byteLength(sourceText);
-    state.compilerWorkSession.observeEvidenceFile(sourcePath, sourceText, "declaration");
     return sourceText;
   } catch (error) {
     if (error instanceof InspectionLimitError) {

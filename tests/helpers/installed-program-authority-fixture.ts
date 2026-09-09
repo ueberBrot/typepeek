@@ -554,13 +554,14 @@ async function materializeLiteralNodeContext(
     context,
     packageName,
     options.declaration ?? 'export type BuiltinLiteral = "fs";\n',
-    Array.from({ length: 384 }, (_, index) => `/// <reference path="./part-${index}.d.ts" />`).join(
-      "\n",
-    ),
+    Array.from(
+      { length: 2_200 },
+      (_, index) => `/// <reference path="./part-${index}.d.ts" />`,
+    ).join("\n"),
   );
   const providerRoot = join(context, "node_modules", "@types", "node");
   await Promise.all(
-    Array.from({ length: 384 }, (_, index) =>
+    Array.from({ length: 2_200 }, (_, index) =>
       writeFile(join(providerRoot, `part-${index}.d.ts`), `interface NodePart${index} {}\n`),
     ),
   );

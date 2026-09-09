@@ -8,6 +8,10 @@ import {
   type ModuleExportInspection,
 } from "#typepeek/inspection/export-inspection";
 import {
+  MAX_EXPORT_INDEX_CANDIDATES,
+  paginateExports,
+} from "#typepeek/inspection/export-pagination";
+import {
   createInspectionCacheIdentity,
   createInspectionCacheHitNotice,
   type InspectionCacheHitNotice,
@@ -40,7 +44,7 @@ import { InspectionResultConstruction } from "#typepeek/inspection/result-constr
 import { inspectModuleExportSignatures } from "#typepeek/inspection/signature-inspection";
 
 const MAX_MODULE_EXPORTS = 320;
-const MAX_EXPORT_SEARCH_CANDIDATES = 4_096;
+const MAX_EXPORT_SEARCH_CANDIDATES = MAX_EXPORT_INDEX_CANDIDATES;
 const MAX_EXPORT_SEARCH_MATCHES = 320;
 
 export interface AnalysisExecution {
@@ -115,7 +119,12 @@ function inspectSelectedModule(
     resolutionVariant: { accessStyle: request.accessStyle },
     identity: selection.resultIdentity,
   });
-  const inspectQuery = prepareQueryInspection(selection, queries, construction);
+  const inspectQuery = prepareQueryInspection(
+    selection,
+    queries,
+    construction,
+    request.accessStyle,
+  );
   const inspections: AtomicInspectionResult[] = [];
   for (const query of queries) {
     const inspection = inspectQuery(query);
@@ -139,6 +148,7 @@ function prepareQueryInspection(
   selection: InspectableModuleSelection,
   queries: readonly InspectionPlanQuery[],
   construction: InspectionResultConstruction,
+  accessStyle: AnalysisRequest["request"]["accessStyle"],
 ): (query: InspectionPlanQuery) => EvidenceQueryResult {
   if (queries.every((query) => query.intent === "public-subpath-discovery")) {
     const publicSubpaths = selection.readPublicSubpaths();
@@ -149,6 +159,13 @@ function prepareQueryInspection(
     evidence,
     construction,
     moduleExport: createModuleExportInspection(evidence, construction),
+    paginationScope: JSON.stringify([
+      selection.resolutionContextDirectory,
+      selection.declarationAuthority,
+      selection.resultIdentity,
+      construction.specifier,
+      accessStyle,
+    ]),
   };
   return (query) => inspectEvidenceQuery(context, query);
 }
@@ -157,20 +174,36 @@ interface EvidenceQueryContext {
   readonly evidence: InspectableModuleEvidence;
   readonly construction: InspectionResultConstruction;
   readonly moduleExport: ModuleExportInspection;
+  readonly paginationScope: string;
 }
 
 type EvidenceQueryResult = AtomicInspectionResult | InspectionFailure;
 
 function inspectEvidenceQuery(
-  { evidence, construction, moduleExport }: EvidenceQueryContext,
+  { evidence, construction, moduleExport, paginationScope }: EvidenceQueryContext,
   query: InspectionPlanQuery,
 ): EvidenceQueryResult {
   switch (query.intent) {
-    case "interface-overview":
+    case "interface-overview": {
+      if (query.cursor !== undefined) {
+        const page = paginateExports(
+          inspectModuleExports(evidence, MAX_EXPORT_INDEX_CANDIDATES),
+          query.cursor,
+          paginationScope,
+        );
+        return page === undefined
+          ? {
+              status: "unsupported",
+              reason: "invalid-request",
+              message: 'The export cursor does not match this index. Restart with cursor "start".',
+            }
+          : construction.interfaceOverview(evidence.publicSubpaths, page.moduleExports, page.page);
+      }
       return construction.interfaceOverview(
         evidence.publicSubpaths,
         inspectModuleExports(evidence),
       );
+    }
     case "export-inspection":
       return focusedQueryResult(
         moduleExport.inspectExport(query.exportName),
@@ -283,12 +316,12 @@ function unsupportedMemberOutcome(exportName: string, memberPath: MemberPath): I
   };
 }
 
-function inspectModuleExports({
-  checker,
-  moduleSymbol,
-}: InspectableModuleEvidence): readonly { readonly name: string }[] {
+function inspectModuleExports(
+  { checker, moduleSymbol }: InspectableModuleEvidence,
+  maximum = MAX_MODULE_EXPORTS,
+): readonly { readonly name: string }[] {
   const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
-  if (exportedSymbols.length > MAX_MODULE_EXPORTS) {
+  if (exportedSymbols.length > maximum) {
     throw new InspectionLimitError(
       "module-exports",
       "Inspection exceeded its Module Export limit.",

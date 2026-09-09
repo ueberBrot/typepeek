@@ -10,6 +10,28 @@ function enforceInspectionPlanOutcome(request: NormalizedInspectionPlanRequest, 
   return enforceAnalysisRequestOutcome({ intent: "inspection-plan", request }, value);
 }
 
+it.each([
+  { cursor: "start", totalModuleExports: 2, complete: true },
+  { cursor: "start", totalModuleExports: 1, complete: false },
+  { cursor: "start", totalModuleExports: 1, complete: true, nextCursor: `${"a".repeat(64)}.100` },
+  { cursor: `${"a".repeat(64)}.1`, totalModuleExports: 2, complete: false },
+])("rejects inconsistent export page metadata: %j", (exportPage) => {
+  expect(
+    enforceInspectionOutcome("interface-overview", {
+      status: "success",
+      result: {
+        intent: "interface-overview",
+        specifier: "example",
+        packageIdentity: { name: "example" },
+        resolutionVariant: { accessStyle: "import" },
+        publicSubpaths: [],
+        moduleExports: [{ name: "Value" }],
+        exportPage,
+      },
+    }),
+  ).toMatchObject({ status: "unsupported", reason: "invalid-result" });
+});
+
 it("correlates direct declaration and Member outcomes with their exact requests", () => {
   const declaration = {
     status: "success",
@@ -920,6 +942,33 @@ it("accepts a shared noncyclic namespace member", () => {
 
   expect(enforceInspectionOutcome("export-inspection", outcome)).toEqual(outcome);
 });
+
+it.each(["declaration-inspection", "inspection-plan"] as const)(
+  "bounds declaration namespace depth in %s outcomes",
+  (intent) => {
+    const outcomeAtDepth = (depth: number) => {
+      const focused = namespaceOutcome([namespaceMemberChain(depth)]).result;
+      const declaration = {
+        intent: "declaration-inspection",
+        specifier: focused.specifier,
+        resolutionVariant: focused.resolutionVariant,
+        packageIdentity: focused.packageIdentity,
+        moduleExport: { name: focused.moduleExport.name, spaces: focused.moduleExport.spaces },
+      };
+      return {
+        status: "success",
+        result: intent === "inspection-plan" ? { intent, inspections: [declaration] } : declaration,
+      };
+    };
+    const accepted = outcomeAtDepth(9);
+    expect(enforceInspectionOutcome(intent, accepted)).toEqual(accepted);
+    expect(enforceInspectionOutcome(intent, outcomeAtDepth(10))).toEqual({
+      status: "unsupported",
+      reason: "invalid-result",
+      message: "Inspection returned an invalid result.",
+    });
+  },
+);
 
 it("rejects flattened declarations in a namespace space", () => {
   expect(

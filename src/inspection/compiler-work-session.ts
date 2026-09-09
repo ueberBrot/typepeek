@@ -1,6 +1,7 @@
 import ts from "@typescript/typescript6";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
+import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import {
   canonicalEvidenceCandidatePath,
@@ -19,7 +20,6 @@ import type {
 import type { PackageBoundaryObserver } from "#typepeek/inspection/installed-package-boundary";
 import type { AccessStyle } from "#typepeek/inspection/protocol";
 
-const DEFAULT_COMPILER_HOST_OPERATIONS = 50_000;
 const DEFAULT_COMPILER_RESOLUTION_BYTES = 8 * 1_024 * 1_024;
 const MAX_MANIFEST_BYTES = 256 * 1_024;
 
@@ -46,6 +46,10 @@ export interface CompilerWorkSession {
   ) => PackageDeclarationResolver;
   readonly packageBoundaryObserver: PackageBoundaryObserver;
   readonly readResolutionFile: (fileName: string) => string;
+  readonly readEvidenceFileFormat: (
+    fileName: string,
+    allowedRoots: readonly string[],
+  ) => AccessStyle | undefined;
   readonly observeEvidenceFile: ObserveInstalledEvidenceFile;
   readonly observeEvidenceDirectory?: ObserveInstalledEvidenceDirectory;
   readonly observeResolution: (probe: InstalledEvidenceResolutionProbe) => void;
@@ -65,7 +69,7 @@ export interface CompilerWorkLimits {
 /** Owns one inspection's aggregate compiler work, bounded reads, and package resolution caches. */
 export function createCompilerWorkSession({
   evidenceObserver,
-  operations = DEFAULT_COMPILER_HOST_OPERATIONS,
+  operations = INSPECTION_BUDGET_POLICY.compilerHostOperations,
   resolutionBytes = DEFAULT_COMPILER_RESOLUTION_BYTES,
 }: CompilerWorkLimits = {}): CompilerWorkSession {
   const observeEvidenceDirectory = evidenceObserver?.observeDirectory;
@@ -114,6 +118,24 @@ export function createCompilerWorkSession({
     return contents;
   };
 
+  const replayHost = (fileName: string, allowedRoots: readonly string[]) => {
+    const contextDirectory = dirname(fileName);
+    const key = JSON.stringify([contextDirectory, allowedRoots]);
+    let host = replayHosts.get(key);
+    if (host === undefined) {
+      host = createBoundedModuleResolutionHost(
+        contextDirectory,
+        allowedRoots,
+        reserveOperations,
+        remainingBytes,
+        reserveBytes,
+        observeEvidenceFile,
+      );
+      replayHosts.set(key, host);
+    }
+    return host;
+  };
+
   return {
     createPackageResolver: (resolutionContext, accessStyle, allowedRoots) =>
       createPackageDeclarationResolver(
@@ -129,31 +151,32 @@ export function createCompilerWorkSession({
     packageBoundaryObserver: {
       manifestCache: packageManifestCache,
       observeEvidenceFile,
+      observeEvidenceFilePresence: evidenceObserver?.observeFilePresence ?? (() => undefined),
       remainingBytes,
       reserveBytes,
       reserveOperation: reserveOperations,
     },
     readResolutionFile,
+    readEvidenceFileFormat: (fileName, allowedRoots) => {
+      reserveOperations();
+      const mode = ts.getImpliedNodeFormatForFile(
+        fileName,
+        undefined,
+        replayHost(fileName, allowedRoots),
+        resolutionCompilerOptions(),
+      );
+      return mode === undefined
+        ? undefined
+        : mode === ts.ModuleKind.CommonJS
+          ? "require"
+          : "import";
+    },
     ...(observeEvidenceDirectory === undefined ? {} : { observeEvidenceDirectory }),
     observeEvidenceFile,
     observeResolution,
     resolveEvidenceProbe: (probe, allowedRoots) => {
       reserveOperations();
-      const contextDirectory = dirname(probe.containingFile);
-      const key = JSON.stringify([contextDirectory, allowedRoots]);
-      let host = replayHosts.get(key);
-      if (host === undefined) {
-        host = createBoundedModuleResolutionHost(
-          contextDirectory,
-          allowedRoots,
-          reserveOperations,
-          remainingBytes,
-          reserveBytes,
-          observeEvidenceFile,
-        );
-        replayHosts.set(key, host);
-      }
-      return resolveEvidenceProbe(probe, host);
+      return resolveEvidenceProbe(probe, replayHost(probe.containingFile, allowedRoots));
     },
     reserveOperations,
   };

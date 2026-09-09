@@ -87,8 +87,12 @@ A bounded, deterministic presentation of Installed Evidence produced by a suppor
 _Avoid_: answer, summary
 
 **Interface Overview**:
-A bounded index of the Module Exports at a selected entrypoint. At a package root, it may also advertise Public Subpaths without inspecting them.
+A bounded index of the Module Exports at a selected entrypoint, returned either in full or as an explicitly identified Export Page. At a package root, it may also advertise Public Subpaths without inspecting them.
 _Avoid_: list, search results
+
+**Export Page**:
+A contiguous portion of a Module Export name index for one Resolution Variant, with the complete index count and explicit continuation. Its completeness describes whether that page contains the entire index.
+_Avoid_: truncated overview, partial evidence
 
 **Public Interface Comparison**:
 A bounded directional delta between two complete Interface Overview indexes. It preserves each side's Specifier, Package or Declaration Provider identity, and Resolution Variant, and reports added or removed Module Export names and Public Subpaths without implying that retained names have unchanged declarations or signatures.

@@ -1,22 +1,26 @@
 import * as Schema from "effect/Schema";
 import { isAbsolute } from "node:path";
 
-import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted-data";
+import {
+  readOwnDataProperty,
+  snapshotBoundedDataPropertyGraph,
+} from "#typepeek/inspection/untrusted-data";
 
 export const EVIDENCE_PROOF_LIMITS = {
-  files: 512,
+  files: 3_072,
+  fileChecks: 2_048,
   directories: 512,
   directoryEntries: 4_096,
-  probes: 1_024,
+  probes: 16_384,
   rootsPerProbe: 16,
-  paths: 4_096,
-  objects: 4_096,
-  values: 32_768,
+  paths: 16_384,
+  objects: 65_536,
+  values: 262_144,
   stringBytes: 4_096,
 } as const;
 
-export const MAX_INSTALLED_EVIDENCE_PROOF_BYTES = 64 * 1_024;
-export const MAX_EXPANDED_EVIDENCE_PROOF_BYTES = 1_024 * 1_024;
+export const MAX_INSTALLED_EVIDENCE_PROOF_BYTES = 1_024 * 1_024;
+export const MAX_EXPANDED_EVIDENCE_PROOF_BYTES = 8 * 1_024 * 1_024;
 
 import type { InstalledEvidenceProof } from "#typepeek/inspection/installed-evidence-fingerprint";
 
@@ -30,11 +34,26 @@ const stringSchema = Schema.String.check(
 export const compactEvidenceProofSchema = Schema.Struct({
   prefix: stringSchema,
   paths: Schema.Array(stringSchema).check(Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.paths)),
+  fileChecks: Schema.optionalKey(
+    Schema.Array(Schema.Tuple([indexSchema, Schema.Boolean, optionalIndexSchema])).check(
+      Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.fileChecks),
+    ),
+  ),
   rootSets: Schema.Array(
     Schema.Array(indexSchema).check(Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.rootsPerProbe)),
   ).check(Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.probes)),
   files: Schema.Array(
-    Schema.Tuple([Schema.Literals(["declaration", "manifest"]), indexSchema, stringSchema]),
+    Schema.Tuple([
+      Schema.Literals(["declaration", "manifest"]),
+      indexSchema,
+      stringSchema,
+      Schema.NullOr(
+        Schema.Union([
+          Schema.Literals(["import", "require"]),
+          Schema.Tuple([Schema.Literals(["import", "require"]), indexSchema]),
+        ]),
+      ),
+    ]),
   ).check(Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.files)),
   directories: Schema.Array(Schema.Tuple([indexSchema, Schema.Natural, stringSchema])).check(
     Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.directories),
@@ -86,7 +105,21 @@ export function compactEvidenceProof(proof: InstalledEvidenceProof): CompactInst
   const optionalPathIndex = (path: string | undefined) =>
     path === undefined ? null : pathIndex(path);
   const files = proof.files.map(
-    ({ kind, path, sha256 }) => [kind, pathIndex(path), sha256] as const,
+    ({ kind, path, sha256, sourceFormat }) =>
+      [
+        kind,
+        pathIndex(path),
+        sha256,
+        sourceFormat === undefined
+          ? null
+          : sourceFormat.path === path
+            ? sourceFormat.accessStyle
+            : ([sourceFormat.accessStyle, pathIndex(sourceFormat.path)] as const),
+      ] as const,
+  );
+  const fileChecks = readOwnFileChecks(proof)?.map(
+    ({ path, exists, canonicalPath }) =>
+      [pathIndex(path), exists, optionalPathIndex(canonicalPath)] as const,
   );
   const directories = proof.directories.map(
     ({ path, entries, sha256 }) => [pathIndex(path), entries, sha256] as const,
@@ -103,16 +136,15 @@ export function compactEvidenceProof(proof: InstalledEvidenceProof): CompactInst
         rootsIndex(probe.allowedRoots),
       ] as const,
   );
-  let prefix = paths[0] ?? "";
-  for (const path of paths) {
-    let length = 0;
-    while (length < prefix.length && prefix[length] === path[length]) length += 1;
-    prefix = prefix.slice(0, length);
-  }
+  const prefix = mostUsefulPathPrefix(paths);
   return {
     prefix,
-    paths: paths.map((path) => path.slice(prefix.length)),
+    paths: paths.map((path) => {
+      const suffix = path.startsWith(prefix) ? path.slice(prefix.length) : path;
+      return isAbsolute(suffix) ? path : suffix;
+    }),
     rootSets,
+    ...(fileChecks === undefined ? {} : { fileChecks }),
     files,
     directories,
     resolutions,
@@ -120,9 +152,31 @@ export function compactEvidenceProof(proof: InstalledEvidenceProof): CompactInst
 }
 
 export function expandEvidenceProof(proof: CompactInstalledEvidenceProof): InstalledEvidenceProof {
-  const path = (index: number): string => proof.prefix + proof.paths[index]!;
+  const path = (index: number): string => expandPath(proof.prefix, proof.paths[index]!);
+  const fileChecks = readOwnFileChecks(proof);
   return {
-    files: proof.files.map(([kind, index, sha256]) => ({ kind, path: path(index), sha256 })),
+    ...(fileChecks === undefined
+      ? {}
+      : {
+          fileChecks: fileChecks.map(([index, exists, canonical]) => ({
+            path: path(index),
+            exists,
+            ...(canonical === null ? {} : { canonicalPath: path(canonical) }),
+          })),
+        }),
+    files: proof.files.map(([kind, index, sha256, sourceFormat]) => ({
+      kind,
+      path: path(index),
+      sha256,
+      ...(sourceFormat === null
+        ? {}
+        : {
+            sourceFormat:
+              typeof sourceFormat === "string"
+                ? { accessStyle: sourceFormat, path: path(index) }
+                : { accessStyle: sourceFormat[0], path: path(sourceFormat[1]) },
+          }),
+    })),
     directories: proof.directories.map(([index, entries, sha256]) => ({
       path: path(index),
       entries,
@@ -147,7 +201,14 @@ function hasValidReferences(proof: CompactInstalledEvidenceProof): boolean {
   const optional = (index: number | null) => index === null || valid(index);
   return (
     proof.rootSets.every((roots) => roots.every(valid)) &&
-    proof.files.every(([, index]) => valid(index)) &&
+    (readOwnFileChecks(proof) ?? []).every(
+      ([index, , canonical]) => valid(index) && optional(canonical),
+    ) &&
+    proof.files.every(
+      ([, index, , sourceFormat]) =>
+        valid(index) &&
+        (sourceFormat === null || typeof sourceFormat === "string" || valid(sourceFormat[1])),
+    ) &&
     proof.directories.every(([index]) => valid(index)) &&
     proof.resolutions.every(
       ([, , index, canonical, , resolved, roots]) =>
@@ -169,7 +230,7 @@ function hasBoundedExpansion(proof: CompactInstalledEvidenceProof): boolean {
     }) === undefined
   )
     return false;
-  const paths = proof.paths.map((suffix) => proof.prefix + suffix);
+  const paths = proof.paths.map((suffix) => expandPath(proof.prefix, suffix));
   if (
     paths.some(
       (path) => !isAbsolute(path) || Buffer.byteLength(path) > EVIDENCE_PROOF_LIMITS.stringBytes,
@@ -182,7 +243,16 @@ function hasBoundedExpansion(proof: CompactInstalledEvidenceProof): boolean {
     roots.reduce((sum, index) => sum + size(index), 0),
   );
   let bytes = 0;
-  for (const [, index, hash] of proof.files) bytes += size(index) + hash.length;
+  for (const [index, , canonical] of readOwnFileChecks(proof) ?? [])
+    bytes += size(index) + size(canonical);
+  for (const [, index, hash, sourceFormat] of proof.files) {
+    bytes +=
+      size(index) +
+      hash.length +
+      (sourceFormat === null
+        ? 0
+        : size(typeof sourceFormat === "string" ? index : sourceFormat[1]));
+  }
   for (const [index, , hash] of proof.directories) bytes += size(index) + hash.length;
   for (const [, , index, canonical, specifier, resolved, roots] of proof.resolutions) {
     bytes +=
@@ -195,4 +265,37 @@ function hasBoundedExpansion(proof: CompactInstalledEvidenceProof): boolean {
   // Reject amplification before allocating the expanded arrays; the logical schema
   // then enforces the exact serialized-byte limit, including keys and escaping.
   return bytes <= MAX_EXPANDED_EVIDENCE_PROOF_BYTES;
+}
+
+function readOwnFileChecks<Proof extends InstalledEvidenceProof | CompactInstalledEvidenceProof>(
+  proof: Proof,
+): Proof["fileChecks"] {
+  return readOwnDataProperty(proof, "fileChecks")?.[1] as Proof["fileChecks"];
+}
+
+/** Ancestor metadata outside the package must not expand every package path. */
+function mostUsefulPathPrefix(paths: readonly string[]): string {
+  const counts = new Map<string, number>();
+  let selected = "";
+  let savedBytes = 0;
+  for (const path of paths) {
+    for (let index = 0; index < path.length; index += 1) {
+      if (path[index] !== "/" && path[index] !== "\\") continue;
+      const prefix = path.slice(0, index + 1);
+      const previous = counts.get(prefix);
+      if (previous === undefined && counts.size === EVIDENCE_PROOF_LIMITS.paths) return selected;
+      const count = (previous ?? 0) + 1;
+      counts.set(prefix, count);
+      const savings = Buffer.byteLength(prefix) * (count - 1);
+      if (savings > savedBytes || (savings === savedBytes && prefix < selected)) {
+        savedBytes = savings;
+        selected = prefix;
+      }
+    }
+  }
+  return selected;
+}
+
+function expandPath(prefix: string, suffix: string): string {
+  return isAbsolute(suffix) ? suffix : prefix + suffix;
 }

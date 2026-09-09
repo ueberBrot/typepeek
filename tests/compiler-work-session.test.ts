@@ -115,7 +115,7 @@ describe("compiler work session", () => {
     try {
       const containingFile = join(await realpath(fixtureRoot), "index.d.ts");
       const recorder = createInstalledEvidenceFingerprintRecorder();
-      for (let index = 0; index < 400; index += 1) {
+      for (let index = 0; index < 3_000; index += 1) {
         recorder.observeResolution({
           allowedRoots: [],
           containingFile,

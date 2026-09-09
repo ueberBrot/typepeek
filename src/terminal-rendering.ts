@@ -183,6 +183,14 @@ function renderInterfaceOverview(
     ...renderSingleTargetHeading("Interface Overview", result),
     renderModuleExportsHeading(result, moduleExports.length, moduleExportMatch),
     ...moduleExports.map(({ name }) => `- ${terminalSafeLine(name)}`),
+    ...(result.exportPage === undefined
+      ? []
+      : [
+          `Export index: ${result.exportPage.totalModuleExports} total; ${result.exportPage.complete ? "complete index" : "one page"}.`,
+          ...(result.exportPage.nextCursor === undefined
+            ? ["End of export index."]
+            : [`Next page: --cursor ${terminalSafeLine(result.exportPage.nextCursor)}`]),
+        ]),
     includePublicSubpaths
       ? `Public Subpaths (${result.publicSubpaths.length}):`
       : `Public Subpaths (${result.publicSubpaths.length}; use --subpaths to list):`,

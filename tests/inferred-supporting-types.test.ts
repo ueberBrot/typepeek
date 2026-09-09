@@ -25,6 +25,8 @@ beforeAll(async () => {
     export const directDefault = <T = Item>() => 1;
     export const identity = <T>(value: T) => value;
     declare function withIdentity<T>(): <U extends T = T>(value: U) => U;
+    declare function withChain<T>(): <U extends T = T, V extends U = U>() => number;
+    export declare function directChain<T extends Item, U extends T, V extends U>(): number;
     declare function withDefault<T>(): <U = T>() => number;
     declare function withConstraint<T>(): <U extends T>() => number;
     declare function withReceiver<T>(): (this: T) => number;
@@ -34,6 +36,7 @@ beforeAll(async () => {
     export const instantiatedReceiver = withReceiver<Item>();
     export const instantiatedIndex = withIndex<Item>();
     export const instantiatedIdentity = withIdentity<Item>();
+    export const instantiatedChain = withChain<Item>();
 
     export function localDefault() {
       interface Hidden { readonly secret: string; }
@@ -100,6 +103,39 @@ it("preserves a public generic binder without inventing a Supporting Type", asyn
     },
   });
 });
+
+it.each([
+  ["instantiatedConstraint", [{ name: "U", constraint: "Item" }]],
+  ["instantiatedIdentity", [{ name: "U", constraint: "Item", default: "Item" }]],
+  [
+    "instantiatedChain",
+    [
+      { name: "U", constraint: "Item", default: "Item" },
+      { name: "V", constraint: "U", default: "U" },
+    ],
+  ],
+  [
+    "directChain",
+    [
+      { name: "T", constraint: "Item" },
+      { name: "U", constraint: "T" },
+      { name: "V", constraint: "U" },
+    ],
+  ],
+  ["directDefault", [{ name: "T", default: "Item" }]],
+] as const)(
+  "preserves resolved and local signature constraints in %s",
+  async (exportName, parameters) => {
+    const { outcome } = await Effect.runPromise(
+      invokeInspectionCore("signature-inspection", { resolutionContext, specifier, exportName }),
+    );
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({ status: "success" });
+    if (outcome.status !== "success" || outcome.result.intent !== "signature-inspection") return;
+    expect(outcome.result.moduleExport.signatures[0]?.typeParameters).toEqual(
+      parameters.map((parameter) => ({ ...parameter, modifiers: [], synthetic: false })),
+    );
+  },
+);
 
 it.each(["localDefault", "localConstraint", "localReceiver", "localIndex"])(
   "rejects an implementation-local type reached through %s",

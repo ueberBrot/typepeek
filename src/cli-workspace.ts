@@ -490,7 +490,7 @@ function patternCouldContainWorkspace(path: string, pattern: string): boolean {
 }
 
 function fixedPatternPrefix(patternSegments: readonly string[]): string {
-  const firstGlobSegment = patternSegments.findIndex((segment) => /[*?[{]/u.test(segment));
+  const firstGlobSegment = patternSegments.findIndex((segment) => /[*?[{]|[+@!]\(/u.test(segment));
   return patternSegments
     .slice(0, firstGlobSegment === -1 ? patternSegments.length : firstGlobSegment)
     .join("/");

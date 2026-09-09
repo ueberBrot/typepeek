@@ -108,6 +108,25 @@ npx typepeek signatures execa execa --json --pretty
 
 Commands use the `import` access style by default. Pass `--access require` when you need the interface selected for CommonJS resolution conditions.
 
+## Browse large packages
+
+Request an export page when an overview is too large:
+
+```bash
+npx typepeek overview @aws-sdk/client-ec2 --cursor start --json
+```
+
+Each page returns up to 100 names. Pass `result.exportPage.nextCursor` as `--cursor` to continue with the same package, workspace, and access style. Stop when `nextCursor` is absent. `totalModuleExports` is the full index count; `complete` is true only when one page contains the entire index. If the index changes, restart with `--cursor start`.
+
+Use a discovered name for a focused query, or combine known queries in a plan:
+
+```bash
+npx typepeek signatures @aws-sdk/client-ec2 EC2Client --json
+npx typepeek plan @aws-sdk/client-ec2 '[{"intent":"interface-overview","cursor":"start"},{"intent":"signature-inspection","exportName":"EC2Client"}]' --json
+```
+
+Pages share the normal output limits. Browsing names does not establish every exported declaration's details; inspect the selected export for those. An overview without a cursor still returns the complete bounded index or a typed failure. Comparisons require complete indexes.
+
 ## Discover and inspect members
 
 Use `members` when you know the export but need to find a public member. It lists immediate member names and their available declaration spaces without rendering the export's declarations or expanding supporting types:
@@ -143,7 +162,7 @@ A requested Package Module need not appear in the Resolution Context's manifest.
 
 Inspection is static. Typepeek reads installed manifests, declarations, package-exposed TypeScript source, and attached JSDoc. It does not import package code, run package scripts, evaluate project configuration code, or download missing material.
 
-Every inspection is bounded. Typepeek returns a complete result or an explicit typed failure when evidence is missing, unsupported, or too large. It does not present a partial result as authoritative.
+Every inspection is bounded. Typepeek returns a complete result for the requested scope or an explicit typed failure when evidence is missing, unsupported, or too large. Export Pages identify their scope and continuation explicitly; exhausted analysis never becomes a successful page.
 
 ## Use Typepeek with coding agents
 

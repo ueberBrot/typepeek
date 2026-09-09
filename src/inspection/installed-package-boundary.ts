@@ -10,7 +10,10 @@ import {
   isPathWithin,
   readBoundedUtf8File,
 } from "#typepeek/inspection/evidence-boundary";
-import type { ObserveInstalledEvidenceFile } from "#typepeek/inspection/installed-evidence-fingerprint";
+import type {
+  ObserveInstalledEvidenceFile,
+  ObserveInstalledEvidenceFilePresence,
+} from "#typepeek/inspection/installed-evidence-fingerprint";
 import {
   type PackageIdentity,
   readJsonPackageIdentity,
@@ -38,6 +41,7 @@ interface AncestorManifest {
 export interface PackageBoundaryObserver {
   readonly manifestCache: Map<string, Readonly<Record<string, unknown>>>;
   readonly observeEvidenceFile: ObserveInstalledEvidenceFile;
+  readonly observeEvidenceFilePresence: ObserveInstalledEvidenceFilePresence;
   readonly remainingBytes: () => number;
   readonly reserveBytes: (count: number) => void;
   readonly reserveOperation: () => void;
@@ -229,7 +233,20 @@ export function findVisiblePackageForDependency(
   observer: PackageBoundaryObserver,
 ): VisiblePackageLocation | undefined {
   const contextDirectory = startingDirectory(resolutionContext, observer);
-  if (!isDeclaredFromResolutionContext(contextDirectory, declaredPackageName, true, observer)) {
+  const context = findContextManifest(contextDirectory, true, observer);
+  if (context === undefined) return undefined;
+  if (
+    readJsonPackageIdentity(context.manifest)?.name === declaredPackageName &&
+    physicalPackageSegments.join("/") === declaredPackageName &&
+    context.manifest["exports"] !== undefined
+  ) {
+    return {
+      contextDirectory,
+      packageRoot: context.directory,
+      repositoryRoot: visibleRepositoryRoot(contextDirectory, context.directory, observer),
+    };
+  }
+  if (!hasDeclaredPackage(context.manifest, declaredPackageName)) {
     return undefined;
   }
   return searchVisiblePackage(contextDirectory, physicalPackageSegments, observer);
@@ -289,20 +306,20 @@ function isDeclaredFromResolutionContext(
   observer: PackageBoundaryObserver,
 ): boolean {
   const contextManifest = findContextManifest(contextDirectory, requirePackageIdentity, observer);
-  return contextManifest !== undefined && hasDeclaredPackage(contextManifest, packageName);
+  return contextManifest !== undefined && hasDeclaredPackage(contextManifest.manifest, packageName);
 }
 
 function findContextManifest(
   contextDirectory: string,
   requirePackageIdentity: boolean,
   observer: PackageBoundaryObserver,
-): Readonly<Record<string, unknown>> | undefined {
+): AncestorManifest | undefined {
   return findAncestorManifest(
     contextDirectory,
     (_directory, manifest) =>
       !requirePackageIdentity || readJsonPackageIdentity(manifest) !== undefined,
     observer,
-  )?.manifest;
+  );
 }
 
 function findWorkspaceRoot(
@@ -374,7 +391,9 @@ function hasPlugAndPlayMarker(directory: string, observer: PackageBoundaryObserv
 
 function hasFile(fileName: string, observer: PackageBoundaryObserver): boolean {
   observer.reserveOperation();
-  return isEvidenceFile(fileName);
+  const exists = isEvidenceFile(fileName);
+  observer.observeEvidenceFilePresence(fileName, exists);
+  return exists;
 }
 
 function startingDirectory(resolutionContext: string, observer: PackageBoundaryObserver): string {

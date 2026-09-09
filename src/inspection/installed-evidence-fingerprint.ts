@@ -37,7 +37,22 @@ const installedEvidenceFingerprintSchema = Schema.Struct({
   kind: Schema.Literals(["declaration", "manifest"]),
   path: boundedEvidencePathSchema,
   sha256: evidenceSha256Schema,
-});
+  sourceFormat: Schema.optionalKey(
+    Schema.Struct({
+      accessStyle: Schema.Literals(["import", "require"]),
+      path: boundedEvidencePathSchema,
+    }),
+  ),
+}).check(
+  Schema.makeFilter(
+    (fingerprint) => fingerprint.sourceFormat === undefined || fingerprint.kind === "declaration",
+  ),
+);
+const installedEvidenceFilePresenceSchema = Schema.Struct({
+  path: boundedEvidencePathSchema,
+  exists: Schema.Boolean,
+  canonicalPath: Schema.optionalKey(boundedEvidencePathSchema),
+}).check(Schema.makeFilter((check) => check.exists === (check.canonicalPath !== undefined)));
 const installedEvidenceDirectoryFingerprintSchema = Schema.Struct({
   entries: Schema.Natural,
   path: boundedEvidencePathSchema,
@@ -65,6 +80,11 @@ const installedEvidenceResolutionProbeSchema = Schema.Struct({
   specifier: boundedEvidenceStringSchema,
 });
 export const installedEvidenceProofSchema = Schema.Struct({
+  fileChecks: Schema.optionalKey(
+    Schema.Array(installedEvidenceFilePresenceSchema).check(
+      Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.fileChecks),
+    ),
+  ),
   directories: installedEvidenceDirectoriesSchema,
   files: Schema.Array(installedEvidenceFingerprintSchema).check(
     Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.files),
@@ -79,6 +99,7 @@ export const installedEvidenceProofSchema = Schema.Struct({
 );
 
 export type InstalledEvidenceFingerprint = typeof installedEvidenceFingerprintSchema.Type;
+export type InstalledEvidenceFilePresence = typeof installedEvidenceFilePresenceSchema.Type;
 export type InstalledEvidenceDirectoryFingerprint =
   typeof installedEvidenceDirectoryFingerprintSchema.Type;
 export type InstalledEvidenceResolutionProbe = typeof installedEvidenceResolutionProbeSchema.Type;
@@ -96,7 +117,10 @@ export type ObserveInstalledEvidenceFile = (
   fileName: string,
   contents: string,
   kind: InstalledEvidenceFingerprint["kind"],
+  sourceFormat?: InstalledEvidenceFingerprint["sourceFormat"],
 ) => void;
+
+export type ObserveInstalledEvidenceFilePresence = (fileName: string, exists: boolean) => void;
 
 export type ObserveInstalledEvidenceDirectory = (
   directory: string,
@@ -106,6 +130,7 @@ export type ObserveInstalledEvidenceDirectory = (
 export interface InstalledEvidenceObserver {
   readonly observeDirectory: ObserveInstalledEvidenceDirectory;
   readonly observeFile: ObserveInstalledEvidenceFile;
+  readonly observeFilePresence: ObserveInstalledEvidenceFilePresence;
   readonly observeResolution: (probe: InstalledEvidenceResolutionProbe) => void;
 }
 
@@ -116,6 +141,7 @@ export interface InstalledEvidenceFingerprintRecorder extends InstalledEvidenceO
 /** Records bounded content fingerprints for exactly the files consumed by one inspection. */
 export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceFingerprintRecorder {
   const fingerprints = new Map<string, InstalledEvidenceFingerprint>();
+  const fileChecks = new Map<string, InstalledEvidenceFilePresence>();
   const directories = new Map<string, InstalledEvidenceDirectoryFingerprint>();
   const resolutions = new Map<string, InstalledEvidenceResolutionProbe>();
   let directoryEntryCount = 0;
@@ -130,12 +156,45 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
   };
 
   return {
-    observeFile: (fileName, contents, kind) => {
+    observeFilePresence: (fileName, exists) => {
+      if (!cacheable) return;
+      if (!isAbsolute(fileName)) {
+        cacheable = false;
+        return;
+      }
+      const path = resolve(fileName);
+      const canonicalPath = exists ? canonicalEvidencePath(path) : undefined;
+      if (exists && canonicalPath === undefined) {
+        cacheable = false;
+        return;
+      }
+      const previous = fileChecks.get(path);
+      if (
+        previous !== undefined &&
+        (previous.exists !== exists || previous.canonicalPath !== canonicalPath)
+      ) {
+        cacheable = false;
+        return;
+      }
+      if (previous !== undefined) return;
+      const check = { path, exists, ...(canonicalPath === undefined ? {} : { canonicalPath }) };
+      if (fileChecks.size === 0) {
+        proofBytes += Buffer.byteLength(',"fileChecks":[]');
+      }
+      reserveProofEntry(JSON.stringify(check), fileChecks.size);
+      fileChecks.set(path, check);
+      if (fileChecks.size > EVIDENCE_PROOF_LIMITS.fileChecks) cacheable = false;
+    },
+    observeFile: (fileName, contents, kind, sourceFormat) => {
       if (!cacheable) {
         return;
       }
       const path = canonicalEvidencePath(fileName);
-      if (path === undefined) {
+      if (
+        path === undefined ||
+        (sourceFormat !== undefined &&
+          (kind !== "declaration" || canonicalEvidencePath(sourceFormat.path) !== path))
+      ) {
         cacheable = false;
         return;
       }
@@ -143,11 +202,21 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
         kind,
         path,
         sha256: sha256(contents),
+        ...(sourceFormat === undefined
+          ? {}
+          : {
+              sourceFormat: {
+                accessStyle: sourceFormat.accessStyle,
+                path: resolve(sourceFormat.path),
+              },
+            }),
       } as const;
       const previous = fingerprints.get(path);
       if (
         previous !== undefined &&
-        (previous.kind !== fingerprint.kind || previous.sha256 !== fingerprint.sha256)
+        (previous.kind !== fingerprint.kind ||
+          previous.sha256 !== fingerprint.sha256 ||
+          JSON.stringify(previous.sourceFormat) !== JSON.stringify(fingerprint.sourceFormat))
       ) {
         cacheable = false;
         return;
@@ -215,6 +284,13 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
         left.path.localeCompare(right.path),
       );
       const proof = {
+        ...(fileChecks.size === 0
+          ? {}
+          : {
+              fileChecks: [...fileChecks.values()].sort((left, right) =>
+                left.path.localeCompare(right.path),
+              ),
+            }),
         directories: [...directories.values()].sort((left, right) =>
           left.path.localeCompare(right.path),
         ),

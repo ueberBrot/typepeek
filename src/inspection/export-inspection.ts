@@ -1,5 +1,6 @@
 import ts from "@typescript/typescript6";
 
+import { MAX_NAMESPACE_DEPTH } from "#typepeek/inspection/budget-policy";
 import { assertMergedDeclarationLimit } from "#typepeek/inspection/declaration-limits";
 import {
   declarationOwnerIsMember,
@@ -53,8 +54,6 @@ import { isTypeScriptStandardLibraryDeclaration } from "#typepeek/inspection/typ
 const MAX_DECLARATION_BYTES = 64 * 1024;
 
 const MAX_NAMESPACE_MEMBERS = 128;
-
-const MAX_NAMESPACE_DEPTH = 8;
 
 const MAX_SUPPORTING_TYPE_DEPTH = 12;
 

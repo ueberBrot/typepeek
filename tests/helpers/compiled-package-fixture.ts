@@ -894,7 +894,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     version: "1.0.0",
     declaration: [
       ...Array.from(
-        { length: 6_000 },
+        { length: 20_000 },
         (_, index) => `import type {} from "@missing/package-${index}";`,
       ),
       "export declare const visible: string;",
@@ -907,7 +907,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     name: "@typepeek-fixture/duplicate-path-references",
     version: "1.0.0",
     declaration: [
-      ...Array.from({ length: 26_000 }, () => '/// <reference path="./helper.d.ts" />'),
+      ...Array.from({ length: 80_000 }, () => '/// <reference path="./helper.d.ts" />'),
       "export declare const visible: ReferencedValue;",
       "",
     ].join("\n"),
@@ -922,13 +922,13 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     version: "1.0.0",
     declaration: [
       ...Array.from(
-        { length: 384 },
+        { length: 2_200 },
         (_, index) => `export { value${index} } from "./part-${index}.js";`,
       ),
       "",
     ].join("\n"),
     additionalDeclarations: Object.fromEntries(
-      Array.from({ length: 384 }, (_, index) => [
+      Array.from({ length: 2_200 }, (_, index) => [
         `part-${index}.d.ts`,
         `export declare const value${index}: string;\n`,
       ]),

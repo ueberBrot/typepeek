@@ -2,7 +2,7 @@
 
 ## Process boundary
 
-Inspection Core starts one execa-managed Node subprocess for each normalized request. It accepts one JSON result over byte-limited stdout only after the subprocess exits with code zero. The parent enforces a 10-second deadline, 100-millisecond kill escalation, 192 MiB old-generation heap, and 4 MiB stack.
+Inspection Core starts one execa-managed Node subprocess for each normalized request. It accepts one JSON result over byte-limited stdout only after the subprocess exits with code zero. The parent enforces a 10-second deadline, 100-millisecond kill escalation, 384 MiB old-generation heap, and 4 MiB stack. The heap allowance supports the pinned large-SDK corpus; it does not cap total process RSS.
 
 Caller Fiber interruption aborts the execa-managed subprocess and waits for its exit under the same kill escalation before interruption completes. Process-launch and asynchronous transport failures use a private typed Effect error. Like a non-zero process exit, they become the deterministic `analysis-terminated` outcome and never escape Inspection Core as defects.
 
