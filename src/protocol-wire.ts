@@ -29,6 +29,38 @@ export async function readProtocolWireInput(input: Readable): Promise<ProtocolWi
   return Buffer.isBuffer(reading) ? parseProtocolWireInput(reading) : reading;
 }
 
+/** Reads newline-delimited requests with a separate byte limit for each line. */
+export async function* readProtocolWireStream(
+  input: Readable,
+): AsyncGenerator<ProtocolWireReading> {
+  let chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of input) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    let start = 0;
+    while (start < buffer.length) {
+      const newline = buffer.indexOf(0x0a, start);
+      const end = newline === -1 ? buffer.length : newline;
+      bytes += end - start;
+      if (bytes > MAX_PROTOCOL_INPUT_BYTES) {
+        input.destroy();
+        yield invalidProtocolWireInput("input-too-large");
+        return;
+      }
+      chunks.push(buffer.subarray(start, end));
+      if (newline !== -1) {
+        const reading = parseProtocolWireInput(Buffer.concat(chunks, bytes));
+        yield reading;
+        if (!reading.accepted) return;
+        chunks = [];
+        bytes = 0;
+      }
+      start = end + 1;
+    }
+  }
+  if (bytes > 0) yield parseProtocolWireInput(Buffer.concat(chunks, bytes));
+}
+
 async function readBoundedWireBytes(input: Readable): Promise<Buffer | ProtocolWireReading> {
   const chunks: Buffer[] = [];
   let bytes = 0;

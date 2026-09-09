@@ -33,6 +33,7 @@ import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 import {
   internalProtocolWireError,
   readProtocolWireInput,
+  readProtocolWireStream,
   renderProtocolWireValue,
 } from "#typepeek/protocol-wire";
 import { renderInspection, type TerminalRenderingOptions } from "#typepeek/terminal-rendering";
@@ -109,6 +110,7 @@ interface MemberDiscoveryOptions extends InspectionTargetOptions {
 
 class InspectionFailureError extends Error {}
 class InvalidInvocationError extends Error {}
+class ProtocolOutputError extends Error {}
 
 class CliProcessSession {
   #capturedStderr = "";
@@ -511,12 +513,18 @@ const capabilitiesCommand = buildCommand<CliOutputOptions, [], ApplicationContex
   },
 });
 
-const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], ApplicationContext>({
-  async func() {
-    await runProtocolCommand(this);
+const protocolCommand = buildCommand<{ readonly stream: boolean }, [], ApplicationContext>({
+  async func(options) {
+    await runProtocolCommand(this, options.stream);
   },
   parameters: {
-    flags: {},
+    flags: {
+      stream: {
+        kind: "boolean",
+        default: false,
+        brief: "Read successive JSON request lines and emit ordered response lines.",
+      },
+    },
     positional: {
       kind: "tuple",
       parameters: [],
@@ -525,7 +533,7 @@ const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], Applica
   docs: {
     brief: "Invoke the Inspection Protocol with one bounded JSON request on stdin.",
     fullDescription:
-      "Read one bounded JSON request from stdin and emit one compact JSON response on stdout. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits.",
+      "Read one bounded JSON request from stdin and emit one compact JSON response on stdout. With --stream, process successive request lines in order until stdin closes. Each line may contain at most 32 KiB of UTF-8 JSON; the final newline is optional. Invalid wire input ends the stream. Inspection failures allow further requests and leave exit status 1. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits.",
   },
 });
 
@@ -662,45 +670,66 @@ export async function runCli(rawInputs: readonly string[]): Promise<void> {
   session.complete(rawInputs);
 }
 
-async function runProtocolCommand(context: ApplicationContext): Promise<void> {
+async function runProtocolCommand(context: ApplicationContext, stream: boolean): Promise<void> {
   try {
-    const reading = await readProtocolWireInput(process.stdin);
-    if (!reading.accepted) {
-      writeProtocolWireValue(context, reading.error, INVALID_INVOCATION_EXIT_CODE);
-      return;
+    const readings = stream
+      ? readProtocolWireStream(process.stdin)
+      : [await readProtocolWireInput(process.stdin)];
+    for await (const reading of readings) {
+      if (!reading.accepted) {
+        await writeProtocolWireValue(context, reading.error, INVALID_INVOCATION_EXIT_CODE);
+        return;
+      }
+      const response = await invokeInspectionProtocol(reading.value);
+      await writeProtocolResponse(context, response);
     }
-    const response = await invokeInspectionProtocol(reading.value);
-    writeProtocolResponse(context, response);
-  } catch {
-    writeProtocolWireValue(
+  } catch (error) {
+    context.process.exitCode = INTERNAL_ERROR_EXIT_CODE;
+    if (error instanceof ProtocolOutputError) return;
+    await writeProtocolWireValue(
       context,
       internalProtocolWireError("unexpected-error"),
       INTERNAL_ERROR_EXIT_CODE,
+    ).catch(() => undefined);
+  }
+}
+
+async function writeProtocolResponse(
+  context: ApplicationContext,
+  response: Awaited<ReturnType<typeof invokeInspectionProtocol>>,
+): Promise<void> {
+  const exitCode = response.outcome.status === "success" ? 0 : INSPECTION_FAILURE_EXIT_CODE;
+  if (!(await writeProtocolWireValue(context, response, exitCode))) {
+    await writeProtocolWireValue(
+      context,
+      protocolOutputLimitResponse(),
+      INSPECTION_FAILURE_EXIT_CODE,
     );
   }
 }
 
-function writeProtocolResponse(
-  context: ApplicationContext,
-  response: Awaited<ReturnType<typeof invokeInspectionProtocol>>,
-): void {
-  const exitCode = response.outcome.status === "success" ? 0 : INSPECTION_FAILURE_EXIT_CODE;
-  if (!writeProtocolWireValue(context, response, exitCode)) {
-    writeProtocolWireValue(context, protocolOutputLimitResponse(), INSPECTION_FAILURE_EXIT_CODE);
-  }
-}
-
-function writeProtocolWireValue(
+async function writeProtocolWireValue(
   context: ApplicationContext,
   value: unknown,
   exitCode: number,
-): boolean {
+): Promise<boolean> {
   const rendering = renderProtocolWireValue(value);
   if (rendering === undefined) {
     return false;
   }
-  context.process.stdout.write(rendering);
-  context.process.exitCode = exitCode;
+  context.process.exitCode = Math.max(Number(context.process.exitCode ?? 0), exitCode);
+  await new Promise<void>((resolve, reject) => {
+    const onError = () => reject(new ProtocolOutputError());
+    process.stdout.once("error", onError);
+    process.stdout.write(rendering, (error) => {
+      if (error !== undefined && error !== null) {
+        onError();
+      } else {
+        process.stdout.off("error", onError);
+        resolve();
+      }
+    });
+  });
   return true;
 }
 
