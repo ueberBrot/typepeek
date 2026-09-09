@@ -29,7 +29,7 @@ function inspectionCoreChunk(moduleId: string): string | undefined {
 
 export default defineConfig({
   define: packageVersionDefine,
-  // Phase tracing is repository diagnostics, not part of the distributed CLI.
+  // Packaged builds disable phase tracing.
   resolve: {
     alias: {
       "#typepeek/inspection/performance-profile": releaseProfileAdapter,
@@ -49,8 +49,8 @@ export default defineConfig({
     rolldownOptions: {
       external: [/^node:/u, "@stricli/core", /^effect(?:\/|$)/u, "execa"],
       output: {
-        // analysis-process.ts resolves the emitted worker relative to a shared
-        // implementation chunk, so shared chunks deliberately remain at root.
+        // analysis-process.ts resolves the worker relative to a shared chunk,
+        // so shared chunks must stay at the output root.
         chunkFileNames: "[name]-[hash].js",
         manualChunks: inspectionCoreChunk,
       },

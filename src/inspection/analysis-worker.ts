@@ -9,8 +9,7 @@ import {
 } from "#typepeek/inspection/performance-profile";
 import { readAnalysisRequest } from "#typepeek/inspection/request-definitions";
 
-// Revalidate the structured-cloned payload at the subprocess seam. The entry
-// must not rely on the caller having used the Inspection Core interface.
+// Validate subprocess input even when the caller bypasses Inspection Core.
 beginInspectionProfile();
 const message = await getOneMessage();
 const requestReading = profileInspectionPhase("request-validation", () =>

@@ -1,4 +1,4 @@
-/** Transport-neutral package API for the CLI and future inspection adapters. */
+/** Internal entrypoint for CLI adapters and tests. */
 export {
   comparePublicInterfaces,
   inspectExport,

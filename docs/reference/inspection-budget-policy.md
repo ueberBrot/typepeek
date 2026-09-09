@@ -1,6 +1,6 @@
 # Inspection budget policy
 
-Typepeek applies the following defensive thresholds to every inspection:
+Typepeek applies these limits to every inspection:
 
 | Area                                            | Bound                                                                                                       |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -29,14 +29,14 @@ Typepeek applies the following defensive thresholds to every inspection:
 
 Export Pages examine at most 16,384 names and return at most 100. They share the ordinary result and transport budgets, including in Inspection Plans. The cursor is an opaque bounded string; it preserves the target and name-index identity across requests.
 
-Compiler resolution caches remain private to one program host and partition results by authorized roots, containing directory, specifier, and resolution mode. Dependency authorization and evidence observation still apply on cache hits. The larger source and proof allowances are exercised by the pinned AWS S3 and EC2 fixtures; compact cache transport remains separate from result stdout.
+Compiler resolution caches belong to one program host and separate results by authorized roots, containing directory, specifier, and resolution mode. Cache hits still require dependency authorization and evidence recording. The pinned AWS S3 and EC2 fixtures exercise the source and proof limits. Cache receipts and inspection results have separate transport budgets.
 
-Failed lookups, directory entries, containers, and rendered fragments consume these aggregate budgets. Public Subpath patterns sharing a search root reuse one bounded directory traversal within an inspection. Hostile breadth therefore fails deterministically before elapsed time, memory, or final transport becomes the only guard.
+Failed lookups, directory entries, containers, and rendered fragments consume the aggregate budgets. Public Subpath patterns with the same search root share one directory traversal. Traversal limits bound broad inputs before they exhaust the time, memory, or output limits.
 
 Member Discovery counts candidates in each declaration space and namespace re-export traversal against one shared 4,096-entry budget across an Inspection Plan. Exact Member Inspection shares this budget when a namespace lookup requires re-export traversal. The discovery result's `totalMembers` counts distinct public names before filtering. Each discovery query returns at most 256 names; the plan also shares the ordinary aggregate result-construction budget.
 
 A public name that cannot form a bounded exact Member Path, including a symbol-keyed member, produces `unsupported-evidence` instead of an unusable selector. Discovery also fails explicitly for synthetic public members without declaration evidence. At the maximum path depth, discovery can return an empty leaf but cannot return children that require a longer path. Member queries load the trusted standard library to resolve inherited types; inspecting a library-only declaration still requires Installed Evidence provenance and can return `unsupported-evidence`.
 
-These thresholds come from adversarial fixtures and supported package matrices. They are not a latency, capacity, or compatibility SLA. Unchanged Installed Evidence must produce the same complete result or the same explicit limit outcome independent of timing. Thresholds may change when supported installations justify it.
+Adversarial fixtures and supported package tests determine these thresholds. They provide no latency, capacity, or compatibility guarantee. Work and output limits should produce the same result or explicit limit failure for unchanged Installed Evidence; the process deadline separately limits elapsed time. Thresholds may change to support additional installations.
 
-`INSPECTION_BUDGET_POLICY.identity` is the single cache identity for this complete policy and must change whenever a threshold or accounting rule changes. Storage schema and cache-semantics versions are separate migration identities; they change only with their respective implementation contracts.
+Change `INSPECTION_BUDGET_POLICY.identity` whenever a threshold or accounting rule changes. Change the storage-schema and cache-semantics versions only when their respective formats or reuse rules change.

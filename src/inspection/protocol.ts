@@ -1,6 +1,12 @@
 import * as Schema from "effect/Schema";
 
-import { MAX_MEMBER_CANDIDATES, MAX_MEMBER_MATCHES } from "#typepeek/inspection/budget-policy";
+import {
+  MAX_MEMBER_CANDIDATES,
+  MAX_MEMBER_MATCHES,
+  MAX_MODULE_EXPORTS,
+  MAX_EXPORT_INDEX_CANDIDATES,
+  MAX_EXPORT_SEARCH_MATCHES,
+} from "#typepeek/inspection/budget-policy";
 import { exportPageSchema, isConsistentExportPage } from "#typepeek/inspection/export-pagination";
 import {
   MAX_INSPECTION_PLAN_QUERIES,
@@ -28,6 +34,13 @@ const accessStyleSchema = Schema.Literals(["import", "require"]);
 const omittedFieldSchema = Schema.optionalKey(Schema.Never);
 
 const moduleExportIndexEntrySchema = Schema.Struct({ name: Schema.String });
+const moduleExportIndexSchema = Schema.Array(moduleExportIndexEntrySchema).check(
+  Schema.makeFilter(
+    (entries) =>
+      entries.every((entry, index) => index === 0 || entries[index - 1]!.name < entry.name),
+    { expected: "unique Module Export names in ascending order" },
+  ),
+);
 const publicSubpathSchema = Schema.Struct({ specifier: Schema.String });
 export const packageInspectionResultIdentitySchema = Schema.Struct({
   packageIdentity: packageIdentitySchema,
@@ -78,8 +91,7 @@ const exportTypeOrValueDeclarationSpaceSchema = Schema.Struct({
   space: Schema.Literals(["type", "value"]),
   declarations: Schema.Array(inspectedDeclarationSchema),
 });
-// Schema.suspend needs a named recursive fixed point; the Codec checks its runtime definition
-// against this public shape instead of maintaining an unrelated model.
+// Schema.suspend requires an explicit type for this recursive structure.
 export interface ExportNamespaceMember {
   readonly name: string;
   readonly declarations: ReadonlyArray<typeof inspectedDeclarationSchema.Type>;
@@ -213,7 +225,7 @@ export const inspectionResultWithIdentity = <const Fields extends Schema.Struct.
 const interfaceOverviewSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("interface-overview"),
   publicSubpaths: Schema.Array(publicSubpathSchema),
-  moduleExports: Schema.Array(moduleExportIndexEntrySchema),
+  moduleExports: moduleExportIndexSchema.check(Schema.isMaxLength(MAX_MODULE_EXPORTS)),
   exportPage: Schema.optionalKey(exportPageSchema),
 }).check(
   Schema.makeFilter(
@@ -237,9 +249,16 @@ const signatureInspectionSchema = inspectionResultWithIdentity({
 const exportSearchSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("export-search"),
   query: Schema.String,
-  totalModuleExports: Schema.Natural,
-  matches: Schema.Array(moduleExportIndexEntrySchema),
-});
+  totalModuleExports: Schema.Natural.check(Schema.isLessThanOrEqualTo(MAX_EXPORT_INDEX_CANDIDATES)),
+  matches: moduleExportIndexSchema.check(Schema.isMaxLength(MAX_EXPORT_SEARCH_MATCHES)),
+}).check(
+  Schema.makeFilter(
+    (value) =>
+      value.matches.length <= value.totalModuleExports &&
+      value.matches.every(({ name }) => name.toLowerCase().includes(value.query.toLowerCase())),
+    { expected: "Module Export matches consistent with the search query and candidate count" },
+  ),
+);
 const publicSubpathDiscoverySchema = inspectionResultWithIdentity({
   intent: Schema.Literal("public-subpath-discovery"),
   publicSubpaths: Schema.Array(publicSubpathSchema),
@@ -252,7 +271,7 @@ const memberInspectionSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("member-inspection"),
   moduleExportName: Schema.String,
   memberPath: memberPathSchema,
-  declarations: Schema.Array(inspectedDeclarationSchema),
+  declarations: Schema.Array(inspectedDeclarationSchema).check(Schema.isMinLength(1)),
 });
 const memberDiscoverySchema = inspectionResultWithIdentity({
   intent: Schema.Literal("member-discovery"),
@@ -270,11 +289,33 @@ const memberDiscoverySchema = inspectionResultWithIdentity({
       spaces: Schema.Array(declarationSpaceSchema).check(
         Schema.isMinLength(1),
         Schema.isMaxLength(3),
-        Schema.isUnique(),
+        Schema.makeFilter(
+          (spaces) =>
+            spaces.every(
+              (space, index) =>
+                index === 0 ||
+                declarationSpaceSchema.literals.indexOf(spaces[index - 1]!) <
+                  declarationSpaceSchema.literals.indexOf(space),
+            ),
+          { expected: "unique declaration spaces in canonical order" },
+        ),
       ),
     }),
   ).check(Schema.isMaxLength(MAX_MEMBER_MATCHES)),
-});
+}).check(
+  Schema.makeFilter(
+    (value) =>
+      value.members.length <= value.totalMembers &&
+      (value.query !== undefined || value.members.length === value.totalMembers) &&
+      value.members.every(
+        (member, index) =>
+          (index === 0 || value.members[index - 1]!.name < member.name) &&
+          (value.query === undefined ||
+            member.name.toLowerCase().includes(value.query.toLowerCase())),
+      ),
+    { expected: "unique sorted Members consistent with the search query and candidate count" },
+  ),
+);
 const comparisonTargetSchema = inspectionResultWithIdentity({});
 const moduleExportIndexDeltaSchema = Schema.Struct({
   added: Schema.Array(moduleExportIndexEntrySchema),

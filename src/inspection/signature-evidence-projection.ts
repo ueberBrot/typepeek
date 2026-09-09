@@ -16,7 +16,6 @@ import type {
   SignatureInspection,
 } from "#typepeek/inspection/protocol";
 
-/** Keeps the declared projection and its selected Signature Evidence together. */
 export function projectSignatureEvidence(
   outcome: InspectionOutcome,
   evidence: SignatureEvidenceKind,

@@ -47,7 +47,7 @@ export interface DeclarationProjectionContext {
   readonly validatedTypes: Set<ts.Type>;
 }
 
-/** Projects one declaration onto the semantic Public Interface consumed by every adapter. */
+/** Removes implementation details while preserving the declaration's Public Interface. */
 export function projectPublicDeclaration(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
@@ -63,7 +63,6 @@ export function projectPublicDeclaration(
   };
 }
 
-/** Renders one semantic Public Interface projection as stable declaration text. */
 export function renderPublicDeclaration(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
@@ -101,7 +100,6 @@ function publicDeclarationSyntaxBeforeMemberTypeQueries(
   return publicDeclaration(checker, printableDeclaration, context, 0);
 }
 
-/** Identifies declaration nodes that cannot contribute to a Public Interface. */
 export function isPrivateDeclaration(node: ts.Node): boolean {
   return (
     hasPrivateIdentifier(node) ||
@@ -780,7 +778,6 @@ function isImplementationLocalDeclaration(
   return false;
 }
 
-/** Identifies declaration kinds that can be represented as named Supporting Types. */
 export function isNamedTypeDeclarationSyntax(
   declaration: ts.Declaration,
 ): declaration is

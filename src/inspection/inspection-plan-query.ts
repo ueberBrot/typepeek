@@ -101,7 +101,6 @@ const decodeInspectionPlanQueryIntent = Schema.decodeUnknownResult(inspectionPla
 const decodeInspectionPlanQuery = Schema.decodeUnknownResult(inspectionPlanQuerySchema);
 const decodeInspectionPlanQueries = Schema.decodeUnknownResult(inspectionPlanQueriesSchema);
 
-/** Reads the one canonical bounded Inspection Plan Query grammar. */
 export function readInspectionPlanQueries(value: unknown): InspectionPlanQueriesReading {
   try {
     if (!Array.isArray(value) || value.length < 1 || value.length > MAX_INSPECTION_PLAN_QUERIES) {
@@ -136,7 +135,7 @@ export function isBoundedExportSearchQuery(value: unknown): value is string {
   );
 }
 
-/** Projects every normalized analysis request onto its canonical ordered query list. */
+/** Represents atomic requests as single-query plans. */
 export function inspectionPlanQueriesForRequest(
   analysisRequest: AnalysisRequest,
 ): readonly InspectionPlanQuery[] {

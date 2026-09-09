@@ -243,7 +243,6 @@ function isUndeclaredPublicProperty(symbol: ts.Symbol): boolean {
   );
 }
 
-/** Selects caller-accessible declarations and applies the shared merge bound. */
 export function publicMemberDeclarations(
   checker: ts.TypeChecker,
   symbol: ts.Symbol,

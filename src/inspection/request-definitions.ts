@@ -388,7 +388,6 @@ export const INSPECTION_REQUEST_DESCRIPTORS = Object.freeze(
   ),
 ) satisfies readonly SchemaDerivedRequestDescriptor[];
 
-/** Validates one untrusted caller request through its published executable definition. */
 export function readInspectionRequest<Intent extends InspectionIntent>(
   intent: Intent,
   value: unknown,
@@ -399,7 +398,6 @@ export function readInspectionRequest<Intent extends InspectionIntent>(
     : { accepted: true, request };
 }
 
-/** Validates and correlates one analysis intent with its normalized request. */
 function readAnalysisRequestForIntent(
   intent: AnalysisIntent,
   value: unknown,
@@ -416,7 +414,6 @@ function readAnalysisRequestForIntent(
     : { accepted: true, request };
 }
 
-/** Validates and correlates one transport-neutral Inspection Core request. */
 export function readInspectionCoreRequest(
   intent: InspectionIntent,
   value: unknown,
@@ -431,7 +428,7 @@ export function readInspectionCoreRequest(
   return reading.accepted ? { accepted: true, preparedRequest: reading.request } : reading;
 }
 
-/** Revalidates the structured-cloned request at the isolated analysis-process seam. */
+/** Validates the request received by the analysis subprocess. */
 export function readAnalysisRequest(value: unknown): AnalysisRequestReading {
   try {
     const envelope = snapshotDataProperties(value, ANALYSIS_REQUEST_FIELDS);

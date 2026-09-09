@@ -1,10 +1,10 @@
 # Interpreting results across TypeScript backends
 
-The current Typepeek inspection engine uses the JavaScript TypeScript API through `@typescript/typescript6`. The installed compatibility package is 6.0.2; the compiler it resolves is 6.0.3. The project's installed `typescript` 7.0.2 executable is used for other development tooling. Its presence does not make Typepeek's inspection engine native.
+The measured Typepeek inspection engine uses the JavaScript TypeScript API through `@typescript/typescript6`. The compatibility package is 6.0.2 and resolves compiler 6.0.3. The `typescript` 7.0.2 executable serves development tooling; inspection still uses the JavaScript compiler.
 
-The TypeScript team is building a stable API for the native Go implementation. As checked on 2026-09-08, the [7.1 iteration plan](https://github.com/microsoft/TypeScript/issues/63703) includes stabilizing content-mapper, emit, and language-service APIs. The [7.0 release announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/) describes substantial full-build speedups and explains why API-dependent tools still use TypeScript 6. Those build measurements do not predict Typepeek's eventual inspection latency.
+The TypeScript team is building a stable API for the native Go implementation. On 2026-09-08, the [7.1 iteration plan](https://github.com/microsoft/TypeScript/issues/63703) includes stabilizing content-mapper, emit, and language-service APIs. The [7.0 release announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/) describes substantial full-build speedups and explains why API-dependent tools still use TypeScript 6. Those build measurements do not predict Typepeek's eventual inspection latency.
 
-Keep three measurements separate:
+Interpret each measurement separately:
 
 | Measurement                                                        | What a native backend could change                                                                                                              |
 | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -14,6 +14,6 @@ Keep three measurements separate:
 
 The [local discovery suite](discovery/README.md) isolates retrieval from the [autonomous Codex study](codex-discovery/README.md). Both save compiler and artifact identities. The existing [inspection latency profiler](inspection-latency.ts) can further attribute current engine costs. Do not divide total agent time by an advertised compiler speedup or label a projected result as a measurement.
 
-When a usable native API is integrated, run the same frozen package snapshots, questions, output protocol, model/effort combinations, and correctness rubric against both artifacts. Allow the control agent to use the same available native static-inspection tools: both approaches may benefit. Test public interfaces for parity before comparing speed, and create an explicit backend comparison rather than weakening ordinary same-environment regression checks. Keep separate results for each package and task as well as the aggregate; a large declaration graph may benefit differently from a small entrypoint.
+When a usable native API is integrated, run the same frozen package snapshots, questions, output protocol, model/effort combinations, and correctness rubric against both artifacts. Allow the control agent to use the same available native static-inspection tools: both approaches may benefit. Test public interfaces for parity before comparing speed, and report backend comparisons separately from ordinary same-environment regression checks. Keep separate results for each package and task as well as the aggregate; a large declaration graph may benefit differently from a small entrypoint.
 
-No native API adapter is claimed or simulated by this benchmark. Today's results establish a baseline for the current engine and a way to measure the later migration.
+The benchmark has no native API adapter. These results provide a baseline for a later migration.

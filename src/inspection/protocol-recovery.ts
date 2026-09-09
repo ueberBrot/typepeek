@@ -19,7 +19,7 @@ const decodeProtocolRecovery = Schema.decodeUnknownResult(protocolRecoverySchema
 const isExportNotFoundOutcome = Schema.is(exportNotFoundOutcomeSchema);
 const isSupportingTypeLimitOutcome = Schema.is(supportingTypeLimitOutcomeSchema);
 
-/** Derives only complete executable requests from one trusted normalized request. */
+/** Builds recovery requests from the validated original request. */
 export function protocolRecoveryGuidance(
   prepared: PreparedInspectionCoreRequest,
   outcome: InspectionOutcome,

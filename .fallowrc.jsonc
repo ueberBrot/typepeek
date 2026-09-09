@@ -19,9 +19,8 @@
     "tests/package-output-smoke.ts"
   ],
 
-  // These tools are invoked through Vite+ or repository task configuration,
-  // which Fallow cannot discover as dependency usage. Remove an exception as
-  // soon as a source-level import makes the dependency visible.
+  // Fallow cannot detect these tools in Vite+ tasks. Remove exceptions when
+  // source imports make the dependencies discoverable.
   "ignoreDependencies": [
     "@arethetypeswrong/core",
     "@effect/tsgo",
@@ -30,8 +29,7 @@
     "unplugin-unused"
   ],
 
-  // Health measures the shipped runtime code. Test and benchmark surfaces are
-  // still covered by dead-code, duplication, lint, type, and execution checks.
+  // Score runtime health separately; the other checks also cover tests and benchmarks.
   "health": {
     "ignore": ["benchmarks/**", "tests/**", "vite.config.ts", "taze.config.ts"]
   },

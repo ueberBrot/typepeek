@@ -25,7 +25,6 @@ export {
   type InspectionCacheWriteReceipt,
 } from "#typepeek/inspection/inspection-cache-storage";
 
-/** Creates the complete non-content portion of one cache key after bounded resolution. */
 export function createInspectionCacheIdentity(
   request: AnalysisRequest,
   selection: InspectableModuleSelection,
@@ -52,7 +51,7 @@ export function createInspectionCacheIdentity(
   return identityFromValue(value);
 }
 
-/** Reads an untrusted candidate only after its complete evidence proof still matches. */
+/** Returns a cached outcome only when its full evidence proof still matches. */
 export function readInspectionCacheOutcome(
   identity: InspectionCacheIdentity,
   currentSelectionProof: InstalledEvidenceProof,

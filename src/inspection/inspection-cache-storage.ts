@@ -111,7 +111,7 @@ export function removeInspectionCacheEntry(key: string): void {
   }
 }
 
-/** Persists one already validated complete outcome behind bounded, atomic storage. */
+/** Stores a validated outcome by atomic rename within the cache limits. */
 export function writeValidatedInspectionCacheOutcome(
   request: AnalysisRequest,
   outcome: InspectionOutcome,
@@ -411,7 +411,7 @@ function writeAtomically(path: string, serialized: string): void {
     try {
       unlinkSync(temporaryPath);
     } catch {
-      // Best-effort cache writes never change inspection authority.
+      // A failed cache write must not change the inspection result.
     }
   }
 }
@@ -431,13 +431,13 @@ function withCacheWriteLock(directory: string, write: () => void): void {
     try {
       write();
     } catch {
-      // Optional cache storage must never change an Inspection Outcome.
+      // Cache cleanup failure must not change the inspection result.
     }
   } finally {
     try {
       unlinkSync(lockPath);
     } catch {
-      // A lost best-effort lock can only disable later cache writes.
+      // A lost lock can only disable later cache writes.
     }
   }
 }

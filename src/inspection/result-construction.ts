@@ -140,12 +140,12 @@ class ResultConstructionBudget {
   }
 }
 
-/** Applies the canonical aggregate result budget to a fully assembled core result. */
+/** Checks the aggregate budget of an assembled result. */
 export function assertInspectionResultConstructionBound(value: object): void {
   new ResultConstructionBudget().leaf(value);
 }
 
-/** Owns one aggregate Inspection Result construction budget and all assembly paths. */
+/** Shares one result budget across all queries in an inspection. */
 export class InspectionResultConstruction {
   #memberCandidates = 0;
   readonly #budget = new ResultConstructionBudget();
@@ -274,7 +274,6 @@ export class InspectionResultConstruction {
   }
 }
 
-/** Owns exact aggregate accounting and assembly for one Export Inspection. */
 class FocusedInspectionResultConstruction implements FocusedInspectionConstruction {
   readonly #budget: ResultConstructionBudget;
   readonly #target: InspectionResultConstructionTarget;
@@ -412,7 +411,6 @@ class FocusedInspectionResultConstruction implements FocusedInspectionConstructi
   }
 }
 
-/** Owns aggregate accounting and assembly for one Signature Inspection. */
 class OwnedSignatureInspectionConstruction implements SignatureInspectionConstruction {
   readonly #budget: ResultConstructionBudget;
   readonly #target: InspectionResultConstructionTarget;

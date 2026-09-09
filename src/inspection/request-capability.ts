@@ -146,7 +146,7 @@ declare module "effect/Schema" {
   }
 }
 
-/** Attaches agent-facing field semantics to the executable request field schema. */
+/** Attaches capability metadata to a request field schema. */
 export function withRequestFieldCapability<SchemaType extends Schema.Top>(
   schema: SchemaType,
   capability: InspectionRequestFieldCapability,
@@ -155,14 +155,12 @@ export function withRequestFieldCapability<SchemaType extends Schema.Top>(
   return schema.annotate({ inspectionRequestField: validated });
 }
 
-/** Narrows descriptor field names to the keys of one executable request schema. */
 export function inspectionRequestFieldDescriptorFor<
   FieldNameSchema extends Schema.ConstraintDecoder<string>,
 >(fieldNameSchema: FieldNameSchema) {
   return requestFieldDescriptorSchema(fieldNameSchema);
 }
 
-/** Derives one compact capability descriptor from an executable request schema. */
 export function deriveInspectionRequestDescriptor<
   Intent extends typeof inspectionIntentSchema.Type,
 >(

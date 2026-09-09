@@ -67,7 +67,6 @@ async function measureCacheHit(): Promise<BenchmarkMeasurements["cache"]> {
   const arguments_ = [
     "src/cli.ts",
     "signatures",
-    // Execa's full Node declaration proof exceeds the optional cache's 64 KiB limit.
     "publint/utils",
     "formatMessage",
     "--workspace",

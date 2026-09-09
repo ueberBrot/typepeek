@@ -29,7 +29,7 @@ import { readOwnDataProperty } from "#typepeek/inspection/untrusted-data";
 
 const MAX_PROOF_REPLAY_BYTES = 24 * 1_024 * 1_024;
 
-/** Replays one cached Installed Evidence Proof without granting it inspection authority. */
+/** Replays cached resolutions and fingerprints against current Installed Evidence. */
 export function installedEvidenceProofStillMatches(
   cached: InstalledEvidenceProof,
   current: InstalledEvidenceProof,

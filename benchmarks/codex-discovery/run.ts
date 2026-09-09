@@ -84,7 +84,7 @@ interface CodexAttempt {
 }
 
 async function runStudy(): Promise<void> {
-  // Verify both capability sets before any model request. A prompt alone is not isolation.
+  // Verify filesystem permissions for both conditions before sending a model request.
   for (const condition of options.conditions) {
     const trial = await createCodexTrial(fixture, `preflight-${condition}`, condition);
     await verifyCodexIsolation(fixture, trial, condition);

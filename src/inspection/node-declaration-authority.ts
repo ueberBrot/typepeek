@@ -46,10 +46,7 @@ export function isKnownNodePlatformSpecifier(specifier: string): boolean {
   return NODE_PLATFORM_SPECIFIERS.has(specifier);
 }
 
-/**
- * Selects a program with the visible Node Declaration Provider only when the
- * selected declarations authoritatively reference that provider.
- */
+/** Loads the visible Node Declaration Provider when the selected declarations reference it. */
 export function selectNodeDeclarationProgram(
   initialProgram: ts.Program,
   initialModuleSymbol: ts.Symbol,

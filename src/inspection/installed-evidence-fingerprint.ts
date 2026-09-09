@@ -138,7 +138,7 @@ export interface InstalledEvidenceFingerprintRecorder extends InstalledEvidenceO
   readonly snapshot: () => InstalledEvidenceProof | undefined;
 }
 
-/** Records bounded content fingerprints for exactly the files consumed by one inspection. */
+/** Records the files, lookups, and directories consumed by an inspection. */
 export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceFingerprintRecorder {
   const fingerprints = new Map<string, InstalledEvidenceFingerprint>();
   const fileChecks = new Map<string, InstalledEvidenceFilePresence>();

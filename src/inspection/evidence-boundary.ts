@@ -72,7 +72,6 @@ function normalizedAbsolutePath(path: string): string {
   return normalized;
 }
 
-/** Returns whether one Installed Evidence path is a readable filesystem file. */
 export function isEvidenceFile(fileName: string): boolean {
   try {
     return statSync(fileName, { throwIfNoEntry: false })?.isFile() ?? false;
@@ -81,7 +80,6 @@ export function isEvidenceFile(fileName: string): boolean {
   }
 }
 
-/** Returns whether one Installed Evidence path is a readable filesystem directory. */
 export function isEvidenceDirectory(directory: string): boolean {
   try {
     return statSync(directory, { throwIfNoEntry: false })?.isDirectory() ?? false;
@@ -90,7 +88,7 @@ export function isEvidenceDirectory(directory: string): boolean {
   }
 }
 
-/** Canonicalizes an Installed Evidence path without turning absence into authority. */
+/** Returns the real path, or undefined when it is missing or unreadable. */
 export function canonicalEvidencePath(fileName: string): string | undefined {
   try {
     // Avoid exception allocation for missing resolution candidates.

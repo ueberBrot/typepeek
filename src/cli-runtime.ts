@@ -166,14 +166,14 @@ const inspectionTargetFlags = {
     parse: parseAccessStyle,
     default: "import",
     placeholder: "import|require",
-    brief: "Access Style whose package conditions select the Resolution Variant.",
+    brief: "Resolve declarations using import or require conditions.",
   },
   workspace: {
     kind: "parsed",
     parse: resolve,
     optional: true,
     placeholder: "path",
-    brief: "Consuming workspace from which Typepeek resolves the package.",
+    brief: "Resolve the package from this consuming workspace.",
   },
   json: {
     kind: "boolean",
@@ -185,7 +185,7 @@ const inspectionTargetFlags = {
     kind: "boolean",
     default: false,
     withNegated: false,
-    brief: "Indent JSON output for human readability; requires --json.",
+    brief: "Indent JSON output; requires --json.",
   },
 } as const;
 
@@ -227,7 +227,7 @@ const memberPathParameter = {
 
 const inspectionPlanQueriesParameter = {
   parse: parseInspectionPlanQueries,
-  brief: "Bounded JSON array of overview, focused, search, or subpath inspection queries.",
+  brief: "JSON array of inspection queries to run together.",
   placeholder: "queries-json",
 } as const;
 
@@ -282,7 +282,7 @@ const overviewCommand = buildCommand<OverviewOptions, [string], ApplicationConte
     },
   },
   docs: {
-    brief: "Index the Module Exports and Public Subpaths of one Inspectable Module.",
+    brief: "List the module exports and public subpaths.",
     fullDescription:
       "Example: typepeek overview zod. Use --json for one structured Inspection Outcome.",
   },
@@ -303,7 +303,7 @@ const exportCommand = buildCommand<InspectionTargetOptions, [string, string], Ap
     },
   },
   docs: {
-    brief: "Inspect one Module Export with declarations and bounded Supporting Types.",
+    brief: "Show an export's declarations, signatures, documentation, and supporting types.",
     fullDescription:
       "Example: typepeek export zod ZodError. Use it when you need declarations or Supporting Types.",
   },
@@ -328,7 +328,7 @@ const signaturesCommand = buildCommand<
     },
   },
   docs: {
-    brief: "Inspect only the public call and construct signatures of one Module Export.",
+    brief: "Show every public call and construct signature of an export.",
     fullDescription:
       "Example: typepeek signatures execa execa --json emits structured type parameters, parameters, and return semantics.",
   },
@@ -353,7 +353,7 @@ const declarationsCommand = buildCommand<
     },
   },
   docs: {
-    brief: "Inspect only the declarations of one Module Export.",
+    brief: "Show an export's declarations.",
     fullDescription:
       "Example: typepeek declarations zod ZodError avoids Signature and Supporting Type traversal.",
   },
@@ -379,7 +379,7 @@ const memberCommand = buildCommand<
     },
   },
   docs: {
-    brief: "Inspect exactly one public Member path of a Module Export.",
+    brief: "Show the declarations for one public member path.",
     fullDescription:
       "Example: typepeek member zod ZodError issues avoids unrelated declaration traversal.",
   },
@@ -423,7 +423,7 @@ const membersCommand = buildCommand<
     },
   },
   docs: {
-    brief: "Discover immediate public Members and their declaration spaces.",
+    brief: "List immediate public members and their declaration spaces.",
     fullDescription:
       'Example: typepeek members zod ZodError --match issue lists matching names. Omit member-path to inspect the export; pass a JSON path such as \'[{"name":"shared","space":"type"}]\' to select a declaration space at a nested step. Discovery returns a complete count before filtering.',
   },
@@ -448,7 +448,7 @@ const planCommand = buildCommand<
     },
   },
   docs: {
-    brief: "Execute a bounded query list over one shared Installed Evidence snapshot.",
+    brief: "Run several queries against the same installed evidence.",
     fullDescription:
       'Example: typepeek plan zod \'[{"intent":"interface-overview"}]\' --json returns one atomic outcome.',
   },
@@ -469,7 +469,7 @@ const searchCommand = buildCommand<InspectionTargetOptions, [string, string], Ap
     },
   },
   docs: {
-    brief: "Search the bounded Module Export index without returning an overview.",
+    brief: "Find export names containing a case-insensitive substring.",
     fullDescription:
       "Example: typepeek search zod error returns matching Module Export names and the complete count.",
   },
@@ -493,7 +493,7 @@ const subpathsCommand = buildCommand<InspectionTargetOptions, [string], Applicat
     },
   },
   docs: {
-    brief: "Discover manifest Public Subpaths without materializing a TypeScript program.",
+    brief: "List public subpaths exposed by the package manifest.",
     fullDescription: "Example: typepeek subpaths zod lists only bounded manifest Public Subpaths.",
   },
 });
@@ -512,7 +512,7 @@ const capabilitiesCommand = buildCommand<CliOutputOptions, [], ApplicationContex
     },
   },
   docs: {
-    brief: "Print the Inspection Core capabilities as JSON.",
+    brief: "List supported protocol requests and limits as JSON.",
     fullDescription:
       "Capability output is always JSON. Pass --json to select machine-mode diagnostics; add --pretty for indented output.",
   },
@@ -608,7 +608,7 @@ const compareCommand = buildCommand<ComparisonOptions, [string, string], Applica
     },
   },
   docs: {
-    brief: "Compare two complete Interface Overview indexes without merging variants.",
+    brief: "Compare export names and public subpaths in two complete indexes.",
     fullDescription:
       "Example: typepeek compare zod zod --before-workspace old --after-workspace new compares installed versions directionally.",
   },
@@ -631,9 +631,9 @@ const rootRoute = buildRouteMap({
   },
   defaultCommand: "overview",
   docs: {
-    brief: "Describe the TypeScript-visible Public Interface of Inspectable Modules.",
+    brief: "Inspect TypeScript interfaces from installed packages and Node platform modules.",
     fullDescription:
-      "Start with overview to discover exports. Use search or subpaths for lighter discovery; members to discover public members; declarations or member for narrow declaration questions; signatures for parameters; export for declarations and Supporting Types; plan to share one evidence snapshot; and compare to diff two overview indexes. Agents can run capabilities before invoking protocol through bounded stdin/stdout. Common flags may precede or follow an explicit inspection command.",
+      "Use overview or search to find exports, subpaths to find public entrypoints, and members to find public members. Inspect signatures, declarations, or a member for details; use export to include documentation and supporting types. Run known queries together with plan, or compare export names and subpaths with compare. For machine integration, run capabilities before sending requests to protocol. Common flags may precede or follow an explicit inspection command.",
   },
 });
 
@@ -656,7 +656,6 @@ const app = buildApplication(rootRoute, {
   },
 });
 
-/** Runs the CLI adapter and normalizes all process-facing behavior. */
 export async function runCli(rawInputs: readonly string[]): Promise<void> {
   const session = new CliProcessSession();
   if (requestsPretty(rawInputs) && !requestsJson(rawInputs)) {

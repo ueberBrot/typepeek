@@ -27,9 +27,8 @@ const signatureConstraintPrinter = ts.createPrinter({
   newLine: ts.NewLineKind.LineFeed,
   removeComments: true,
 });
-// The checker requires parsed syntax for getTypeFromTypeNode. This trusted
-// expression only describes an empty call argument list; it is never a program
-// root, Installed Evidence, or returned declaration. Each checker caches its type.
+// getTypeFromTypeNode needs parsed syntax for the empty argument tuple.
+// This node is used only for type checking; it is neither loaded nor returned as evidence.
 const EMPTY_ARGUMENTS_DECLARATION = ts.createSourceFile(
   "typepeek-empty-arguments.d.ts",
   "type EmptyArguments = [];",

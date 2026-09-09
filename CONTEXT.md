@@ -69,7 +69,7 @@ A package-manifest wildcard that describes a family of potential Public Subpaths
 _Avoid_: wildcard Specifier, Public Subpath
 
 **Platform Module**:
-An Inspectable Module provided by a known runtime rather than an installed package, with declarations supplied by an installed, context-visible Declaration Provider. Initially, this means Node built-ins such as `node:fs` backed by `@types/node`.
+An Inspectable Module provided by a known runtime rather than an installed package, with declarations supplied by an installed, context-visible Declaration Provider. Supported Platform Modules are Node built-ins such as `node:fs` backed by `@types/node`.
 _Avoid_: global type, standard library
 
 **Declaration Provider**:
@@ -115,7 +115,7 @@ A bounded Inspection Result containing every statically visible public call and 
 _Avoid_: partial Export Inspection, fallback result
 
 **Declaration Inspection**:
-A bounded Inspection Result containing the complete declaration spaces of one Module Export in a Resolution Variant. It excludes signatures, Supporting Types, and Package Documentation rather than returning a partial Export Inspection.
+A bounded Inspection Result containing the complete declaration spaces of one Module Export in a Resolution Variant. It excludes signatures, Supporting Types, and Package Documentation.
 _Avoid_: stripped Export Inspection, declaration preview
 
 **Member Discovery**:

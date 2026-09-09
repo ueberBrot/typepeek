@@ -26,7 +26,6 @@ export interface FocusedExportResolution {
   readonly valueAccessible: boolean;
 }
 
-/** Resolves only the symbol facts shared by focused inspection intents. */
 export function resolveFocusedExport(
   checker: ts.TypeChecker,
   moduleSymbol: ts.Symbol,
@@ -104,7 +103,7 @@ function isModuleExportValueAccessible(
   return property !== undefined && resolveFocusedExportTarget(checker, property) === targetSymbol;
 }
 
-/** Keeps real star provenance for type-only values without named type declarations. */
+/** Uses the export-star declaration as provenance when a type-only value has no named type declaration. */
 function findModuleExportStarDeclaration(
   checker: ts.TypeChecker,
   moduleSymbol: ts.Symbol,

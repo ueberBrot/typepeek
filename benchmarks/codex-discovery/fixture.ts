@@ -93,8 +93,8 @@ export async function createCodexTrial(
   condition: CodexCondition,
 ) {
   const workspace = dirname(fixture.modules);
-  // Keep the actual installation inside the consumer boundary. Reset every mutable
-  // file between sequential trials; Codex sessions are also fresh and ephemeral.
+  // Keep dependencies inside the consumer for repository-relative provenance.
+  // Reset mutable files between trials; each trial starts a fresh Codex session.
   for (const entry of await readdir(workspace)) {
     if (entry !== "node_modules")
       await rm(join(workspace, entry), { recursive: true, force: true });

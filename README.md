@@ -6,13 +6,11 @@
 
 Typepeek shows the TypeScript interface of an installed package without importing or executing it. Use it to find exports, inspect signatures and declarations, discover public subpaths, and compare the interfaces visible from two projects.
 
-Typepeek reads the packages already installed for a project. Results match the package version, module conditions, and declarations available to that project. They do not rely on online documentation.
+Results come from the package version, module conditions, and declarations installed for the consuming project.
 
 Typepeek requires Node.js 24.18 or later within the Node.js 24 release line. The examples use npm because it ships with Node.js. If you prefer another package manager, use its equivalent install and run commands.
 
 ## Run Typepeek
-
-Choose how to run Typepeek.
 
 ### Install in a project
 
@@ -42,17 +40,17 @@ npm install --global typepeek
 typepeek overview execa
 ```
 
-A global installation is convenient, but every project shares the installed version.
+Every project uses the same globally installed Typepeek version.
 
-## Why Typepeek
+## Select a project and package
 
-If your project imports `execa`, Typepeek can read the call signatures for its main export from the installed declarations:
+Read the main `execa` export's signatures from the installed declarations:
 
 ```bash
 npx typepeek signatures execa execa
 ```
 
-Typepeek returns each public call and construct signature in declaration order.
+Results include every public call and construct signature in declaration order.
 
 Typepeek first identifies the consumer from the current directory. From a monorepo root, it selects the only declared workspace that depends on the requested package. If several workspaces depend on it, select the consumer explicitly:
 
@@ -68,13 +66,13 @@ Inspect an installed package from the current project or workspace:
 npx typepeek overview execa
 ```
 
-`overview` is the default command, so the final command can also be written as:
+`overview` is the default command. The shorthand is:
 
 ```bash
 npx typepeek execa
 ```
 
-Run `npx typepeek --help` for the complete command surface. If you installed Typepeek globally, invoke `typepeek` directly instead.
+Run `npx typepeek --help` for all commands and options. With a global installation, use `typepeek` directly.
 
 ## Choose an inspection
 
@@ -125,7 +123,7 @@ npx typepeek signatures @aws-sdk/client-ec2 EC2Client --json
 npx typepeek plan @aws-sdk/client-ec2 '[{"intent":"interface-overview","cursor":"start"},{"intent":"signature-inspection","exportName":"EC2Client"}]' --json
 ```
 
-Pages share the normal output limits. Browsing names does not establish every exported declaration's details; inspect the selected export for those. An overview without a cursor still returns the complete bounded index or a typed failure. Comparisons require complete indexes.
+Pages share the normal output limits. Inspect a selected export for its declarations. An overview without a cursor returns the complete bounded index or a typed failure. Comparisons require complete indexes.
 
 ## Discover and inspect members
 
@@ -158,11 +156,11 @@ Discovery includes inherited members, including names from TypeScript's standard
 
 Typepeek inspects installed package modules, their manifest-declared public subpaths, and linked workspace packages. It also inspects Node.js platform modules when the project can resolve `@types/node`. Typepeek supports ordinary `node_modules` installations produced by npm, pnpm, and Bun.
 
-A requested Package Module need not appear in the Resolution Context's manifest. Typepeek can inspect it when its Specifier resolves through an ancestor `node_modules` directory, including when the installation hoists it for another Package Module. From a monorepo root, Typepeek selects a workspace when exactly one declares the package as a dependency. Typepeek does not scan nested `node_modules` directories that no selected Resolution Context can resolve.
+The requested package can be a hoisted transitive dependency absent from the consumer's manifest. It must resolve through an ancestor `node_modules` directory from the selected project or workspace. Typepeek does not search unrelated nested installations.
 
 Inspection is static. Typepeek reads installed manifests, declarations, package-exposed TypeScript source, and attached JSDoc. It does not import package code, run package scripts, evaluate project configuration code, or download missing material.
 
-Every inspection is bounded. Typepeek returns a complete result for the requested scope or an explicit typed failure when evidence is missing, unsupported, or too large. Export Pages identify their scope and continuation explicitly; exhausted analysis never becomes a successful page.
+Typepeek returns a complete result for the requested scope or a typed failure when evidence is missing, unsupported, or exceeds a budget. Export pages identify their scope and continuation; exceeding an analysis budget fails the page.
 
 ## Use Typepeek with coding agents
 
@@ -178,9 +176,9 @@ Install the Typepeek agent skill with the [`skills.sh`](https://skills.sh) CLI:
 npx skills@latest add ueberBrot/typepeek --skill typepeek
 ```
 
-The skill teaches supported coding agents to choose the narrowest useful inspection. It does not install the Typepeek CLI.
+The skill guides coding agents in choosing an inspection. Install the Typepeek CLI separately.
 
-Typepeek ships a CLI. Programmatic adapters invoke the `protocol` command over stdin and stdout. Typepeek exposes no JavaScript library and ships no MCP server.
+Programmatic integrations use the CLI's `protocol` command over stdin and stdout. Typepeek exposes no JavaScript library or MCP server.
 
 Use `typepeek protocol` to send successive compact JSON request lines through one CLI process. It returns one response line per request, in order, while each inspection retains its isolated analysis process. See `typepeek protocol --help` for input limits and failure handling.
 

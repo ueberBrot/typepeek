@@ -204,7 +204,6 @@ const CAPABILITIES = deepFreeze(
   }),
 );
 
-/** Describes the bounded stable protocol vocabulary available to any adapter. */
 export function inspectCapabilities(): InspectionCapabilities {
   return CAPABILITIES;
 }

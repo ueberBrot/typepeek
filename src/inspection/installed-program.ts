@@ -123,7 +123,6 @@ const NODE_AUGMENTATION_SCOPE_BY_QUERY = {
   "member-discovery": "focused-export",
 } as const satisfies Readonly<Record<InspectionPlanQuery["intent"], NodeAugmentationScope>>;
 
-/** Materializes and validates one bounded TypeScript declaration program. */
 export function materializeInstalledProgram(
   selection: InstalledProgramSelection,
   queries: readonly InspectionPlanQuery[],
@@ -558,7 +557,6 @@ function assertResolvedReExportGraph(
   host: BoundedCompilerHost,
   traversal: DeclarationGraphTraversalState,
 ): void {
-  // Reject unresolved re-export graphs before returning a result.
   const state: ReExportGraphState = {
     pendingEntries: [{ declaration: entrypoint, expandSourceExports: true }],
     visitedDeclarations: new Set(),
@@ -1266,8 +1264,8 @@ function visibleTypeReferenceCandidatePackageRoots(
   expectedPackageIdentity?: string,
 ): PackageRootCapability | undefined {
   reserveCompilerHostOperations(state, 1);
-  // Package visibility is shared by declarations in the same logical directory.
-  // Keep the declaring name distinct from @types fallbacks and package aliases.
+  // Declarations in one directory share package visibility. Include both names
+  // in the key to distinguish package aliases and @types fallbacks.
   const key = JSON.stringify([
     dirname(containingFile),
     declaredPackageName,

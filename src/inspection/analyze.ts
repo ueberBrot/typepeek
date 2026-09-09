@@ -1,4 +1,9 @@
 import {
+  MAX_MODULE_EXPORTS,
+  MAX_EXPORT_INDEX_CANDIDATES,
+  MAX_EXPORT_SEARCH_MATCHES,
+} from "#typepeek/inspection/budget-policy";
+import {
   InspectionLimitError,
   StaticBoundaryInspectionError,
   UnsupportedInspectionError,
@@ -7,10 +12,7 @@ import {
   createModuleExportInspection,
   type ModuleExportInspection,
 } from "#typepeek/inspection/export-inspection";
-import {
-  MAX_EXPORT_INDEX_CANDIDATES,
-  paginateExports,
-} from "#typepeek/inspection/export-pagination";
+import { paginateExports } from "#typepeek/inspection/export-pagination";
 import {
   createInspectionCacheIdentity,
   createInspectionCacheHitNotice,
@@ -43,19 +45,12 @@ import type {
 import { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
 import { inspectModuleExportSignatures } from "#typepeek/inspection/signature-inspection";
 
-const MAX_MODULE_EXPORTS = 320;
-const MAX_EXPORT_SEARCH_CANDIDATES = MAX_EXPORT_INDEX_CANDIDATES;
-const MAX_EXPORT_SEARCH_MATCHES = 320;
-
 export interface AnalysisExecution {
   readonly cacheMessage?: InspectionCacheHitNotice | InspectionCacheWriteReceipt;
   readonly outcome: InspectionOutcome;
 }
 
-/**
- * Runs one normalized request inside the analysis subprocess, using only a
- * previously validated outcome whose Installed Evidence still matches.
- */
+/** Reuses a validated cache entry when its evidence matches; otherwise inspects the module. */
 export function analyzeInspection(
   analysisRequest: AnalysisRequest,
   readCache = true,
@@ -143,7 +138,6 @@ function inspectSelectedModule(
   return { status: "success", result };
 }
 
-/** Selects one evidence path while keeping query order and atomicity in the caller. */
 function prepareQueryInspection(
   selection: InspectableModuleSelection,
   queries: readonly InspectionPlanQuery[],
@@ -338,7 +332,7 @@ function searchModuleExports(
   readonly matches: readonly { readonly name: string }[];
 } {
   const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
-  if (exportedSymbols.length > MAX_EXPORT_SEARCH_CANDIDATES) {
+  if (exportedSymbols.length > MAX_EXPORT_INDEX_CANDIDATES) {
     throw new InspectionLimitError(
       "export-search-candidates",
       "Inspection exceeded its Module Export search limit.",
@@ -377,8 +371,7 @@ function errorOutcome(error: unknown): InspectionOutcome {
   if (error instanceof StaticBoundaryInspectionError) {
     return { status: "static-boundary", reason: "static-boundary", message: error.message };
   }
-  // Unexpected errors may contain host paths or analyzer details, neither of
-  // which belongs in the transport-neutral Inspection Result.
+  // Unexpected errors may expose host paths or analyzer internals; return a generic failure.
   return error instanceof UnsupportedInspectionError
     ? { status: "unsupported", reason: "unsupported-evidence", message: error.message }
     : {

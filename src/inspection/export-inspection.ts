@@ -149,7 +149,6 @@ type FocusedMemberInspection =
         | "unsupported-member";
     };
 
-/** Owns focused Module Export inspection and traversal for one Inspection Plan. */
 export function createModuleExportInspection(
   evidence: InspectableModuleEvidence,
   constructionOwner: InspectionResultConstruction,
@@ -273,7 +272,6 @@ export function createModuleExportInspection(
     };
   }
 
-  /** Inspects exactly one public member path without traversing unrelated declarations. */
   function inspectFocusedModuleExportMember(
     exportName: string,
     memberPath: MemberPath,
@@ -299,7 +297,6 @@ export function createModuleExportInspection(
     };
   }
 
-  /** Discovers one export's immediate members after resolving an optional exact path. */
   function discoverFocusedModuleExportMembers(
     exportName: string,
     memberPath: MemberPath,
@@ -441,8 +438,6 @@ export function createModuleExportInspection(
     namespaceMembers: readonly NamespaceMemberEvidence[],
     construction: FocusedInspectionConstruction,
   ): readonly SupportingType[] {
-    // Traverse only references reachable from the selected Public Interface. The
-    // visited set prevents cycles while depth and count budgets bound expansion.
     const supportingTypes: SupportingType[] = [];
     const visited = new Set<ts.Symbol>([selectedSymbol]);
     const visitedInferredTypes = new Set<ts.Type>();
@@ -578,8 +573,7 @@ export function createModuleExportInspection(
     symbol: ts.Symbol,
     referenceKind: SupportingReferenceKind,
   ): readonly ts.Declaration[] {
-    // `typeof X` needs X's value declaration; ordinary type references admit only
-    // named type declarations and must not drift into implementation symbols.
+    // `typeof X` needs X's value declaration; ordinary type references need named type declarations.
     const declarations = (symbol.declarations ?? []).filter(
       (declaration) =>
         !isTypeScriptStandardLibraryDeclaration(declaration.getSourceFile().fileName) &&

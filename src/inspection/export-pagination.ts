@@ -1,8 +1,9 @@
 import * as Schema from "effect/Schema";
 import { createHash } from "node:crypto";
 
+import { MAX_EXPORT_INDEX_CANDIDATES } from "#typepeek/inspection/budget-policy";
+
 const EXPORT_PAGE_SIZE = 100;
-export const MAX_EXPORT_INDEX_CANDIDATES = 16_384;
 export const MAX_EXPORT_CURSOR_BYTES = 80;
 const CONTINUATION = /^[a-f0-9]{64}\.[1-9][0-9]{0,4}$/u;
 

@@ -2,17 +2,9 @@ import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
-import {
-  MAX_MEMBER_CANDIDATES,
-  MAX_MEMBER_MATCHES,
-  MAX_NAMESPACE_DEPTH,
-} from "#typepeek/inspection/budget-policy";
+import { MAX_NAMESPACE_DEPTH } from "#typepeek/inspection/budget-policy";
 import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection-plan-query";
-import {
-  memberDeclarationSpaceSchema,
-  memberPathsEqual,
-  readBoundedMemberPath,
-} from "#typepeek/inspection/member-path";
+import { memberPathsEqual } from "#typepeek/inspection/member-path";
 import type { PackageIdentity } from "#typepeek/inspection/package-identity";
 import {
   type AnalysisRequest,
@@ -24,8 +16,6 @@ import {
   type InspectionPlanQuery,
   type InspectionResult,
   type InspectionResultByIntent,
-  type MemberInspection,
-  type MemberDiscovery,
   type NormalizedInspectionPlanRequest,
   type NormalizedInspectionTarget,
 } from "#typepeek/inspection/protocol";
@@ -48,11 +38,7 @@ const INVALID_RESULT_OUTCOME: InspectionFailure = {
   message: "Inspection returned an invalid result.",
 };
 
-/**
- * Accepts only a bounded, dense, data-property-only outcome for the requested
- * intent. Invalid process messages collapse to a generic failure rather than
- * exposing analyzer or transport details.
- */
+/** Validates an outcome for the requested intent; malformed data returns invalid-result. */
 export function enforceInspectionOutcome<Intent extends InspectionResult["intent"]>(
   intent: Intent,
   value: unknown,
@@ -210,8 +196,7 @@ const INSPECTION_PLAN_QUERY_MATCHERS = {
     query.intent === "member-discovery" &&
     inspection.moduleExportName === query.exportName &&
     memberPathsEqual(inspection.memberPath, query.memberPath) &&
-    inspection.query === query.query &&
-    isAuthoritativeMemberDiscovery(inspection),
+    inspection.query === query.query,
 } as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryMatcher>>;
 
 function matchesFocusedPlanQuery(
@@ -237,35 +222,7 @@ function matchesMemberPlanQuery(
     inspection.intent === "member-inspection" &&
     query.intent === "member-inspection" &&
     inspection.moduleExportName === query.exportName &&
-    memberPathsEqual(inspection.memberPath, query.memberPath) &&
-    isAuthoritativeMemberInspection(inspection)
-  );
-}
-
-function isAuthoritativeMemberInspection(inspection: MemberInspection): boolean {
-  return (
-    readBoundedMemberPath(inspection.memberPath) !== undefined && inspection.declarations.length > 0
-  );
-}
-
-function isAuthoritativeMemberDiscovery(inspection: MemberDiscovery): boolean {
-  return (
-    inspection.totalMembers <= MAX_MEMBER_CANDIDATES &&
-    inspection.members.length <= MAX_MEMBER_MATCHES &&
-    inspection.members.length <= inspection.totalMembers &&
-    (inspection.query !== undefined || inspection.members.length === inspection.totalMembers) &&
-    inspection.members.every(
-      (member, index) =>
-        (index === 0 || (inspection.members[index - 1]?.name ?? "") < member.name) &&
-        (inspection.query === undefined ||
-          member.name.toLowerCase().includes(inspection.query.toLowerCase())) &&
-        member.spaces.every(
-          (space, index) =>
-            index === 0 ||
-            memberDeclarationSpaceSchema.literals.indexOf(member.spaces[index - 1] ?? space) <
-              memberDeclarationSpaceSchema.literals.indexOf(space),
-        ),
-    )
+    memberPathsEqual(inspection.memberPath, query.memberPath)
   );
 }
 
@@ -283,8 +240,7 @@ function readInspectionOutcome(value: unknown): InspectionOutcome | undefined {
 }
 
 function hasBoundedNamespaceGraph(value: unknown): boolean {
-  // Namespace members are the protocol's recursive shape. Keep this transport
-  // guard aligned with the analyzer depth budget and reject object cycles.
+  // Namespace members recurse, so apply the same depth limit as the analyzer.
   if (!Predicate.isReadonlyObject(value) || value["status"] !== "success") {
     return true;
   }

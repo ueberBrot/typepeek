@@ -55,7 +55,6 @@ export interface InspectableModuleEvidence {
   };
 }
 
-/** Couples a declaration entrypoint to its canonical and logical authorization roots. */
 export interface DeclarationProviderAuthority {
   readonly declarationPath: string;
   readonly root: {
@@ -107,7 +106,6 @@ export function selectInspectableModule(
   );
 }
 
-/** Materializes declaration evidence for one previously selected module. */
 export function materializeInspectableModuleEvidence(
   selection: InspectableModuleSelection,
   queries: readonly InspectionPlanQuery[],

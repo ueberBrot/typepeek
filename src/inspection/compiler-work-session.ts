@@ -66,7 +66,7 @@ export interface CompilerWorkLimits {
   readonly resolutionBytes?: number;
 }
 
-/** Owns one inspection's aggregate compiler work, bounded reads, and package resolution caches. */
+/** Shares filesystem reads, resolution caches, and work budgets across one inspection. */
 export function createCompilerWorkSession({
   evidenceObserver,
   operations = INSPECTION_BUDGET_POLICY.compilerHostOperations,

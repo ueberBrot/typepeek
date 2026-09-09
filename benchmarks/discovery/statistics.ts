@@ -87,7 +87,7 @@ export interface PairedComparison {
   readonly medianSavedMilliseconds: number;
 }
 
-/** Resample complete pairs, retaining shared block/load effects. Seed fixes reporting. */
+/** Resamples complete pairs to retain shared load effects; a fixed seed reproduces the result. */
 export function comparePairedTimings(
   baseline: readonly number[],
   treatment: readonly number[],

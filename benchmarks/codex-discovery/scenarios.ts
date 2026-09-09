@@ -219,7 +219,7 @@ function readTypepeekEvidence(output: string) {
   return evidence;
 }
 
-/** Grades tool-use obligations separately from the independent final-answer oracle. */
+/** Checks required tool use separately from final-answer correctness. */
 export function gradeCodexExecution(
   scenario: CodexScenario,
   condition: CodexCondition,
