@@ -30,11 +30,7 @@ import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { renderJsonOutcome } from "#typepeek/json-rendering";
 import { serializeTerminalSafeJson, terminalSafeLine } from "#typepeek/output-safety";
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
-import {
-  internalProtocolWireError,
-  readProtocolWireStream,
-  renderProtocolWireValue,
-} from "#typepeek/protocol-wire";
+import { runProtocolWireStream } from "#typepeek/protocol-wire";
 import { renderInspection, type TerminalRenderingOptions } from "#typepeek/terminal-rendering";
 
 import { selectCliWorkspace } from "./cli-workspace.ts";
@@ -109,7 +105,6 @@ interface MemberDiscoveryOptions extends InspectionTargetOptions {
 
 class InspectionFailureError extends Error {}
 class InvalidInvocationError extends Error {}
-class ProtocolOutputError extends Error {}
 
 class CliProcessSession {
   #capturedStderr = "";
@@ -514,7 +509,8 @@ const capabilitiesCommand = buildCommand<CliOutputOptions, [], ApplicationContex
 
 const protocolCommand = buildCommand<Readonly<Record<never, never>>, [], ApplicationContext>({
   async func() {
-    await runProtocolCommand(this);
+    const exitCode = await runProtocolWireStream(process.stdin, process.stdout);
+    this.process.exitCode = Math.max(Number(this.process.exitCode ?? 0), exitCode);
   },
   parameters: {
     flags: {},
@@ -661,78 +657,6 @@ export async function runCli(rawInputs: readonly string[]): Promise<void> {
   const inputs = rawInputs.length === 0 ? ["--help"] : normalizeCommonOptionPlacement(rawInputs);
   await run(app, inputs, { process: session.process });
   session.complete(rawInputs);
-}
-
-async function runProtocolCommand(context: ApplicationContext): Promise<void> {
-  try {
-    for await (const reading of readProtocolWireStream(process.stdin)) {
-      if (!reading.accepted) {
-        await writeProtocolWireValue(context, reading.error, INVALID_INVOCATION_EXIT_CODE);
-        return;
-      }
-      const response = await invokeInspectionProtocol(reading.value);
-      await writeProtocolResponse(context, response);
-    }
-  } catch (error) {
-    context.process.exitCode = INTERNAL_ERROR_EXIT_CODE;
-    if (error instanceof ProtocolOutputError) return;
-    await writeProtocolWireValue(
-      context,
-      internalProtocolWireError("unexpected-error"),
-      INTERNAL_ERROR_EXIT_CODE,
-    ).catch(() => undefined);
-  }
-}
-
-async function writeProtocolResponse(
-  context: ApplicationContext,
-  response: Awaited<ReturnType<typeof invokeInspectionProtocol>>,
-): Promise<void> {
-  const exitCode = response.outcome.status === "success" ? 0 : INSPECTION_FAILURE_EXIT_CODE;
-  if (!(await writeProtocolWireValue(context, response, exitCode))) {
-    await writeProtocolWireValue(
-      context,
-      protocolOutputLimitResponse(),
-      INSPECTION_FAILURE_EXIT_CODE,
-    );
-  }
-}
-
-async function writeProtocolWireValue(
-  context: ApplicationContext,
-  value: unknown,
-  exitCode: number,
-): Promise<boolean> {
-  const rendering = renderProtocolWireValue(value);
-  if (rendering === undefined) {
-    return false;
-  }
-  context.process.exitCode = Math.max(Number(context.process.exitCode ?? 0), exitCode);
-  await new Promise<void>((resolve, reject) => {
-    const onError = () => reject(new ProtocolOutputError());
-    process.stdout.once("error", onError);
-    process.stdout.write(rendering, (error) => {
-      if (error !== undefined && error !== null) {
-        onError();
-      } else {
-        process.stdout.off("error", onError);
-        resolve();
-      }
-    });
-  });
-  return true;
-}
-
-function protocolOutputLimitResponse() {
-  return {
-    protocolVersion: INSPECTION_PROTOCOL_VERSION,
-    outcome: {
-      status: "limit-exceeded",
-      reason: "budget-exceeded",
-      exceededBudget: "json-output",
-      message: "Inspection exceeded its protocol output limit.",
-    },
-  } as const;
 }
 
 function normalizeCommonOptionPlacement(inputs: readonly string[]): readonly string[] {
