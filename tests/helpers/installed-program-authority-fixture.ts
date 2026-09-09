@@ -9,6 +9,7 @@ export interface InstalledProgramAuthorityFixture {
   readonly brokenPrivateNodeContext: string;
   readonly brokenStandardNodeContext: string;
   readonly cleanup: () => Promise<void>;
+  readonly conditionalTypeReferenceContext: string;
   readonly globalNodeContext: string;
   readonly heritageNodeContext: string;
   readonly literalNodeContext: string;
@@ -78,7 +79,9 @@ export async function materializeInstalledProgramAuthorityFixture(): Promise<Ins
   const decoratorContext = join(fixtureRoot, "decorator");
   const computedNameContext = join(fixtureRoot, "computed-name");
   const invalidStandardContext = join(fixtureRoot, "invalid-standard");
+  const conditionalTypeReferenceContext = join(fixtureRoot, "conditional-type-reference");
   try {
+    await materializeConditionalTypeReferenceContext(conditionalTypeReferenceContext);
     await materializeLiteralNodeContext(literalNodeContext);
     await materializeLiteralNodeContext(brokenNodeContext);
     await writeFile(
@@ -451,6 +454,7 @@ export async function materializeInstalledProgramAuthorityFixture(): Promise<Ins
       brokenPrivateNodeContext,
       brokenStandardNodeContext,
       cleanup: () => rm(fixtureRoot, { recursive: true, force: true }),
+      conditionalTypeReferenceContext,
       globalNodeContext,
       heritageNodeContext,
       literalNodeContext,
@@ -648,6 +652,61 @@ async function materializeAutomaticProviderContext(context: string): Promise<voi
     writeFile(
       join(providerRoot, "index.d.ts"),
       "export declare function helper(value: string): number;\n",
+    ),
+  ]);
+}
+
+async function materializeConditionalTypeReferenceContext(context: string): Promise<void> {
+  const packageName = "@typepeek-fixture/conditional-type-reference";
+  const packageRoot = join(context, "node_modules", ...packageName.split("/"));
+  const providerName = "conditional-type-provider";
+  const providerRoot = join(context, "node_modules", providerName);
+  const entries = [
+    ["explicit-import", "d.cts", ['resolution-mode="import"']],
+    ["explicit-require", "d.mts", ['resolution-mode="require"']],
+    ["implicit-import", "d.mts", [""]],
+    ["implicit-require", "d.cts", [""]],
+    ["dual-modes", "d.mts", ['resolution-mode="import"', 'resolution-mode="require"']],
+  ] as const;
+  await Promise.all([
+    mkdir(packageRoot, { recursive: true }),
+    mkdir(providerRoot, { recursive: true }),
+  ]);
+  await Promise.all([
+    writeJson(join(context, "package.json"), {
+      name: "@typepeek-fixture/type-reference-context",
+      private: true,
+      dependencies: { [packageName]: "1.0.0" },
+    }),
+    writeJson(join(packageRoot, "package.json"), {
+      name: packageName,
+      version: "1.0.0",
+      dependencies: { [providerName]: "1.0.0" },
+      exports: Object.fromEntries(
+        entries.map(([name, extension]) => [`./${name}`, { types: `./${name}.${extension}` }]),
+      ),
+    }),
+    writeJson(join(providerRoot, "package.json"), {
+      name: providerName,
+      version: "1.0.0",
+      exports: {
+        ".": {
+          import: { types: "./import.d.ts" },
+          require: { types: "./require.d.ts" },
+        },
+      },
+    }),
+    writeFile(join(providerRoot, "import.d.ts"), "interface Branch { importOnly: string; }\n"),
+    writeFile(join(providerRoot, "require.d.ts"), "interface Branch { requireOnly: number; }\n"),
+    ...entries.map(([name, extension, modes]) =>
+      writeFile(
+        join(packageRoot, `${name}.${extension}`),
+        [
+          ...modes.map((mode) => `/// <reference types="${providerName}" ${mode} />`),
+          "export interface Value extends Branch {}",
+          "",
+        ].join("\n"),
+      ),
     ),
   ]);
 }

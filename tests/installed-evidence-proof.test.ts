@@ -7,49 +7,52 @@ import { createInstalledEvidenceFingerprintRecorder } from "#typepeek/inspection
 import { installedEvidenceProofStillMatches } from "#typepeek/inspection/installed-evidence-proof";
 
 describe("Installed Evidence Proof replay", () => {
-  it("preserves import and require conditions within one proof", async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "typepeek-proof-conditions-"));
-    try {
-      const root = await realpath(fixtureRoot);
-      const packageRoot = join(root, "node_modules", "dual");
-      await mkdir(packageRoot, { recursive: true });
-      const recorder = createInstalledEvidenceFingerprintRecorder();
-      const manifestPath = join(packageRoot, "package.json");
-      const manifest = JSON.stringify({
-        name: "dual",
-        exports: { import: "./index.d.mts", require: "./index.d.cts" },
-      });
-      await writeFile(manifestPath, manifest);
-      recorder.observeFile(manifestPath, manifest, "manifest");
-      for (const accessStyle of ["import", "require"] as const) {
-        const declarationPath = join(
-          packageRoot,
-          accessStyle === "import" ? "index.d.mts" : "index.d.cts",
-        );
-        const declaration = `export declare const mode: "${accessStyle}";`;
-        await writeFile(declarationPath, declaration);
-        recorder.observeFile(declarationPath, declaration, "declaration");
-        recorder.observeResolution({
-          accessStyle,
-          allowedRoots: [packageRoot],
-          containingFile: join(root, "consumer.ts"),
-          kind: "module",
-          resolvedPath: declarationPath,
-          specifier: "dual",
+  it.each(["module", "type-reference"] as const)(
+    "preserves import and require conditions within one %s proof",
+    async (kind) => {
+      const fixtureRoot = await mkdtemp(join(tmpdir(), "typepeek-proof-conditions-"));
+      try {
+        const root = await realpath(fixtureRoot);
+        const packageRoot = join(root, "node_modules", "dual");
+        await mkdir(packageRoot, { recursive: true });
+        const recorder = createInstalledEvidenceFingerprintRecorder();
+        const manifestPath = join(packageRoot, "package.json");
+        const manifest = JSON.stringify({
+          name: "dual",
+          exports: { import: "./index.d.mts", require: "./index.d.cts" },
         });
+        await writeFile(manifestPath, manifest);
+        recorder.observeFile(manifestPath, manifest, "manifest");
+        for (const accessStyle of ["import", "require"] as const) {
+          const declarationPath = join(
+            packageRoot,
+            accessStyle === "import" ? "index.d.mts" : "index.d.cts",
+          );
+          const declaration = `export declare const mode: "${accessStyle}";`;
+          await writeFile(declarationPath, declaration);
+          recorder.observeFile(declarationPath, declaration, "declaration");
+          recorder.observeResolution({
+            accessStyle,
+            allowedRoots: [packageRoot],
+            containingFile: join(root, "consumer.ts"),
+            kind,
+            resolvedPath: declarationPath,
+            specifier: "dual",
+          });
+        }
+        const proof = recorder.snapshot()!;
+        expect(installedEvidenceProofStillMatches(proof, proof)).toBe(true);
+        expect(
+          installedEvidenceProofStillMatches(
+            { ...proof, resolutions: [...proof.resolutions].reverse() },
+            proof,
+          ),
+        ).toBe(true);
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true });
       }
-      const proof = recorder.snapshot()!;
-      expect(installedEvidenceProofStillMatches(proof, proof)).toBe(true);
-      expect(
-        installedEvidenceProofStillMatches(
-          { ...proof, resolutions: [...proof.resolutions].reverse() },
-          proof,
-        ),
-      ).toBe(true);
-    } finally {
-      await rm(fixtureRoot, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 
   it("separates root permissions and refreshes missing declarations between replays", async () => {
     const fixtureRoot = await mkdtemp(join(tmpdir(), "typepeek-proof-capabilities-"));

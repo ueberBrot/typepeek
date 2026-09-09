@@ -9,3 +9,5 @@ Reduce inspection and cache-validation overhead for missing resolution paths.
 Reject changed evidence before replaying resolutions, and share bounded resolution hosts within each replay.
 
 Preserve standard-library inference when declaration inspection also needs Node declarations.
+
+Preserve import and require conditions in type-reference declarations and cache proof replay.

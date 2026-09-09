@@ -175,6 +175,9 @@ function resolveEvidenceProbe(
           probe.containingFile,
           compilerOptions,
           host,
+          undefined,
+          undefined,
+          probe.accessStyle === undefined ? undefined : resolutionMode(probe.accessStyle),
         ).resolvedTypeReferenceDirective?.resolvedFileName;
   return resolvedPath === undefined ? undefined : host.canonicalPath(resolvedPath);
 }

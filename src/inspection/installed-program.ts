@@ -656,7 +656,7 @@ function referencedDeclarationSourceFiles(
       ),
     ),
     ...declaration.typeReferenceDirectives.map((reference) =>
-      resolvedTypeReferenceSourceFile(program, declaration, reference.fileName, host),
+      resolvedTypeReferenceSourceFile(program, declaration, reference, host),
     ),
   ];
 }
@@ -677,15 +677,15 @@ function reserveDeclarationGraphNodes(
 function resolvedTypeReferenceSourceFile(
   program: ts.Program,
   containingFile: ts.SourceFile,
-  typeReferenceName: string,
+  reference: ts.FileReference,
   host: BoundedCompilerHost,
 ): ts.SourceFile {
   const resolution = host.resolveTypeReferenceDirectiveReferences(
-    [typeReferenceName],
+    [reference],
     containingFile.fileName,
     undefined,
     program.getCompilerOptions(),
-    undefined,
+    containingFile,
     undefined,
   )[0]?.resolvedTypeReferenceDirective;
   const resolvedFileName = resolution?.resolvedFileName;
@@ -903,6 +903,7 @@ function createBoundedCompilerHost(
       containingFile,
       redirectedReference,
       options,
+      containingSourceFile,
     ) =>
       typeDirectiveReferences.map((reference) =>
         resolveTypeReferenceDirectiveReference(
@@ -911,6 +912,7 @@ function createBoundedCompilerHost(
           containingFile,
           redirectedReference,
           options,
+          containingSourceFile,
         ),
       ),
     getSourceFile: (fileName, languageVersion, onError) =>
@@ -1078,9 +1080,11 @@ function resolveTypeReferenceDirectiveReference(
   containingFile: string,
   redirectedReference: ts.ResolvedProjectReference | undefined,
   options: ts.CompilerOptions,
+  containingSourceFile: ts.SourceFile | undefined,
 ): ts.ResolvedTypeReferenceDirectiveWithFailedLookupLocations {
   const referenceName = typeof reference === "string" ? reference : reference.fileName;
-  const cacheKey = `${containingFile}\0${referenceName}`;
+  const mode = ts.getModeForFileReference(reference, containingSourceFile?.impliedNodeFormat);
+  const cacheKey = `${containingFile}\0${referenceName}\0${mode}`;
   const cachedResolution = state.typeReferenceResolutions.get(cacheKey);
   if (cachedResolution !== undefined) {
     return cachedResolution;
@@ -1092,6 +1096,8 @@ function resolveTypeReferenceDirectiveReference(
     options,
     createBoundedResolutionHost(state, resolutionRoots),
     redirectedReference,
+    undefined,
+    mode,
   );
   const authorizedResolution = authorizeTypeReferenceDirective(
     state,
@@ -1103,6 +1109,9 @@ function resolveTypeReferenceDirectiveReference(
     : { ...resolution, resolvedTypeReferenceDirective: undefined };
   const resolvedPath = authorizedResolution.resolvedTypeReferenceDirective?.resolvedFileName;
   state.compilerWorkSession.observeResolution({
+    ...(mode === undefined
+      ? {}
+      : { accessStyle: mode === ts.ModuleKind.CommonJS ? "require" : "import" }),
     allowedRoots: [...resolutionRoots],
     containingFile,
     kind: "type-reference",

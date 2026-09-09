@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import {
   inspectExport,
   inspectExportDeclarations,
+  inspectExportMembers,
   inspectInterfaceOverview,
   inspectPlan,
 } from "#typepeek/inspection";
@@ -21,6 +22,28 @@ describe("Installed Evidence program authority", () => {
 
   afterAll(async () => {
     await fixture?.cleanup();
+  });
+
+  it.each([
+    ["explicit-import", ["importOnly"]],
+    ["explicit-require", ["requireOnly"]],
+    ["implicit-import", ["importOnly"]],
+    ["implicit-require", ["requireOnly"]],
+    ["dual-modes", ["importOnly", "requireOnly"]],
+  ] as const)("preserves %s type-reference resolution conditions", async (subpath, names) => {
+    const outcome = await inspectExportMembers({
+      resolutionContext: fixture.conditionalTypeReferenceContext,
+      specifier: `@typepeek-fixture/conditional-type-reference/${subpath}`,
+      exportName: "Value",
+    });
+
+    expect(outcome).toMatchObject({
+      status: "success",
+      result: {
+        totalMembers: names.length,
+        members: names.map((name) => ({ name, spaces: ["type"] })),
+      },
+    });
   });
 
   it("does not treat ordinary builtin-looking string literals as Node references", async () => {
