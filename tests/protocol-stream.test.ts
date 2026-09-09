@@ -5,10 +5,14 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { expect, it } from "vite-plus/test";
 
-it("returns ordered protocol responses for successive request lines", async () => {
+it("returns ordered responses and retains failures after a successful request", async () => {
   const requests = [
     { protocolVersion: "99", intent: "interface-overview", request: {} },
-    { protocolVersion: "1", intent: "interface-overview", request: {} },
+    {
+      protocolVersion: "1",
+      intent: "public-subpath-discovery",
+      request: { resolutionContext: process.cwd(), specifier: "@stricli/core" },
+    },
   ];
   const result = await execa(process.execPath, ["src/cli.ts", "protocol", "--stream"], {
     input: requests.map((request) => JSON.stringify(request)).join("\n") + "\n",
@@ -18,7 +22,7 @@ it("returns ordered protocol responses for successive request lines", async () =
   expect(result.stderr).toBe("");
   expect(result.stdout.split("\n").map((line) => JSON.parse(line))).toMatchObject([
     { protocolVersion: "1", outcome: { reason: "unsupported-protocol-version" } },
-    { protocolVersion: "1", outcome: { reason: "invalid-request" } },
+    { protocolVersion: "1", outcome: { status: "success" } },
   ]);
   expect(result.exitCode).toBe(1);
 });
