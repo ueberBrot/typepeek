@@ -1,4 +1,4 @@
-import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import { InspectionLimitError } from "#typepeek/inspection/errors";
@@ -93,7 +93,8 @@ export function isEvidenceDirectory(directory: string): boolean {
 /** Canonicalizes an Installed Evidence path without turning absence into authority. */
 export function canonicalEvidencePath(fileName: string): string | undefined {
   try {
-    return realpathSync.native(fileName);
+    // Avoid exception allocation for missing resolution candidates.
+    return existsSync(fileName) ? realpathSync.native(fileName) : undefined;
   } catch {
     return undefined;
   }
