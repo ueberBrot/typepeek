@@ -28,6 +28,23 @@ function nestedExportTarget(depth: number): object {
 
 const PACKAGE_SOURCES: readonly PackageSource[] = [
   {
+    directory: "shared-pattern-files-package",
+    name: "@typepeek-fixture/shared-pattern-files",
+    version: "1.0.0",
+    declaration: "export declare const rootExport: string;\n",
+    runtime: 'throw new Error("Typepeek executed the shared pattern fixture runtime");\n',
+    additionalDeclarations: { "patterns/red.d.ts": "export declare const red: string;\n" },
+    exports: {
+      ".": { types: "./dist/index.d.ts" },
+      ...Object.fromEntries(
+        Array.from({ length: 8 }, (_, index) => [
+          `./group-${index}/*`,
+          { types: "./dist/patterns/*.d.ts" },
+        ]),
+      ),
+    },
+  },
+  {
     directory: "package",
     name: "@typepeek-fixture/compiled",
     version: "1.2.3",
@@ -1171,6 +1188,20 @@ async function materializeInstalledEvidenceScenarios(repositoryRoot: string): Pr
                 : JSON.stringify(source.installedManifest),
             ),
           ],
+    ),
+  );
+
+  const sharedPatternDirectory = join(
+    repositoryRoot,
+    "node_modules",
+    "@typepeek-fixture",
+    "shared-pattern-files",
+    "dist",
+    "patterns",
+  );
+  await Promise.all(
+    Array.from({ length: 550 }, (_, index) =>
+      writeFile(join(sharedPatternDirectory, `ignored-${index}.js`), ""),
     ),
   );
 

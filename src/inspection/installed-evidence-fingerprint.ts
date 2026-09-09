@@ -8,13 +8,18 @@ import {
   canonicalEvidenceCandidatePath,
   canonicalEvidencePath,
 } from "#typepeek/inspection/evidence-boundary";
+import {
+  MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
+  MAX_EXPANDED_EVIDENCE_PROOF_BYTES,
+  compactEvidenceProof,
+} from "#typepeek/inspection/installed-evidence-format";
 import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted-data";
 
 const MAX_FINGERPRINTED_FILES = 512;
 const MAX_FINGERPRINTED_DIRECTORIES = 512;
 export const MAX_FINGERPRINTED_DIRECTORY_ENTRIES = 4_096;
 const MAX_RESOLUTION_PROBES = 1_024;
-export const MAX_INSTALLED_EVIDENCE_PROOF_BYTES = 64 * 1_024;
+export { MAX_INSTALLED_EVIDENCE_PROOF_BYTES } from "#typepeek/inspection/installed-evidence-format";
 const MAX_EVIDENCE_STRING_BYTES = 4 * 1_024;
 const MAX_EVIDENCE_PROOF_OBJECTS = 4_096;
 const MAX_EVIDENCE_PROOF_VALUES = 32_768;
@@ -122,7 +127,7 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
 
   const reserveProofEntry = (serialized: string, entries: number): void => {
     proofBytes += Buffer.byteLength(serialized) + (entries === 0 ? 0 : 1);
-    if (proofBytes > MAX_INSTALLED_EVIDENCE_PROOF_BYTES) {
+    if (proofBytes > MAX_EXPANDED_EVIDENCE_PROOF_BYTES) {
       cacheable = false;
     }
   };
@@ -363,6 +368,12 @@ function hasBoundedDirectoryEntryTotal(
 function hasBoundedProofSize(proof: typeof installedEvidenceProofSchema.Type): boolean {
   return (
     snapshotBoundedDataPropertyGraph(proof, {
+      maximumObjects: MAX_EVIDENCE_PROOF_OBJECTS,
+      maximumSerializedBytes: MAX_EXPANDED_EVIDENCE_PROOF_BYTES,
+      maximumStringBytes: MAX_EVIDENCE_STRING_BYTES,
+      maximumValues: MAX_EVIDENCE_PROOF_VALUES,
+    }) !== undefined &&
+    snapshotBoundedDataPropertyGraph(compactEvidenceProof(proof), {
       maximumObjects: MAX_EVIDENCE_PROOF_OBJECTS,
       maximumSerializedBytes: MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
       maximumStringBytes: MAX_EVIDENCE_STRING_BYTES,

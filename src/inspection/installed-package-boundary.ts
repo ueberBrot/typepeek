@@ -472,7 +472,7 @@ export function canonicalPath(
 ): string | undefined {
   observer.reserveOperation();
   try {
-    return realpathSync(fileName);
+    return realpathSync.native(fileName);
   } catch {
     return undefined;
   }

@@ -955,7 +955,7 @@ describe("typepeek CLI", () => {
     }
   });
 
-  it("reads the retained authenticated cache wire format through the complete cache-hit path", async () => {
+  it("reads the versioned authenticated cache wire format through the complete cache-hit path", async () => {
     const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-cache-wire-format-test-"));
     const arguments_ = [
       "src/cli.ts",
@@ -995,7 +995,7 @@ describe("typepeek CLI", () => {
         JSON.stringify({
           integrity: createHmac("sha256", integrityKey).update(retainedPayload).digest("hex"),
           payload: retainedPayload,
-          schemaVersion: 1,
+          schemaVersion: 2,
         }),
       );
 

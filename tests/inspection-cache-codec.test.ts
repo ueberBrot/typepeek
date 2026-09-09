@@ -10,6 +10,7 @@ import {
 } from "#typepeek/inspection/inspection-cache";
 import {
   CACHE_SCHEMA_VERSION,
+  encodeInspectionCacheWriteReceipt,
   readInspectionCacheEnvelope,
   readInspectionCachePayload,
   readInspectionCacheWriteReceiptMessage,
@@ -44,11 +45,32 @@ const selection = {
   resultIdentity: { packageIdentity: { name: "example", version: "1.2.3" } },
 } as unknown as InspectableModuleSelection;
 
+it("transports complete evidence with repeated paths within the receipt budget", () => {
+  const identity = createInspectionCacheIdentity(request, selection)!;
+  const root = `/repository/${"installed-package/".repeat(80)}`;
+  const proof: InstalledEvidenceProof = {
+    directories: [],
+    files: Array.from({ length: 100 }, (_, index) => ({
+      kind: "declaration",
+      path: `${root}${index}.d.ts`,
+      sha256: "a".repeat(64),
+    })),
+    resolutions: [],
+  };
+  expect(Buffer.byteLength(JSON.stringify(proof))).toBeGreaterThan(64 * 1_024);
+  const receipt = createInspectionCacheWriteReceipt(identity, proof);
+  expect(receipt).toBeDefined();
+  const encoded = encodeInspectionCacheWriteReceipt(receipt);
+  expect(encoded).toBeDefined();
+  expect(Buffer.byteLength(JSON.stringify(encoded))).toBeLessThan(96 * 1_024);
+  expect(readInspectionCacheWriteReceiptMessage(encoded)?.proof).toEqual(proof);
+});
+
 it("preserves canonical cache identity serialization and its SHA-256 key", () => {
   const identity = createInspectionCacheIdentity(request, selection);
   const expectedSerialized = JSON.stringify({
     budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
-    cacheSemantics: "installed-evidence-proof-signature-type-fidelity",
+    cacheSemantics: "installed-evidence-proof-path-dictionary",
     compilerVersion: ts.version,
     evidence: {
       declarationPath: "/repository/node_modules/example/index.d.ts",
@@ -95,7 +117,9 @@ it("retains the authenticated cache envelope and payload structure", () => {
   expect(readInspectionCacheEnvelope(envelope)).toEqual(envelope);
   expect(readInspectionCachePayload(payload)).toEqual(payload);
   expect(readInspectionCacheEnvelope({ ...envelope, extra: true })).toBeUndefined();
-  expect(readInspectionCacheEnvelope({ ...envelope, schemaVersion: 2 })).toBeUndefined();
+  expect(
+    readInspectionCacheEnvelope({ ...envelope, schemaVersion: CACHE_SCHEMA_VERSION + 1 }),
+  ).toBeUndefined();
   expect(
     readInspectionCacheEnvelope({ ...envelope, integrity: envelope.integrity.toUpperCase() }),
   ).toBeUndefined();
@@ -389,4 +413,43 @@ it("separates Member Discovery cache identities by qualified path and search", (
   );
   expect(keys).not.toContain(undefined);
   expect(new Set(keys).size).toBe(requests.length);
+});
+
+it("rejects invalid dictionary references and excessive proof expansion", () => {
+  const identity = createInspectionCacheIdentity(request, selection)!;
+  const receipt = { identity: identity.value, kind: "inspection-cache-write" };
+  const proof = {
+    prefix: "/repository/",
+    paths: ["index.d.ts"],
+    rootSets: [[0]],
+    files: [["declaration", 0, "a".repeat(64)]],
+    directories: [],
+    resolutions: [["module", "import", 0, null, "example", 0, 0]],
+  };
+  expect(readInspectionCacheWriteReceiptMessage({ ...receipt, proof })).toBeDefined();
+  for (const invalid of [
+    { ...proof, files: [["declaration", 1, "a".repeat(64)]] },
+    { ...proof, rootSets: [[-1]] },
+    { ...proof, resolutions: [["module", "import", 0, null, "example", 0, 1]] },
+    { ...proof, prefix: "relative/" },
+    { ...proof, prefix: "/" + "x".repeat(4_095) },
+    {
+      ...proof,
+      prefix: "/" + "x".repeat(3_500),
+      resolutions: Array.from({ length: 400 }, () => [
+        "module",
+        "import",
+        0,
+        null,
+        "example",
+        0,
+        0,
+      ]),
+    },
+  ]) {
+    expect(() =>
+      readInspectionCacheWriteReceiptMessage({ ...receipt, proof: invalid }),
+    ).not.toThrow();
+    expect(readInspectionCacheWriteReceiptMessage({ ...receipt, proof: invalid })).toBeUndefined();
+  }
 });

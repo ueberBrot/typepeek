@@ -3,12 +3,15 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
 
+import { readStandardGlobalCatalog } from "./src/inspection/standard-global-catalog.ts";
+
 const packageManifest = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { readonly version: string };
 const packageVersionDefine = {
   __TYPEPEEK_VERSION__: JSON.stringify(packageManifest.version),
   __TYPEPEEK_COMPILER_VERSION__: JSON.stringify(ts.version),
+  __TYPEPEEK_STANDARD_GLOBALS__: JSON.stringify(readStandardGlobalCatalog()),
 };
 
 const releaseProfileAdapter = fileURLToPath(

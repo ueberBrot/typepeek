@@ -5,6 +5,8 @@ import { InspectionLimitError } from "#typepeek/inspection/errors";
 import type { InspectionBudgetDimension } from "#typepeek/inspection/protocol-vocabulary";
 
 const MAX_CANONICAL_CANDIDATE_DEPTH = 256;
+const MAX_PATH_CONTAINMENT_ENTRIES = 4_096;
+const normalizedPaths = new Map<string, string>();
 
 /** Reads bounded installed evidence and rejects files larger than the caller's budget. */
 export function readBoundedUtf8File(
@@ -50,9 +52,24 @@ function readBoundedUtf8(
 
 /** Checks containment with the host platform's path and case semantics. */
 export function isPathWithin(directory: string, candidate: string): boolean {
+  if (sep === "/" && isAbsolute(directory) && isAbsolute(candidate)) {
+    const root = normalizedAbsolutePath(directory);
+    const path = normalizedAbsolutePath(candidate);
+    return root === "/" || path === root || path.startsWith(`${root}/`);
+  }
   const relativePath = relative(directory, candidate);
   const escapesToParent = relativePath === ".." || relativePath.startsWith(`..${sep}`);
   return relativePath === "" || (!escapesToParent && !isAbsolute(relativePath));
+}
+
+function normalizedAbsolutePath(path: string): string {
+  const cached = normalizedPaths.get(path);
+  if (cached !== undefined) return cached;
+  const normalized = resolve(path);
+  // Cache only pure normalization. Filesystem authorization still resolves symlinks.
+  if (normalizedPaths.size === MAX_PATH_CONTAINMENT_ENTRIES) normalizedPaths.clear();
+  normalizedPaths.set(path, normalized);
+  return normalized;
 }
 
 /** Returns whether one Installed Evidence path is a readable filesystem file. */
@@ -76,7 +93,7 @@ export function isEvidenceDirectory(directory: string): boolean {
 /** Canonicalizes an Installed Evidence path without turning absence into authority. */
 export function canonicalEvidencePath(fileName: string): string | undefined {
   try {
-    return realpathSync(fileName);
+    return realpathSync.native(fileName);
   } catch {
     return undefined;
   }

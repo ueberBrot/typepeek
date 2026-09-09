@@ -9,6 +9,7 @@ import {
   createInstalledEvidenceFingerprintRecorder,
   MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
 } from "#typepeek/inspection/installed-evidence-fingerprint";
+import { compactEvidenceProof } from "#typepeek/inspection/installed-evidence-format";
 
 describe("compiler work session", () => {
   it("stops recording filesystem evidence once the proof cannot fit its byte budget", async () => {
@@ -16,7 +17,7 @@ describe("compiler work session", () => {
     try {
       const containingFile = join(await realpath(fixtureRoot), "index.d.ts");
       const recorder = createInstalledEvidenceFingerprintRecorder();
-      for (let index = 0; index < 32; index += 1) {
+      for (let index = 0; index < 400; index += 1) {
         recorder.observeResolution({
           allowedRoots: [],
           containingFile,
@@ -63,7 +64,9 @@ describe("compiler work session", () => {
         const next = probe(`${nextIndex}-${"🌍".repeat(600)}`);
         if (
           Buffer.byteLength(
-            JSON.stringify({ ...before, resolutions: [...before.resolutions, next] }),
+            JSON.stringify(
+              compactEvidenceProof({ ...before, resolutions: [...before.resolutions, next] }),
+            ),
           ) > MAX_INSTALLED_EVIDENCE_PROOF_BYTES
         )
           break;
@@ -74,11 +77,12 @@ describe("compiler work session", () => {
       const before = recorder.snapshot()!;
       const withEmpty = { ...before, resolutions: [...before.resolutions, probe("")] };
       const remaining =
-        MAX_INSTALLED_EVIDENCE_PROOF_BYTES - Buffer.byteLength(JSON.stringify(withEmpty));
+        MAX_INSTALLED_EVIDENCE_PROOF_BYTES -
+        Buffer.byteLength(JSON.stringify(compactEvidenceProof(withEmpty)));
       const finalProbe = probe("z".repeat(remaining));
       recorder.observeResolution(finalProbe);
       recorder.observeResolution(finalProbe);
-      expect(Buffer.byteLength(JSON.stringify(recorder.snapshot()))).toBe(
+      expect(Buffer.byteLength(JSON.stringify(compactEvidenceProof(recorder.snapshot()!)))).toBe(
         MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
       );
       recorder.observeResolution(probe("overflow"));

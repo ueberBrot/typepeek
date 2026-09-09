@@ -1,10 +1,16 @@
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as SchemaGetter from "effect/SchemaGetter";
 import { isAbsolute } from "node:path";
 
 import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
 import { COMPILER_VERSION } from "#typepeek/inspection/compiler-metadata";
 import { installedEvidenceProofSchema } from "#typepeek/inspection/installed-evidence-fingerprint";
+import {
+  compactEvidenceProof,
+  compactEvidenceProofSchema,
+  expandEvidenceProof,
+} from "#typepeek/inspection/installed-evidence-format";
 import {
   packageInspectionResultIdentitySchema,
   platformInspectionResultIdentitySchema,
@@ -13,9 +19,9 @@ import { analysisRequestSchema } from "#typepeek/inspection/request-definitions"
 import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted-data";
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 
-export const CACHE_SCHEMA_VERSION = 1;
+export const CACHE_SCHEMA_VERSION = 2;
 /** Identifies the evidence rules that permit cache reuse. */
-export const INSPECTION_CACHE_SEMANTICS = "installed-evidence-proof-signature-type-fidelity";
+export const INSPECTION_CACHE_SEMANTICS = "installed-evidence-proof-path-dictionary";
 export const MAX_CACHE_ENTRY_BYTES = 160 * 1_024;
 const MAX_CACHE_RECEIPT_BYTES = 96 * 1_024;
 const MAX_CACHE_PATH_BYTES = 4 * 1_024;
@@ -74,10 +80,21 @@ const inspectionCacheIdentityValueSchema = Schema.Struct({
   request: boundedAnalysisRequestSchema,
   typepeekVersion: Schema.Literal(TYPEPEEK_VERSION),
 });
+const cacheProofSchema = Schema.Union([
+  compactEvidenceProofSchema,
+  installedEvidenceProofSchema,
+]).pipe(
+  Schema.decodeTo(installedEvidenceProofSchema, {
+    decode: SchemaGetter.transform((proof) =>
+      "paths" in proof ? expandEvidenceProof(proof) : proof,
+    ),
+    encode: SchemaGetter.transform(compactEvidenceProof),
+  }),
+);
 const inspectionCacheWriteReceiptSchema = Schema.Struct({
   identity: inspectionCacheIdentityValueSchema,
   kind: Schema.Literal("inspection-cache-write"),
-  proof: installedEvidenceProofSchema,
+  proof: cacheProofSchema,
 });
 const inspectionCacheHitNoticeSchema = Schema.Struct({
   key: sha256Schema,
@@ -86,7 +103,7 @@ const inspectionCacheHitNoticeSchema = Schema.Struct({
 const inspectionCachePayloadSchema = Schema.Struct({
   identity: inspectionCacheIdentityValueSchema,
   outcome: Schema.Unknown,
-  proof: installedEvidenceProofSchema,
+  proof: cacheProofSchema,
 });
 const inspectionCacheEnvelopeSchema = Schema.Struct({
   integrity: sha256Schema,
@@ -174,7 +191,7 @@ export function encodeInspectionCacheIdentityValue(
 export function encodeInspectionCacheWriteReceipt(
   value: unknown,
 ): typeof inspectionCacheWriteReceiptSchema.Encoded | undefined {
-  return decodeThenEncode(value, decodeCacheWriteReceipt, encodeCacheWriteReceipt);
+  return Result.getOrUndefined(encodeCacheWriteReceipt(value));
 }
 
 export function readInspectionCacheHitNoticeMessage(
@@ -197,7 +214,7 @@ export function readInspectionCachePayload(value: unknown): InspectionCachePaylo
 export function encodeInspectionCachePayload(
   value: unknown,
 ): typeof inspectionCachePayloadSchema.Encoded | undefined {
-  return decodeThenEncode(value, decodeCachePayload, encodeCachePayload);
+  return Result.getOrUndefined(encodeCachePayload(value));
 }
 
 export function readInspectionCacheEnvelope(value: unknown): InspectionCacheEnvelope | undefined {

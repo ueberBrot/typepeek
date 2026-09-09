@@ -1508,7 +1508,7 @@ function resolveReadablePath(
 ): string | undefined {
   try {
     // Canonicalize before containment checks to reject symlink escapes.
-    return realpathSync(fileName);
+    return realpathSync.native(fileName);
   } catch (error) {
     onError?.(String(error));
     return undefined;
