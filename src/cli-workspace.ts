@@ -185,7 +185,7 @@ function readPnpmWorkspacePatterns(fileName: string): readonly string[] {
 
 function pnpmWorkspacePatterns(text: string): readonly string[] {
   const lines = text.split(/\r?\n/u);
-  const packagesLine = lines.findIndex((line) => /^\s*packages\s*:\s*$/u.test(line));
+  const packagesLine = lines.findIndex((line) => /^\s*packages\s*:(?:\s+#.*|\s*)$/u.test(line));
   if (packagesLine === -1) {
     return [];
   }
@@ -196,7 +196,11 @@ function pnpmWorkspacePatterns(text: string): readonly string[] {
 }
 
 function yamlBlockHasEnded(line: string, parentIndent: number): boolean {
-  return !isIgnorableYamlLine(line) && leadingWhitespace(line) <= parentIndent;
+  if (isIgnorableYamlLine(line)) {
+    return false;
+  }
+  const indent = leadingWhitespace(line);
+  return indent < parentIndent || (indent === parentIndent && !/^\s*-(?:\s|$)/u.test(line));
 }
 
 function isIgnorableYamlLine(line: string): boolean {

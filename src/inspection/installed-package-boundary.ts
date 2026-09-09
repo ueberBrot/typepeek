@@ -36,19 +36,12 @@ interface AncestorManifest {
 }
 
 export interface PackageBoundaryObserver {
-  readonly manifestCache: Map<string, Readonly<Record<string, unknown>>> | undefined;
-  readonly observeEvidenceFile?: ObserveInstalledEvidenceFile;
-  readonly remainingBytes: () => number | undefined;
+  readonly manifestCache: Map<string, Readonly<Record<string, unknown>>>;
+  readonly observeEvidenceFile: ObserveInstalledEvidenceFile;
+  readonly remainingBytes: () => number;
   readonly reserveBytes: (count: number) => void;
   readonly reserveOperation: () => void;
 }
-
-const UNOBSERVED_BOUNDARY: PackageBoundaryObserver = {
-  manifestCache: undefined,
-  remainingBytes: () => undefined,
-  reserveBytes: () => undefined,
-  reserveOperation: () => undefined,
-};
 
 const DEPENDENCY_FIELDS = [
   "dependencies",
@@ -67,7 +60,7 @@ export function declarationProviderSegments(packageRootSpecifier: string): reado
 export function assertNoNestedDeclarationOwner(
   providerRoot: string,
   declarationPath: string,
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): void {
   const materializedOwner = findMaterializedPackageRoot(declarationPath, observer);
   if (materializedOwner !== undefined && materializedOwner !== providerRoot) {
@@ -79,7 +72,7 @@ export function assertNoNestedDeclarationOwner(
 
 export function assertNoNestedDeclaredEntrypoint(
   packageRoot: string,
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): void {
   const manifest = readManifestRecord(packageRoot, observer);
   const declaredEntrypoint =
@@ -111,7 +104,7 @@ export function readDeclarationProvenance(
   packageRoot: string,
   packageIdentity: PackageIdentity,
   declarationPath: string,
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): {
   readonly packageIdentity: PackageIdentity;
   readonly file: string;
@@ -140,7 +133,7 @@ function declarationPackageIdentityFor(
   observer: PackageBoundaryObserver,
 ): PackageIdentity {
   // Nested node_modules declarations use their own Package Identity.
-  const materializedPackageRoot = findMaterializedPackageRoot(declarationPath);
+  const materializedPackageRoot = findMaterializedPackageRoot(declarationPath, observer);
   if (materializedPackageRoot !== undefined) {
     return materializedPackageRoot === inspectedPackageRoot
       ? inspectedPackageIdentity
@@ -189,7 +182,7 @@ export function hasDeclaredPackage(
 export function findVisiblePackage(
   resolutionContext: string,
   packageSegments: readonly string[],
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): VisiblePackageLocation | undefined {
   const contextDirectory = startingDirectory(resolutionContext, observer);
   if (
@@ -203,7 +196,7 @@ export function findVisiblePackage(
 export function findResolvablePackage(
   resolutionContext: string,
   packageSegments: readonly string[],
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): VisiblePackageLocation | undefined {
   const contextDirectory = startingDirectory(resolutionContext, observer);
   const rejectUnsupportedInstallation = isDeclaredFromResolutionContext(
@@ -223,7 +216,7 @@ export function findResolvablePackage(
 export function findResolvableDeclarationProvider(
   resolutionContext: string,
   packageSegments: readonly string[],
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): VisiblePackageLocation | undefined {
   const contextDirectory = startingDirectory(resolutionContext, observer);
   return searchVisiblePackage(contextDirectory, packageSegments, observer, false);
@@ -233,7 +226,7 @@ export function findVisiblePackageForDependency(
   resolutionContext: string,
   declaredPackageName: string,
   physicalPackageSegments: readonly string[],
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): VisiblePackageLocation | undefined {
   const contextDirectory = startingDirectory(resolutionContext, observer);
   if (!isDeclaredFromResolutionContext(contextDirectory, declaredPackageName, true, observer)) {
@@ -328,7 +321,7 @@ function findWorkspaceRoot(
 function findAncestorManifest(
   startingDirectory: string,
   predicate: (directory: string, manifest: Readonly<Record<string, unknown>>) => boolean,
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): AncestorManifest | undefined {
   let directory = startingDirectory;
   for (let depth = 0; depth < MAX_PACKAGE_SEARCH_DEPTH; depth += 1) {
@@ -395,7 +388,7 @@ function hasPackageManifest(packageRoot: string, observer: PackageBoundaryObserv
 
 export function readInstalledManifest(
   packageRoot: string,
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): InstalledManifest {
   const manifest = readManifestRecord(packageRoot, observer);
   const packageIdentity = readJsonPackageIdentity(manifest);
@@ -413,7 +406,7 @@ function readManifestRecord(
   observer: PackageBoundaryObserver,
 ): Readonly<Record<string, unknown>> {
   const manifestPath = join(packageRoot, "package.json");
-  const cachedManifest = observer.manifestCache?.get(manifestPath);
+  const cachedManifest = observer.manifestCache.get(manifestPath);
   if (cachedManifest !== undefined) {
     return cachedManifest;
   }
@@ -421,23 +414,19 @@ function readManifestRecord(
   const remainingBytes = observer.remainingBytes();
   const manifestText = readBoundedUtf8File(
     manifestPath,
-    remainingBytes === undefined
-      ? MAX_MANIFEST_BYTES
-      : Math.min(MAX_MANIFEST_BYTES, remainingBytes),
-    remainingBytes !== undefined && remainingBytes < MAX_MANIFEST_BYTES
-      ? "compiler-host-bytes"
-      : "package-manifest-bytes",
-    remainingBytes !== undefined && remainingBytes < MAX_MANIFEST_BYTES
+    Math.min(MAX_MANIFEST_BYTES, remainingBytes),
+    remainingBytes < MAX_MANIFEST_BYTES ? "compiler-host-bytes" : "package-manifest-bytes",
+    remainingBytes < MAX_MANIFEST_BYTES
       ? "Inspection exceeded its compiler host byte limit."
       : "Inspection exceeded its package manifest size limit.",
   );
   observer.reserveBytes(Buffer.byteLength(manifestText));
-  observer.observeEvidenceFile?.(manifestPath, manifestText, "manifest");
+  observer.observeEvidenceFile(manifestPath, manifestText, "manifest");
   const manifest = parseManifest(manifestText);
   if (manifest === undefined) {
     return invalidPackageIdentity();
   }
-  observer.manifestCache?.set(manifestPath, manifest);
+  observer.manifestCache.set(manifestPath, manifest);
   return manifest;
 }
 
@@ -455,7 +444,7 @@ function invalidPackageIdentity(): never {
 
 export function canonicalPackageBoundary(
   packageRoot: string,
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): string {
   const canonicalPackageRoot = canonicalPath(packageRoot, observer);
   if (canonicalPackageRoot === undefined) {
@@ -468,7 +457,7 @@ export function canonicalPackageBoundary(
 
 export function canonicalPath(
   fileName: string,
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): string | undefined {
   observer.reserveOperation();
   try {
@@ -486,7 +475,7 @@ export function assertAbsoluteResolutionContext(resolutionContext: string): void
 
 export function findMaterializedPackageRoot(
   resolvedFileName: string,
-  observer: PackageBoundaryObserver = UNOBSERVED_BOUNDARY,
+  observer: PackageBoundaryObserver,
 ): string | undefined {
   const resolvedSourcePath = canonicalPath(resolvedFileName, observer);
   if (resolvedSourcePath === undefined) {

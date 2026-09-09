@@ -705,7 +705,7 @@ function collectNamespaceMembers(
   const exportedMembers = checker.getExportsOfModule(symbol);
   reserveNamespaceMembers(state, exportedMembers.length);
   const members = exportedMembers.map((member) =>
-    inspectNamespaceMember(checker, member, state, depth),
+    inspectNamespaceMember(checker, symbol, member, state, depth),
   );
   state.visited.delete(symbol);
   return members;
@@ -741,11 +741,16 @@ function reserveNamespaceMembers(state: NamespaceTraversalState, count: number):
 
 function inspectNamespaceMember(
   checker: ts.TypeChecker,
+  moduleSymbol: ts.Symbol,
   member: ts.Symbol,
   state: NamespaceTraversalState,
   depth: number,
 ): NamespaceMemberEvidence {
-  const { aliasDeclaration, targetSymbol } = resolveFocusedExportSymbol(checker, member);
+  const { aliasDeclaration, targetSymbol } = resolveFocusedExportSymbol(
+    checker,
+    member,
+    moduleSymbol,
+  );
   const namespaceAliasDeclaration =
     aliasDeclaration !== undefined && ts.isNamespaceExport(aliasDeclaration)
       ? [aliasDeclaration]

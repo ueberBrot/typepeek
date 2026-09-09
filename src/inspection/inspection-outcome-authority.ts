@@ -13,9 +13,6 @@ import type { PackageIdentity } from "#typepeek/inspection/package-identity";
 import {
   type AnalysisRequest,
   type AtomicInspectionResult,
-  type DeclarationInspection,
-  type ExportInspection,
-  type ExportSearch,
   type InspectionFailure,
   type InspectionOutcome,
   inspectionOutcomeSchema,
@@ -23,14 +20,10 @@ import {
   type InspectionPlanQuery,
   type InspectionResult,
   type InspectionResultByIntent,
-  type InterfaceOverview,
   type MemberInspection,
   type MemberDiscovery,
   type NormalizedInspectionPlanRequest,
   type NormalizedInspectionTarget,
-  type PublicInterfaceComparison,
-  type PublicSubpathDiscovery,
-  type SignatureInspection,
 } from "#typepeek/inspection/protocol";
 import {
   readOwnDataProperty,
@@ -56,50 +49,10 @@ const INVALID_RESULT_OUTCOME: InspectionFailure = {
  * intent. Invalid process messages collapse to a generic failure rather than
  * exposing analyzer or transport details.
  */
-export function enforceInspectionOutcome(
-  intent: "interface-overview",
+export function enforceInspectionOutcome<Intent extends InspectionResult["intent"]>(
+  intent: Intent,
   value: unknown,
-): InspectionOutcome<InterfaceOverview>;
-export function enforceInspectionOutcome(
-  intent: "export-inspection",
-  value: unknown,
-): InspectionOutcome<ExportInspection>;
-export function enforceInspectionOutcome(
-  intent: "signature-inspection",
-  value: unknown,
-): InspectionOutcome<SignatureInspection>;
-export function enforceInspectionOutcome(
-  intent: "inspection-plan",
-  value: unknown,
-): InspectionOutcome<InspectionPlan>;
-export function enforceInspectionOutcome(
-  intent: "export-search",
-  value: unknown,
-): InspectionOutcome<ExportSearch>;
-export function enforceInspectionOutcome(
-  intent: "public-subpath-discovery",
-  value: unknown,
-): InspectionOutcome<PublicSubpathDiscovery>;
-export function enforceInspectionOutcome(
-  intent: "declaration-inspection",
-  value: unknown,
-): InspectionOutcome<DeclarationInspection>;
-export function enforceInspectionOutcome(
-  intent: "member-discovery",
-  value: unknown,
-): InspectionOutcome<MemberDiscovery>;
-export function enforceInspectionOutcome(
-  intent: "member-inspection",
-  value: unknown,
-): InspectionOutcome<MemberInspection>;
-export function enforceInspectionOutcome(
-  intent: "public-interface-comparison",
-  value: unknown,
-): InspectionOutcome<PublicInterfaceComparison>;
-export function enforceInspectionOutcome(
-  intent: InspectionResult["intent"],
-  value: unknown,
-): InspectionOutcome;
+): InspectionOutcome<InspectionResultByIntent[Intent]>;
 export function enforceInspectionOutcome(
   intent: InspectionResult["intent"],
   value: unknown,

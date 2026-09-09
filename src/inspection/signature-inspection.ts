@@ -203,11 +203,25 @@ function inspectSignatureParameter(
   };
 }
 
-function restParameterMayBeOmitted(checker: ts.TypeChecker, type: ts.Type): boolean {
-  if (type.isUnion()) {
-    return type.types.some((item) => restParameterMayBeOmitted(checker, item));
+function restParameterMayBeOmitted(
+  checker: ts.TypeChecker,
+  type: ts.Type,
+  ancestors = new Set<ts.Type>(),
+): boolean {
+  if (ancestors.has(type)) return true;
+  ancestors.add(type);
+  try {
+    if ((type.flags & ts.TypeFlags.TypeParameter) !== 0) {
+      const constraint = checker.getBaseConstraintOfType(type);
+      return constraint === undefined || restParameterMayBeOmitted(checker, constraint, ancestors);
+    }
+    if (type.isUnion()) {
+      return type.types.some((item) => restParameterMayBeOmitted(checker, item, ancestors));
+    }
+    return !checker.isTupleType(type) || (type as ts.TupleTypeReference).target.minLength === 0;
+  } finally {
+    ancestors.delete(type);
   }
-  return !checker.isTupleType(type) || (type as ts.TupleTypeReference).target.minLength === 0;
 }
 
 function inspectSignatureBinding(

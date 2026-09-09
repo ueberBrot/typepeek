@@ -70,7 +70,7 @@ it("preserves canonical cache identity serialization and its SHA-256 key", () =>
   const identity = createInspectionCacheIdentity(request, selection);
   const expectedSerialized = JSON.stringify({
     budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
-    cacheSemantics: "installed-evidence-proof-focused-plan-authority",
+    cacheSemantics: "installed-evidence-proof-inferred-type-edges",
     compilerVersion: ts.version,
     evidence: {
       declarationPath: "/repository/node_modules/example/index.d.ts",
@@ -116,6 +116,17 @@ it("retains the authenticated cache envelope and payload structure", () => {
 
   expect(readInspectionCacheEnvelope(envelope)).toEqual(envelope);
   expect(readInspectionCachePayload(payload)).toEqual(payload);
+  for (const cacheSemantics of [
+    "installed-evidence-proof-focused-plan-authority",
+    "installed-evidence-proof-contextual-export-access",
+  ]) {
+    expect(
+      readInspectionCachePayload({
+        ...payload,
+        identity: { ...payload.identity, cacheSemantics },
+      }),
+    ).toBeUndefined();
+  }
   expect(readInspectionCacheEnvelope({ ...envelope, extra: true })).toBeUndefined();
   expect(
     readInspectionCacheEnvelope({ ...envelope, schemaVersion: CACHE_SCHEMA_VERSION + 1 }),

@@ -1032,21 +1032,26 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     directory: "oversized-resolution-dependency-package",
     name: "@typepeek-fixture/oversized-resolution-dependency",
     version: "1.0.0",
-    declaration: "export declare const dependencyValue: string;\n",
-    installedManifest: JSON.stringify({
-      name: "@typepeek-fixture/oversized-resolution-dependency",
-      version: "1.0.0",
-      types: "./dist/index.d.ts",
-      padding: "x".repeat(8 * 1_024 * 1_024),
-    }),
+    declaration: Array.from(
+      { length: 40 },
+      (_, index) => `export { value${index} } from "./entry${index}/value.js";`,
+    ).join("\n"),
+    additionalDeclarations: Object.fromEntries(
+      Array.from({ length: 40 }, (_, index) => [
+        [`entry${index}/value.d.ts`, `export declare const value${index}: string;\n`],
+        [
+          `entry${index}/package.json`,
+          JSON.stringify({ type: "module", padding: "x".repeat(220 * 1_024) }),
+        ],
+      ]).flat(),
+    ),
     runtime: 'throw new Error("Typepeek executed the resolution dependency runtime");\n',
   },
   {
     directory: "oversized-resolution-package",
     name: "@typepeek-fixture/oversized-resolution",
     version: "1.0.0",
-    declaration:
-      'export { dependencyValue } from "@typepeek-fixture/oversized-resolution-dependency";\n',
+    declaration: 'export { value0 } from "@typepeek-fixture/oversized-resolution-dependency";\n',
     dependencies: {
       "@typepeek-fixture/oversized-resolution-dependency": "1.0.0",
     },

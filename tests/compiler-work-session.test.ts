@@ -6,12 +6,110 @@ import { describe, expect, it } from "vite-plus/test";
 import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
 import { canonicalEvidenceCandidatePath } from "#typepeek/inspection/evidence-boundary";
 import {
+  materializeInspectableModuleEvidence,
+  selectInspectableModule,
+} from "#typepeek/inspection/installed-evidence";
+import {
   createInstalledEvidenceFingerprintRecorder,
   MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
 } from "#typepeek/inspection/installed-evidence-fingerprint";
 import { compactEvidenceProof } from "#typepeek/inspection/installed-evidence-format";
+import { readDeclarationProvenance } from "#typepeek/inspection/installed-package-boundary";
 
 describe("compiler work session", () => {
+  it("applies the manifest limit before the aggregate allowance unless fewer bytes remain", async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "typepeek-resolution-manifest-budget-"));
+    try {
+      const manifestPath = join(fixtureRoot, "package.json");
+      const maximumManifestBytes = 256 * 1_024;
+      const exactManifest = " ".repeat(maximumManifestBytes);
+      await writeFile(manifestPath, exactManifest);
+      expect(createCompilerWorkSession().readResolutionFile(manifestPath)).toBe(exactManifest);
+      await writeFile(manifestPath, `${exactManifest} `);
+      expect(() => createCompilerWorkSession().readResolutionFile(manifestPath)).toThrow(
+        "Inspection exceeded its package manifest size limit.",
+      );
+      expect(() =>
+        createCompilerWorkSession({ resolutionBytes: maximumManifestBytes - 1 }).readResolutionFile(
+          manifestPath,
+        ),
+      ).toThrow("Inspection exceeded its compiler host byte limit.");
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("bounds nested format manifests consumed while materializing declaration evidence", async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "typepeek-nested-manifest-budget-"));
+    try {
+      const resolutionContext = await realpath(fixtureRoot);
+      const packageRoot = join(resolutionContext, "node_modules", "bounded-package");
+      await mkdir(join(packageRoot, "nested"), { recursive: true });
+      await Promise.all([
+        writeFile(
+          join(resolutionContext, "package.json"),
+          JSON.stringify({ name: "fixture", dependencies: { "bounded-package": "1.0.0" } }),
+        ),
+        writeFile(
+          join(packageRoot, "package.json"),
+          JSON.stringify({ name: "bounded-package", version: "1.0.0", types: "index.d.ts" }),
+        ),
+        writeFile(join(packageRoot, "index.d.ts"), 'export { Value } from "./nested/value.js";'),
+        writeFile(
+          join(packageRoot, "nested", "value.d.ts"),
+          "export interface Value { value: string }",
+        ),
+        writeFile(
+          join(packageRoot, "nested", "package.json"),
+          JSON.stringify({ type: "module", padding: "x".repeat(256 * 1_024) }),
+        ),
+      ]);
+      const selection = selectInspectableModule({
+        accessStyle: "import",
+        resolutionContext,
+        specifier: "bounded-package",
+      });
+      expect(selection).toBeDefined();
+      expect(() =>
+        materializeInspectableModuleEvidence(selection!, [{ intent: "interface-overview" }]),
+      ).toThrow("Inspection exceeded its package manifest size limit.");
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("charges declaration ownership checks to the shared compiler budget", async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "typepeek-provenance-budget-"));
+    try {
+      const repositoryRoot = await realpath(fixtureRoot);
+      const packageRoot = join(repositoryRoot, "node_modules", "bounded-package");
+      const declarationPath = join(packageRoot, "index.d.ts");
+      const packageIdentity = { name: "bounded-package", version: "1.0.0" };
+      await mkdir(packageRoot, { recursive: true });
+      await Promise.all([
+        writeFile(join(packageRoot, "package.json"), JSON.stringify(packageIdentity)),
+        writeFile(declarationPath, "export declare const value: 1;\n"),
+      ]);
+      const session = createCompilerWorkSession({ operations: 3 });
+      const readProvenance = () =>
+        readDeclarationProvenance(
+          repositoryRoot,
+          packageRoot,
+          packageIdentity,
+          declarationPath,
+          session.packageBoundaryObserver,
+        );
+
+      expect(readProvenance()).toEqual({
+        packageIdentity,
+        file: "node_modules/bounded-package/index.d.ts",
+      });
+      expect(readProvenance).toThrow("Inspection exceeded its compiler host work limit.");
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
   it("stops recording filesystem evidence once the proof cannot fit its byte budget", async () => {
     const fixtureRoot = await mkdtemp(join(tmpdir(), "typepeek-proof-recording-budget-"));
     try {

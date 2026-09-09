@@ -21,10 +21,7 @@ import {
   type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
 import { readInspectionRequest } from "#typepeek/inspection/request-definitions";
-import {
-  projectInspectionOutcome,
-  signatureEvidenceProjection,
-} from "#typepeek/inspection/signature-evidence-projection";
+import { projectSignatureEvidence } from "#typepeek/inspection/signature-evidence-projection";
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
 const PROTOCOL_HEADER_FIELDS = ["protocolVersion", "intent", "request", "response"] as const;
@@ -90,8 +87,7 @@ export async function invokeInspectionProtocol(
       ? { protocolVersion: INSPECTION_PROTOCOL_VERSION, outcome: invocation.outcome }
       : {
           protocolVersion: INSPECTION_PROTOCOL_VERSION,
-          projection: signatureEvidenceProjection(projection),
-          outcome: projectInspectionOutcome(invocation.outcome, projection),
+          ...projectSignatureEvidence(invocation.outcome, projection),
         };
   if (invocation.preparedRequest === undefined) {
     return protocolResponseFrom(candidate);

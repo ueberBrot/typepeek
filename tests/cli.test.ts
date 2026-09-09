@@ -117,16 +117,30 @@ describe("typepeek CLI", () => {
     }
   });
 
-  it("infers a declared pnpm workspace with a quoted pattern and inline comment", async () => {
+  it.each([
+    ["indented sequence", "packages:\n  - 'packages/*' # consuming \"workspaces\"\n"],
+    ["indentless sequence", "packages:\n- 'packages/*' # consuming \"workspaces\"\n"],
+    ["commented key", "packages: # consuming workspaces\n  - 'packages/*'\n"],
+  ])("infers a declared pnpm workspace using %s", async (_description, workspaceConfig) => {
     const repositoryRoot = await mkdtemp(join(tmpdir(), "typepeek-cli-pnpm-workspace-"));
     const workspaceRoot = join(repositoryRoot, "packages", "consumer");
     const packageRoot = join(workspaceRoot, "node_modules", "pnpm-workspace-package");
+    const ignoredWorkspaceRoot = join(repositoryRoot, "ignored", "consumer");
     await mkdir(packageRoot, { recursive: true });
+    await mkdir(ignoredWorkspaceRoot, { recursive: true });
     await Promise.all([
       writeFile(join(repositoryRoot, "package.json"), JSON.stringify({ private: true })),
       writeFile(
         join(repositoryRoot, "pnpm-workspace.yaml"),
-        "packages:\n  - 'packages/*' # consuming \"workspaces\"\n",
+        `${workspaceConfig}onlyBuiltDependencies:\n  - 'ignored/*'\n`,
+      ),
+      writeFile(
+        join(ignoredWorkspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "ignored-consumer",
+          private: true,
+          dependencies: { "pnpm-workspace-package": "1.0.0" },
+        }),
       ),
       writeFile(
         join(workspaceRoot, "package.json"),

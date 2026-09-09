@@ -96,14 +96,19 @@ export function createCompilerWorkSession({
     }
   };
   const readResolutionFile = (fileName: string): string => {
+    const isManifest = fileName.endsWith("package.json");
+    const availableBytes = remainingBytes();
+    const manifestLimitApplies = isManifest && availableBytes >= MAX_MANIFEST_BYTES;
     const contents = readBoundedUtf8File(
       fileName,
-      remainingBytes(),
-      "compiler-host-bytes",
-      "Inspection exceeded its compiler host byte limit.",
+      manifestLimitApplies ? MAX_MANIFEST_BYTES : availableBytes,
+      manifestLimitApplies ? "package-manifest-bytes" : "compiler-host-bytes",
+      manifestLimitApplies
+        ? "Inspection exceeded its package manifest size limit."
+        : "Inspection exceeded its compiler host byte limit.",
     );
     reserveBytes(Buffer.byteLength(contents));
-    if (fileName.endsWith("package.json")) {
+    if (isManifest) {
       observeEvidenceFile(fileName, contents, "manifest");
     }
     return contents;

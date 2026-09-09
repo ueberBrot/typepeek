@@ -420,6 +420,7 @@ export function inferredPublicTypeChildren(
         ...publicChildren,
         ...signatureTypeChildren(checker, type),
         ...propertyTypeChildren(checker, type),
+        ...indexTypeChildren(checker, type),
       ];
 }
 
@@ -805,13 +806,23 @@ function compositeTypeChildren(type: ts.Type): readonly ts.Type[] {
 }
 
 function genericTypeChildren(checker: ts.TypeChecker, type: ts.Type): readonly ts.Type[] {
-  const children = [...(type.aliasTypeArguments ?? [])];
+  const children = [...(type.aliasTypeArguments ?? []), ...typeParameterTypeChildren(type)];
   if (
     (type.flags & ts.TypeFlags.Object) !== 0 &&
     ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0
   ) {
     children.push(...checker.getTypeArguments(type as ts.TypeReference));
   }
+  return children;
+}
+
+function typeParameterTypeChildren(type: ts.Type): readonly ts.Type[] {
+  if (!type.isTypeParameter()) return [];
+  const children: ts.Type[] = [];
+  const constraint = type.getConstraint();
+  const defaultType = type.getDefault();
+  if (constraint !== undefined) children.push(constraint);
+  if (defaultType !== undefined) children.push(defaultType);
   return children;
 }
 
@@ -822,6 +833,10 @@ function signatureTypeChildren(checker: ts.TypeChecker, type: ts.Type): readonly
       .flatMap((signature) => [
         checker.getReturnTypeOfSignature(signature),
         ...signature.getParameters().flatMap((parameter) => symbolType(checker, parameter)),
+        ...(signature.getTypeParameters() ?? []).flatMap(typeParameterTypeChildren),
+        ...(signature.thisParameter === undefined
+          ? []
+          : symbolType(checker, signature.thisParameter)),
       ]),
   );
 }
@@ -834,6 +849,10 @@ function propertyTypeChildren(checker: ts.TypeChecker, type: ts.Type): readonly 
         property.declarations?.some((declaration) => isPrivateDeclaration(declaration)) !== true,
     )
     .flatMap((property) => symbolType(checker, property));
+}
+
+function indexTypeChildren(checker: ts.TypeChecker, type: ts.Type): readonly ts.Type[] {
+  return checker.getIndexInfosOfType(type).flatMap((index) => [index.keyType, index.type]);
 }
 
 function symbolType(checker: ts.TypeChecker, symbol: ts.Symbol): readonly ts.Type[] {

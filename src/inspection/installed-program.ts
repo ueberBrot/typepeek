@@ -799,7 +799,10 @@ function createBoundedCompilerHost(
     writeFile: rejectCompilerWrite,
   };
   const authorizedPackageRoots = packageRoots.flatMap((packageRoot) => {
-    const canonicalPackageRoot = canonicalPath(packageRoot);
+    const canonicalPackageRoot = canonicalPath(
+      packageRoot,
+      compilerWorkSession.packageBoundaryObserver,
+    );
     if (canonicalPackageRoot === undefined) {
       throw new UnsupportedInspectionError(
         "The installed package boundary could not be canonicalized.",

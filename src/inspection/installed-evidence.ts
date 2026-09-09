@@ -311,7 +311,7 @@ function selectVisibleNodeDeclarationProvider(
     exports: manifest.exports,
     missingDeclarationMessage: "The visible @types/node package has no readable entrypoint.",
   });
-  assertNoNestedDeclarationOwner(declarationRoot, declarationPath);
+  assertNoNestedDeclarationOwner(declarationRoot, declarationPath, packageBoundaryObserver);
   return {
     declarationPath,
     root: { canonical: declarationRoot, logical: location.packageRoot },
@@ -403,7 +403,7 @@ function selectedDeclarationPackage(
   readonly repositoryRoot: string;
 } {
   if (isPathWithin(packageRoot, declarationPath)) {
-    assertNoNestedDeclarationOwner(packageRoot, declarationPath);
+    assertNoNestedDeclarationOwner(packageRoot, declarationPath, packageBoundaryObserver);
     return {
       root: packageRoot,
       logicalRoot: logicalPackageRoot,
