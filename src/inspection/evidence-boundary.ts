@@ -75,7 +75,7 @@ function normalizedAbsolutePath(path: string): string {
 /** Returns whether one Installed Evidence path is a readable filesystem file. */
 export function isEvidenceFile(fileName: string): boolean {
   try {
-    return statSync(fileName).isFile();
+    return statSync(fileName, { throwIfNoEntry: false })?.isFile() ?? false;
   } catch {
     return false;
   }
@@ -84,7 +84,7 @@ export function isEvidenceFile(fileName: string): boolean {
 /** Returns whether one Installed Evidence path is a readable filesystem directory. */
 export function isEvidenceDirectory(directory: string): boolean {
   try {
-    return statSync(directory).isDirectory();
+    return statSync(directory, { throwIfNoEntry: false })?.isDirectory() ?? false;
   } catch {
     return false;
   }

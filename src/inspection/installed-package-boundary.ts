@@ -5,7 +5,11 @@ import { realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
-import { isPathWithin, readBoundedUtf8File } from "#typepeek/inspection/evidence-boundary";
+import {
+  isEvidenceFile,
+  isPathWithin,
+  readBoundedUtf8File,
+} from "#typepeek/inspection/evidence-boundary";
 import type { ObserveInstalledEvidenceFile } from "#typepeek/inspection/installed-evidence-fingerprint";
 import {
   type PackageIdentity,
@@ -377,11 +381,7 @@ function hasPlugAndPlayMarker(directory: string, observer: PackageBoundaryObserv
 
 function hasFile(fileName: string, observer: PackageBoundaryObserver): boolean {
   observer.reserveOperation();
-  try {
-    return statSync(fileName).isFile();
-  } catch {
-    return false;
-  }
+  return isEvidenceFile(fileName);
 }
 
 function startingDirectory(resolutionContext: string, observer: PackageBoundaryObserver): string {
