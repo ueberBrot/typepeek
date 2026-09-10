@@ -120,6 +120,33 @@ const commandSchema = Schema.Struct({
   }),
 });
 
+const serverResponseSchema = Schema.Struct({
+  method: Schema.Literal("rawResponse/completed"),
+  params: Schema.Struct({
+    usage: Schema.Struct({
+      inputTokens: tokenCount,
+      outputTokens: tokenCount,
+      cachedInputTokens: tokenCount,
+      reasoningOutputTokens: tokenCount,
+    }),
+  }),
+});
+const serverTurnSchema = Schema.Struct({
+  method: Schema.Literal("turn/completed"),
+  params: Schema.Struct({ turn: Schema.Struct({ status: Schema.String }) }),
+});
+const serverCommandSchema = Schema.Struct({
+  method: Schema.Literal("item/completed"),
+  params: Schema.Struct({
+    item: Schema.Struct({
+      type: Schema.Literal("commandExecution"),
+      command: Schema.String,
+      aggregatedOutput: Schema.optional(Schema.NullOr(Schema.String)),
+      exitCode: Schema.optional(Schema.NullOr(Schema.Int)),
+    }),
+  }),
+});
+
 export function codexTelemetry(events: string) {
   let inputTokens = 0;
   let outputTokens = 0;
@@ -138,6 +165,15 @@ export function codexTelemetry(events: string) {
     query?: string;
   }[] = [];
   let invalidLines = 0;
+  let serverResponses = 0;
+  let knownServerResponses = 0;
+  const serverTotals = { input: 0, output: 0, cached: 0, reasoning: 0 };
+  const serverUsage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cached_input_tokens: 0,
+    reasoning_output_tokens: 0,
+  };
   for (const line of events.split("\n").filter(Boolean)) {
     let value: unknown;
     try {
@@ -145,6 +181,52 @@ export function codexTelemetry(events: string) {
     } catch {
       invalidLines += 1;
       continue;
+    }
+    if (Schema.is(serverResponseSchema)(value)) {
+      const usage = value.params.usage;
+      serverUsage.input_tokens += usage.inputTokens;
+      serverUsage.output_tokens += usage.outputTokens;
+      serverUsage.cached_input_tokens += usage.cachedInputTokens;
+      serverUsage.reasoning_output_tokens += usage.reasoningOutputTokens;
+      serverResponses += 1;
+      knownServerResponses += 1;
+      serverTotals.input += usage.inputTokens;
+      serverTotals.output += usage.outputTokens;
+      serverTotals.cached += usage.cachedInputTokens;
+      serverTotals.reasoning += usage.reasoningOutputTokens;
+    } else if (
+      typeof value === "object" &&
+      value !== null &&
+      "method" in value &&
+      value.method === "rawResponse/completed"
+    ) {
+      incompleteUsage = true;
+    }
+    if (Schema.is(serverTurnSchema)(value)) {
+      if (serverResponses === 0) incompleteUsage = true;
+      value =
+        value.params.turn.status === "completed"
+          ? { type: "turn.completed", usage: { ...serverUsage } }
+          : { type: "turn.failed" };
+      serverResponses = 0;
+      Object.assign(serverUsage, {
+        input_tokens: 0,
+        output_tokens: 0,
+        cached_input_tokens: 0,
+        reasoning_output_tokens: 0,
+      });
+    }
+    if (Schema.is(serverCommandSchema)(value)) {
+      const item = value.params.item;
+      value = {
+        type: "item.completed",
+        item: {
+          type: "command_execution",
+          command: item.command,
+          ...(item.aggregatedOutput == null ? {} : { aggregated_output: item.aggregatedOutput }),
+          ...(item.exitCode == null ? {} : { exit_code: item.exitCode }),
+        },
+      };
     }
     if (
       typeof value === "object" &&
@@ -177,10 +259,22 @@ export function codexTelemetry(events: string) {
   return {
     completedTurns,
     usageComplete: completedTurns > 0 && !incompleteUsage && invalidLines === 0,
-    inputTokens: completedTurns === 0 ? null : inputTokens,
-    outputTokens: completedTurns === 0 ? null : outputTokens,
-    cachedInputTokens: completedTurns === 0 || !cachedUsageComplete ? null : cachedInputTokens,
-    reasoningOutputTokens: reasoningUsageComplete ? reasoningOutputTokens : null,
+    inputTokens:
+      knownServerResponses > 0 ? serverTotals.input : completedTurns === 0 ? null : inputTokens,
+    outputTokens:
+      knownServerResponses > 0 ? serverTotals.output : completedTurns === 0 ? null : outputTokens,
+    cachedInputTokens:
+      knownServerResponses > 0
+        ? serverTotals.cached
+        : completedTurns === 0 || !cachedUsageComplete
+          ? null
+          : cachedInputTokens,
+    reasoningOutputTokens:
+      knownServerResponses > 0
+        ? serverTotals.reasoning
+        : reasoningUsageComplete
+          ? reasoningOutputTokens
+          : null,
     commands,
     toolOutputBytes,
     invalidLines,
@@ -236,8 +330,10 @@ export function gradeCodexExecution(
   scenario: CodexScenario,
   condition: CodexCondition,
   telemetry: ReturnType<typeof codexTelemetry>,
+  requireCompletedTurn = true,
 ): string | null {
-  if (telemetry.completedTurns !== 1) return "Expected exactly one completed Codex turn.";
+  if (requireCompletedTurn && telemetry.completedTurns !== 1)
+    return "Expected exactly one completed Codex turn.";
   if (telemetry.commands.length === 0) return "No command was recorded.";
   if (condition === "files" && telemetry.usedTypepeek)
     return "Control condition attempted Typepeek.";

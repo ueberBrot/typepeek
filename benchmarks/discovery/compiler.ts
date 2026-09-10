@@ -9,6 +9,8 @@ export interface CompilerAnswer {
   readonly facts: readonly string[];
   readonly files: readonly string[];
   readonly compilerVersion: string;
+  readonly declarations: readonly { readonly fact: string; readonly text: string }[];
+  readonly exportDeclarations: readonly string[];
 }
 
 export function inspectWithCompiler(
@@ -60,13 +62,15 @@ export function inspectWithCompiler(
     throw new Error(`Cannot resolve ${workload.specifier} from ${workspace}.`);
   }
   const exports = checker.getExportsOfModule(moduleSymbol);
+  const declarations =
+    workload.kind === "search" ? [] : publicSignatures(checker, exports, workload.target);
   const facts =
     workload.kind === "search"
       ? exports
           .map((symbol) => symbol.name)
           .filter((name) => name.toLowerCase().includes(workload.target.toLowerCase()))
           .sort()
-      : publicSignatures(checker, exports, workload.target);
+      : declarations.map(({ fact }) => fact);
   if (workload.expectedCount !== undefined && facts.length !== workload.expectedCount) {
     throw new Error(
       `${workload.id}: installed interface changed; expected ${workload.expectedCount} facts, got ${facts.length}. Review the workload before benchmarking.`,
@@ -80,14 +84,41 @@ export function inspectWithCompiler(
       .filter((path) => path !== probePath)
       .sort(),
     compilerVersion: ts.version,
+    declarations,
+    exportDeclarations: workload.kind === "search" ? exportIndex(checker, moduleSymbol) : [],
   };
+}
+
+function exportIndex(checker: ts.TypeChecker, moduleSymbol: ts.Symbol): readonly string[] {
+  const seen = new Set<ts.Symbol>();
+  const texts = new Set<string>();
+  const visit = (symbol: ts.Symbol): void => {
+    if (seen.has(symbol)) return;
+    seen.add(symbol);
+    for (const declaration of symbol.declarations ?? []) {
+      texts.add(declaration.getText());
+      ts.forEachChild(declaration, (node) => {
+        if (
+          ts.isExportDeclaration(node) &&
+          node.exportClause === undefined &&
+          node.moduleSpecifier !== undefined
+        ) {
+          const target = checker.getSymbolAtLocation(node.moduleSpecifier);
+          if (target === undefined) throw new Error("Cannot resolve export-star evidence.");
+          visit(target);
+        }
+      });
+    }
+  };
+  visit(moduleSymbol);
+  return [...texts];
 }
 
 function publicSignatures(
   checker: ts.TypeChecker,
   exports: readonly ts.Symbol[],
   name: string,
-): readonly string[] {
+): readonly { readonly fact: string; readonly text: string }[] {
   const exported = exports.find((symbol) => symbol.name === name);
   if (exported === undefined) {
     throw new Error(`No public export ${name}.`);
@@ -100,10 +131,16 @@ function publicSignatures(
   }
   const type = checker.getTypeOfSymbolAtLocation(symbol, declaration);
   return [ts.SignatureKind.Call, ts.SignatureKind.Construct].flatMap((kind) =>
-    checker
-      .getSignaturesOfType(type, kind)
-      .map((signature) =>
-        signatureFact(
+    checker.getSignaturesOfType(type, kind).map((signature) => {
+      const source = signature.getDeclaration();
+      if (source === undefined) throw new Error(`No source declaration for ${name}.`);
+      const witness =
+        ts.isFunctionTypeNode(source) && ts.isVariableDeclaration(source.parent)
+          ? source.parent
+          : source;
+      return {
+        text: witness.getText(),
+        fact: signatureFact(
           kind === ts.SignatureKind.Call ? "call" : "construct",
           checker.signatureToString(
             signature,
@@ -112,6 +149,7 @@ function publicSignatures(
             kind,
           ),
         ),
-      ),
+      };
+    }),
   );
 }

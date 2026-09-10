@@ -32,6 +32,24 @@ function attempt(
     condition,
     repeat: 0,
     seconds,
+    acquisition: {
+      status: "complete",
+      invalidReason: null,
+      firstRequestMilliseconds: 0,
+      sufficientEvidenceMilliseconds: seconds * 1000,
+      retrievalSeconds: seconds,
+      toolRoundTripSeconds: seconds,
+      toolExecutionSeconds: null,
+      measuredCommands: 0,
+      retrievalCalls: 1,
+      evidenceTokens: tokens,
+      evidenceBytes: tokens * 4,
+      tokenization: { encoding: "o200k_base", package: "gpt-tokenizer", version: "4.0.0" },
+      acquisitionModelUsage: null,
+      matchedFacts: ["answer"],
+      missingFacts: [],
+      evidenceEvents: [],
+    },
     passed: true,
     error: null,
     exitCode: 0,
@@ -97,11 +115,14 @@ it("compares explicit skill use with CLI-only use on the same task and repetitio
 });
 
 it("keeps unknown token breakdowns and partial usage out of cost comparisons", () => {
-  const partial = attempt("typepeek-skill", 10, 200);
+  const { acquisition: _acquisition, ...partial } = attempt("typepeek-skill", 10, 200);
   const { data } = report([
     attempt("files", 40, 800),
     attempt("typepeek", 20, 400),
-    { ...partial, telemetry: { ...partial.telemetry, usageComplete: false } },
+    {
+      ...partial,
+      telemetry: { ...partial.telemetry, usageComplete: false },
+    },
   ]);
   const skill = data.groups.find(({ condition }) => condition === "typepeek-skill")!;
   expect(skill).toMatchObject({

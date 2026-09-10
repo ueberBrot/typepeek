@@ -1,7 +1,7 @@
 import { execa } from "execa";
+import { countTokens } from "gpt-tokenizer/encoding/o200k_base";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { performance } from "node:perf_hooks";
 
 import { inspectWithCompiler } from "../discovery/compiler.ts";
 import {
@@ -10,6 +10,8 @@ import {
   hashText,
   requirePackagedArtifact,
 } from "../discovery/identity.ts";
+import { type AcquisitionOracle, measureAcquisition } from "./acquisition.ts";
+import { captureCodex } from "./capture.ts";
 import { createCodexFixture, createCodexTrial, verifyCodexIsolation } from "./fixture.ts";
 import { readCodexOptions, scheduleCodexTrials } from "./options.ts";
 import { type CodexAttempt, summarizeCodexStudy } from "./report.ts";
@@ -53,9 +55,16 @@ const identity = {
   codexHarnessHash: hashText(
     (
       await Promise.all(
-        ["run.ts", "fixture.ts", "scenarios.ts", "options.ts", "report.ts"].map((file) =>
-          readFile(join("benchmarks/codex-discovery", file), "utf8"),
-        ),
+        [
+          "run.ts",
+          "fixture.ts",
+          "scenarios.ts",
+          "options.ts",
+          "report.ts",
+          "acquisition.ts",
+          "capture.ts",
+          "replay.ts",
+        ].map((file) => readFile(join("benchmarks/codex-discovery", file), "utf8")),
       )
     ).join("\0"),
   ),
@@ -109,20 +118,7 @@ async function runStudy(): Promise<void> {
     const answerPath = join(directory, "answer.json");
     await writeFile(schemaPath, JSON.stringify(ANSWER_JSON_SCHEMA));
     await writeFile(join(directory, "prompt.txt"), prompt);
-    const arguments_ = [
-      "exec",
-      "--ignore-user-config",
-      "--ephemeral",
-      "--skip-git-repo-check",
-      "--json",
-      "--color",
-      "never",
-      "--cd",
-      trial.workspace,
-      "--model",
-      plan.model,
-      "-c",
-      `model_reasoning_effort=${JSON.stringify(plan.effort)}`,
+    const configArguments = [
       "-c",
       "features.rollout_budget.enabled=true",
       "-c",
@@ -130,18 +126,32 @@ async function runStudy(): Promise<void> {
       "-c",
       `features.rollout_budget.reminder_at_remaining_tokens=[${Math.floor(options.trialTokenLimit / 4)}]`,
       ...trial.configArguments,
-      "--output-schema",
-      schemaPath,
-      "--output-last-message",
-      answerPath,
-      "-",
     ];
+    const acquisitionOracle: AcquisitionOracle = {
+      schemaVersion: 1,
+      workload: plan.scenario.workload,
+      facts: oracle.facts,
+      declarations: oracle.declarations,
+      exportDeclarations: oracle.exportDeclarations,
+    };
+    await writeFile(join(directory, "oracle.json"), JSON.stringify(acquisitionOracle, null, 2));
+    if (plan.effort !== "low" && plan.effort !== "high")
+      throw new Error("Unsupported reasoning effort.");
+    const launch: Parameters<typeof captureCodex>[0] = {
+      workspace: trial.workspace,
+      model: plan.model,
+      effort: plan.effort,
+      prompt,
+      configArguments,
+      timeoutMilliseconds: options.deadlineSeconds * 1000,
+      codexHome: fixture.codexHome,
+      outputSchema: ANSWER_JSON_SCHEMA,
+    };
     await writeFile(
       join(directory, "launch.json"),
       JSON.stringify(
         {
-          command: "codex",
-          arguments: arguments_,
+          ...launch,
           model: plan.model,
           effort: plan.effort,
           condition,
@@ -157,29 +167,36 @@ async function runStudy(): Promise<void> {
     process.stderr.write(
       `Running ${plan.model}/${plan.effort} ${plan.scenario.workload.id} ${condition}, repeat ${plan.repeat + 1}.\n`,
     );
-    const started = performance.now();
-    const result = await execa("codex", arguments_, {
-      input: prompt,
-      reject: false,
-      timeout: options.deadlineSeconds * 1000,
-      forceKillAfterDelay: 1000,
-      maxBuffer: 32 * 1024 * 1024,
-    });
-    const seconds = (performance.now() - started) / 1000;
-    await writeFile(join(directory, "events.jsonl"), result.stdout);
+    const result = await captureCodex(launch);
+    const seconds = result.processSeconds;
+    const serializedEvents =
+      result.events.map(({ event }) => JSON.stringify(event)).join("\n") + "\n";
+    await writeFile(join(directory, "events.jsonl"), serializedEvents);
+    await writeFile(
+      join(directory, "events.timed.jsonl"),
+      result.events.map((event) => JSON.stringify(event)).join("\n") + "\n",
+    );
     await writeFile(join(directory, "stderr.txt"), result.stderr);
-    const telemetry = codexTelemetry(result.stdout);
-    const answer = await readFile(answerPath, "utf8").catch(() => "");
-    const grade = gradeCodexAnswer(plan.scenario, oracle.facts, answer);
+    const telemetry = codexTelemetry(serializedEvents);
+    await writeFile(answerPath, result.answer);
+    const grade = gradeCodexAnswer(plan.scenario, oracle.facts, result.answer);
+    const acquisition = measureAcquisition(acquisitionOracle, result.events);
+    await writeFile(
+      join(directory, "acquisition.json"),
+      JSON.stringify(acquisition, null, 2) + "\n",
+    );
     const evidenceUnchanged = evidenceFingerprint(trial.workspace, oracle.files) === evidenceHash;
-    const error = result.failed
-      ? (result.shortMessage ?? "Codex process failed.")
-      : !evidenceUnchanged
-        ? "Installed evidence changed during the trial."
-        : (gradeCodexExecution(plan.scenario, condition, telemetry) ?? grade.error);
+    const error =
+      result.failureKind === "protocol" ||
+      (acquisition.status !== "complete" && result.error !== null)
+        ? result.error
+        : !evidenceUnchanged
+          ? "Installed evidence changed during the trial."
+          : (gradeCodexExecution(plan.scenario, condition, telemetry, false) ??
+            (acquisition.status === "complete" ? null : "Required evidence was not retrieved."));
     const attempt: CodexAttempt = {
       classification:
-        result.failed &&
+        result.error !== null &&
         !result.timedOut &&
         telemetry.completedTurns === 0 &&
         telemetry.commands.length === 0
@@ -191,7 +208,18 @@ async function runStudy(): Promise<void> {
       condition,
       repeat: plan.repeat,
       seconds,
-      passed: error === null && grade.passed,
+      instructionTokens: {
+        prompt: countTokens(prompt),
+        skill:
+          condition === "typepeek-skill" || condition === "typepeek-required"
+            ? countTokens(skill)
+            : 0,
+        scope: "Prompt includes skill; excludes provider system instructions and tool schemas.",
+      },
+      passed: error === null && acquisition.status === "complete",
+      acquisition,
+      finalAnswer: grade,
+      wholeRunError: result.error,
       error,
       exitCode: result.exitCode ?? null,
       timedOut: result.timedOut,

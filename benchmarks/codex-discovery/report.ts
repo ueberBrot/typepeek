@@ -1,5 +1,6 @@
 import type { DiscoveryIdentity } from "../discovery/report.ts";
 import { comparePairedTimings, summarizeTimings } from "../discovery/statistics.ts";
+import type { measureAcquisition } from "./acquisition.ts";
 import type { CodexOptions } from "./options.ts";
 import type { CodexCondition, CodexScenario, codexTelemetry } from "./scenarios.ts";
 
@@ -11,6 +12,14 @@ export interface CodexAttempt {
   readonly condition: CodexCondition;
   readonly repeat: number;
   readonly seconds: number;
+  readonly instructionTokens?: {
+    readonly prompt: number;
+    readonly skill: number;
+    readonly scope: string;
+  };
+  readonly acquisition?: ReturnType<typeof measureAcquisition>;
+  readonly finalAnswer?: { readonly passed: boolean; readonly error: string | null };
+  readonly wholeRunError?: string | null;
   readonly passed: boolean;
   readonly error: string | null;
   readonly exitCode: number | null;
@@ -53,6 +62,14 @@ export function summarizeCodexStudy({
           );
           const selected = recorded.filter((attempt) => attempt.classification === "task");
           const successes = selected.filter((attempt) => attempt.passed);
+          const acquired = successes.filter(
+            (attempt) => attempt.acquisition?.retrievalSeconds != null,
+          );
+          const expectedAttempts = (task === undefined ? scenarios.length : 1) * options.repeats;
+          const timing =
+            acquired.length === 0
+              ? null
+              : summarizeTimings(acquired.map((attempt) => attempt.acquisition!.retrievalSeconds!));
           const completeUsage =
             recorded.length > 0 &&
             recorded.every(
@@ -75,6 +92,12 @@ export function summarizeCodexStudy({
             model,
             effort,
             condition,
+            expectedAttempts,
+            coverageComplete: selected.length === expectedAttempts,
+            precisionWithinTenPercent:
+              timing?.meanCi95HalfWidth == null
+                ? null
+                : timing.meanCi95HalfWidth / timing.mean <= 0.1,
             infrastructureFailures: recorded.length - selected.length,
             intervalScope:
               "Descriptive run-level variability within these fixed tasks; not uncertainty across tasks or packages.",
@@ -86,18 +109,30 @@ export function summarizeCodexStudy({
                 deadline,
                 selected.length === 0
                   ? null
-                  : successes.filter((attempt) => attempt.seconds <= deadline).length /
-                    selected.length,
+                  : acquired.filter((attempt) => attempt.acquisition!.retrievalSeconds! <= deadline)
+                      .length / selected.length,
               ]),
             ),
             successfulSeconds:
-              successes.length === 0
+              acquired.length === 0
                 ? null
-                : summarizeTimings(successes.map((attempt) => attempt.seconds)),
-            allAttemptSeconds:
-              selected.length === 0
+                : summarizeTimings(
+                    acquired.map((attempt) => attempt.acquisition!.retrievalSeconds!),
+                  ),
+            successfulEvidenceTokens:
+              acquired.length === 0
                 ? null
-                : summarizeTimings(selected.map((attempt) => attempt.seconds)),
+                : summarizeTimings(acquired.map((attempt) => attempt.acquisition!.evidenceTokens)),
+            wholeRun: {
+              successfulSeconds:
+                successes.length === 0
+                  ? null
+                  : summarizeTimings(successes.map((attempt) => attempt.seconds)),
+              allAttemptSeconds:
+                selected.length === 0
+                  ? null
+                  : summarizeTimings(selected.map((attempt) => attempt.seconds)),
+            },
             reportedInputTokens: input,
             reportedCachedInputTokens:
               recorded.length > 0 &&
@@ -138,7 +173,7 @@ export function summarizeCodexStudy({
   );
   const data = {
     kind: "codex-discovery-benchmark",
-    schemaVersion: 2,
+    schemaVersion: 3,
     status,
     codexVersion: version,
     identity,
@@ -149,9 +184,9 @@ export function summarizeCodexStudy({
     attempts,
   };
   const table = [
-    "Codex installed-dependency discovery: verified final answers by tool-use condition",
-    "Model | Effort | Tools | Correct / attempts | Successful mean seconds ± 95% CI | Reported input | Cached input | Output | Tokens per correct answer",
-    "--- | --- | --- | --- | --- | --- | --- | --- | ---",
+    "Time to evidence: installed-dependency acquisition by tool-use condition",
+    "Model | Effort | Tools | Evidence complete / attempts | Mean acquisition seconds ± 95% CI | Mean evidence tokens",
+    "--- | --- | --- | --- | --- | ---",
     ...groups.map((group) =>
       [
         group.model,
@@ -161,15 +196,12 @@ export function summarizeCodexStudy({
         group.successfulSeconds === null
           ? "n/a"
           : `${group.successfulSeconds.mean.toFixed(1)} ± ${group.successfulSeconds.meanCi95HalfWidth?.toFixed(1) ?? "n/a"}`,
-        group.reportedInputTokens,
-        group.reportedCachedInputTokens ?? "unknown",
-        group.reportedOutputTokens,
-        group.tokensPerCorrectAnswer?.toFixed(0) ?? "unknown/no successes",
+        group.successfulEvidenceTokens?.mean.toFixed(0) ?? "unknown/no successes",
       ].join(" | "),
     ),
     "",
     "Ratios = baseline / treatment; values above 1 favor treatment.",
-    "Model / effort | Treatment vs baseline | Correct pairs | Median time ratio | Median token ratio",
+    "Model / effort | Treatment vs baseline | Complete pairs | Median acquisition time ratio | Median evidence token ratio",
     "--- | --- | --- | --- | ---",
     ...groups.flatMap((group) =>
       group.comparisons.map((comparison) =>
@@ -183,12 +215,12 @@ export function summarizeCodexStudy({
       ),
     ),
     "",
-    "Token totals include every recorded attempt, including failures. Unknown usage is not counted as zero-cost success.",
+    "Evidence tokens use the pinned o200k_base reference tokenizer, not provider billing. Acquisition model usage is unknown. Whole-run usage is reported separately in summary.json and includes failures.",
     "Infrastructure failures are excluded from task-quality denominators; their known tokens remain in totals. See summary.json for their counts.",
-    "Intervals describe run-level variability for these fixed tasks, not uncertainty across tasks or packages. A recorded command is required, but evidence use needs trace review.",
+    "Intervals describe run-level variability for these fixed tasks, not uncertainty across tasks or packages. Completion requires sufficient evidence in tool responses, not a correct final answer.",
     "Reasoning tokens, when reported, are a breakdown of output; they are not added twice. Subscription billing is not inferred from token counts.",
     "",
-    "Task | Model / effort | Tools | Correct / attempts | Mean successful seconds | Tokens per correct answer",
+    "Task | Model / effort | Tools | Evidence complete / attempts | Mean acquisition seconds | Mean evidence tokens",
     "--- | --- | --- | --- | --- | ---",
     ...byTask.map((group) =>
       [
@@ -197,7 +229,7 @@ export function summarizeCodexStudy({
         group.condition,
         `${group.correct}/${group.attempts}`,
         group.successfulSeconds?.mean.toFixed(1) ?? "n/a",
-        group.tokensPerCorrectAnswer?.toFixed(0) ?? "unknown/no successes",
+        group.successfulEvidenceTokens?.mean.toFixed(0) ?? "unknown/no successes",
       ].join(" | "),
     ),
   ].join("\n");
@@ -242,11 +274,16 @@ function compareAttempts(
     baseline: baselineCondition,
     pairs: pairs.length,
     time:
-      pairs.length === 0
+      pairs.length === 0 ||
+      pairs.some(
+        ({ baseline, treatment }) =>
+          baseline.acquisition?.retrievalSeconds == null ||
+          treatment.acquisition?.retrievalSeconds == null,
+      )
         ? null
         : compareMeasurements(
-            pairs.map(({ baseline }) => baseline.seconds),
-            pairs.map(({ treatment }) => treatment.seconds),
+            pairs.map(({ baseline }) => baseline.acquisition!.retrievalSeconds!),
+            pairs.map(({ treatment }) => treatment.acquisition!.retrievalSeconds!),
             seed,
             "seconds",
           ),
@@ -254,22 +291,12 @@ function compareAttempts(
       pairs.length === 0 ||
       pairs.some(
         ({ baseline, treatment }) =>
-          !baseline.telemetry.usageComplete ||
-          !treatment.telemetry.usageComplete ||
-          baseline.telemetry.inputTokens === null ||
-          baseline.telemetry.outputTokens === null ||
-          treatment.telemetry.inputTokens === null ||
-          treatment.telemetry.outputTokens === null,
+          baseline.acquisition === undefined || treatment.acquisition === undefined,
       )
         ? null
         : compareMeasurements(
-            pairs.map(
-              ({ baseline }) => baseline.telemetry.inputTokens! + baseline.telemetry.outputTokens!,
-            ),
-            pairs.map(
-              ({ treatment }) =>
-                treatment.telemetry.inputTokens! + treatment.telemetry.outputTokens!,
-            ),
+            pairs.map(({ baseline }) => baseline.acquisition!.evidenceTokens),
+            pairs.map(({ treatment }) => treatment.acquisition!.evidenceTokens),
             seed,
             "tokens",
           ),

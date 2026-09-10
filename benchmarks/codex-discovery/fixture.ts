@@ -12,7 +12,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import type { CodexCondition } from "./scenarios.ts";
@@ -23,6 +23,7 @@ export interface CodexFixture {
   readonly toolRoot: string;
   readonly toolBin: string;
   readonly manifest: string;
+  readonly codexHome: string;
   readonly cleanup: () => Promise<void>;
 }
 
@@ -55,6 +56,13 @@ export async function createCodexFixture(): Promise<CodexFixture> {
       2,
     );
     const toolRoot = join(root, "tools", "typepeek");
+    const codexHome = join(root, "codex");
+    await mkdir(codexHome);
+    const authentication = join(
+      process.env["CODEX_HOME"] ?? join(homedir(), ".codex"),
+      "auth.json",
+    );
+    if (existsSync(authentication)) await symlink(authentication, join(codexHome, "auth.json"));
     const toolBin = join(root, "tools", "bin");
     await cp(resolve("dist"), join(toolRoot, "dist"), {
       recursive: true,
@@ -77,6 +85,7 @@ export async function createCodexFixture(): Promise<CodexFixture> {
       toolRoot,
       toolBin,
       manifest,
+      codexHome,
       cleanup: () => rm(root, { recursive: true, force: true }),
     };
   } catch (error) {
@@ -161,6 +170,7 @@ export async function createCodexTrial(
     "features.image_generation=false",
     "features.memories=false",
     "features.context_management=false",
+    "tool_output_token_limit=262144",
     "features.shell_snapshot=false",
     "features.skill_search=false",
     "features.skip_host_skill_discovery=true",
