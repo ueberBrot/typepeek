@@ -11,7 +11,6 @@ export interface CompilerAnswer {
   readonly compilerVersion: string;
 }
 
-/** Independent consumer oracle: this module never imports Typepeek inspection code. */
 export function inspectWithCompiler(
   workspace: string,
   workload: DiscoveryWorkload,

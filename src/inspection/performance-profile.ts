@@ -61,9 +61,7 @@ export function forwardInspectionProfile(serialized: Uint8Array): void {
   }
 }
 
-export function decodeInspectionProfile(
-  serialized: string | Uint8Array,
-): InspectionProfile | undefined {
+function decodeInspectionProfile(serialized: string | Uint8Array): InspectionProfile | undefined {
   try {
     const text =
       typeof serialized === "string"

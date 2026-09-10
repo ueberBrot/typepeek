@@ -523,7 +523,6 @@ export type InspectionProtocolResponseContract =
   | SupportingTypeRecoveryProtocolResponse
   | ProjectedProtocolResponse<SignatureEvidenceKind>;
 
-export type InspectionProtocolRequest = typeof inspectionProtocolRequestSchema.Encoded;
 export type NormalizedInspectionProtocolRequest = typeof inspectionProtocolRequestSchema.Type;
 export type InspectionProtocolResponse = typeof inspectionProtocolResponseSchema.Type;
 

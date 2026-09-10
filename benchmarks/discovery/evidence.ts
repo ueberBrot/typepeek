@@ -65,7 +65,6 @@ export function fileFacts(workload: DiscoveryWorkload, serialized: string): read
     const source = ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, true);
     const visit = (node: ts.Node): void => {
       if (ts.isModuleDeclaration(node) && ts.isStringLiteral(node.name)) {
-        // node:fs/promises has unrelated overloads with the same function name.
         if (node.name.text !== workload.specifier.replace(/^node:/u, "")) {
           return;
         }
@@ -84,8 +83,6 @@ export function fileFacts(workload: DiscoveryWorkload, serialized: string): read
       ts.forEachChild(node, visit);
     };
     visit(source);
-    // Dual ESM/CJS declaration files may repeat the same complete interface.
-    // Preserve overload multiplicity within each file; only collapse identical file interfaces.
     const key = JSON.stringify(fileSignatures);
     if (!seenInterfaces.has(key)) facts.push(...fileSignatures);
     seenInterfaces.add(key);

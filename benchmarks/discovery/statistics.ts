@@ -10,7 +10,6 @@ export interface TimingSummary {
   readonly meanCi95HalfWidth: number | null;
 }
 
-/** Sample SD and two-sided Student t interval; no outliers are discarded. */
 export function summarizeTimings(samples: readonly number[]): TimingSummary {
   if (samples.length === 0 || samples.some((value) => !Number.isFinite(value) || value <= 0)) {
     throw new TypeError("Timings must contain finite positive observations.");
@@ -57,7 +56,6 @@ function criticalValue(degreesOfFreedom: number): number {
     2.145, 2.131, 2.12, 2.11, 2.101, 2.093, 2.086, 2.08, 2.074, 2.069, 2.064, 2.06, 2.056, 2.052,
     2.048, 2.045, 2.042,
   ];
-  // Conservative buckets beyond the tabulated range.
   return (
     values[degreesOfFreedom - 1] ??
     (degreesOfFreedom < 60 ? 2.042 : degreesOfFreedom < 120 ? 2 : 1.98)
@@ -87,7 +85,6 @@ export interface PairedComparison {
   readonly medianSavedMilliseconds: number;
 }
 
-/** Resamples complete pairs to retain shared load effects; a fixed seed reproduces the result. */
 export function comparePairedTimings(
   baseline: readonly number[],
   treatment: readonly number[],
@@ -106,13 +103,16 @@ export function comparePairedTimings(
       0.5,
     );
   const random = seededRandom(seed);
-  const bootstraps = Array.from({ length: 2_000 }, () =>
-    median(ratios.map(() => ratios[Math.floor(random() * ratios.length)]!)),
-  ).sort((a, b) => a - b);
+  const bootstraps =
+    baseline.length < 5
+      ? null
+      : Array.from({ length: 2_000 }, () =>
+          median(ratios.map(() => ratios[Math.floor(random() * ratios.length)]!)),
+        ).sort((a, b) => a - b);
   return {
     medianSpeedup: median(ratios),
     speedupCi95:
-      baseline.length < 5 ? null : [quantile(bootstraps, 0.025), quantile(bootstraps, 0.975)],
+      bootstraps === null ? null : [quantile(bootstraps, 0.025), quantile(bootstraps, 0.975)],
     medianSavedMilliseconds: median(deltas),
   };
 }

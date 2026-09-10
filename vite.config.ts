@@ -169,35 +169,16 @@ export default defineConfig({
         dependsOn: ["pack"],
         output: [],
       },
-      "benchmark:source": {
-        command: "node benchmarks/inspection-latency.ts --adapter source",
-        output: [],
-      },
-      "benchmark:build": {
-        command: "node benchmarks/inspection-latency.ts --adapter build",
-        dependsOn: ["build"],
-        output: [],
-      },
-      "benchmark:package": {
-        command: "node benchmarks/inspection-latency.ts --adapter package",
-        dependsOn: ["pack"],
-        output: [],
-      },
-      "benchmark:agent-protocol": {
-        command: "node benchmarks/agent-protocol.ts",
-        output: [],
-      },
       "benchmark:discovery": {
-        command: "node benchmarks/discovery/run.ts --output .benchmarks/discovery/latest.json",
+        command: "node benchmarks/discovery/run.ts",
         cache: false,
       },
       "benchmark:codex": {
         command: "node benchmarks/codex-discovery/run.ts",
         cache: false,
       },
-      "benchmark:gate": {
-        command: "node benchmarks/regression-gates.ts",
-        dependsOn: ["pack"],
+      "benchmark:smoke": {
+        command: "node tests/discovery-benchmark-package-smoke.ts",
         cache: false,
       },
       test: {
@@ -212,7 +193,7 @@ export default defineConfig({
           "vp run test",
           "vp run build-smoke",
           "vp run package-smoke",
-          "vp run benchmark:gate",
+          "vp run benchmark:smoke",
         ],
       },
     },

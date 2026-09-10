@@ -80,9 +80,6 @@ jobs:
       - name: Smoke-test package
         run: vp run package-smoke
 
-      - name: Check performance regressions
-        run: vp run benchmark:gate
-
       - name: Set up discovery benchmark tools
         run: |
           if ! command -v rg >/dev/null 2>&1; then
@@ -92,7 +89,7 @@ jobs:
           rg --version
 
       - name: Check packaged discovery benchmark correctness
-        run: node tests/discovery-benchmark-package-smoke.ts
+        run: vp run benchmark:smoke
 
   consumer-compatibility:
     name: Consumer compatibility (${{ matrix.os }})

@@ -30,7 +30,6 @@ export async function createCodexFixture(): Promise<CodexFixture> {
   const root = await realpath(await mkdtemp(join(tmpdir(), "typepeek-codex-benchmark-")));
   try {
     const modules = join(root, "consumer", "node_modules");
-    // Preserve pnpm's internal relative links. Clone files where the OS supports it.
     await cp(resolve("node_modules"), modules, {
       recursive: true,
       verbatimSymlinks: true,
@@ -65,7 +64,6 @@ export async function createCodexFixture(): Promise<CodexFixture> {
     await symlink(modules, join(toolRoot, "node_modules"), "dir");
     await mkdir(toolBin, { recursive: true });
     const launcher = join(toolBin, "typepeek");
-    // Paths are arguments in the generated shell launcher, never interpolated as code.
     const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
     await writeFile(
       launcher,
@@ -93,8 +91,6 @@ export async function createCodexTrial(
   condition: CodexCondition,
 ) {
   const workspace = dirname(fixture.modules);
-  // Keep dependencies inside the consumer for repository-relative provenance.
-  // Reset mutable files between trials; each trial starts a fresh Codex session.
   for (const entry of await readdir(workspace)) {
     if (entry !== "node_modules")
       await rm(join(workspace, entry), { recursive: true, force: true });
@@ -124,7 +120,6 @@ export async function createCodexTrial(
     [join(workspace, "node_modules")]: "read",
     [join(workspace, "package.json")]: "read",
   };
-  // Homebrew runtimes load shared libraries from sibling installations.
   for (const runtime of [
     "/System",
     "/usr",
@@ -227,7 +222,6 @@ export async function verifyCodexIsolation(
   }
 }
 
-/** Other checkouts can contain the same grader and archived answers as this checkout. */
 async function repositoryEvidencePaths(): Promise<readonly string[]> {
   const listing = await execa("git", ["worktree", "list", "--porcelain", "-z"]);
   const roots = new Set([

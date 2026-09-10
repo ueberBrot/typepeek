@@ -58,7 +58,9 @@ Return the requested JSON only. The specifier field is the exact import module s
       ? "Typepeek is unavailable in this condition. Use any other local static inspection approach you judge effective."
       : condition === "typepeek-required"
         ? `The typepeek CLI is installed on PATH. You must inspect the requested module with Typepeek before answering. For signature questions, obtain the selected export's signatures with --json; for name searches, obtain the matching exports with --json. A help command alone does not count. Copy each signature's text field exactly, including generic parameters and all overloads; do not reconstruct it from structured parameter types. Other static tools may help you discover the export. Run typepeek --help if needed.\n\nInstalled Typepeek skill:\n${skill}`
-        : `The typepeek CLI is installed on PATH. You may use it or any other available local inspection approach; you are not required to call it. Run typepeek --help when you need its command reference.${condition === "typepeek-skill" ? `\n\nInstalled Typepeek skill:\n${skill}` : ""}`;
+        : condition === "typepeek-skill"
+          ? `Use $typepeek for this task. The packaged typepeek CLI is installed on PATH. Apply the following shipped skill; use --json when obtaining the requested evidence.\n\n<skill name="typepeek">\n${skill}\n</skill>`
+          : "The typepeek CLI is installed on PATH. You may use it or any other available local inspection approach; you are not required to call it. Run typepeek --help when you need its command reference.";
   return `${common}\n${availability}\n\nQuestion: ${scenario.question}\n`;
 }
 
@@ -126,6 +128,7 @@ export function codexTelemetry(events: string) {
   let reasoningUsageComplete = true;
   let reasoningOutputTokens: number | null = null;
   let completedTurns = 0;
+  let incompleteUsage = false;
   const commands: string[] = [];
   let toolOutputBytes = 0;
   const typepeekEvidence: {
@@ -142,6 +145,16 @@ export function codexTelemetry(events: string) {
     } catch {
       invalidLines += 1;
       continue;
+    }
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      "type" in value &&
+      (value.type === "turn.failed" ||
+        value.type === "error" ||
+        (value.type === "turn.completed" && !Schema.is(completedTurnSchema)(value)))
+    ) {
+      incompleteUsage = true;
     }
     if (Schema.is(completedTurnSchema)(value)) {
       completedTurns += 1;
@@ -163,6 +176,7 @@ export function codexTelemetry(events: string) {
   }
   return {
     completedTurns,
+    usageComplete: completedTurns > 0 && !incompleteUsage && invalidLines === 0,
     inputTokens: completedTurns === 0 ? null : inputTokens,
     outputTokens: completedTurns === 0 ? null : outputTokens,
     cachedInputTokens: completedTurns === 0 || !cachedUsageComplete ? null : cachedInputTokens,
@@ -198,7 +212,6 @@ const inspectionEvidenceSchema = Schema.Struct({
 
 function readTypepeekEvidence(output: string) {
   const evidence: { intent: string; specifier: string; exportName?: string; query?: string }[] = [];
-  // Accept a complete JSON result or newline-delimited results from a command chain.
   for (const text of new Set([output, ...output.split("\n")].map((text) => text.trim()))) {
     try {
       const value: unknown = JSON.parse(text);
@@ -213,13 +226,12 @@ function readTypepeekEvidence(output: string) {
         });
       }
     } catch {
-      // Help, diagnostics, and malformed output are not inspection evidence.
+      continue;
     }
   }
   return evidence;
 }
 
-/** Checks required tool use separately from final-answer correctness. */
 export function gradeCodexExecution(
   scenario: CodexScenario,
   condition: CodexCondition,

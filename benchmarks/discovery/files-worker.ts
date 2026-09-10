@@ -30,9 +30,7 @@ while (true) {
     ) {
       break;
     }
-  } catch {
-    // Entry points can be below the package root.
-  }
+  } catch {}
   const parent = dirname(root);
   if (parent === root) {
     throw new Error(`Cannot locate manifest for ${packageName}.`);

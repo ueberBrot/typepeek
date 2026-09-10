@@ -48,7 +48,6 @@ export function currentEvidenceFingerprint(
 
 export async function discoveryIdentity(options: {
   readonly workspace: string;
-  readonly adapter: DiscoveryIdentity["adapter"];
   readonly compilerVersion: string;
   readonly evidenceHash: string;
 }): Promise<DiscoveryIdentity> {
@@ -75,16 +74,10 @@ export async function discoveryIdentity(options: {
     osRelease: release(),
     cpu: cpus()[0]?.model ?? "unknown",
     hostname: hostname(),
-    adapter: options.adapter,
+    adapter: "package",
     evidenceHash: options.evidenceHash,
     lockfileHash: hashFiles(options.workspace, lockfiles),
-    artifactHash: hashFiles(
-      repository,
-      sourceFiles(
-        options.adapter === "source" ? "src" : "dist",
-        options.adapter === "source" ? ".ts" : ".js",
-      ),
-    ),
+    artifactHash: hashFiles(repository, sourceFiles("dist", ".js")),
     harnessHash: hashFiles(repository, sourceFiles("benchmarks/discovery", ".ts")),
     commit: git.stdout || "unavailable",
   };

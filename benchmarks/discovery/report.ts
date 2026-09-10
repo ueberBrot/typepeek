@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { createHash } from "node:crypto";
 
 import { comparePairedTimings, medianValue, summarizeTimings } from "./statistics.ts";
 
@@ -26,7 +27,7 @@ const identitySchema = Schema.Struct({
   osRelease: Schema.String,
   cpu: Schema.String,
   hostname: Schema.String,
-  adapter: Schema.Literals(["source", "package"]),
+  adapter: Schema.Literal("package"),
   evidenceHash: Schema.String,
   lockfileHash: Schema.String,
   artifactHash: Schema.String,
@@ -51,7 +52,8 @@ const rowSchema = Schema.Struct({
 });
 const discoveryRunSchema = Schema.Struct({
   kind: Schema.Literal("discovery-benchmark"),
-  schemaVersion: Schema.Literal(1),
+  schemaVersion: Schema.Literal(2),
+  workloads: Schema.Array(Schema.String).check(Schema.isMinLength(1)),
   recordedAt: Schema.String,
   identity: identitySchema,
   options: optionsSchema,
@@ -67,20 +69,21 @@ export type DiscoveryOptions = typeof optionsSchema.Type;
 export const decodeDiscoveryRun = Schema.decodeUnknownSync(discoveryRunSchema);
 
 function validSamples(row: DiscoveryRow, iterations: number): boolean {
+  const expectedHash = createHash("sha256").update(JSON.stringify(row.expectedFacts)).digest("hex");
   return (
     row.samples.length === iterations &&
     row.samples.every(
       (sample, index) =>
         sample.passed &&
         sample.error === null &&
-        sample.factsHash !== null &&
+        sample.factsHash === expectedHash &&
         sample.iteration === index,
-    ) &&
-    new Set(row.samples.map((sample) => sample.factsHash)).size === 1
+    )
   );
 }
 
 export function evaluateDiscoveryRun(run: DiscoveryRun, baseline?: DiscoveryRun) {
+  const correctness = validRun(run);
   const mismatches = baseline === undefined ? [] : compatibilityMismatches(run, baseline);
   const rows = run.rows.map((row) => {
     const timings = summarizeTimings(row.samples.map((sample) => sample.milliseconds));
@@ -121,6 +124,7 @@ export function evaluateDiscoveryRun(run: DiscoveryRun, baseline?: DiscoveryRun)
           (candidate) => candidate.workload === row.workload && candidate.condition === condition,
         );
         const eligible =
+          correctness &&
           treatment !== undefined &&
           validSamples(row, run.options.iterations) &&
           validSamples(treatment, run.options.iterations);
@@ -138,12 +142,6 @@ export function evaluateDiscoveryRun(run: DiscoveryRun, baseline?: DiscoveryRun)
         };
       }),
     );
-  const correctness =
-    run.evidenceUnchanged &&
-    run.inputsUnchanged &&
-    rows.length > 0 &&
-    rows.every((row) => row.correctness) &&
-    new Set(rows.map((row) => `${row.workload}/${row.condition}`)).size === rows.length;
   return {
     correctness,
     stable: rows.length > 0 && rows.every((row) => row.stable),
@@ -154,6 +152,32 @@ export function evaluateDiscoveryRun(run: DiscoveryRun, baseline?: DiscoveryRun)
     rows,
     comparisons,
   };
+}
+
+function validRun(run: DiscoveryRun): boolean {
+  const groups = Map.groupBy(run.rows, (row) => row.workload);
+  return (
+    run.evidenceUnchanged &&
+    run.inputsUnchanged &&
+    groups.size > 0 &&
+    groups.size === run.workloads.length &&
+    new Set(run.workloads).size === run.workloads.length &&
+    run.workloads.every((workload) => groups.has(workload)) &&
+    [...groups.values()].every((rows) => {
+      const conditions = new Set(rows.map((row) => row.condition));
+      return (
+        conditions.size === rows.length &&
+        ["compiler", "typepeek-cold", "typepeek-warm"].every((condition) =>
+          rows.some((row) => row.condition === condition),
+        ) &&
+        rows.every(
+          (row) =>
+            validSamples(row, run.options.iterations) &&
+            JSON.stringify(row.expectedFacts) === JSON.stringify(rows[0]!.expectedFacts),
+        )
+      );
+    })
+  );
 }
 
 function compatibilityMismatches(current: DiscoveryRun, baseline: DiscoveryRun): readonly string[] {
@@ -184,16 +208,17 @@ function compatibilityMismatches(current: DiscoveryRun, baseline: DiscoveryRun):
   ) {
     mismatches.push("workload/condition coverage");
   }
-  if (
-    !baseline.evidenceUnchanged ||
-    !baseline.inputsUnchanged ||
-    baseline.rows.some(
-      (row) => row.samples.length < 5 || !validSamples(row, baseline.options.iterations),
-    )
-  ) {
+  if (!validRun(baseline) || baseline.rows.some((row) => row.samples.length < 5)) {
     mismatches.push("baseline correctness or sample count");
   }
   for (const row of baseline.rows) {
+    const candidate = current.rows.find((currentRow) => rowKey(currentRow) === rowKey(row));
+    if (
+      candidate !== undefined &&
+      JSON.stringify(candidate.expectedFacts) !== JSON.stringify(row.expectedFacts)
+    ) {
+      mismatches.push(`expected evidence: ${rowKey(row)}`);
+    }
     if (
       summarizeTimings(row.samples.map((sample) => sample.milliseconds))
         .coefficientOfVariationPercent > current.options.maxCvPercent
@@ -207,6 +232,7 @@ function compatibilityMismatches(current: DiscoveryRun, baseline: DiscoveryRun):
 export function renderDiscoveryReport(
   run: DiscoveryRun,
   evaluation: ReturnType<typeof evaluateDiscoveryRun>,
+  gateRequested: boolean,
 ): string {
   const lines = [
     "Installed dependency discovery (milliseconds, fresh process per observation)",
@@ -236,7 +262,7 @@ export function renderDiscoveryReport(
         `${row.workload}: ${row.baseline} / ${row.treatment}: ${row.comparison === null ? "not comparable: incorrect evidence" : `${row.comparison.medianSpeedup.toFixed(2)}x${row.comparison.speedupCi95 === null ? "" : ` [95% bootstrap ${row.comparison.speedupCi95[0].toFixed(2)}, ${row.comparison.speedupCi95[1].toFixed(2)}]`}`}`,
     ),
     "",
-    `Correctness: ${evaluation.correctness ? "PASS" : "FAIL"}; timing stability: ${evaluation.stable ? "PASS" : "INSUFFICIENT/NOISY"}; regression gate: ${evaluation.passed ? "PASS" : "FAIL"}`,
+    `Correctness: ${evaluation.correctness ? "PASS" : "FAIL"}; timing stability: ${evaluation.stable ? "PASS" : "INSUFFICIENT/NOISY"}; regression gate: ${!gateRequested ? "NOT REQUESTED" : evaluation.passed ? "PASS" : "FAIL"}`,
     ...evaluation.incompatibilities.map((value) => `Incompatible baseline: ${value}`),
     ...evaluation.rows
       .filter((row) => row.regressed)

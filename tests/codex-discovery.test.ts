@@ -1,3 +1,7 @@
+import { execa } from "execa";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, it } from "vite-plus/test";
 
 import {
@@ -8,6 +12,55 @@ import {
   selectCodexScenarios,
 } from "../benchmarks/codex-discovery/scenarios.ts";
 import { signatureFact } from "../benchmarks/discovery/signature.ts";
+
+it("previews the eight-runner matrix reproducibly without creating trial artifacts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "codex-schedule-"));
+  try {
+    const args = [
+      "benchmarks/codex-discovery/run.ts",
+      "--dry-run",
+      "--output",
+      join(directory, "unused"),
+    ];
+    const first = await execa(process.execPath, args);
+    const second = await execa(process.execPath, args);
+    expect(second.stdout).toBe(first.stdout);
+    const plan = JSON.parse(first.stdout) as {
+      trials: { model: string; effort: string; condition: string }[];
+    };
+    expect(plan.trials).toHaveLength(360);
+    expect([...new Set(plan.trials.map(({ condition }) => condition))].sort()).toEqual([
+      "files",
+      "typepeek",
+      "typepeek-skill",
+    ]);
+    expect(
+      [...new Set(plan.trials.map(({ model, effort }) => `${model}/${effort}`))].sort(),
+    ).toEqual([
+      "gpt-5.6-luna/high",
+      "gpt-5.6-luna/low",
+      "gpt-5.6-sol/high",
+      "gpt-5.6-sol/low",
+      "gpt-5.6-terra/high",
+      "gpt-5.6-terra/low",
+      "gpt-6-astra/high",
+      "gpt-6-astra/low",
+    ]);
+    expect(await readdir(directory)).toEqual([]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("rejects a matrix that combines all workloads with individual workloads", async () => {
+  const result = await execa(
+    process.execPath,
+    ["benchmarks/codex-discovery/run.ts", "--dry-run", "--cases", "all,execa-command"],
+    { reject: false },
+  );
+  expect(result.failed).toBe(true);
+  expect(result.stderr).toContain("all must be used alone");
+});
 
 it("ignores an optional trailing comma in destructured parameters without changing fields", () => {
   expect(signatureFact("call", "({ routes, aliases, }: Routes): Result")).toBe(
@@ -29,7 +82,10 @@ it("lets both Codex conditions choose their strategy without giving away discove
   }
   expect(baseline).toContain("Typepeek is unavailable");
   expect(treatment).toContain("you are not required to call it");
-  expect(codexPrompt(scenario, "typepeek-skill", "SKILL CONTENT")).toContain("SKILL CONTENT");
+  const skillPrompt = codexPrompt(scenario, "typepeek-skill", "SKILL CONTENT");
+  expect(skillPrompt).toContain("Use $typepeek");
+  expect(skillPrompt).toContain("SKILL CONTENT");
+  expect(treatment).not.toContain("$typepeek");
 });
 
 it("counts complete Codex usage while retaining cached and reasoning breakdowns", () => {
@@ -80,6 +136,26 @@ it("counts complete Codex usage while retaining cached and reasoning breakdowns"
     outputTokens: null,
     reasoningOutputTokens: null,
   });
+});
+
+it("marks partial or damaged usage logs incomplete while retaining known token counts", () => {
+  const complete = JSON.stringify({
+    type: "turn.completed",
+    usage: { input_tokens: 100, output_tokens: 20 },
+  });
+  expect(codexTelemetry(complete).usageComplete).toBe(true);
+  for (const trailing of [
+    '{"type":"turn.completed","usage":{}}',
+    '{"type":"turn.failed"}',
+    "not-json",
+  ]) {
+    expect(codexTelemetry(`${complete}\n${trailing}`)).toMatchObject({
+      inputTokens: 100,
+      outputTokens: 20,
+      usageComplete: false,
+    });
+  }
+  expect(codexTelemetry("").usageComplete).toBe(false);
 });
 
 it("accepts a verified discovered export and rejects invented or incomplete signatures", () => {

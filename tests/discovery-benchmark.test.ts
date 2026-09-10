@@ -1,5 +1,6 @@
 import { execa } from "execa";
-import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -7,7 +8,11 @@ import { expect, it } from "vite-plus/test";
 
 import { inspectWithCompiler } from "../benchmarks/discovery/compiler.ts";
 import { fileFacts, typepeekFacts } from "../benchmarks/discovery/evidence.ts";
-import { type DiscoveryRun, evaluateDiscoveryRun } from "../benchmarks/discovery/report.ts";
+import {
+  type DiscoveryRun,
+  evaluateDiscoveryRun,
+  renderDiscoveryReport,
+} from "../benchmarks/discovery/report.ts";
 import {
   comparePairedTimings,
   seededRandom,
@@ -70,6 +75,13 @@ it("reports sample variability and uncertainty without deleting slow observation
   }
 });
 
+it("distinguishes a noisy measurement from an explicitly requested regression gate", () => {
+  const run = runWithTimings([100]);
+  const evaluation = evaluateDiscoveryRun(run);
+  expect(renderDiscoveryReport(run, evaluation, false)).toContain("regression gate: NOT REQUESTED");
+  expect(renderDiscoveryReport(run, evaluation, true)).toContain("regression gate: FAIL");
+});
+
 it("reproduces scheduling and paired uncertainty from the seed and recorded samples", () => {
   expect(shuffled([1, 2, 3, 4], seededRandom(42))).toEqual(
     shuffled([1, 2, 3, 4], seededRandom(42)),
@@ -91,7 +103,8 @@ function runWithTimings(
 ): DiscoveryRun {
   return {
     kind: "discovery-benchmark",
-    schemaVersion: 1,
+    schemaVersion: 2,
+    workloads: ["test"],
     recordedAt: "2026-09-08T00:00:00.000Z",
     identity: {
       workspace: "/consumer",
@@ -132,13 +145,26 @@ function runWithTimings(
         stdoutBytes: 100,
         passed: true,
         error: null,
-        factsHash: "answer-hash",
+        factsHash: createHash("sha256").update('["answer"]').digest("hex"),
         toolCalls: 1,
       })),
     })),
     ...overrides,
   };
 }
+
+it("rejects saved observations whose evidence hash does not match the answer key", () => {
+  const run = runWithTimings([100, 100, 100, 100, 100]);
+  const corrupted = {
+    ...run,
+    rows: run.rows.map((row) => ({
+      ...row,
+      samples: row.samples.map((sample) => ({ ...sample, factsHash: "wrong-evidence" })),
+    })),
+  };
+  expect(evaluateDiscoveryRun(corrupted).correctness).toBe(false);
+  expect(evaluateDiscoveryRun(run, corrupted).baselineCompatible).toBe(false);
+});
 
 it("uses the larger absolute or relative tolerance and rejects regressions beyond it", () => {
   const baseline = runWithTimings([100, 100, 100, 100, 100]);
@@ -150,6 +176,48 @@ it("uses the larger absolute or relative tolerance and rejects regressions beyon
   );
   const small = runWithTimings([20, 20, 20, 20, 20]);
   expect(evaluateDiscoveryRun(runWithTimings([30, 30, 30, 30, 30]), small).passed).toBe(true);
+});
+
+it("requires complete method coverage and a shared answer key before comparing timings", () => {
+  const run = runWithTimings([100, 100, 100, 100, 100]);
+  const differentAnswer = {
+    ...run.rows[0]!,
+    expectedFacts: ["different"],
+    samples: run.rows[0]!.samples.map((sample) => ({
+      ...sample,
+      factsHash: createHash("sha256").update('["different"]').digest("hex"),
+    })),
+  };
+  for (const invalid of [
+    { ...run, workloads: ["test", "omitted"] },
+    { ...run, workloads: ["test", "test"] },
+    { ...run, rows: run.rows.slice(1) },
+    { ...run, rows: [...run.rows, run.rows[0]!] },
+    { ...run, rows: [differentAnswer, ...run.rows.slice(1)] },
+    { ...run, inputsUnchanged: false },
+  ]) {
+    const evaluation = evaluateDiscoveryRun(invalid);
+    expect(evaluation.correctness).toBe(false);
+    expect(evaluation.comparisons.every(({ comparison }) => comparison === null)).toBe(true);
+    expect(evaluateDiscoveryRun(run, invalid).baselineCompatible).toBe(false);
+  }
+});
+
+it("rejects baseline comparisons with different expected evidence", () => {
+  const run = runWithTimings([100, 100, 100, 100, 100]);
+  const different = {
+    ...run,
+    rows: run.rows.map((row) => ({
+      ...row,
+      expectedFacts: ["different"],
+      samples: row.samples.map((sample) => ({
+        ...sample,
+        factsHash: createHash("sha256").update('["different"]').digest("hex"),
+      })),
+    })),
+  };
+  expect(evaluateDiscoveryRun(different).correctness).toBe(true);
+  expect(evaluateDiscoveryRun(run, different).baselineCompatible).toBe(false);
 });
 
 it("rejects incorrect, noisy, insufficient, mutated, or incomparable benchmark data", () => {
@@ -219,4 +287,36 @@ it("rejects source execution before starting a benchmark", async () => {
   );
   expect(result.failed).toBe(true);
   expect(result.stderr).toContain("Unknown option '--adapter'");
+});
+
+it("preserves existing reports and traces when an output path is reused", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "benchmark-artifacts-"));
+  try {
+    const output = join(directory, "run.json");
+    const trace = `${output}.traces.jsonl`;
+    for (const existing of [output, trace]) {
+      await writeFile(existing, "retained evidence");
+      const result = await execa(
+        process.execPath,
+        [
+          "benchmarks/discovery/run.ts",
+          "--case",
+          "execa-command",
+          "--iterations",
+          "1",
+          "--warmups",
+          "0",
+          "--output",
+          output,
+        ],
+        { reject: false },
+      );
+      expect(result.failed).toBe(true);
+      expect(result.stderr).toContain("already exists");
+      expect(await readFile(existing, "utf8")).toBe("retained evidence");
+      await rm(existing);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -40,10 +40,6 @@ export type {
   ResolutionVariant,
   SignatureInspection,
 } from "#typepeek/inspection/protocol";
-export type {
-  InspectionProtocolRequest,
-  InspectionProtocolResponse,
-} from "#typepeek/inspection/inspection-protocol-schema";
 export type { InspectionIntent } from "#typepeek/inspection/protocol-metadata";
 
 export type { MemberPath } from "#typepeek/inspection/member-path";

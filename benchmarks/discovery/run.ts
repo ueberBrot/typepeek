@@ -1,10 +1,12 @@
 import { execa } from "execa";
-import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { parseArgs } from "node:util";
 
+import { reserveDiscoveryArtifacts } from "./artifacts.ts";
 import { inspectWithCompiler } from "./compiler.ts";
 import { decodeCompilerAnswer, decodeFileEvidence, fileFacts, typepeekFacts } from "./evidence.ts";
 import {
@@ -32,13 +34,17 @@ import {
 } from "./workloads.ts";
 
 const options = readOptions();
-const packagedCli = requirePackagedArtifact();
 const workloads = selectDiscoveryWorkloads(options.caseId);
-const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-discovery-cache-"));
+const artifacts = await reserveDiscoveryArtifacts(options.output);
+let packagedCli: string;
+let cacheDirectory: string | undefined;
 try {
+  packagedCli = requirePackagedArtifact();
+  cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-discovery-cache-"));
   await runBenchmark();
 } finally {
-  await rm(cacheDirectory, { recursive: true, force: true });
+  await artifacts.close();
+  if (cacheDirectory !== undefined) await rm(cacheDirectory, { recursive: true, force: true });
 }
 
 async function runBenchmark(): Promise<void> {
@@ -55,14 +61,9 @@ async function runBenchmark(): Promise<void> {
   );
   const identity = await discoveryIdentity({
     workspace: options.workspace,
-    adapter: "package",
     compilerVersion: [...expected.values()][0]!.compilerVersion,
     evidenceHash: initialEvidence,
   });
-  if (options.output !== undefined) {
-    await mkdir(dirname(options.output), { recursive: true });
-    await writeFile(`${options.output}.traces.jsonl`, "");
-  }
   const rows: DiscoveryRow[] = [];
   const random = seededRandom(options.seed);
   for (const workload of workloads) {
@@ -74,13 +75,11 @@ async function runBenchmark(): Promise<void> {
       "typepeek-warm",
     ];
     const samples = new Map(conditions.map((condition) => [condition, [] as DiscoverySample[]]));
-    // Prewarm only the explicitly labeled cache condition, outside measured observations.
     const prewarm = await measure(workload, "typepeek-warm", facts, 0, "cache-prime");
     if (!prewarm.passed)
       process.stderr.write(`${workload.id}: cache priming failed: ${prewarm.error}\n`);
     const order = shuffled(conditions, random);
     for (let iteration = -options.warmups; iteration < options.iterations; iteration += 1) {
-      // Rotate a seeded ordering: every condition gets each position once per block.
       const offset = (iteration + options.warmups) % order.length;
       for (const condition of [...order.slice(offset), ...order.slice(0, offset)]) {
         const sample = await measure(
@@ -109,13 +108,13 @@ async function runBenchmark(): Promise<void> {
   const finalEvidence = currentEvidenceFingerprint(options.workspace, workloads);
   const finalIdentity = await discoveryIdentity({
     workspace: options.workspace,
-    adapter: "package",
     compilerVersion: identity.compiler,
     evidenceHash: finalEvidence,
   });
   const run: DiscoveryRun = {
     kind: "discovery-benchmark",
-    schemaVersion: 1,
+    schemaVersion: 2,
+    workloads: workloads.map(({ id }) => id),
     recordedAt: new Date().toISOString(),
     identity,
     options: {
@@ -136,8 +135,12 @@ async function runBenchmark(): Promise<void> {
   };
   const evaluation = evaluateDiscoveryRun(run, baseline);
   const serialized = `${JSON.stringify({ ...run, evaluation }, null, 2)}\n`;
-  if (options.output !== undefined) await writeFile(options.output, serialized);
-  process.stdout.write(options.json ? serialized : renderDiscoveryReport(run, evaluation));
+  await artifacts.writeReport(serialized);
+  process.stdout.write(
+    options.json
+      ? serialized
+      : renderDiscoveryReport(run, evaluation, options.check || baseline !== undefined),
+  );
   if (
     !evaluation.correctness ||
     !evaluation.baselineCompatible ||
@@ -203,12 +206,15 @@ async function measure(
     factsHash: facts === null ? null : hashText(JSON.stringify(facts)),
     toolCalls,
   };
-  if (options.output !== undefined) {
-    await appendFile(
-      `${options.output}.traces.jsonl`,
-      `${JSON.stringify({ workload: workload.id, condition, phase, command: [process.execPath, ...arguments_], sample, stdout: result.stdout, stderr: result.stderr })}\n`,
-    );
-  }
+  await artifacts.appendTrace({
+    workload: workload.id,
+    condition,
+    phase,
+    command: [process.execPath, ...arguments_],
+    sample,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  });
   return sample;
 }
 
@@ -216,7 +222,7 @@ function readOptions(): DiscoveryOptions & {
   readonly workspace: string;
   readonly caseId: string | undefined;
   readonly compare: string | undefined;
-  readonly output: string | undefined;
+  readonly output: string;
   readonly json: boolean;
   readonly check: boolean;
 } {
@@ -229,7 +235,7 @@ function readOptions(): DiscoveryOptions & {
   --warmups N               Excluded warmups, 0–20 (default: 2)
   --seed N                  Fixed condition ordering and bootstrap seed (default: 1729)
   --timeout-ms N            Per-process deadline (default: 15000)
-  --output PATH             Save JSON and PATH.traces.jsonl
+  --output PATH             Save new JSON and PATH.traces.jsonl (default: unique .benchmarks/discovery run)
   --compare PATH            Compare a compatible prior JSON run; enforce gate
   --tolerance-percent N     Allowed median regression (default: 10)
   --tolerance-ms N          Absolute tolerance floor (default: 10)
@@ -255,7 +261,10 @@ Requires prepacked dist/cli.js. Run vp run pack separately; packing is never par
       "tolerance-ms": { type: "string", default: "10" },
       "max-cv-percent": { type: "string", default: "20" },
       compare: { type: "string" },
-      output: { type: "string" },
+      output: {
+        type: "string",
+        default: `.benchmarks/discovery/${new Date().toISOString().replaceAll(":", "-")}-${randomUUID()}.json`,
+      },
       json: { type: "boolean", default: false },
       check: { type: "boolean", default: false },
     },
