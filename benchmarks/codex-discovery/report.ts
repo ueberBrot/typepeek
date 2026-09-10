@@ -102,7 +102,7 @@ export function summarizeCodexStudy({
             intervalScope:
               "Descriptive run-level variability within these fixed tasks; not uncertainty across tasks or packages.",
             attempts: selected.length,
-            correct: successes.length,
+            evidenceComplete: successes.length,
             successRate: selected.length === 0 ? null : successes.length / selected.length,
             successByDeadline: Object.fromEntries(
               [30, 60, 120].map((deadline) => [
@@ -113,12 +113,7 @@ export function summarizeCodexStudy({
                       .length / selected.length,
               ]),
             ),
-            successfulSeconds:
-              acquired.length === 0
-                ? null
-                : summarizeTimings(
-                    acquired.map((attempt) => attempt.acquisition!.retrievalSeconds!),
-                  ),
+            successfulSeconds: timing,
             successfulEvidenceTokens:
               acquired.length === 0
                 ? null
@@ -149,7 +144,7 @@ export function summarizeCodexStudy({
                   )
                 : null,
             usageComplete: completeUsage,
-            tokensPerCorrectAnswer:
+            wholeRunTokensPerAcquisition:
               completeUsage && successes.length > 0 ? (input + output) / successes.length : null,
             cliAdoptionRate:
               selected.length === 0
@@ -192,7 +187,7 @@ export function summarizeCodexStudy({
         group.model,
         group.effort,
         group.condition,
-        `${group.correct}/${group.attempts}`,
+        `${group.evidenceComplete}/${group.attempts}`,
         group.successfulSeconds === null
           ? "n/a"
           : `${group.successfulSeconds.mean.toFixed(1)} ± ${group.successfulSeconds.meanCi95HalfWidth?.toFixed(1) ?? "n/a"}`,
@@ -227,7 +222,7 @@ export function summarizeCodexStudy({
         group.task,
         `${group.model}/${group.effort}`,
         group.condition,
-        `${group.correct}/${group.attempts}`,
+        `${group.evidenceComplete}/${group.attempts}`,
         group.successfulSeconds?.mean.toFixed(1) ?? "n/a",
         group.successfulEvidenceTokens?.mean.toFixed(0) ?? "unknown/no successes",
       ].join(" | "),

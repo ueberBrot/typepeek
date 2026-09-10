@@ -233,7 +233,7 @@ async function runStudy(): Promise<void> {
     await writeFile(join(directory, "result.json"), JSON.stringify(attempt, null, 2));
     await saveSummary("running");
     process.stderr.write(
-      `  ${attempt.passed ? "correct" : "FAILED"}: ${seconds.toFixed(1)} s, input ${telemetry.inputTokens ?? "unknown"}, output ${telemetry.outputTokens ?? "unknown"}, ${telemetry.commands.length} commands.\n`,
+      `  ${attempt.passed ? "evidence complete" : "FAILED"}: acquisition ${acquisition.retrievalSeconds?.toFixed(3) ?? "unknown"} s, ${acquisition.evidenceTokens} evidence tokens; whole run ${seconds.toFixed(1)} s, input ${telemetry.inputTokens ?? "unknown"}, output ${telemetry.outputTokens ?? "unknown"}, ${telemetry.commands.length} commands.\n`,
     );
     if (attempt.classification === "infrastructure") {
       await saveSummary("infrastructure-failure");

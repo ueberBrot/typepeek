@@ -217,6 +217,26 @@ it("accepts native text-array responses without counting serialization as eviden
   ]);
   expect(result.status).toBe("complete");
   expect(result.evidenceBytes).toBe(62);
+  const blocks = await replay([
+    command(1000, "read"),
+    {
+      ...response,
+      event: {
+        ...response.event,
+        params: {
+          ...response.event.params,
+          item: {
+            ...response.event.params.item,
+            output: [
+              { type: "input_text", text: "Hello, world!" },
+              { type: "input_text", text: "Hello, world!" },
+            ],
+          },
+        },
+      },
+    },
+  ]);
+  expect(blocks).toMatchObject({ evidenceTokens: 8, evidenceBytes: 26 });
 });
 
 it("requires a complete public export index to establish an absent name", async () => {
@@ -239,6 +259,85 @@ it("requires a complete public export index to establish an absent name", async 
       )
     ).status,
   ).toBe("complete");
+});
+
+it("combines declaration and export-index fragments across successive file reads", async () => {
+  const declarations = await replay([
+    command(1000, "first"),
+    command(2000, "first", "Output:\nexport function parseCommandString("),
+    command(3000, "second"),
+    command(4000, "second", "Output:\ncommand: string): string[];"),
+  ]);
+  expect(declarations).toMatchObject({ status: "complete", retrievalSeconds: 3 });
+  const absent = {
+    ...oracle,
+    workload: { ...oracle.workload, kind: "search", target: "missing" },
+    facts: [],
+    declarations: [],
+    exportDeclarations: [
+      "export { first } from './first.js';\nexport { second } from './second.js';",
+    ],
+  };
+  const index = await replay(
+    [
+      command(1000, "first"),
+      command(2000, "first", "export { first } from './first.js';"),
+      command(3000, "second"),
+      command(4000, "second", "export { second } from './second.js';"),
+    ],
+    absent,
+  );
+  expect(index).toMatchObject({ status: "complete", retrievalSeconds: 3 });
+});
+
+it("invalidates unsupported tool content instead of reporting an understated token total", async () => {
+  const response = command(2000, "unsupported", "");
+  const result = await replay([
+    command(1000, "unsupported"),
+    {
+      ...response,
+      event: {
+        ...response.event,
+        params: {
+          ...response.event.params,
+          item: {
+            ...response.event.params.item,
+            output: [
+              { type: "input_text", text: "Earlier evidence" },
+              { type: "input_image", image_url: "fixture" },
+            ],
+          },
+        },
+      },
+    },
+    command(3000, "read"),
+    command(4000, "read", oracle.declarations[0]!.text),
+  ]);
+  expect(result.status).toBe("invalid");
+  expect(result.retrievalSeconds).toBeNull();
+});
+
+it("starts acquisition at retrieval, excluding an earlier planning call and its response", async () => {
+  const plan = command(1000, "plan");
+  const result = await replay([
+    {
+      ...plan,
+      event: {
+        ...plan.event,
+        params: { ...plan.event.params, item: { ...plan.event.params.item, name: "update_plan" } },
+      },
+    },
+    command(2000, "plan", "Plan updated"),
+    command(3000, "read"),
+    command(4000, "read", oracle.declarations[0]!.text),
+  ]);
+  expect(result).toMatchObject({
+    status: "complete",
+    firstRequestMilliseconds: 3000,
+    retrievalSeconds: 1,
+    retrievalCalls: 1,
+    evidenceBytes: 62,
+  });
 });
 
 it("waits for every overload across tool responses and includes the gap between retrieval calls", async () => {

@@ -33,6 +33,7 @@ const rawItemSchema = Schema.Struct({
 const callSchema = Schema.Struct({
   type: Schema.Literals(["function_call", "custom_tool_call"]),
   call_id: Schema.String,
+  name: Schema.String,
 });
 const outputSchema = Schema.Struct({
   type: Schema.Literals(["function_call_output", "custom_tool_call_output"]),
@@ -61,6 +62,8 @@ export function decodeTimedCodexEvents(serialized: string): readonly TimedCodexE
 
 export function measureAcquisition(oracle: AcquisitionOracle, events: readonly TimedCodexEvent[]) {
   const started = new Map<string, number>();
+  const nonRetrieval = new Set<string>();
+  const sourceBodies: string[] = [];
   const matched = new Set<string>();
   const completed = new Set<string>();
   const indexes = new Set<string>();
@@ -103,32 +106,51 @@ export function measureAcquisition(oracle: AcquisitionOracle, events: readonly T
     }
     const { item } = event.params;
     if (Schema.is(callSchema)(item)) {
-      if (started.has(item.call_id)) {
+      if (started.has(item.call_id) || nonRetrieval.has(item.call_id)) {
         invalidReason = "Duplicate tool request.";
         break;
+      }
+      if (["update_plan", "request_user_input"].includes(item.name.split(".").at(-1)!)) {
+        nonRetrieval.add(item.call_id);
+        continue;
       }
       firstRequestMilliseconds ??= milliseconds;
       started.set(item.call_id, milliseconds);
     }
-    if (!Schema.is(outputSchema)(item)) continue;
+    if (!Schema.is(outputSchema)(item)) {
+      if (
+        typeof item === "object" &&
+        item !== null &&
+        "type" in item &&
+        ["function_call_output", "custom_tool_call_output"].includes(String(item.type))
+      ) {
+        invalidReason = "Unsupported tool response content.";
+        break;
+      }
+      continue;
+    }
+    if (nonRetrieval.has(item.call_id)) continue;
     const start = started.get(item.call_id);
     if (start === undefined || completed.has(item.call_id)) {
       invalidReason = "Tool response has no unique request.";
       break;
     }
     completed.add(item.call_id);
-    const returnedText =
-      typeof item.output === "string"
-        ? item.output
-        : item.output.map(({ text }) => text).join("\n");
-    if (Buffer.byteLength(returnedText) > 262144) {
+    const blocks =
+      typeof item.output === "string" ? [item.output] : item.output.map(({ text }) => text);
+    const returnedText = blocks.join("\n");
+    const returnedBytes = blocks.reduce((sum, text) => sum + Buffer.byteLength(text), 0);
+    if (returnedBytes > 262144) {
       invalidReason = "Tool response exceeds the verified history retention bound.";
       break;
     }
     const before = new Set(matched);
     toolMilliseconds += milliseconds - start;
-    evidenceTokens += countTokens(returnedText, { disallowedSpecial: new Set() });
-    evidenceBytes += Buffer.byteLength(returnedText);
+    evidenceTokens += blocks.reduce(
+      (sum, text) => sum + countTokens(text, { disallowedSpecial: new Set() }),
+      0,
+    );
+    evidenceBytes += returnedBytes;
     for (const candidate of jsonObjects(returnedText)) {
       try {
         const facts = typepeekFacts({ ...oracle.workload, question: "" }, candidate);
@@ -144,15 +166,26 @@ export function measureAcquisition(oracle: AcquisitionOracle, events: readonly T
         continue;
       }
     }
-    const numbered = returnedText.replace(/^(?:[^\n]*?\.(?:[cm]?ts|tsx)[:-])?\d+[:-]/gmu, "");
+    const numbered = returnedText
+      .replace(
+        /^(?:Script completed|Wall time[^\n]*|Chunk ID:[^\n]*|Process exited[^\n]*|(?:Final )?[Oo]utput:|```(?:typescript|ts)?)[\r\n]*/gmu,
+        "",
+      )
+      .replace(/^(?:[^\n]*?\.(?:[cm]?ts|tsx)[:-])?\d+[:-]/gmu, "");
+    sourceBodies.push(numbered);
     const output = signatureFact("declaration", numbered).slice("declaration:".length);
+    const accumulated = signatureFact("declaration", sourceBodies.join("\n")).slice(
+      "declaration:".length,
+    );
+    const contains = (text: string) =>
+      [output, accumulated].some((body) => ` ${body} `.includes(` ${text} `));
     for (const declaration of oracle.declarations) {
       const text = signatureFact("declaration", declaration.text).slice("declaration:".length);
-      if (` ${output} `.includes(` ${text} `)) matched.add(declaration.fact);
+      if (contains(text)) matched.add(declaration.fact);
     }
     for (const declaration of oracle.exportDeclarations) {
       const text = signatureFact("declaration", declaration).slice("declaration:".length);
-      if (` ${output} `.includes(` ${text} `)) indexes.add(declaration);
+      if (contains(text)) indexes.add(declaration);
     }
     if (
       oracle.workload.kind === "search" &&
@@ -198,6 +231,9 @@ export function measureAcquisition(oracle: AcquisitionOracle, events: readonly T
     acquisitionModelUsage: null,
     matchedFacts: oracle.facts.filter((fact) => matched.has(fact)),
     missingFacts: oracle.facts.filter((fact) => !matched.has(fact)),
+    missingExportIndexParts: completeSearch
+      ? 0
+      : oracle.exportDeclarations.filter((declaration) => !indexes.has(declaration)).length,
     evidenceEvents,
   };
 }

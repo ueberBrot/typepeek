@@ -48,6 +48,7 @@ function attempt(
       acquisitionModelUsage: null,
       matchedFacts: ["answer"],
       missingFacts: [],
+      missingExportIndexParts: 0,
       evidenceEvents: [],
     },
     passed: true,
@@ -130,7 +131,7 @@ it("keeps unknown token breakdowns and partial usage out of cost comparisons", (
     reportedOutputTokens: 10,
     reportedCachedInputTokens: null,
     usageComplete: false,
-    tokensPerCorrectAnswer: null,
+    wholeRunTokensPerAcquisition: null,
   });
   expect(skill.comparisons.every(({ tokens }) => tokens === null)).toBe(true);
 });
