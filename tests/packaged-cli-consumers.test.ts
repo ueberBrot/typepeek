@@ -85,7 +85,6 @@ describe("packaged CLI in consumer Resolution Contexts", () => {
       return;
     }
 
-    // Pin labeled facts while leaving renderer prose and signature text free to evolve.
     expect({
       commands: baseline.commands,
       installedPackages: baseline.installedPackages,

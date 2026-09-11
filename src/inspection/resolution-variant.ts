@@ -1,5 +1,5 @@
 import ts from "@typescript/typescript6";
-import { Predicate } from "effect";
+import * as Predicate from "effect/Predicate";
 import { opendirSync, type Dirent } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 
@@ -43,6 +43,11 @@ interface ExportTargetTraversal {
   readonly blockingTargets: WeakMap<object, boolean>;
   controlNodes: number;
   nodes: number;
+}
+
+interface PackageFileTraversal {
+  entries: number;
+  readonly filesBySearchRoot: Map<string, readonly string[]>;
 }
 
 interface PackageDirectory {
@@ -162,7 +167,7 @@ function publicSubpathCandidates(
     controlNodes: 0,
     nodes: 0,
   };
-  const fileTraversal = { entries: 0 };
+  const fileTraversal: PackageFileTraversal = { entries: 0, filesBySearchRoot: new Map() };
   const candidateSpecifiers = new Set<string>();
 
   for (const [subpathKey, target] of subpathEntries) {
@@ -191,7 +196,7 @@ function publicSubpathEntryCandidates(
   packageRoot: string,
   conditions: ResolutionConditions,
   targetTraversal: ExportTargetTraversal,
-  fileTraversal: { entries: number },
+  fileTraversal: PackageFileTraversal,
   observeEvidenceDirectory: CompilerWorkSession["observeEvidenceDirectory"],
 ): readonly string[] {
   if (!subpathKey.includes("*")) {
@@ -427,14 +432,19 @@ function isSafePackageTargetPattern(target: string): boolean {
 function packageTargetCaptures(
   packageRoot: string,
   targetPattern: string,
-  traversal: { entries: number },
+  traversal: PackageFileTraversal,
   observeEvidenceDirectory: CompilerWorkSession["observeEvidenceDirectory"],
 ): readonly string[] {
   const wildcardIndex = targetPattern.indexOf("*");
   const prefix = targetPattern.slice(0, wildcardIndex);
   const suffix = targetPattern.slice(wildcardIndex + 1);
   const searchRoot = join(packageRoot, dirname(prefix.slice(2)));
-  return readBoundedPackageFiles(packageRoot, searchRoot, traversal, observeEvidenceDirectory)
+  let files = traversal.filesBySearchRoot.get(searchRoot);
+  if (files === undefined) {
+    files = readBoundedPackageFiles(packageRoot, searchRoot, traversal, observeEvidenceDirectory);
+    traversal.filesBySearchRoot.set(searchRoot, files);
+  }
+  return files
     .flatMap((packageFile) => packageTargetCapture(packageRoot, packageFile, prefix, suffix))
     .sort();
 }
@@ -456,7 +466,7 @@ function packageTargetCapture(
 function readBoundedPackageFiles(
   packageRoot: string,
   searchRoot: string,
-  traversal: { entries: number },
+  traversal: PackageFileTraversal,
   observeEvidenceDirectory: CompilerWorkSession["observeEvidenceDirectory"],
 ): readonly string[] {
   const readableSearchRoot = readPackageSearchRoot(packageRoot, searchRoot);
@@ -511,7 +521,7 @@ function readBoundedPackageFiles(
 function observeNearestReadableAncestor(
   packageRoot: string,
   searchRoot: string,
-  traversal: { entries: number },
+  traversal: PackageFileTraversal,
   observeEvidenceDirectory: CompilerWorkSession["observeEvidenceDirectory"],
 ): void {
   if (observeEvidenceDirectory === undefined) {

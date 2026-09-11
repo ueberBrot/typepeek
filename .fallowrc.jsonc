@@ -2,30 +2,34 @@
   "$schema": "./node_modules/fallow/schema.json",
 
   // Package exports and bins are discovered automatically. These additional
-  // roots cover repository-only executables that are not published.
+  // roots cover build adapters and repository-only executables.
   "entry": [
-    "benchmarks/agent-protocol.ts",
-    "benchmarks/regression-gates.ts",
+    "tests/benchmark-package-smoke.ts",
+    "tests/fixtures/codex-app-server.mjs",
+    "benchmarks/codex-discovery/run.ts",
+    "benchmarks/codex-discovery/capture.ts",
+    "benchmarks/codex-discovery/replay.ts",
     "src/inspection/analysis-process-entry.ts",
+    "src/inspection/compiler-runtime.ts",
     "src/inspection/performance-profile-disabled.ts",
     "taze.config.ts",
     "tests/build-output-smoke.ts",
     "tests/package-output-smoke.ts"
   ],
 
-  // These tools are invoked through Vite+ or repository task configuration,
-  // which Fallow cannot discover as dependency usage. Remove an exception as
-  // soon as a source-level import makes the dependency visible.
+  // Fallow cannot detect these tools in Vite+ tasks. Remove exceptions when
+  // source imports make the dependencies discoverable.
   "ignoreDependencies": [
     "@arethetypeswrong/core",
     "@effect/tsgo",
     "@typescript/typescript6",
+    // Used only by benchmark executables, not the published CLI.
+    "gpt-tokenizer",
     "publint",
     "unplugin-unused"
   ],
 
-  // Health measures the shipped runtime code. Test and benchmark surfaces are
-  // still covered by dead-code, duplication, lint, type, and execution checks.
+  // Score runtime health separately; the other checks also cover tests and benchmarks.
   "health": {
     "ignore": ["benchmarks/**", "tests/**", "vite.config.ts", "taze.config.ts"]
   },

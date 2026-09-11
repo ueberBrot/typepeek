@@ -28,6 +28,19 @@ beforeAll(async () => {
     }),
   );
   await writeFile(join(packageRoot, "bar.d.ts"), 'export * from "./inner.js";');
+  await Promise.all(
+    Object.entries({
+      "type-members.d.ts": `export declare class C { readonly value: string; }
+        export declare function f(): number;
+        export declare function toString(): string;
+        export interface I { readonly value: number; }`,
+      "type-bar.d.ts": 'export type * from "./type-members.js";',
+      "transitive-type-bar.d.ts": 'export * from "./type-bar.js";',
+      "named-type-bar.d.ts": 'export type { C, f, toString, I } from "./type-members.js";',
+      "type-and-value-bar.d.ts":
+        'export type * from "./type-members.js"; export * from "./type-members.js";',
+    }).map(([file, source]) => writeFile(join(packageRoot, file), source)),
+  );
   await writeFile(
     join(packageRoot, "too-many.d.ts"),
     `export interface TooMany {
@@ -77,6 +90,10 @@ beforeAll(async () => {
     }
     export type Mapped = { [K in "foo" | "bar"]: string };
     export * as Bar from "./bar.js";
+    export * as TypeBar from "./type-bar.js";
+    export * as TransitiveTypeBar from "./transitive-type-bar.js";
+    export * as NamedTypeBar from "./named-type-bar.js";
+    export * as TypeAndValueBar from "./type-and-value-bar.js";
     export * as Cycle from "./cycle-a.js";
     export interface Recursive { next: Recursive; }
     export interface EmptyDeep { ${"next: {".repeat(16)} ${"}".repeat(16)} }
@@ -559,6 +576,56 @@ it("discovers resolved namespace reexports and selects each advertised space", a
     }
   }
 });
+
+it.each(["TypeBar", "TransitiveTypeBar", "NamedTypeBar", "TypeAndValueBar"])(
+  "advertises only selectable spaces for type-only exports in %s",
+  async (exportName) => {
+    const { outcome } = await Effect.runPromise(
+      invokeInspectionCore("member-discovery", { resolutionContext, specifier, exportName }),
+    );
+    const spaces = exportName === "TypeAndValueBar" ? ["value", "namespace"] : ["namespace"];
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({
+      status: "success",
+      result: {
+        totalMembers: 4,
+        members: [
+          { name: "C", spaces },
+          { name: "I", spaces: ["namespace"] },
+          { name: "f", spaces },
+          { name: "toString", spaces },
+        ],
+      },
+    });
+    if (outcome.status !== "success" || outcome.result.intent !== "member-discovery") {
+      throw new Error(JSON.stringify(outcome));
+    }
+    const { outcome: selected } = await Effect.runPromise(
+      invokeInspectionCore("inspection-plan", {
+        resolutionContext,
+        specifier,
+        queries: outcome.result.members.flatMap((member) =>
+          member.spaces.map((space) => ({
+            intent: "member-inspection",
+            exportName,
+            memberPath: [{ name: member.name, space }],
+          })),
+        ),
+      }),
+    );
+    expect(selected, JSON.stringify(selected)).toMatchObject({ status: "success" });
+    if (exportName !== "TypeAndValueBar") {
+      const { outcome: inaccessible } = await Effect.runPromise(
+        invokeInspectionCore("member-inspection", {
+          resolutionContext,
+          specifier,
+          exportName,
+          memberPath: [{ name: "C", space: "value" }],
+        }),
+      );
+      expect(inaccessible).toMatchObject({ status: "not-found", reason: "member-not-found" });
+    }
+  },
+);
 
 it("bounds barrel expansion before namespace and value member lookup", async () => {
   for (const space of ["namespace", "value"] as const) {

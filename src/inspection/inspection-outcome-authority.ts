@@ -1,19 +1,14 @@
-import { Predicate, Result, Schema } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
-import { MAX_MEMBER_CANDIDATES, MAX_MEMBER_MATCHES } from "#typepeek/inspection/budget-policy";
+import { MAX_NAMESPACE_DEPTH } from "#typepeek/inspection/budget-policy";
 import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/inspection-plan-query";
-import {
-  memberDeclarationSpaceSchema,
-  memberPathsEqual,
-  readBoundedMemberPath,
-} from "#typepeek/inspection/member-path";
+import { memberPathsEqual } from "#typepeek/inspection/member-path";
 import type { PackageIdentity } from "#typepeek/inspection/package-identity";
 import {
   type AnalysisRequest,
   type AtomicInspectionResult,
-  type DeclarationInspection,
-  type ExportInspection,
-  type ExportSearch,
   type InspectionFailure,
   type InspectionOutcome,
   inspectionOutcomeSchema,
@@ -21,14 +16,8 @@ import {
   type InspectionPlanQuery,
   type InspectionResult,
   type InspectionResultByIntent,
-  type InterfaceOverview,
-  type MemberInspection,
-  type MemberDiscovery,
   type NormalizedInspectionPlanRequest,
   type NormalizedInspectionTarget,
-  type PublicInterfaceComparison,
-  type PublicSubpathDiscovery,
-  type SignatureInspection,
 } from "#typepeek/inspection/protocol";
 import {
   readOwnDataProperty,
@@ -49,55 +38,11 @@ const INVALID_RESULT_OUTCOME: InspectionFailure = {
   message: "Inspection returned an invalid result.",
 };
 
-/**
- * Accepts only a bounded, dense, data-property-only outcome for the requested
- * intent. Invalid process messages collapse to a generic failure rather than
- * exposing analyzer or transport details.
- */
-export function enforceInspectionOutcome(
-  intent: "interface-overview",
+/** Validates an outcome for the requested intent; malformed data returns invalid-result. */
+export function enforceInspectionOutcome<Intent extends InspectionResult["intent"]>(
+  intent: Intent,
   value: unknown,
-): InspectionOutcome<InterfaceOverview>;
-export function enforceInspectionOutcome(
-  intent: "export-inspection",
-  value: unknown,
-): InspectionOutcome<ExportInspection>;
-export function enforceInspectionOutcome(
-  intent: "signature-inspection",
-  value: unknown,
-): InspectionOutcome<SignatureInspection>;
-export function enforceInspectionOutcome(
-  intent: "inspection-plan",
-  value: unknown,
-): InspectionOutcome<InspectionPlan>;
-export function enforceInspectionOutcome(
-  intent: "export-search",
-  value: unknown,
-): InspectionOutcome<ExportSearch>;
-export function enforceInspectionOutcome(
-  intent: "public-subpath-discovery",
-  value: unknown,
-): InspectionOutcome<PublicSubpathDiscovery>;
-export function enforceInspectionOutcome(
-  intent: "declaration-inspection",
-  value: unknown,
-): InspectionOutcome<DeclarationInspection>;
-export function enforceInspectionOutcome(
-  intent: "member-discovery",
-  value: unknown,
-): InspectionOutcome<MemberDiscovery>;
-export function enforceInspectionOutcome(
-  intent: "member-inspection",
-  value: unknown,
-): InspectionOutcome<MemberInspection>;
-export function enforceInspectionOutcome(
-  intent: "public-interface-comparison",
-  value: unknown,
-): InspectionOutcome<PublicInterfaceComparison>;
-export function enforceInspectionOutcome(
-  intent: InspectionResult["intent"],
-  value: unknown,
-): InspectionOutcome;
+): InspectionOutcome<InspectionResultByIntent[Intent]>;
 export function enforceInspectionOutcome(
   intent: InspectionResult["intent"],
   value: unknown,
@@ -232,7 +177,11 @@ type InspectionPlanQueryMatcher = (
 ) => boolean;
 
 const INSPECTION_PLAN_QUERY_MATCHERS = {
-  "interface-overview": () => true,
+  "interface-overview": (inspection, query) =>
+    inspection.intent === "interface-overview" &&
+    query.intent === "interface-overview" &&
+    readOwnOptionalProperty(inspection, "exportPage")?.cursor ===
+      readOwnOptionalProperty(query, "cursor"),
   "public-subpath-discovery": () => true,
   "export-search": (inspection, query) =>
     inspection.intent === "export-search" &&
@@ -247,8 +196,7 @@ const INSPECTION_PLAN_QUERY_MATCHERS = {
     query.intent === "member-discovery" &&
     inspection.moduleExportName === query.exportName &&
     memberPathsEqual(inspection.memberPath, query.memberPath) &&
-    inspection.query === query.query &&
-    isAuthoritativeMemberDiscovery(inspection),
+    inspection.query === query.query,
 } as const satisfies Readonly<Record<InspectionPlanQuery["intent"], InspectionPlanQueryMatcher>>;
 
 function matchesFocusedPlanQuery(
@@ -274,35 +222,7 @@ function matchesMemberPlanQuery(
     inspection.intent === "member-inspection" &&
     query.intent === "member-inspection" &&
     inspection.moduleExportName === query.exportName &&
-    memberPathsEqual(inspection.memberPath, query.memberPath) &&
-    isAuthoritativeMemberInspection(inspection)
-  );
-}
-
-function isAuthoritativeMemberInspection(inspection: MemberInspection): boolean {
-  return (
-    readBoundedMemberPath(inspection.memberPath) !== undefined && inspection.declarations.length > 0
-  );
-}
-
-function isAuthoritativeMemberDiscovery(inspection: MemberDiscovery): boolean {
-  return (
-    inspection.totalMembers <= MAX_MEMBER_CANDIDATES &&
-    inspection.members.length <= MAX_MEMBER_MATCHES &&
-    inspection.members.length <= inspection.totalMembers &&
-    (inspection.query !== undefined || inspection.members.length === inspection.totalMembers) &&
-    inspection.members.every(
-      (member, index) =>
-        (index === 0 || (inspection.members[index - 1]?.name ?? "") < member.name) &&
-        (inspection.query === undefined ||
-          member.name.toLowerCase().includes(inspection.query.toLowerCase())) &&
-        member.spaces.every(
-          (space, index) =>
-            index === 0 ||
-            memberDeclarationSpaceSchema.literals.indexOf(member.spaces[index - 1] ?? space) <
-              memberDeclarationSpaceSchema.literals.indexOf(space),
-        ),
-    )
+    memberPathsEqual(inspection.memberPath, query.memberPath)
   );
 }
 
@@ -320,8 +240,7 @@ function readInspectionOutcome(value: unknown): InspectionOutcome | undefined {
 }
 
 function hasBoundedNamespaceGraph(value: unknown): boolean {
-  // Namespace members are the protocol's recursive shape. Keep this transport
-  // guard aligned with the analyzer depth budget and reject object cycles.
+  // Namespace members recurse, so apply the same depth limit as the analyzer.
   if (!Predicate.isReadonlyObject(value) || value["status"] !== "success") {
     return true;
   }
@@ -337,7 +256,10 @@ function hasBoundedNamespaceGraph(value: unknown): boolean {
 }
 
 function hasBoundedInspectionNamespaceGraph(result: unknown): boolean {
-  if (!Predicate.isReadonlyObject(result) || result["intent"] !== "export-inspection") {
+  if (
+    !Predicate.isReadonlyObject(result) ||
+    (result["intent"] !== "export-inspection" && result["intent"] !== "declaration-inspection")
+  ) {
     return true;
   }
   const moduleExport = result["moduleExport"];
@@ -360,7 +282,7 @@ function hasBoundedInspectionNamespaceGraph(result: unknown): boolean {
 }
 
 function hasBoundedNamespaceMember(value: unknown, ancestors: Set<object>, depth: number): boolean {
-  if (depth > 8 || (Predicate.isReadonlyObject(value) && ancestors.has(value))) {
+  if (depth > MAX_NAMESPACE_DEPTH || (Predicate.isReadonlyObject(value) && ancestors.has(value))) {
     return false;
   }
   if (!Predicate.isReadonlyObject(value) || !Array.isArray(value["members"])) {

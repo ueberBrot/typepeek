@@ -1,6 +1,5 @@
 import ts from "@typescript/typescript6";
 import { builtinModules } from "node:module";
-import { dirname } from "node:path";
 
 import {
   isPublicProjectionChild,
@@ -8,12 +7,10 @@ import {
 } from "#typepeek/inspection/declaration-projection";
 import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import { isPathWithin } from "#typepeek/inspection/evidence-boundary";
+import { readStandardGlobalCatalog } from "#typepeek/inspection/standard-global-catalog";
 import { isWellKnownSymbolMemberName } from "#typepeek/inspection/well-known-symbol";
 
 const MAX_DECLARATION_GRAPH_DEPTH = 256;
-const MAX_STANDARD_LIBRARY_BYTES = 4 * 1024 * 1024;
-const MAX_STANDARD_LIBRARY_FILES = 128;
-const MAX_STANDARD_GLOBAL_NAMES = 20_000;
 const NODE_PLATFORM_SPECIFIERS = new Set([
   ...builtinModules,
   ...builtinModules.map((specifier) =>
@@ -41,13 +38,6 @@ interface InferenceScanState {
   readonly visitedDeclarations: Set<ts.Declaration>;
 }
 
-interface StandardNamespaceScan {
-  braceDepth: number;
-  globalDepth: number | undefined;
-  readonly namespaces: { readonly depth: number; readonly prefix: readonly string[] }[];
-  readonly topLevelDeclarationsAreGlobal: boolean;
-}
-
 export function isNodePlatformSpecifier(specifier: string): boolean {
   return specifier.startsWith("node:") && specifier.length > "node:".length;
 }
@@ -56,24 +46,21 @@ export function isKnownNodePlatformSpecifier(specifier: string): boolean {
   return NODE_PLATFORM_SPECIFIERS.has(specifier);
 }
 
-/**
- * Selects a program with the visible Node Declaration Provider only when the
- * selected declarations authoritatively reference that provider.
- */
+/** Loads the visible Node Declaration Provider when the selected declarations reference it. */
 export function selectNodeDeclarationProgram(
   initialProgram: ts.Program,
   initialModuleSymbol: ts.Symbol,
   entrypoint: ts.SourceFile,
   createProviderProgram: () => NodeProviderProgram | undefined,
   reserveTraversalNode: () => void,
-  selectedExportName?: string,
+  selectedExportNames?: ReadonlySet<string>,
 ): ts.Program | undefined {
   const { candidates, computedNames, directReference } = inspectInitialPublicInterface(
     initialProgram,
     initialModuleSymbol,
     entrypoint,
     reserveTraversalNode,
-    selectedExportName,
+    selectedExportNames,
   );
   if (!directReference && candidates.length === 0 && computedNames.length === 0) {
     return undefined;
@@ -99,7 +86,7 @@ function inspectInitialPublicInterface(
   moduleSymbol: ts.Symbol,
   entrypoint: ts.SourceFile,
   reserveTraversalNode: () => void,
-  selectedExportName: string | undefined,
+  selectedExportNames: ReadonlySet<string> | undefined,
 ): {
   readonly candidates: readonly GlobalCandidate[];
   readonly computedNames: readonly ts.Expression[];
@@ -111,11 +98,11 @@ function inspectInitialPublicInterface(
   computedNamesByChecker.set(checker, computedNames);
   const moduleExports = checker.getExportsOfModule(moduleSymbol);
   const pendingSymbols =
-    selectedExportName === undefined
+    selectedExportNames === undefined
       ? [...moduleExports]
-      : moduleExports.filter(({ name }) => name === selectedExportName);
+      : moduleExports.filter((symbol) => selectedExportNames.has(symbol.getName()));
   const pendingNodes: ts.Node[] = [
-    ...(selectedExportName === undefined ? exportedStatements(checker, entrypoint) : []),
+    ...(selectedExportNames === undefined ? exportedStatements(checker, entrypoint) : []),
     ...(moduleSymbol.declarations ?? []).filter(ts.isModuleDeclaration),
     entrypoint,
   ];
@@ -153,7 +140,7 @@ function inspectInitialPublicInterface(
         pendingSymbols,
         reserveTraversalNode,
         root,
-        selectedExportName,
+        selectedExportNames,
       }) || directReference;
   }
   return { candidates, computedNames, directReference };
@@ -260,24 +247,24 @@ function enqueueModuleExports(
   node: ts.Node,
   pendingNodes: ts.Node[],
   pendingSymbols: ts.Symbol[],
-  selectedExportName: string | undefined,
+  selectedExportNames: ReadonlySet<string> | undefined,
 ): void {
   if (!ts.isModuleDeclaration(node)) {
     return;
   }
   const symbol = checker.getSymbolAtLocation(node.name);
-  const nestedExportName = ts.isStringLiteralLike(node.name) ? selectedExportName : undefined;
+  const nestedExportNames = ts.isStringLiteralLike(node.name) ? selectedExportNames : undefined;
   if (symbol !== undefined) {
     const exports = checker.getExportsOfModule(symbol);
     pendingSymbols.push(
-      ...(nestedExportName === undefined
+      ...(nestedExportNames === undefined
         ? exports
-        : exports.filter(({ name }) => name === nestedExportName)),
+        : exports.filter((symbol) => nestedExportNames.has(symbol.getName()))),
     );
   }
   const body = node.body;
   if (body !== undefined && ts.isModuleBlock(body)) {
-    if (nestedExportName === undefined) {
+    if (nestedExportNames === undefined) {
       pendingNodes.push(...exportedStatements(checker, body));
     }
   }
@@ -320,161 +307,26 @@ function enclosingModuleReference(declaration: ts.Declaration): ts.Node | undefi
   return undefined;
 }
 
+declare const __TYPEPEEK_STANDARD_GLOBALS__: import("#typepeek/inspection/standard-global-catalog").StandardGlobalCatalog;
+const embeddedStandardGlobals =
+  typeof __TYPEPEEK_STANDARD_GLOBALS__ === "undefined" ? undefined : __TYPEPEEK_STANDARD_GLOBALS__;
+
 function standardGlobals(
   reserveTraversalNode: () => void,
 ): ReadonlyMap<string, StandardGlobalSpaces> {
-  if (standardGlobalNames !== undefined) {
-    return standardGlobalNames;
-  }
-  const defaultLibrary = ts.getDefaultLibFilePath({ target: ts.ScriptTarget.ESNext });
-  const libraryFiles = ts.sys.readDirectory(
-    dirname(defaultLibrary),
-    [".d.ts"],
-    undefined,
-    ["lib.*.d.ts"],
-    1,
+  if (standardGlobalNames !== undefined) return standardGlobalNames;
+  const catalog =
+    embeddedStandardGlobals?.compilerVersion === ts.version
+      ? embeddedStandardGlobals
+      : readStandardGlobalCatalog();
+  for (let index = 0; index < catalog.traversalNodes; index += 1) reserveTraversalNode();
+  standardGlobalNames = new Map(
+    catalog.entries.map(([name, spaces]) => [
+      name,
+      { type: (spaces & 1) !== 0, value: (spaces & 2) !== 0 },
+    ]),
   );
-  if (libraryFiles.length > MAX_STANDARD_LIBRARY_FILES) {
-    throw standardLibraryLimit();
-  }
-  const names = new Map<string, StandardGlobalSpaces>();
-  let byteCount = 0;
-  for (const libraryFile of libraryFiles) {
-    const text = ts.sys.readFile(libraryFile);
-    if (text !== undefined) {
-      byteCount += Buffer.byteLength(text);
-      if (byteCount > MAX_STANDARD_LIBRARY_BYTES) {
-        throw standardLibraryLimit();
-      }
-      collectStandardGlobalNames(text, names, reserveTraversalNode);
-      if (names.size > MAX_STANDARD_GLOBAL_NAMES) {
-        throw standardLibraryLimit();
-      }
-    }
-  }
-  addStandardGlobal(names, "globalThis", "value");
-  standardGlobalNames = names;
   return standardGlobalNames;
-}
-
-function collectStandardGlobalNames(
-  text: string,
-  names: Map<string, StandardGlobalSpaces>,
-  reserveTraversalNode: () => void,
-): void {
-  const scan: StandardNamespaceScan = {
-    braceDepth: 0,
-    globalDepth: undefined,
-    namespaces: [],
-    topLevelDeclarationsAreGlobal: !/^\s*export\s*\{\s*\}\s*;/mu.test(text),
-  };
-  for (const line of text.split("\n")) {
-    scanStandardLibraryLine(line, scan, names, reserveTraversalNode);
-  }
-}
-
-function scanStandardLibraryLine(
-  line: string,
-  scan: StandardNamespaceScan,
-  names: Map<string, StandardGlobalSpaces>,
-  reserveTraversalNode: () => void,
-): void {
-  const prefix = scan.namespaces.at(-1)?.prefix ?? [];
-  const namespaceName = standardNamespaceName(line);
-  if (namespaceName === undefined) {
-    if (collectsStandardGlobals(scan)) {
-      collectStandardDeclarationLine(line, prefix, names, reserveTraversalNode);
-    }
-  } else {
-    openStandardNamespace(namespaceName, prefix, scan, names, reserveTraversalNode);
-  }
-  scan.braceDepth += braceDelta(line);
-  closeCompletedStandardNamespaces(scan);
-  if (scan.globalDepth !== undefined && scan.globalDepth > scan.braceDepth) {
-    scan.globalDepth = undefined;
-  }
-}
-
-function collectsStandardGlobals(scan: StandardNamespaceScan): boolean {
-  return scan.topLevelDeclarationsAreGlobal || scan.globalDepth !== undefined;
-}
-
-function openStandardNamespace(
-  namespaceName: string,
-  prefix: readonly string[],
-  scan: StandardNamespaceScan,
-  names: Map<string, StandardGlobalSpaces>,
-  reserveTraversalNode: () => void,
-): void {
-  reserveTraversalNode();
-  if (namespaceName === "global") {
-    scan.globalDepth = scan.braceDepth + 1;
-  }
-  const namespacePrefix = namespaceName === "global" ? [] : [...prefix, namespaceName];
-  if (namespacePrefix.length > 0 && collectsStandardGlobals(scan)) {
-    addStandardGlobal(names, namespacePrefix.join("."), "value");
-  }
-  scan.namespaces.push({ depth: scan.braceDepth + 1, prefix: namespacePrefix });
-}
-
-function closeCompletedStandardNamespaces(scan: StandardNamespaceScan): void {
-  while ((scan.namespaces.at(-1)?.depth ?? 0) > scan.braceDepth) {
-    scan.namespaces.pop();
-  }
-}
-
-function standardNamespaceName(line: string): string | undefined {
-  if (/^\s*declare\s+global\s*\{/u.test(line)) {
-    return "global";
-  }
-  return /^\s*(?:export\s+)?(?:declare\s+)?(?:namespace|module)\s+([$A-Z_a-z][$\w]*)\s*\{/u.exec(
-    line,
-  )?.[1];
-}
-
-function collectStandardDeclarationLine(
-  line: string,
-  prefix: readonly string[],
-  names: Map<string, StandardGlobalSpaces>,
-  reserveTraversalNode: () => void,
-): void {
-  const declarationPatterns: readonly [RegExp, "type" | "value" | "both"][] = [
-    [/^\s*(?:export\s+)?(?:declare\s+)?(?:interface|type)\s+([$A-Z_a-z][$\w]*)/u, "type"],
-    [
-      /^\s*(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(?:class|enum)\s+([$A-Z_a-z][$\w]*)/u,
-      "both",
-    ],
-    [/^\s*(?:export\s+)?(?:declare\s+)?function\s+([$A-Z_a-z][$\w]*)/u, "value"],
-    [/^\s*(?:export\s+)?(?:declare\s+)?(?:const|let|var)\s+([$A-Z_a-z][$\w]*)/u, "value"],
-  ];
-  for (const [pattern, space] of declarationPatterns) {
-    const name = pattern.exec(line)?.[1];
-    if (name !== undefined) {
-      reserveTraversalNode();
-      addStandardGlobal(names, [...prefix, name].join("."), space);
-      return;
-    }
-  }
-}
-
-function braceDelta(line: string): number {
-  let delta = 0;
-  for (const character of line) {
-    delta += character === "{" ? 1 : character === "}" ? -1 : 0;
-  }
-  return delta;
-}
-
-function addStandardGlobal(
-  names: Map<string, StandardGlobalSpaces>,
-  name: string,
-  space: "type" | "value" | "both",
-): void {
-  const current = names.get(name) ?? { type: false, value: false };
-  names.set(name, {
-    type: current.type || space === "type" || space === "both",
-    value: current.value || space === "value" || space === "both",
-  });
 }
 
 function isStandardGlobal(
@@ -526,13 +378,6 @@ function referencePath(node: ts.Node): string[] | undefined {
     return expression === undefined ? undefined : [...expression, node.name.text];
   }
   return undefined;
-}
-
-function standardLibraryLimit(): InspectionLimitError {
-  return new InspectionLimitError(
-    "standard-library-catalog",
-    "Inspection exceeded its standard library catalog limit.",
-  );
 }
 
 function possibleGlobalReference(node: ts.Node):
@@ -593,7 +438,7 @@ function scanPublicDeclaration(options: {
   readonly pendingSymbols: ts.Symbol[];
   readonly reserveTraversalNode: () => void;
   readonly root: ts.Node;
-  readonly selectedExportName: string | undefined;
+  readonly selectedExportNames: ReadonlySet<string> | undefined;
 }): boolean {
   let found = false;
   const visit = (node: ts.Node, depth: number): void => {
@@ -622,7 +467,7 @@ function scanPublicDeclaration(options: {
       node,
       options.pendingNodes,
       options.pendingSymbols,
-      options.selectedExportName,
+      options.selectedExportNames,
     );
     ts.forEachChild(node, (child) => {
       if (isPublicProjectionChild(options.checker, node, child)) {

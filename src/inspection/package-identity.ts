@@ -1,4 +1,5 @@
-import { Result, Schema } from "effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
 import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
@@ -16,14 +17,13 @@ export type PackageIdentity = typeof packageIdentitySchema.Type;
 const decodePackageIdentityName = Schema.decodeUnknownResult(packageIdentityNameSchema);
 const decodePackageIdentityVersion = Schema.decodeUnknownResult(packageIdentityVersionSchema);
 
-/** Reads canonical Package Identity fields from parsed JSON manifest evidence. */
 export function readJsonPackageIdentity(value: unknown): PackageIdentity | undefined {
   const snapshot = snapshotDataProperties(value, PACKAGE_IDENTITY_FIELDS);
   if (snapshot === undefined) {
     return undefined;
   }
-  // Decode the safe own-data snapshot field by field: whole-Struct decoding creates a normal
-  // object that a polluted Object.prototype can disrupt. The Struct still owns the public type.
+  // Decode fields separately: whole-Struct decoding creates an object that a polluted
+  // Object.prototype can disrupt.
   const name = Result.getOrUndefined(decodePackageIdentityName(snapshot["name"]));
   if (name === undefined) {
     return undefined;

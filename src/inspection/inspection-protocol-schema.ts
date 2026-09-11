@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 import { MAX_INSPECTION_PLAN_QUERIES } from "#typepeek/inspection/inspection-plan-query";
 import {
@@ -523,7 +523,6 @@ export type InspectionProtocolResponseContract =
   | SupportingTypeRecoveryProtocolResponse
   | ProjectedProtocolResponse<SignatureEvidenceKind>;
 
-export type InspectionProtocolRequest = typeof inspectionProtocolRequestSchema.Encoded;
 export type NormalizedInspectionProtocolRequest = typeof inspectionProtocolRequestSchema.Type;
 export type InspectionProtocolResponse = typeof inspectionProtocolResponseSchema.Type;
 

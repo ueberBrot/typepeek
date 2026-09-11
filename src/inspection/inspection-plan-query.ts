@@ -1,5 +1,8 @@
-import { Effect, Result, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
+import { exportCursorSchema } from "#typepeek/inspection/export-pagination";
 import {
   memberPathSchema,
   memberDiscoveryPathSchema,
@@ -10,7 +13,13 @@ import { snapshotDataProperties } from "#typepeek/inspection/untrusted-data";
 
 export const MAX_INSPECTION_PLAN_QUERIES = 16;
 export const MAX_EXPORT_SEARCH_QUERY_BYTES = 256;
-const INSPECTION_PLAN_QUERY_FIELDS = ["intent", "query", "exportName", "memberPath"] as const;
+const INSPECTION_PLAN_QUERY_FIELDS = [
+  "intent",
+  "query",
+  "exportName",
+  "memberPath",
+  "cursor",
+] as const;
 
 export type InspectionPlanQueryIssue =
   | "invalid-list"
@@ -44,7 +53,10 @@ const INSPECTION_PLAN_QUERY_INTENTS = [
 ] as const;
 type InspectionPlanQueryIntent = (typeof INSPECTION_PLAN_QUERY_INTENTS)[number];
 const INSPECTION_PLAN_QUERY_SCHEMAS = {
-  "interface-overview": Schema.Struct({ intent: Schema.Literal("interface-overview") }),
+  "interface-overview": Schema.Struct({
+    intent: Schema.Literal("interface-overview"),
+    cursor: Schema.optionalKey(exportCursorSchema),
+  }),
   "export-inspection": Schema.Struct({
     intent: Schema.Literal("export-inspection"),
     exportName: Schema.String,
@@ -89,7 +101,6 @@ const decodeInspectionPlanQueryIntent = Schema.decodeUnknownResult(inspectionPla
 const decodeInspectionPlanQuery = Schema.decodeUnknownResult(inspectionPlanQuerySchema);
 const decodeInspectionPlanQueries = Schema.decodeUnknownResult(inspectionPlanQueriesSchema);
 
-/** Reads the one canonical bounded Inspection Plan Query grammar. */
 export function readInspectionPlanQueries(value: unknown): InspectionPlanQueriesReading {
   try {
     if (!Array.isArray(value) || value.length < 1 || value.length > MAX_INSPECTION_PLAN_QUERIES) {
@@ -124,7 +135,7 @@ export function isBoundedExportSearchQuery(value: unknown): value is string {
   );
 }
 
-/** Projects every normalized analysis request onto its canonical ordered query list. */
+/** Represents atomic requests as single-query plans. */
 export function inspectionPlanQueriesForRequest(
   analysisRequest: AnalysisRequest,
 ): readonly InspectionPlanQuery[] {
@@ -133,7 +144,14 @@ export function inspectionPlanQueriesForRequest(
   }
   switch (analysisRequest.intent) {
     case "interface-overview":
-      return [{ intent: analysisRequest.intent }];
+      return [
+        {
+          intent: analysisRequest.intent,
+          ...(analysisRequest.request.cursor === undefined
+            ? {}
+            : { cursor: analysisRequest.request.cursor }),
+        },
+      ];
     case "export-inspection":
     case "signature-inspection":
     case "declaration-inspection":

@@ -1,16 +1,24 @@
+import ts from "@typescript/typescript6";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
+
+import { readStandardGlobalCatalog } from "./src/inspection/standard-global-catalog.ts";
 
 const packageManifest = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { readonly version: string };
 const packageVersionDefine = {
   __TYPEPEEK_VERSION__: JSON.stringify(packageManifest.version),
+  __TYPEPEEK_COMPILER_VERSION__: JSON.stringify(ts.version),
+  __TYPEPEEK_STANDARD_GLOBALS__: JSON.stringify(readStandardGlobalCatalog()),
 };
 
 const releaseProfileAdapter = fileURLToPath(
   new URL("./src/inspection/performance-profile-disabled.ts", import.meta.url),
+);
+const compilerRuntimeAdapter = fileURLToPath(
+  new URL("./src/inspection/compiler-runtime.ts", import.meta.url),
 );
 
 function inspectionCoreChunk(moduleId: string): string | undefined {
@@ -21,10 +29,11 @@ function inspectionCoreChunk(moduleId: string): string | undefined {
 
 export default defineConfig({
   define: packageVersionDefine,
-  // Phase tracing is repository diagnostics, not part of the distributed CLI.
+  // Packaged builds disable phase tracing.
   resolve: {
     alias: {
       "#typepeek/inspection/performance-profile": releaseProfileAdapter,
+      "@typescript/typescript6": compilerRuntimeAdapter,
     },
   },
   build: {
@@ -38,10 +47,10 @@ export default defineConfig({
     },
     outDir: ".vite-plus/build",
     rolldownOptions: {
-      external: [/^node:/u, "@stricli/core", "@typescript/typescript6", "effect", "execa"],
+      external: [/^node:/u, "@stricli/core", /^effect(?:\/|$)/u, "execa"],
       output: {
-        // analysis-process.ts resolves the emitted worker relative to a shared
-        // implementation chunk, so shared chunks deliberately remain at root.
+        // analysis-process.ts resolves the worker relative to a shared chunk,
+        // so shared chunks must stay at the output root.
         chunkFileNames: "[name]-[hash].js",
         manualChunks: inspectionCoreChunk,
       },
@@ -86,6 +95,11 @@ export default defineConfig({
   pack: {
     alias: {
       "#typepeek/inspection/performance-profile": releaseProfileAdapter,
+      "@typescript/typescript6": compilerRuntimeAdapter,
+    },
+    // Apply the local compiler loader alias before dependency externalization.
+    deps: {
+      alwaysBundle: ["@typescript/typescript6"],
     },
     entry: ["src/cli.ts", "src/inspection/analysis-process-entry.ts"],
     dts: true,
@@ -155,27 +169,12 @@ export default defineConfig({
         dependsOn: ["pack"],
         output: [],
       },
-      "benchmark:source": {
-        command: "node benchmarks/inspection-latency.ts --adapter source",
-        output: [],
+      benchmark: {
+        command: "node benchmarks/codex-discovery/run.ts",
+        cache: false,
       },
-      "benchmark:build": {
-        command: "node benchmarks/inspection-latency.ts --adapter build",
-        dependsOn: ["build"],
-        output: [],
-      },
-      "benchmark:package": {
-        command: "node benchmarks/inspection-latency.ts --adapter package",
-        dependsOn: ["pack"],
-        output: [],
-      },
-      "benchmark:agent-protocol": {
-        command: "node benchmarks/agent-protocol.ts",
-        output: [],
-      },
-      "benchmark:gate": {
-        command: "node benchmarks/regression-gates.ts",
-        dependsOn: ["pack"],
+      "benchmark:smoke": {
+        command: "node tests/benchmark-package-smoke.ts",
         cache: false,
       },
       test: {
@@ -190,7 +189,7 @@ export default defineConfig({
           "vp run test",
           "vp run build-smoke",
           "vp run package-smoke",
-          "vp run benchmark:gate",
+          "vp run benchmark:smoke",
         ],
       },
     },

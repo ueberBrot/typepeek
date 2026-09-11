@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { isDeepStrictEqual } from "node:util";
 
 import {
@@ -204,7 +204,6 @@ const CAPABILITIES = deepFreeze(
   }),
 );
 
-/** Describes the bounded stable protocol vocabulary available to any adapter. */
 export function inspectCapabilities(): InspectionCapabilities {
   return CAPABILITIES;
 }

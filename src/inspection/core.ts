@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 
 import { runBoundedAnalysis } from "#typepeek/inspection/analysis-process";
 import { enforceInspectionOutcome } from "#typepeek/inspection/inspection-outcome-authority";

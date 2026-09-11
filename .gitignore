@@ -4,3 +4,4 @@ node_modules/
 .vite-hooks/_/
 .vite/
 .vite-plus/
+.benchmarks/

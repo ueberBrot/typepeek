@@ -1,14 +1,20 @@
 import { basename, dirname, join } from "node:path";
 
-import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
+import {
+  type CompilerWorkSession,
+  createCompilerWorkSession,
+} from "#typepeek/inspection/compiler-work-session";
 import {
   canonicalEvidenceCandidatePath,
   canonicalEvidencePath,
+  isEvidenceFile,
+  isPathWithin,
   readBoundedUtf8File,
 } from "#typepeek/inspection/evidence-boundary";
 import {
   type InstalledEvidenceDirectoryFingerprint,
   type InstalledEvidenceFingerprint,
+  type InstalledEvidenceFilePresence,
   type InstalledEvidenceProof,
   type InstalledEvidenceResolutionProbe,
   MAX_FINGERPRINTED_DIRECTORY_ENTRIES,
@@ -21,19 +27,49 @@ import {
 } from "#typepeek/inspection/installed-package-boundary";
 import { readOwnDataProperty } from "#typepeek/inspection/untrusted-data";
 
-const MAX_PROOF_REPLAY_BYTES = 12 * 1_024 * 1_024;
+const MAX_PROOF_REPLAY_BYTES = 24 * 1_024 * 1_024;
 
-/** Replays one cached Installed Evidence Proof without granting it inspection authority. */
+/** Replays cached resolutions and fingerprints against current Installed Evidence. */
 export function installedEvidenceProofStillMatches(
   cached: InstalledEvidenceProof,
   current: InstalledEvidenceProof,
 ): boolean {
-  return (
-    currentManifestsMatch(cached, current) &&
-    resolutionProbesStillMatch(cached.resolutions, cached.files) &&
-    directoryFingerprintsStillMatch(cached.directories) &&
-    fileFingerprintsStillMatch(cached.files)
+  const session = createCompilerWorkSession();
+  if (
+    !currentManifestsMatch(cached, current) ||
+    !fileChecksStillMatch(readOwnOptionalProperty(cached, "fileChecks") ?? [], session) ||
+    !fileFingerprintsStillMatch(cached.files) ||
+    !directoryFingerprintsStillMatch(cached.directories)
+  ) {
+    return false;
+  }
+  const manifestRoots = new Set(
+    cached.files
+      .filter(({ kind, path }) => kind === "manifest" && basename(path) === "package.json")
+      .map(({ path }) => dirname(path)),
   );
+  return (
+    sourceFormatsStillMatch(cached.files, cached.resolutions, manifestRoots, session) &&
+    resolutionProbesStillMatch(cached.resolutions, manifestRoots, session)
+  );
+}
+
+function fileChecksStillMatch(
+  checks: readonly InstalledEvidenceFilePresence[],
+  session: CompilerWorkSession,
+): boolean {
+  try {
+    return checks.every((check) => {
+      session.reserveOperations(check.exists ? 2 : 1);
+      return (
+        isEvidenceFile(check.path) === check.exists &&
+        (!check.exists ||
+          canonicalEvidencePath(check.path) === readOwnOptionalProperty(check, "canonicalPath"))
+      );
+    });
+  } catch {
+    return false;
+  }
 }
 
 function currentManifestsMatch(
@@ -116,17 +152,42 @@ function validateFileFingerprint(
   }
 }
 
-function resolutionProbesStillMatch(
-  probes: readonly InstalledEvidenceResolutionProbe[],
+/** Rechecks file format independently of explicit import/require resolution overrides. */
+function sourceFormatsStillMatch(
   files: readonly InstalledEvidenceFingerprint[],
+  probes: readonly InstalledEvidenceResolutionProbe[],
+  manifestRoots: ReadonlySet<string>,
+  session: CompilerWorkSession,
 ): boolean {
   try {
-    const session = createCompilerWorkSession();
-    const manifestRoots = new Set(
-      files
-        .filter(({ kind, path }) => kind === "manifest" && basename(path) === "package.json")
-        .map(({ path }) => dirname(path)),
-    );
+    const knownRoots = [
+      ...new Set([...manifestRoots, ...probes.flatMap((probe) => probe.allowedRoots ?? [])]),
+    ];
+    return files.every((fingerprint) => {
+      const sourceFormat = readOwnOptionalProperty(fingerprint, "sourceFormat");
+      if (sourceFormat === undefined) return true;
+      if (canonicalEvidencePath(sourceFormat.path) !== fingerprint.path) return false;
+      const roots = validatedResolutionRoots(
+        knownRoots.filter((root) => isPathWithin(root, sourceFormat.path)),
+        manifestRoots,
+      );
+      return (
+        roots !== undefined &&
+        roots.length > 0 &&
+        session.readEvidenceFileFormat(sourceFormat.path, roots) === sourceFormat.accessStyle
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+function resolutionProbesStillMatch(
+  probes: readonly InstalledEvidenceResolutionProbe[],
+  manifestRoots: ReadonlySet<string>,
+  session: CompilerWorkSession,
+): boolean {
+  try {
     return probes.every((probe) => {
       const accessStyle = readOwnOptionalProperty(probe, "accessStyle");
       const canonicalContainingFile =
