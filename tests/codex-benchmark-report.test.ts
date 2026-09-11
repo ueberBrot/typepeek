@@ -137,3 +137,29 @@ it("keeps unknown token breakdowns and partial usage out of cost comparisons", (
   });
   expect(skill.comparisons.every(({ tokens }) => tokens === null)).toBe(true);
 });
+
+it("retains evidence tokens when legacy traces have no task-submission timing", () => {
+  const legacy = attempt("typepeek-skill", 10, 200);
+  const { data } = report([
+    attempt("files", 40, 800),
+    {
+      ...legacy,
+      acquisition: {
+        ...legacy.acquisition!,
+        taskSubmittedMilliseconds: null,
+        taskToEvidenceSeconds: null,
+      },
+    },
+  ]);
+  for (const groups of [data.groups, data.byTask]) {
+    const skill = groups.find(({ condition }) => condition === "typepeek-skill")!;
+    expect(skill.successfulSeconds).toBeNull();
+    expect(skill.successfulEvidenceTokens).toMatchObject({ count: 1, mean: 200 });
+    expect(skill.successByDeadline).toEqual({ 30: null, 60: null, 120: null });
+    expect(skill.comparisons[0]).toMatchObject({
+      pairs: 1,
+      time: null,
+      tokens: { medianRatio: 4, medianSaved: 600 },
+    });
+  }
+});

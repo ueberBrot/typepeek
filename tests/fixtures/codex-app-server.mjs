@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 
 if (process.argv[2] === "--version") {
@@ -6,6 +7,9 @@ if (process.argv[2] === "--version") {
   process.exit(0);
 }
 if (process.argv[2] === "sandbox") {
+  const workspace = process.argv[process.argv.indexOf("--cd") + 1];
+  if (process.env.CODEX_HOME !== join(dirname(workspace), "codex"))
+    throw new Error("Isolation preflight must use the trial's isolated Codex configuration");
   console.log("isolation verified");
   process.exit(0);
 }
@@ -43,12 +47,6 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (request.method === "turn/start") {
     send({ id: request.id, result: { turn: { id: "turn" } } });
-    raw({
-      type: "function_call",
-      call_id: "read",
-      name: "exec_command",
-      arguments: '{"cmd":"read declaration"}',
-    });
     send({
       method: "rawResponse/completed",
       params: {
@@ -62,6 +60,22 @@ for await (const line of createInterface({ input: process.stdin })) {
           reasoningOutputTokens: 0,
         },
       },
+    });
+    if (process.env.CODEX_FIXTURE_FAIL_EARLY) {
+      send({
+        method: "turn/completed",
+        params: {
+          threadId: "thread",
+          turn: { id: "turn", status: "failed", error: { message: "Early model failure" } },
+        },
+      });
+      continue;
+    }
+    raw({
+      type: "function_call",
+      call_id: "read",
+      name: "exec_command",
+      arguments: '{"cmd":"read declaration"}',
     });
     send({
       method: "item/completed",
@@ -113,6 +127,19 @@ for await (const line of createInterface({ input: process.stdin })) {
         },
       });
     }, 180);
+  } else if (
+    request.method === "thread/backgroundTerminals/clean" &&
+    process.env.CODEX_FIXTURE_CROSS_THREAD_CLEANUP
+  ) {
+    send({
+      method: "turn/completed",
+      params: { threadId: "other", turn: { id: "turn", status: "completed" } },
+    });
+  } else if (
+    request.method === "thread/backgroundTerminals/clean" &&
+    process.env.CODEX_FIXTURE_FAIL_CLEANUP
+  ) {
+    send({ id: request.id, error: { message: "Terminal cleanup failed" } });
   } else if (request.id !== undefined) {
     send({ id: request.id, result: {} });
   }

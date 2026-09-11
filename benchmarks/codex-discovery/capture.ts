@@ -80,8 +80,9 @@ export async function captureCodex(launch: CodexLaunch) {
   let answer = "";
   let turnCompletedMilliseconds: number | null = null;
   let error: string | null = null;
-  let failureKind: "protocol" | "turn" | "process" | null = null;
-  const fail = (cause: Error, kind: "protocol" | "turn" | "process" = "protocol") => {
+  let failureKind: "protocol" | "turn" | "process" | "cleanup" | null = null;
+  let cleaningTerminals = false;
+  const fail = (cause: Error, kind: NonNullable<typeof failureKind> = "protocol") => {
     if (error === null) {
       error = cause.message;
       failureKind = kind;
@@ -193,9 +194,13 @@ export async function captureCodex(launch: CodexLaunch) {
       ...(launch.outputSchema === undefined ? {} : { outputSchema: launch.outputSchema }),
     });
     await finished.promise;
+    cleaningTerminals = true;
     await request("thread/backgroundTerminals/clean", { threadId });
   } catch (cause) {
-    fail(cause instanceof Error ? cause : new Error(String(cause)));
+    fail(
+      cause instanceof Error ? cause : new Error(String(cause)),
+      cleaningTerminals ? "cleanup" : "protocol",
+    );
     child.kill();
   } finally {
     child.stdin.end();

@@ -223,7 +223,7 @@ export async function verifyCodexIsolation(
       "-e",
       probe,
     ],
-    { reject: false, timeout: 15_000 },
+    { reject: false, timeout: 15_000, env: { CODEX_HOME: fixture.codexHome } },
   );
   if (result.exitCode !== 0 || !result.stdout.includes("isolation verified")) {
     throw new Error(

@@ -458,6 +458,104 @@ it("waits for every overload across tool responses and includes the gap between 
   });
 });
 
+it("grades requested Inspection Results inside successful Inspection Plans", async () => {
+  const signature = {
+    intent: "signature-inspection",
+    specifier: oracle.workload.specifier,
+    moduleExport: {
+      name: oracle.workload.target,
+      signatures: [{ kind: "call", text: "(command: string): string[]" }],
+    },
+  };
+  const searchOracle = {
+    ...oracle,
+    workload: { ...oracle.workload, kind: "search", target: "error" },
+    facts: ["ExecaError"],
+    declarations: [],
+    exportDeclarations: [],
+  };
+  const search = {
+    intent: "export-search",
+    specifier: oracle.workload.specifier,
+    query: "error",
+    matches: [{ name: "ExecaError" }],
+  };
+  for (const [answerKey, inspection] of [
+    [oracle, signature],
+    [searchOracle, search],
+  ] as const) {
+    for (const status of ["success", "failed"]) {
+      for (const specifier of [oracle.workload.specifier, "unrelated"]) {
+        const result = await replay(
+          [
+            command(1000, "read"),
+            command(
+              2000,
+              "read",
+              JSON.stringify({
+                status,
+                result: {
+                  intent: "inspection-plan",
+                  inspections: [
+                    { ...inspection, specifier: "other" },
+                    { ...inspection, specifier },
+                  ],
+                },
+              }),
+            ),
+          ],
+          answerKey,
+        );
+        expect(result.status).toBe(
+          status === "success" && specifier === oracle.workload.specifier
+            ? "complete"
+            : "insufficient",
+        );
+      }
+    }
+  }
+});
+
+it("grades case-insensitive Module Export Searches without accepting a different query or Specifier", async () => {
+  const answerKey = {
+    ...oracle,
+    workload: { ...oracle.workload, kind: "search", target: "error" },
+    facts: ["ExecaError"],
+    declarations: [],
+    exportDeclarations: [],
+  };
+  for (const plan of [false, true]) {
+    for (const [query, specifier, status] of [
+      ["ERROR", "execa", "complete"],
+      ["Error", "execa", "complete"],
+      ["failure", "execa", "insufficient"],
+      ["error", "EXECA", "insufficient"],
+    ]) {
+      const inspection = {
+        intent: "export-search",
+        specifier,
+        query,
+        matches: [{ name: "ExecaError" }],
+      };
+      const result = await replay(
+        [
+          command(1000, "read"),
+          command(
+            2000,
+            "read",
+            JSON.stringify({
+              status: "success",
+              result: plan ? { intent: "inspection-plan", inspections: [inspection] } : inspection,
+            }),
+          ),
+        ],
+        answerKey,
+      );
+      expect(result.status).toBe(status);
+    }
+  }
+});
+
 it("captures tool responses while the server is running instead of timestamping them after the final answer", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-capture-"));
   try {
@@ -564,47 +662,62 @@ it("grades an acquisition campaign by retrieved evidence even when the final ans
   }
 });
 
-it("retains completed acquisition and known usage when final-answer generation fails", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "codex-late-failure-"));
-  try {
-    const bin = join(directory, "bin");
-    await mkdir(bin);
-    await cp("tests/fixtures/codex-app-server.mjs", join(bin, "codex"));
-    await chmod(join(bin, "codex"), 0o755);
-    const output = join(directory, "study");
-    await execa(
-      process.execPath,
-      [
-        "benchmarks/codex-discovery/run.ts",
-        "--cases",
-        "execa-command",
-        "--models",
-        "gpt-5.6-luna",
-        "--efforts",
-        "low",
-        "--conditions",
-        "files",
-        "--repeats",
-        "1",
-        "--output",
-        output,
-      ],
-      {
-        env: { PATH: `${bin}:${process.env["PATH"]}`, CODEX_FIXTURE_FAIL_LATE: "1" },
-        reject: false,
-        timeout: 60000,
-      },
-    );
-    const study = JSON.parse(await readFile(join(output, "summary.json"), "utf8"));
-    expect(study.attempts[0]).toMatchObject({
-      passed: true,
-      wholeRunError: "Late model failure",
-      telemetry: { inputTokens: 100, outputTokens: 20, usageComplete: false },
-    });
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+it.each([
+  ["CODEX_FIXTURE_FAIL_LATE", "Late model failure", true, false],
+  ["CODEX_FIXTURE_FAIL_CLEANUP", "Terminal cleanup failed", true, true],
+  ["CODEX_FIXTURE_FAIL_EARLY", "Early model failure", false, false],
+  ["CODEX_FIXTURE_CROSS_THREAD_CLEANUP", "Received another thread's turn.", false, false],
+] as const)(
+  "keeps task outcomes separate from whole-run failure: %s",
+  async (flag, error, passed, usageComplete) => {
+    const directory = await mkdtemp(join(tmpdir(), "codex-late-failure-"));
+    try {
+      const bin = join(directory, "bin");
+      await mkdir(bin);
+      await cp("tests/fixtures/codex-app-server.mjs", join(bin, "codex"));
+      await chmod(join(bin, "codex"), 0o755);
+      const output = join(directory, "study");
+      await execa(
+        process.execPath,
+        [
+          "benchmarks/codex-discovery/run.ts",
+          "--cases",
+          "execa-command",
+          "--models",
+          "gpt-5.6-luna",
+          "--efforts",
+          "low",
+          "--conditions",
+          "files",
+          "--repeats",
+          "1",
+          "--output",
+          output,
+        ],
+        {
+          env: { PATH: `${bin}:${process.env["PATH"]}`, [flag]: "1" },
+          reject: false,
+          timeout: 60000,
+        },
+      );
+      const study = JSON.parse(await readFile(join(output, "summary.json"), "utf8"));
+      expect(study.attempts[0]).toMatchObject({
+        classification: "task",
+        passed,
+        wholeRunError: error,
+        telemetry: { inputTokens: 100, outputTokens: 20, usageComplete },
+      });
+      expect(study.groups[0]).toMatchObject({
+        attempts: 1,
+        infrastructureFailures: 0,
+        evidenceComplete: passed ? 1 : 0,
+        successRate: passed ? 1 : 0,
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 it("preserves an existing replay artifact instead of overwriting it", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-replay-preservation-"));

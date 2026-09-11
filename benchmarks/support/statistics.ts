@@ -1,4 +1,4 @@
-export interface TimingSummary {
+export interface ObservationSummary {
   readonly count: number;
   readonly min: number;
   readonly median: number;
@@ -10,9 +10,9 @@ export interface TimingSummary {
   readonly meanCi95HalfWidth: number | null;
 }
 
-export function summarizeTimings(samples: readonly number[]): TimingSummary {
+export function summarizeObservations(samples: readonly number[]): ObservationSummary {
   if (samples.length === 0 || samples.some((value) => !Number.isFinite(value) || value <= 0)) {
-    throw new TypeError("Timings must contain finite positive observations.");
+    throw new TypeError("Samples must contain finite positive observations.");
   }
   const sorted = samples.toSorted((left, right) => left - right);
   const count = samples.length;
@@ -70,21 +70,21 @@ export function shuffled<Value>(values: readonly Value[], random: () => number):
 }
 
 export interface PairedComparison {
-  readonly medianSpeedup: number;
-  readonly speedupCi95: readonly [number, number] | null;
-  readonly medianSavedMilliseconds: number;
+  readonly medianRatio: number;
+  readonly ratioCi95: readonly [number, number] | null;
+  readonly medianSaved: number;
 }
 
-export function comparePairedTimings(
+export function comparePairedObservations(
   baseline: readonly number[],
   treatment: readonly number[],
   seed: number,
 ): PairedComparison {
   if (baseline.length !== treatment.length) {
-    throw new TypeError("Paired timings require equal observation counts.");
+    throw new TypeError("Paired samples require equal observation counts.");
   }
-  summarizeTimings(baseline);
-  summarizeTimings(treatment);
+  summarizeObservations(baseline);
+  summarizeObservations(treatment);
   const ratios = baseline.map((value, index) => value / treatment[index]!);
   const deltas = baseline.map((value, index) => value - treatment[index]!);
   const median = (values: readonly number[]) =>
@@ -100,9 +100,9 @@ export function comparePairedTimings(
           median(ratios.map(() => ratios[Math.floor(random() * ratios.length)]!)),
         ).sort((a, b) => a - b);
   return {
-    medianSpeedup: median(ratios),
-    speedupCi95:
+    medianRatio: median(ratios),
+    ratioCi95:
       bootstraps === null ? null : [quantile(bootstraps, 0.025), quantile(bootstraps, 0.975)],
-    medianSavedMilliseconds: median(deltas),
+    medianSaved: median(deltas),
   };
 }

@@ -1,5 +1,5 @@
 import type { DiscoveryIdentity } from "../support/identity.ts";
-import { comparePairedTimings, summarizeTimings } from "../support/statistics.ts";
+import { comparePairedObservations, summarizeObservations } from "../support/statistics.ts";
 import type { measureAcquisition } from "./acquisition.ts";
 import type { CodexOptions } from "./options.ts";
 import type { CodexCondition, CodexScenario, codexTelemetry } from "./scenarios.ts";
@@ -65,11 +65,14 @@ export function summarizeCodexStudy({
           const acquired = successes.filter(
             (attempt) => attempt.acquisition?.taskToEvidenceSeconds != null,
           );
+          const evidence = successes.flatMap((attempt) =>
+            attempt.acquisition === undefined ? [] : [attempt.acquisition],
+          );
           const expectedAttempts = (task === undefined ? scenarios.length : 1) * options.repeats;
           const timing =
             acquired.length === 0
               ? null
-              : summarizeTimings(
+              : summarizeObservations(
                   acquired.map((attempt) => attempt.acquisition!.taskToEvidenceSeconds!),
                 );
           const completeUsage =
@@ -109,7 +112,7 @@ export function summarizeCodexStudy({
             successByDeadline: Object.fromEntries(
               [30, 60, 120].map((deadline) => [
                 deadline,
-                selected.length === 0
+                selected.length === 0 || acquired.length !== successes.length
                   ? null
                   : acquired.filter(
                       (attempt) => attempt.acquisition!.taskToEvidenceSeconds! <= deadline,
@@ -118,18 +121,18 @@ export function summarizeCodexStudy({
             ),
             successfulSeconds: timing,
             successfulEvidenceTokens:
-              acquired.length === 0
+              evidence.length === 0
                 ? null
-                : summarizeTimings(acquired.map((attempt) => attempt.acquisition!.evidenceTokens)),
+                : summarizeObservations(evidence.map((acquisition) => acquisition.evidenceTokens)),
             wholeRun: {
               successfulSeconds:
                 successes.length === 0
                   ? null
-                  : summarizeTimings(successes.map((attempt) => attempt.seconds)),
+                  : summarizeObservations(successes.map((attempt) => attempt.seconds)),
               allAttemptSeconds:
                 selected.length === 0
                   ? null
-                  : summarizeTimings(selected.map((attempt) => attempt.seconds)),
+                  : summarizeObservations(selected.map((attempt) => attempt.seconds)),
             },
             reportedInputTokens: input,
             reportedCachedInputTokens:
@@ -234,21 +237,6 @@ export function summarizeCodexStudy({
   return { data, markdown: `${table}\n` };
 }
 
-function compareMeasurements(
-  baseline: readonly number[],
-  treatment: readonly number[],
-  seed: number,
-  unit: "seconds" | "tokens",
-) {
-  const comparison = comparePairedTimings(baseline, treatment, seed);
-  return {
-    unit,
-    medianRatio: comparison.medianSpeedup,
-    ratioCi95: comparison.speedupCi95,
-    medianSaved: comparison.medianSavedMilliseconds,
-  };
-}
-
 function compareAttempts(
   successes: readonly CodexAttempt[],
   attempts: readonly CodexAttempt[],
@@ -279,12 +267,14 @@ function compareAttempts(
           treatment.acquisition?.taskToEvidenceSeconds == null,
       )
         ? null
-        : compareMeasurements(
-            pairs.map(({ baseline }) => baseline.acquisition!.taskToEvidenceSeconds!),
-            pairs.map(({ treatment }) => treatment.acquisition!.taskToEvidenceSeconds!),
-            seed,
-            "seconds",
-          ),
+        : {
+            unit: "seconds",
+            ...comparePairedObservations(
+              pairs.map(({ baseline }) => baseline.acquisition!.taskToEvidenceSeconds!),
+              pairs.map(({ treatment }) => treatment.acquisition!.taskToEvidenceSeconds!),
+              seed,
+            ),
+          },
     tokens:
       pairs.length === 0 ||
       pairs.some(
@@ -292,11 +282,13 @@ function compareAttempts(
           baseline.acquisition === undefined || treatment.acquisition === undefined,
       )
         ? null
-        : compareMeasurements(
-            pairs.map(({ baseline }) => baseline.acquisition!.evidenceTokens),
-            pairs.map(({ treatment }) => treatment.acquisition!.evidenceTokens),
-            seed,
-            "tokens",
-          ),
+        : {
+            unit: "tokens",
+            ...comparePairedObservations(
+              pairs.map(({ baseline }) => baseline.acquisition!.evidenceTokens),
+              pairs.map(({ treatment }) => treatment.acquisition!.evidenceTokens),
+              seed,
+            ),
+          },
   };
 }

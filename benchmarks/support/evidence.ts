@@ -25,19 +25,38 @@ const signatureOutcomeSchema = Schema.Struct({
     }),
   }),
 });
+const planOutcomeSchema = Schema.Struct({
+  status: Schema.Literal("success"),
+  result: Schema.Struct({
+    intent: Schema.Literal("inspection-plan"),
+    inspections: Schema.Array(Schema.Unknown),
+  }),
+});
 
 export function typepeekFacts(workload: DiscoveryWorkload, serialized: string): readonly string[] {
   const value: unknown = JSON.parse(serialized);
+  const outcomes = Schema.is(planOutcomeSchema)(value)
+    ? value.result.inspections.map((result) => ({ status: "success", result }))
+    : [value];
   if (workload.kind === "search") {
-    const { result } = Schema.decodeUnknownSync(searchOutcomeSchema)(value);
-    if (result.specifier !== workload.specifier || result.query !== workload.target) {
-      throw new Error("Typepeek answered a different search.");
-    }
+    const outcome = outcomes
+      .filter(Schema.is(searchOutcomeSchema))
+      .find(
+        ({ result }) =>
+          result.specifier === workload.specifier &&
+          result.query.toLowerCase() === workload.target.toLowerCase(),
+      );
+    if (outcome === undefined) throw new Error("Typepeek did not return the requested search.");
+    const { result } = outcome;
     return result.matches.map(({ name }) => name).sort();
   }
-  const { result } = Schema.decodeUnknownSync(signatureOutcomeSchema)(value);
-  if (result.specifier !== workload.specifier || result.moduleExport.name !== workload.target) {
-    throw new Error("Typepeek answered a different export.");
-  }
+  const outcome = outcomes
+    .filter(Schema.is(signatureOutcomeSchema))
+    .find(
+      ({ result }) =>
+        result.specifier === workload.specifier && result.moduleExport.name === workload.target,
+    );
+  if (outcome === undefined) throw new Error("Typepeek did not return the requested export.");
+  const { result } = outcome;
   return result.moduleExport.signatures.map(({ kind, text }) => signatureFact(kind, text));
 }

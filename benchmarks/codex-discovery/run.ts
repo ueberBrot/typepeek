@@ -199,7 +199,9 @@ async function runStudy(): Promise<void> {
         result.error !== null &&
         !result.timedOut &&
         telemetry.completedTurns === 0 &&
-        telemetry.commands.length === 0
+        telemetry.commands.length === 0 &&
+        telemetry.inputTokens === null &&
+        telemetry.outputTokens === null
           ? "infrastructure"
           : "task",
       task: plan.scenario.workload.id,
