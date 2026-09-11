@@ -2,7 +2,11 @@ import { execa } from "execa";
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, it } from "vite-plus/test";
+import { beforeAll, expect, it } from "vite-plus/test";
+
+beforeAll(async () => {
+  await execa("vp", ["pack"]);
+}, 60_000);
 
 const oracle = {
   schemaVersion: 1,

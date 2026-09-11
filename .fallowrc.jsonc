@@ -5,6 +5,7 @@
   // roots cover build adapters and repository-only executables.
   "entry": [
     "tests/benchmark-package-smoke.ts",
+    "tests/fixtures/codex-app-server.mjs",
     "benchmarks/codex-discovery/run.ts",
     "benchmarks/codex-discovery/capture.ts",
     "benchmarks/codex-discovery/replay.ts",
@@ -22,6 +23,8 @@
     "@arethetypeswrong/core",
     "@effect/tsgo",
     "@typescript/typescript6",
+    // Used only by benchmark executables, not the published CLI.
+    "gpt-tokenizer",
     "publint",
     "unplugin-unused"
   ],
