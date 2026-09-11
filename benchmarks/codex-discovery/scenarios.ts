@@ -19,6 +19,10 @@ const DISCOVERY_QUESTIONS: Readonly<Record<string, string>> = {
     "Using the installed node:fs declarations, find the public synchronous function that checks whether a path exists and returns a boolean. Identify its export name and report every public call signature.",
   "effect-option":
     "Using the installed effect/Option module, find the public function that extracts an Option's value and returns null when it is absent. Identify its export name and report every public call signature.",
+  "stricli-routes":
+    "Using the installed @stricli/core package, find the public function that groups named commands and nested command groups with documentation, optional aliases, and an optional default command. Identify its export name and report every public call signature, including generic parameters.",
+  "typescript-program":
+    "Using the installed @typescript/typescript6 package, find the public compiler function that constructs a compilation from root source file names and compiler options, with optional host customization and reuse of a previous compilation. Identify its export name and report every public call signature.",
 };
 
 export function selectCodexScenarios(ids: readonly string[]): readonly CodexScenario[] {

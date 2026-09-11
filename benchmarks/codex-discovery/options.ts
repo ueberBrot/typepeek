@@ -24,7 +24,7 @@ export function readCodexOptions() {
   --prepare-only            Verify isolation without making model requests
   --dry-run                 Print the scheduled trials without accessing Codex or creating files
 
-Requires a built dist/, installed dependencies, ripgrep, and authenticated Codex CLI with permission profiles.
+Requires a built dist/, installed dependencies, and authenticated Codex CLI with permission profiles.
 The fixtures and grading are deterministic; live Codex time and token usage are statistical observations.
 `);
     process.exit(0);

@@ -4,9 +4,11 @@ Does Typepeek help an agent retrieve correct, complete information from installe
 
 The default comparison pairs a files-only control (`files`) with Typepeek plus the shipped skill (`typepeek-skill`). Both receive the same dependency questions, installed packages, model, effort, and static-inspection permissions; only CLI access and skill guidance differ. The agent may still use other static tools in treatment. Reports include CLI adoption, so treatment availability must not be mistaken for actual CLI use.
 
+All five default questions describe behavior without naming the target export or its file. Agents choose their own search terms and inspection commands. Results from earlier prompts that named exports are not comparable with this suite.
+
 ## Run
 
-Install the locked dependencies and run `vp run pack` first. Live trials require authenticated Codex with model access, app-server raw events, and enforced permission profiles on macOS or Linux (verified with 0.153.4), plus ripgrep. They consume model usage. Preview and verify isolation before spending it:
+Install the locked dependencies and run `vp run pack` first. Live trials require authenticated Codex with model access, app-server raw events, and enforced permission profiles on macOS or Linux. Ripgrep is optional; its version or absence is recorded. Live trials consume model usage and run manually, never in CI. Preview and verify isolation before spending it:
 
 ```bash
 vp run benchmark --dry-run
@@ -24,7 +26,7 @@ Each trial uses a fresh session, isolated host configuration, and reset consumer
 
 Schema v4 measures **task submission to sufficient returned evidence**. A monotonic marker is recorded immediately before sending the task: initial strategy selection and gaps between tool calls count; setup and final-answer writing do not. First-tool-request-to-evidence time remains a diagnostic. Older traces without the submission marker have unknown task-to-evidence time and cannot establish this comparison.
 
-An independent TypeScript consumer constructs the answer key from installed declarations. Grading requires complete signatures or export-name results. Declaration fragments can accumulate across responses, preserving numbered file boundaries. An empty grep result cannot establish absence: that requires a complete export index or verified structured search. A correct final answer without retrieved evidence is insufficient. Unrecognized output formats can remain unverified.
+An independent TypeScript consumer constructs the answer key from installed declarations. Grading requires complete signatures or export-name results. Declaration fragments can accumulate across responses, preserving numbered file boundaries. Codex command-result JSON wrappers are decoded for matching; token counts still use the original responses. An empty grep result cannot establish absence: that requires a complete export index or verified structured search. A correct final answer without retrieved evidence is insufficient. Unrecognized output formats can remain unverified.
 
 Compare **success rates and per-task times together**. Reports retain failures, coverage, CLI adoption, and paired timing/token ratios among successful pairs; a faster successful subset does not establish a better overall treatment. Intervals describe repeated-run variability within these fixed tasks, not uncertainty across packages. Fewer than five pairs yield no bootstrap interval. Results may favor either condition.
 

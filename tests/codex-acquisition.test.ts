@@ -78,6 +78,42 @@ async function replay(events: readonly unknown[], answerKey: unknown = oracle, w
   }
 }
 
+it.each([
+  oracle.declarations[0]!.text,
+  ...["signature-inspection", "export-inspection"].map((intent) =>
+    JSON.stringify({
+      status: "success",
+      result: {
+        intent,
+        specifier: "execa",
+        moduleExport: {
+          name: "parseCommandString",
+          signatures: [{ kind: "call", text: "(command: string): string[]" }],
+        },
+      },
+    }),
+  ),
+])("recognizes evidence inside Codex command-result JSON wrappers: %s", async (output) => {
+  const wrapped = `Script completed\nOutput:\n${JSON.stringify({
+    chunk_id: "test",
+    wall_time_seconds: 0.01,
+    exit_code: 0,
+    output,
+  })}`;
+  const result = await replay([command(1000, "read"), command(2000, "read", wrapped)]);
+  expect(result.status).toBe("complete");
+  expect(result.sufficientEvidenceMilliseconds).toBe(2000);
+  expect(result.evidenceBytes).toBe(Buffer.byteLength(wrapped));
+});
+
+it("does not treat arbitrary JSON output fields as command-result evidence", async () => {
+  const result = await replay([
+    command(1000, "read"),
+    command(2000, "read", JSON.stringify({ output: oracle.declarations[0]!.text })),
+  ]);
+  expect(result.status).toBe("insufficient");
+});
+
 it("stops retrieval measurement when sufficient evidence arrives, before later work and the final answer", async () => {
   const result = await replay([
     {

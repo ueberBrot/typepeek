@@ -56,6 +56,12 @@ const executionSchema = Schema.Struct({
     }),
   }),
 });
+const commandResultSchema = Schema.Struct({
+  chunk_id: Schema.String,
+  wall_time_seconds: millisecondsSchema,
+  exit_code: Schema.Literal(0),
+  output: Schema.String,
+});
 
 export function decodeTimedCodexEvents(serialized: string): readonly TimedCodexEvent[] {
   return serialized
@@ -157,7 +163,7 @@ export function measureAcquisition(oracle: AcquisitionOracle, events: readonly T
     completed.add(item.call_id);
     const blocks =
       typeof item.output === "string" ? [item.output] : item.output.map(({ text }) => text);
-    const returnedText = blocks.join("\n");
+    const returnedText = blocks.flatMap(commandOutputText).join("\n");
     const returnedBytes = blocks.reduce((sum, text) => sum + Buffer.byteLength(text), 0);
     if (returnedBytes > 262144) {
       invalidReason = "Tool response exceeds the verified history retention bound.";
@@ -256,6 +262,19 @@ export function measureAcquisition(oracle: AcquisitionOracle, events: readonly T
       : oracle.exportDeclarations.filter((declaration) => !indexes.has(declaration)).length,
     evidenceEvents,
   };
+}
+
+function commandOutputText(text: string): string[] {
+  const decoded: string[] = [text];
+  for (const candidate of jsonObjects(text)) {
+    try {
+      const value: unknown = JSON.parse(candidate);
+      if (Schema.is(commandResultSchema)(value)) decoded.push(value.output);
+    } catch {
+      continue;
+    }
+  }
+  return decoded;
 }
 
 function sourceFragments(text: string): string[] {

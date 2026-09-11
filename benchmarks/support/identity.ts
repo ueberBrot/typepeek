@@ -57,7 +57,7 @@ export async function discoveryIdentity(options: {
 }): Promise<DiscoveryIdentity> {
   const [git, ripgrep] = await Promise.all([
     execa("git", ["rev-parse", "HEAD"], { reject: false }),
-    execa("rg", ["--version"]),
+    execa("rg", ["--version"], { reject: false }),
   ]);
   const lockfiles = ["pnpm-lock.yaml", "package-lock.json", "bun.lock", "package.json"]
     .map((name) => join(options.workspace, name))
@@ -72,7 +72,7 @@ export async function discoveryIdentity(options: {
     workspace: realpathSync(options.workspace),
     node: process.version,
     compiler: options.compilerVersion,
-    ripgrep: ripgrep.stdout.split("\n")[0] ?? ripgrep.stdout,
+    ripgrep: ripgrep.failed ? "unavailable" : (ripgrep.stdout.split("\n")[0] ?? ripgrep.stdout),
     platform: process.platform,
     architecture: process.arch,
     osRelease: release(),

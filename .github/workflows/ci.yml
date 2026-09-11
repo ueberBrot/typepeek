@@ -59,11 +59,6 @@ jobs:
         with:
           install-bun: "true"
 
-      - name: Install benchmark search tool
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes ripgrep
-
       - name: Test
         run: vp test --exclude tests/packaged-cli-consumers.test.ts --shard=${{ matrix.shard }} --maxWorkers=2
 

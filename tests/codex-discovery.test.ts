@@ -1,5 +1,5 @@
 import { execa } from "execa";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vite-plus/test";
@@ -61,6 +61,34 @@ it("rejects a matrix that combines all workloads with individual workloads", asy
   expect(result.stderr).toContain("all must be used alone");
 });
 
+it("records unavailable ripgrep without blocking benchmark setup", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "codex-no-search-tool-"));
+  try {
+    await mkdir(join(directory, "dist"));
+    await mkdir(join(directory, "benchmarks", "support"), { recursive: true });
+    await writeFile(join(directory, "package.json"), "{}");
+    await writeFile(join(directory, "pnpm-lock.yaml"), "");
+    const result = await execa(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+      import { discoveryIdentity } from ${JSON.stringify(new URL("../benchmarks/support/identity.ts", import.meta.url).href)};
+      const identity = await discoveryIdentity({
+        workspace: process.cwd(), compilerVersion: 'test', evidenceHash: 'test',
+      });
+      console.log(identity.ripgrep);
+    `,
+      ],
+      { cwd: directory, env: { PATH: directory } },
+    );
+    expect(result.stdout).toBe("unavailable");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 it("ignores an optional trailing comma in destructured parameters without changing fields", () => {
   expect(signatureFact("call", "({ routes, aliases, }: Routes): Result")).toBe(
     signatureFact("call", "({ routes, aliases }: Routes): Result"),
@@ -69,6 +97,20 @@ it("ignores an optional trailing comma in destructured parameters without changi
     signatureFact("call", "({ routes, aliases }: Routes): Result"),
   );
 });
+
+it.each(["execa-command", "node-exists", "effect-option", "stricli-routes", "typescript-program"])(
+  "keeps the %s discovery answer out of every condition's prompt",
+  (id) => {
+    const scenario = selectCodexScenarios([id])[0]!;
+    expect(scenario.discovery).toBe(true);
+    for (const condition of ["files", "typepeek", "typepeek-skill", "typepeek-required"] as const) {
+      const prompt = codexPrompt(scenario, condition, "SKILL CONTENT");
+      expect(prompt).not.toContain(scenario.workload.target);
+      expect(prompt).toContain(`Question: ${scenario.question}`);
+      expect(prompt).not.toContain("rg ");
+    }
+  },
+);
 
 it("lets both Codex conditions choose their strategy without giving away discovery answers", () => {
   const scenario = selectCodexScenarios(["execa-command"])[0]!;

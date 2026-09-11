@@ -15,7 +15,7 @@ const searchOutcomeSchema = Schema.Struct({
 const signatureOutcomeSchema = Schema.Struct({
   status: Schema.Literal("success"),
   result: Schema.Struct({
-    intent: Schema.Literal("signature-inspection"),
+    intent: Schema.Literals(["signature-inspection", "export-inspection"]),
     specifier: Schema.String,
     moduleExport: Schema.Struct({
       name: Schema.String,
