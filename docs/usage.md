@@ -57,6 +57,7 @@ Start with the narrowest inspection that answers your question.
 | ------------------------------------------------------------------------------------------------ | -------------- |
 | What does this module export?                                                                    | `overview`     |
 | Which export names contain this text?                                                            | `search`       |
+| Which exports have names or attached documentation containing this phrase?                       | `discover`     |
 | Which public subpaths does this package expose?                                                  | `subpaths`     |
 | How can I call or construct this export?                                                         | `signatures`   |
 | What declarations define this export?                                                            | `declarations` |
@@ -72,6 +73,8 @@ For example, discover an export before inspecting it:
 npx typepeek search execa error
 npx typepeek declarations execa ExecaError
 ```
+
+When you know the behaviour rather than the name, `npx typepeek discover execa split --json` searches names and attached documentation and returns matching signatures in the same call. Matching is a case-insensitive substring, not semantic search. Results include all overloads and marked, untrusted documentation excerpts, without supporting types. An empty result means the phrase did not match; it does not prove the behaviour is unavailable.
 
 Add `--json` for structured output. Add `--pretty` with `--json` when a person needs to read that output:
 

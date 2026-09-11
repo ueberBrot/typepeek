@@ -19,6 +19,7 @@ const INSPECTION_PLAN_QUERY_FIELDS = [
   "exportName",
   "memberPath",
   "cursor",
+  "scope",
 ] as const;
 
 export type InspectionPlanQueryIssue =
@@ -41,6 +42,7 @@ type InspectionPlanQueryReading =
 const exportSearchQuerySchema = Schema.String.check(
   Schema.makeFilter(isBoundedExportSearchQuery, { expected: "a bounded search query" }),
 );
+export const exportSearchScopeSchema = Schema.optionalKey(Schema.Literal("documentation"));
 const INSPECTION_PLAN_QUERY_INTENTS = [
   "interface-overview",
   "export-inspection",
@@ -68,6 +70,7 @@ const INSPECTION_PLAN_QUERY_SCHEMAS = {
   "export-search": Schema.Struct({
     intent: Schema.Literal("export-search"),
     query: exportSearchQuerySchema,
+    scope: exportSearchScopeSchema,
   }),
   "public-subpath-discovery": Schema.Struct({
     intent: Schema.Literal("public-subpath-discovery"),
@@ -176,7 +179,15 @@ export function inspectionPlanQueriesForRequest(
         },
       ];
     case "export-search":
-      return [{ intent: analysisRequest.intent, query: analysisRequest.request.query }];
+      return [
+        {
+          intent: analysisRequest.intent,
+          query: analysisRequest.request.query,
+          ...(analysisRequest.request.scope === undefined
+            ? {}
+            : { scope: analysisRequest.request.scope }),
+        },
+      ];
     case "public-subpath-discovery":
       return [{ intent: analysisRequest.intent }];
   }

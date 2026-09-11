@@ -80,6 +80,21 @@ async function replay(events: readonly unknown[], answerKey: unknown = oracle, w
 
 it.each([
   oracle.declarations[0]!.text,
+  JSON.stringify({
+    status: "success",
+    result: {
+      intent: "export-search",
+      scope: "documentation",
+      specifier: "execa",
+      query: "split",
+      matches: [
+        {
+          name: "parseCommandString",
+          signatures: [{ kind: "call", text: "(command: string): string[]" }],
+        },
+      ],
+    },
+  }),
   ...["signature-inspection", "export-inspection"].map((intent) =>
     JSON.stringify({
       status: "success",

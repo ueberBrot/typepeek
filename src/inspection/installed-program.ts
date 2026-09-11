@@ -230,6 +230,7 @@ function installedProgramRequirements(
     needsStandardLibrary: queries.some(
       (query) =>
         query.intent === "signature-inspection" ||
+        (query.intent === "export-search" && query.scope === "documentation") ||
         query.intent === "export-inspection" ||
         query.intent === "member-inspection" ||
         query.intent === "member-discovery",

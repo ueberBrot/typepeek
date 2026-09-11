@@ -9,6 +9,7 @@ import {
 } from "#typepeek/inspection/export-pagination";
 import {
   inspectionPlanQueriesSchema,
+  exportSearchScopeSchema,
   isBoundedExportSearchQuery,
   MAX_EXPORT_SEARCH_QUERY_BYTES,
   MAX_INSPECTION_PLAN_QUERIES,
@@ -134,6 +135,13 @@ const OVERVIEW_FIELD_ENTRIES = [
 const EXPORT_SEARCH_FIELD_ENTRIES = [
   ...TARGET_FIELD_ENTRIES,
   ["query", exportSearchQuerySchema],
+  [
+    "scope",
+    withRequestFieldCapability(exportSearchScopeSchema, {
+      kind: "enum",
+      values: ["documentation"],
+    }),
+  ],
 ] as const;
 const MEMBER_FIELD_ENTRIES = [
   ...EXPORT_FIELD_ENTRIES,

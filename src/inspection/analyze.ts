@@ -13,6 +13,7 @@ import {
   type ModuleExportInspection,
 } from "#typepeek/inspection/export-inspection";
 import { paginateExports } from "#typepeek/inspection/export-pagination";
+import { resolveFocusedExportSymbol } from "#typepeek/inspection/focused-export";
 import {
   createInspectionCacheIdentity,
   createInspectionCacheHitNotice,
@@ -34,6 +35,7 @@ import {
   type InstalledEvidenceProof,
 } from "#typepeek/inspection/installed-evidence-fingerprint";
 import { formatMemberPath, type MemberPath } from "#typepeek/inspection/member-path";
+import { inspectPackageDocumentation } from "#typepeek/inspection/package-documentation";
 import { profileInspectionPhase } from "#typepeek/inspection/performance-profile";
 import type {
   AnalysisRequest,
@@ -41,9 +43,13 @@ import type {
   InspectionFailure,
   InspectionOutcome,
   InspectionPlanQuery,
+  ExportSearch,
 } from "#typepeek/inspection/protocol";
 import { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
-import { inspectModuleExportSignatures } from "#typepeek/inspection/signature-inspection";
+import {
+  inspectModuleExportSignatures,
+  inspectResolvedExportSignatures,
+} from "#typepeek/inspection/signature-inspection";
 
 export interface AnalysisExecution {
   readonly cacheMessage?: InspectionCacheHitNotice | InspectionCacheWriteReceipt;
@@ -229,8 +235,13 @@ function inspectEvidenceQuery(
         construction.specifier,
       );
     case "export-search": {
-      const search = searchModuleExports(evidence, query.query);
-      return construction.exportSearch(query.query, search.totalModuleExports, search.matches);
+      const search = searchModuleExports(evidence, query.query, construction, query.scope);
+      return construction.exportSearch(
+        query.query,
+        search.totalModuleExports,
+        search.matches,
+        query.scope,
+      );
     }
     case "public-subpath-discovery":
       return construction.publicSubpathDiscovery(evidence.publicSubpaths);
@@ -327,9 +338,11 @@ function inspectModuleExports(
 function searchModuleExports(
   { checker, moduleSymbol }: InspectableModuleEvidence,
   query: string,
+  construction: InspectionResultConstruction,
+  scope?: ExportSearch["scope"],
 ): {
   readonly totalModuleExports: number;
-  readonly matches: readonly { readonly name: string }[];
+  readonly matches: ExportSearch["matches"];
 } {
   const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
   if (exportedSymbols.length > MAX_EXPORT_INDEX_CANDIDATES) {
@@ -339,17 +352,65 @@ function searchModuleExports(
     );
   }
   const normalizedQuery = query.toLowerCase();
-  const matches = exportedSymbols
-    .map((symbol) => ({ name: symbol.getName() }))
-    .filter(({ name }) => name.toLowerCase().includes(normalizedQuery))
-    .sort(compareModuleExports);
-  if (matches.length > MAX_EXPORT_SEARCH_MATCHES) {
-    throw new InspectionLimitError(
-      "export-search-matches",
-      "Inspection exceeded its Module Export search match limit.",
+  const matches: ExportSearch["matches"][number][] = [];
+  for (const symbol of exportedSymbols) {
+    const name = symbol.getName();
+    if (scope === undefined) {
+      if (name.toLowerCase().includes(normalizedQuery)) append({ name });
+      continue;
+    }
+    const resolution = resolveFocusedExportSymbol(checker, symbol, moduleSymbol);
+    const documentation = inspectPackageDocumentation(
+      checker,
+      symbol,
+      resolution.targetSymbol,
+      resolution.aliasDeclaration,
     );
+    if (
+      !name.toLowerCase().includes(normalizedQuery) &&
+      !documentation?.text.toLowerCase().includes(normalizedQuery)
+    )
+      continue;
+    append({
+      name,
+      signatures: inspectResolvedExportSignatures(checker, resolution, (value) => value),
+      ...(documentation === undefined
+        ? {}
+        : {
+            packageDocumentation: {
+              ...documentation,
+              excerpt: true as const,
+              text: documentationExcerpt(documentation.text, normalizedQuery),
+            },
+          }),
+    });
   }
+  matches.sort(compareModuleExports);
   return { totalModuleExports: exportedSymbols.length, matches };
+
+  function append(match: ExportSearch["matches"][number]): void {
+    if (matches.length >= MAX_EXPORT_SEARCH_MATCHES) {
+      throw new InspectionLimitError(
+        "export-search-matches",
+        "Inspection exceeded its Module Export search match limit.",
+      );
+    }
+    matches.push(construction.exportSearchMatch(match));
+  }
+}
+
+function documentationExcerpt(text: string, normalizedQuery: string): string {
+  const characters = Array.from(text);
+  const matchOffset = text.toLowerCase().indexOf(normalizedQuery);
+  let normalizedOffset = 0;
+  let matchIndex = 0;
+  while (matchIndex < characters.length && normalizedOffset < matchOffset) {
+    normalizedOffset += characters[matchIndex]!.toLowerCase().length;
+    matchIndex += 1;
+  }
+  return characters
+    .slice(Math.max(0, matchIndex - 64), matchIndex + normalizedQuery.length + 128)
+    .join("");
 }
 
 function compareModuleExports(

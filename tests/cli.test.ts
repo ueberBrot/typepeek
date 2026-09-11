@@ -717,6 +717,22 @@ describe("typepeek CLI", () => {
     expect(result.stdout).not.toContain("Public Subpaths");
   });
 
+  it("retrieves signatures from a documentation phrase through discover", async () => {
+    const result = await execa(process.execPath, [
+      "src/cli.ts",
+      "discover",
+      "@typepeek-fixture/focused",
+      "creates a widget",
+      "--workspace",
+      fixture.resolutionContext,
+    ]);
+    expect(result.stdout).toContain("createWidget");
+    expect(result.stdout).toContain("(input: WidgetInput): WidgetResult");
+    expect(result.stdout).toContain("(input: string, options: WidgetOptions): WidgetResult");
+    expect(result.stdout).toContain("untrusted");
+    expect(result.stdout).not.toContain("Supporting Types");
+  });
+
   it("discovers Public Subpaths without program materialization", async () => {
     const arguments_ = [
       "src/cli.ts",
@@ -970,6 +986,39 @@ describe("typepeek CLI", () => {
       expect(firstPhases).toContain("program-materialization");
       expect(repeatedPhases).toContain("inspection-cache-hit");
       expect(repeatedPhases).not.toContain("program-materialization");
+    } finally {
+      await rm(cacheDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("caches documentation discovery separately from name-only search", async () => {
+    const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-cache-discovery-"));
+    const args = [
+      "src/cli.ts",
+      "search",
+      "@typepeek-fixture/focused",
+      "creates a widget",
+      "--workspace",
+      fixture.resolutionContext,
+      "--json",
+    ];
+    const env = { TYPEPEEK_CACHE_DIRECTORY: cacheDirectory, TYPEPEEK_PROFILE: "1" };
+    try {
+      const names = await execa(process.execPath, args, { env });
+      const discoveryArgs = [args[0]!, "discover", ...args.slice(2)];
+      const first = await execa(process.execPath, discoveryArgs, { env });
+      const repeated = await execa(process.execPath, discoveryArgs, { env });
+      expect(JSON.parse(names.stdout).result.matches).toEqual([]);
+      expect(JSON.parse(first.stdout)).toMatchObject({
+        status: "success",
+        result: {
+          scope: "documentation",
+          matches: [expect.objectContaining({ name: "createWidget" })],
+        },
+      });
+      expect(profilePhaseNames(first.stderr)).toContain("inspection-cache-miss");
+      expect(profilePhaseNames(repeated.stderr)).toContain("inspection-cache-hit");
+      expect(repeated.stdout).toBe(first.stdout);
     } finally {
       await rm(cacheDirectory, { recursive: true, force: true });
     }

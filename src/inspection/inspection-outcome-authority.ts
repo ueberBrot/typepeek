@@ -186,7 +186,8 @@ const INSPECTION_PLAN_QUERY_MATCHERS = {
   "export-search": (inspection, query) =>
     inspection.intent === "export-search" &&
     query.intent === "export-search" &&
-    inspection.query === query.query,
+    inspection.query === query.query &&
+    inspection.scope === query.scope,
   "export-inspection": matchesFocusedPlanQuery,
   "signature-inspection": matchesFocusedPlanQuery,
   "declaration-inspection": matchesFocusedPlanQuery,

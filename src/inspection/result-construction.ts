@@ -201,12 +201,17 @@ export class InspectionResultConstruction {
     );
   }
 
+  exportSearchMatch(match: ExportSearch["matches"][number]): ExportSearch["matches"][number] {
+    return this.#budget.leaf(match);
+  }
+
   exportSearch(
     query: string,
     totalModuleExports: number,
-    matches: readonly { readonly name: string }[],
+    matches: ExportSearch["matches"],
+    scope?: ExportSearch["scope"],
   ): ExportSearch {
-    const retainedMatches = matches.map((match) => this.#budget.leaf(match));
+    const retainedMatches = matches;
     return this.#budget.container(
       {
         intent: "export-search",
@@ -214,6 +219,7 @@ export class InspectionResultConstruction {
         resolutionVariant: this.#target.resolutionVariant,
         ...this.#target.identity,
         query,
+        ...(scope === undefined ? {} : { scope }),
         totalModuleExports,
         matches: retainedMatches,
       },

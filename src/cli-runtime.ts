@@ -52,6 +52,7 @@ const INSPECTION_COMMANDS = new Set([
   "signatures",
   "plan",
   "search",
+  "discover",
   "subpaths",
   "declarations",
   "member",
@@ -454,26 +455,37 @@ const planCommand = buildCommand<
   },
 });
 
-const searchCommand = buildCommand<InspectionTargetOptions, [string, string], ApplicationContext>({
-  async func(options, specifier, query) {
-    return runCliTargetInspection(this, "export-search", options, specifier, (target) => ({
-      ...target,
-      query,
-    }));
-  },
-  parameters: {
-    flags: inspectionTargetFlags,
-    positional: {
-      kind: "tuple",
-      parameters: [specifierParameter, exportSearchQueryParameter],
+function buildExportSearchCommand(scope?: "documentation") {
+  return buildCommand<InspectionTargetOptions, [string, string], ApplicationContext>({
+    async func(options, specifier, query) {
+      return runCliTargetInspection(this, "export-search", options, specifier, (target) => ({
+        ...target,
+        query,
+        ...(scope === undefined ? {} : { scope }),
+      }));
     },
-  },
-  docs: {
-    brief: "Find export names containing a case-insensitive substring.",
-    fullDescription:
-      "Example: typepeek search zod error returns matching Module Export names and the complete count.",
-  },
-});
+    parameters: {
+      flags: inspectionTargetFlags,
+      positional: {
+        kind: "tuple",
+        parameters: [specifierParameter, exportSearchQueryParameter],
+      },
+    },
+    docs: {
+      brief:
+        scope === undefined
+          ? "Find export names containing a case-insensitive substring."
+          : "Discover exports by names and attached documentation, with signatures.",
+      fullDescription:
+        scope === undefined
+          ? "Search export names by case-insensitive substring. Use discover when you know a behavior rather than a name."
+          : "Match a case-insensitive substring in export names and attached JSDoc, not documentation files or semantic similarity. Results include complete signatures and marked, untrusted documentation excerpts.",
+    },
+  });
+}
+
+const searchCommand = buildExportSearchCommand();
+const discoverCommand = buildExportSearchCommand("documentation");
 
 const subpathsCommand = buildCommand<InspectionTargetOptions, [string], ApplicationContext>({
   async func(options, specifier) {
@@ -621,6 +633,7 @@ const rootRoute = buildRouteMap({
     signatures: signaturesCommand,
     plan: planCommand,
     search: searchCommand,
+    discover: discoverCommand,
     subpaths: subpathsCommand,
     declarations: declarationsCommand,
     member: memberCommand,
@@ -633,7 +646,7 @@ const rootRoute = buildRouteMap({
   docs: {
     brief: "Inspect TypeScript interfaces from installed packages and Node platform modules.",
     fullDescription:
-      "Use overview or search to find exports, subpaths to find public entrypoints, and members to find public members. Inspect signatures, declarations, or a member for details; use export to include documentation and supporting types. Run known queries together with plan, or compare export names and subpaths with compare. For machine integration, run capabilities before sending requests to protocol. Common flags may precede or follow an explicit inspection command.",
+      "Use overview or search to find exports, discover to match names and attached documentation with signatures, subpaths to find public entrypoints, and members to find public members. Inspect signatures, declarations, or a member for details; use export to include documentation and supporting types. Run known queries together with plan, or compare export names and subpaths with compare. For machine integration, run capabilities before sending requests to protocol. Common flags may precede or follow an explicit inspection command.",
   },
 });
 

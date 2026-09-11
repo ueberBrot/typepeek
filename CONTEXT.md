@@ -106,6 +106,10 @@ _Avoid_: Interface Overview, directory listing, deep-import scan
 A bounded, case-insensitive name search over the Module Exports of one Inspectable Module. It contains matching names and the complete candidate count.
 _Avoid_: Interface Overview filter, fuzzy search, documentation search
 
+**Documented Export Search**:
+A bounded, case-insensitive substring search over Module Export names and their attached Package Documentation. Matches include complete call and construct signatures and marked, untrusted documentation excerpts, without Supporting Type expansion; an empty result establishes only that the phrase did not match.
+_Avoid_: semantic search, behaviour proof
+
 **Export Inspection**:
 A focused Inspection Result for one Module Export containing its relevant declarations, bounded Supporting Types, and Package Documentation.
 _Avoid_: show, lookup

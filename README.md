@@ -33,22 +33,20 @@ The skill guides agents in choosing an inspection and retrieving installed evide
 
 ## Benchmark
 
-This controlled test measures dependency discovery, not end-to-end coding productivity; a real-world benefit is not established. Samples are small and uneven, so compare tools within each row, not models across rows.
+This controlled test compares agents searching and reading dependency files without Typepeek against agents given the Typepeek CLI and its shipped skill. Five fixed dependency-discovery tasks do not establish a real-world productivity benefit.
 
-Local run on 2026-09-11: five behavior-based questions, Apple M1 Max, Codex 0.154.0. The two-million-token cap stopped the run after **52 of 240 scheduled attempts**; CLI trials include the shipped Typepeek skill.
+| Model / effort       | Without CLI: median time | With CLI + skill: median time | Without CLI: verified | With CLI + skill: verified |
+| -------------------- | ------------------------ | ----------------------------- | --------------------- | -------------------------- |
+| GPT-5.6 Terra / low  | 7.6 s                    | 12.9 s                        | 14/15                 | 15/15                      |
+| GPT-5.6 Terra / high | 8.3 s                    | 12.8 s                        | 15/15                 | 15/15                      |
+| GPT-5.6 Luna / low   | 9.8 s                    | 14.3 s                        | 15/15                 | 13/15                      |
+| GPT-5.6 Luna / high  | 15.9 s                   | 21.6 s                        | 15/15                 | 15/15                      |
+| GPT-5.6 Sol / low    | 7.7 s                    | 13.7 s                        | 13/15                 | 15/15                      |
+| GPT-5.6 Sol / high   | 8.5 s                    | 15.8 s                        | 15/15                 | 15/15                      |
+| GPT-6 Astra / low    | 9.2 s                    | 11.6 s                        | 15/15                 | 15/15                      |
+| GPT-6 Astra / high   | 13.4 s                   | 11.7 s                        | 15/15                 | 14/15                      |
 
-| Model / effort       | Evidence found: files · CLI | Median seconds: files · CLI | Successful pairs |
-| -------------------- | --------------------------- | --------------------------- | ---------------- |
-| GPT-5.6 Terra / low  | 6/6 · 6/6                   | 8.5 · 11.9                  | 6                |
-| GPT-5.6 Terra / high | 3/3 · 3/3                   | 16.2 · 11.6                 | 3                |
-| GPT-5.6 Luna / low   | 3/4 · 4/4                   | 29.9 · 18.7                 | 3                |
-| GPT-5.6 Luna / high  | 1/1 · 1/1                   | 28.1 · 13.8                 | 1                |
-| GPT-5.6 Sol / low    | 2/2 · 2/2                   | 9.7 · 13.3                  | 2                |
-| GPT-5.6 Sol / high   | Not run                     | —                           | 0                |
-| GPT-6 Astra / low    | 6/6 · 6/6                   | 8.9 · 17.1                  | 6                |
-| GPT-6 Astra / high   | 4/4 · 4/4                   | 8.1 · 12.2                  | 4                |
-
-Time runs from question submission to sufficient retrieved evidence, excluding final-answer writing. Medians use only successful matched pairs; success counts include all attempts. Neither approach was consistently faster. [Method and reproduction instructions](benchmarks/README.md).
+Times measure retrieval of sufficient evidence for verified matched pairs. These results show no general speedup from CLI plus skill. [Method, limitations, and reproduction](benchmarks/README.md).
 
 ## Documentation
 

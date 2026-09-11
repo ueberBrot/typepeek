@@ -9,6 +9,7 @@ const searchOutcomeSchema = Schema.Struct({
     intent: Schema.Literal("export-search"),
     specifier: Schema.String,
     query: Schema.String,
+    scope: Schema.optionalKey(Schema.Never),
     matches: Schema.Array(Schema.Struct({ name: Schema.String })),
   }),
 });
@@ -23,6 +24,15 @@ const signatureOutcomeSchema = Schema.Struct({
         Schema.Struct({ kind: Schema.Literals(["call", "construct"]), text: Schema.String }),
       ),
     }),
+  }),
+});
+const documentedSearchOutcomeSchema = Schema.Struct({
+  status: Schema.Literal("success"),
+  result: Schema.Struct({
+    intent: Schema.Literal("export-search"),
+    scope: Schema.Literal("documentation"),
+    specifier: Schema.String,
+    matches: Schema.Array(signatureOutcomeSchema.fields.result.fields.moduleExport),
   }),
 });
 const planOutcomeSchema = Schema.Struct({
@@ -50,7 +60,19 @@ export function typepeekFacts(workload: DiscoveryWorkload, serialized: string): 
     const { result } = outcome;
     return result.matches.map(({ name }) => name).sort();
   }
-  const outcome = outcomes
+  const signatureOutcomes = outcomes.flatMap((outcome) =>
+    Schema.is(documentedSearchOutcomeSchema)(outcome)
+      ? outcome.result.matches.map((moduleExport) => ({
+          status: "success",
+          result: {
+            intent: "signature-inspection",
+            specifier: outcome.result.specifier,
+            moduleExport,
+          },
+        }))
+      : [outcome],
+  );
+  const outcome = signatureOutcomes
     .filter(Schema.is(signatureOutcomeSchema))
     .find(
       ({ result }) =>

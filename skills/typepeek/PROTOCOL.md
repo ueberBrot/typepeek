@@ -14,6 +14,6 @@ Each request validates current Installed Evidence and can observe changes since 
 
 - Inspect each response's `outcome.status`. An inspection failure permits further requests but leaves the final process exit status nonzero, even if later requests succeed.
 - A wire error has top-level `wireVersion`, `status`, and `reason` fields and ends the stream. Correct the input and start a new process before resuming.
-- For export pagination, read `outcome.result.exportPage` and put its `nextCursor` in the next overview request's `request.cursor`. Apply the count, completion, and restart rules in [Browse large export indexes](SKILL.md#browse-large-export-indexes).
+- For export pagination, read `outcome.result.exportPage` and put its `nextCursor` in the next overview request's `request.cursor`. Apply the count, completion, and restart rules in [Browse large indexes](ADVANCED.md#browse-large-indexes).
 
 Finish when every submitted request has a response and the process has exited, or a wire/process failure accounts for the unanswered requests.

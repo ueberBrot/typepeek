@@ -11,6 +11,7 @@ import { exportPageSchema, isConsistentExportPage } from "#typepeek/inspection/e
 import {
   MAX_INSPECTION_PLAN_QUERIES,
   isBoundedExportSearchQuery,
+  exportSearchScopeSchema,
 } from "#typepeek/inspection/inspection-plan-query";
 import {
   memberPathSchema,
@@ -249,13 +250,37 @@ const signatureInspectionSchema = inspectionResultWithIdentity({
 const exportSearchSchema = inspectionResultWithIdentity({
   intent: Schema.Literal("export-search"),
   query: Schema.String,
+  scope: exportSearchScopeSchema,
   totalModuleExports: Schema.Natural.check(Schema.isLessThanOrEqualTo(MAX_EXPORT_INDEX_CANDIDATES)),
-  matches: moduleExportIndexSchema.check(Schema.isMaxLength(MAX_EXPORT_SEARCH_MATCHES)),
+  matches: Schema.Array(
+    Schema.Struct({
+      name: Schema.String,
+      signatures: Schema.optionalKey(Schema.Array(exportSignatureSchema)),
+      packageDocumentation: Schema.optionalKey(
+        Schema.Struct({
+          ...packageDocumentationSchema.fields,
+          excerpt: Schema.Literal(true),
+        }),
+      ),
+    }),
+  ).check(Schema.isMaxLength(MAX_EXPORT_SEARCH_MATCHES)),
 }).check(
   Schema.makeFilter(
     (value) =>
       value.matches.length <= value.totalModuleExports &&
-      value.matches.every(({ name }) => name.toLowerCase().includes(value.query.toLowerCase())),
+      value.matches.every(
+        (match, index) =>
+          (index === 0 || value.matches[index - 1]!.name < match.name) &&
+          (value.scope === "documentation"
+            ? match.signatures !== undefined &&
+              (match.name.toLowerCase().includes(value.query.toLowerCase()) ||
+                match.packageDocumentation?.text
+                  .toLowerCase()
+                  .includes(value.query.toLowerCase()) === true)
+            : match.signatures === undefined &&
+              match.packageDocumentation === undefined &&
+              match.name.toLowerCase().includes(value.query.toLowerCase())),
+      ),
     { expected: "Module Export matches consistent with the search query and candidate count" },
   ),
 );

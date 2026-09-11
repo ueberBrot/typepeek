@@ -20,6 +20,14 @@ The default matrix has five tasks, three repetitions, and two conditions across 
 
 Defaults: 120 seconds per process, a 60,000-token rollout budget per trial, and 2,000,000 reported tokens per campaign. The campaign budget is checked between attempts and can overshoot by one. Missing usage stops further trials; known counts remain recorded. Infrastructure failures stop the campaign and are reported separately from task failures.
 
+For the full matrix, allow a larger campaign budget:
+
+```bash
+vp run benchmark --total-token-limit 10000000
+```
+
+Choose the matrix before running and keep the grader, prompts, and CLI build fixed throughout. If the budget cannot cover the full matrix, choose fewer models or effort levels upfront while retaining every task and both conditions. A budget-stopped run is partial, not a balanced replacement.
+
 Each trial uses a fresh session, isolated host configuration, and reset consumer workspace. Dependencies are read-only. Source, grader, previous answers, host skills, and network access are unavailable. Existing file-based authentication is linked into temporary configuration; credentials are never copied into reports. The benchmark executes the packaged CLI and never builds inside a measurement.
 
 ## Read results
@@ -29,6 +37,8 @@ Schema v4 measures **task submission to sufficient returned evidence**. A monoto
 An independent TypeScript consumer constructs the answer key from installed declarations. Grading requires complete signatures or export-name results. Declaration fragments can accumulate across responses, preserving numbered file boundaries. Codex command-result JSON wrappers are decoded for matching; token counts still use the original responses. An empty grep result cannot establish absence: that requires a complete export index or verified structured search. A correct final answer without retrieved evidence is insufficient. Unrecognized output formats can remain unverified.
 
 Compare **success rates and per-task times together**. Reports retain failures, coverage, CLI adoption, and paired timing/token ratios among successful pairs; a faster successful subset does not establish a better overall treatment. Intervals describe repeated-run variability within these fixed tasks, not uncertainty across packages. Fewer than five pairs yield no bootstrap interval. Results may favor either condition.
+
+The published Astra/high CLI counts exclude one correct retrieval whose parallel-tool output format the grader could not recognize.
 
 Evidence tokens use pinned `gpt-tokenizer@4.0.0` with `o200k_base`, not model-specific billing. Acquisition model usage is unknown; whole-run usage includes failures and is separate. Cached input is part of input, and reasoning is part of output. Prompt counts include the skill but exclude provider instructions and tool schemas. Raw responses, not display logs, supply evidence. Responses over 262,144 bytes, unsupported content, or compaction before acquisition invalidate measurement.
 
