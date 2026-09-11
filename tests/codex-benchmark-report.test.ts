@@ -36,6 +36,8 @@ function attempt(
       status: "complete",
       invalidReason: null,
       firstRequestMilliseconds: 0,
+      taskSubmittedMilliseconds: 0,
+      taskToEvidenceSeconds: seconds,
       sufficientEvidenceMilliseconds: seconds * 1000,
       retrievalSeconds: seconds,
       toolRoundTripSeconds: seconds,

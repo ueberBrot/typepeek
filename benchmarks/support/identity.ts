@@ -4,9 +4,23 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { cpus, hostname, release } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
-import { inspectWithCompiler } from "./compiler.ts";
-import type { DiscoveryIdentity } from "./report.ts";
-import type { DiscoveryWorkload } from "./workloads.ts";
+export interface DiscoveryIdentity {
+  readonly workspace: string;
+  readonly node: string;
+  readonly compiler: string;
+  readonly ripgrep: string;
+  readonly platform: string;
+  readonly architecture: string;
+  readonly osRelease: string;
+  readonly cpu: string;
+  readonly hostname: string;
+  readonly adapter: "package";
+  readonly evidenceHash: string;
+  readonly lockfileHash: string;
+  readonly artifactHash: string;
+  readonly harnessHash: string;
+  readonly commit: string;
+}
 
 export function hashText(text: string): string {
   return createHash("sha256").update(text).digest("hex");
@@ -34,16 +48,6 @@ export function evidenceFingerprint(workspace: string, files: readonly string[])
     }
   }
   return hashFiles(workspace, [...selected]);
-}
-
-export function currentEvidenceFingerprint(
-  workspace: string,
-  workloads: readonly DiscoveryWorkload[],
-): string {
-  return evidenceFingerprint(
-    workspace,
-    workloads.flatMap((workload) => inspectWithCompiler(workspace, workload).files),
-  );
 }
 
 export async function discoveryIdentity(options: {
@@ -78,7 +82,7 @@ export async function discoveryIdentity(options: {
     evidenceHash: options.evidenceHash,
     lockfileHash: hashFiles(options.workspace, lockfiles),
     artifactHash: hashFiles(repository, sourceFiles("dist", ".js")),
-    harnessHash: hashFiles(repository, sourceFiles("benchmarks/discovery", ".ts")),
+    harnessHash: hashFiles(repository, sourceFiles("benchmarks/support", ".ts")),
     commit: git.stdout || "unavailable",
   };
 }

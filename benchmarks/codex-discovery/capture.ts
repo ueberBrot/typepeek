@@ -182,6 +182,10 @@ export async function captureCodex(launch: CodexLaunch) {
     if (thread.instructionSources.length !== 0)
       throw new Error("Host instructions leaked into the benchmark thread.");
     threadId = thread.thread.id;
+    events.push({
+      milliseconds: performance.now() - started,
+      event: { method: "benchmark/taskSubmitted", params: { threadId } },
+    });
     await request("turn/start", {
       threadId,
       input: [{ type: "text", text: launch.prompt }],

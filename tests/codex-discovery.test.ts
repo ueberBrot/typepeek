@@ -11,7 +11,7 @@ import {
   gradeCodexExecution,
   selectCodexScenarios,
 } from "../benchmarks/codex-discovery/scenarios.ts";
-import { signatureFact } from "../benchmarks/discovery/signature.ts";
+import { signatureFact } from "../benchmarks/support/signature.ts";
 
 it("previews the eight-runner matrix reproducibly without creating trial artifacts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-schedule-"));
@@ -28,10 +28,9 @@ it("previews the eight-runner matrix reproducibly without creating trial artifac
     const plan = JSON.parse(first.stdout) as {
       trials: { model: string; effort: string; condition: string }[];
     };
-    expect(plan.trials).toHaveLength(360);
+    expect(plan.trials).toHaveLength(240);
     expect([...new Set(plan.trials.map(({ condition }) => condition))].sort()).toEqual([
       "files",
-      "typepeek",
       "typepeek-skill",
     ]);
     expect(

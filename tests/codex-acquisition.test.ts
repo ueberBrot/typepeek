@@ -76,6 +76,10 @@ async function replay(events: readonly unknown[], answerKey: unknown = oracle, w
 
 it("stops retrieval measurement when sufficient evidence arrives, before later work and the final answer", async () => {
   const result = await replay([
+    {
+      milliseconds: 100,
+      event: { method: "benchmark/taskSubmitted", params: { threadId: "thread" } },
+    },
     command(1000, "read"),
     command(3000, "read", "export function parseCommandString(command: string): string[];"),
     command(4000, "extra"),
@@ -93,6 +97,8 @@ it("stops retrieval measurement when sufficient evidence arrives, before later w
     firstRequestMilliseconds: 1000,
     sufficientEvidenceMilliseconds: 3000,
     retrievalSeconds: 2,
+    taskToEvidenceSeconds: 2.9,
+    taskSubmittedMilliseconds: 100,
     toolRoundTripSeconds: 2,
     toolExecutionSeconds: null,
     retrievalCalls: 1,
@@ -127,7 +133,12 @@ it("builds its evidence answer key independently from the installed declaration 
       undefined,
       workspace,
     );
-    expect(result).toMatchObject({ status: "complete", retrievalSeconds: 1, missingFacts: [] });
+    expect(result).toMatchObject({
+      status: "complete",
+      retrievalSeconds: 1,
+      taskToEvidenceSeconds: null,
+      missingFacts: [],
+    });
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
@@ -517,8 +528,8 @@ it("grades an acquisition campaign by retrieved evidence even when the final ans
       { env: { PATH: `${bin}:${process.env["PATH"]}` }, timeout: 60000 },
     );
     const study = JSON.parse(await readFile(join(output, "summary.json"), "utf8"));
-    expect(study.schemaVersion).toBe(3);
-    expect(study.attempts).toHaveLength(3);
+    expect(study.schemaVersion).toBe(4);
+    expect(study.attempts).toHaveLength(2);
     for (const attempt of study.attempts) {
       expect(attempt).toMatchObject({
         passed: true,
@@ -526,11 +537,14 @@ it("grades an acquisition campaign by retrieved evidence even when the final ans
         finalAnswer: { passed: false },
       });
       expect(attempt.acquisition.retrievalSeconds).toBeLessThan(attempt.seconds);
+      expect(attempt.acquisition.taskToEvidenceSeconds).toBeGreaterThan(
+        attempt.acquisition.retrievalSeconds,
+      );
       expect(attempt.acquisition.evidenceTokens).toBeGreaterThan(0);
       const group = study.groups.find(
         (value: { condition: string }) => value.condition === attempt.condition,
       );
-      expect(group.successfulSeconds.mean).toBe(attempt.acquisition.retrievalSeconds);
+      expect(group.successfulSeconds.mean).toBe(attempt.acquisition.taskToEvidenceSeconds);
       expect(group.successfulEvidenceTokens.mean).toBe(attempt.acquisition.evidenceTokens);
       expect(group.wholeRun.successfulSeconds.mean).toBe(attempt.seconds);
       expect(attempt.instructionTokens.prompt).toBeGreaterThan(0);
@@ -544,7 +558,7 @@ it("grades an acquisition campaign by retrieved evidence even when the final ans
       expect(group.coverageComplete).toBe(true);
       expect(group.precisionWithinTenPercent).toBeNull();
     }
-    expect(await readFile(join(output, "summary.md"), "utf8")).toContain("Time to evidence");
+    expect(await readFile(join(output, "summary.md"), "utf8")).toContain("Task-to-evidence time");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -587,6 +601,41 @@ it("retains completed acquisition and known usage when final-answer generation f
       wholeRunError: "Late model failure",
       telemetry: { inputTokens: 100, outputTokens: 20, usageComplete: false },
     });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("preserves an existing replay artifact instead of overwriting it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "codex-replay-preservation-"));
+  try {
+    const trace = join(directory, "events.timed.jsonl");
+    const answerKey = join(directory, "oracle.json");
+    const output = join(directory, "acquisition.json");
+    await writeFile(
+      trace,
+      [command(1000, "read"), command(2000, "read", oracle.declarations[0]!.text)]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
+    );
+    await writeFile(answerKey, JSON.stringify(oracle));
+    await writeFile(output, "retained evidence");
+    const result = await execa(
+      process.execPath,
+      [
+        "benchmarks/codex-discovery/replay.ts",
+        "--trace",
+        trace,
+        "--oracle",
+        answerKey,
+        "--output",
+        output,
+      ],
+      { reject: false },
+    );
+    expect(result.failed).toBe(true);
+    expect(result.stderr).toContain("EEXIST");
+    expect(await readFile(output, "utf8")).toBe("retained evidence");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

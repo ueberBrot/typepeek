@@ -1,8 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 
-import { inspectWithCompiler } from "../discovery/compiler.ts";
-import { selectDiscoveryWorkloads } from "../discovery/workloads.ts";
+import { inspectWithCompiler } from "../support/compiler.ts";
+import { selectDiscoveryWorkloads } from "../support/workloads.ts";
 import {
   decodeAcquisitionOracle,
   decodeTimedCodexEvents,

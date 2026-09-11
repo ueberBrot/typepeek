@@ -40,16 +40,6 @@ function quantile(sorted: readonly number[], fraction: number): number {
   return sorted[lower]! + (sorted[Math.ceil(position)]! - sorted[lower]!) * (position - lower);
 }
 
-export function medianValue(values: readonly number[]): number {
-  if (values.length === 0 || values.some((value) => !Number.isFinite(value))) {
-    throw new TypeError("A median requires finite observations.");
-  }
-  return quantile(
-    values.toSorted((left, right) => left - right),
-    0.5,
-  );
-}
-
 function criticalValue(degreesOfFreedom: number): number {
   const values = [
     12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.16,

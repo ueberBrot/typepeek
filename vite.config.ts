@@ -169,16 +169,12 @@ export default defineConfig({
         dependsOn: ["pack"],
         output: [],
       },
-      "benchmark:discovery": {
-        command: "node benchmarks/discovery/run.ts",
-        cache: false,
-      },
-      "benchmark:codex": {
+      benchmark: {
         command: "node benchmarks/codex-discovery/run.ts",
         cache: false,
       },
       "benchmark:smoke": {
-        command: "node tests/discovery-benchmark-package-smoke.ts",
+        command: "node tests/benchmark-package-smoke.ts",
         cache: false,
       },
       test: {

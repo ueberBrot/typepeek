@@ -80,15 +80,7 @@ jobs:
       - name: Smoke-test package
         run: vp run package-smoke
 
-      - name: Set up discovery benchmark tools
-        run: |
-          if ! command -v rg >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install --yes --no-install-recommends ripgrep
-          fi
-          rg --version
-
-      - name: Check packaged discovery benchmark correctness
+      - name: Check benchmark workload correctness (no model calls or timing gates)
         run: vp run benchmark:smoke
 
   consumer-compatibility:

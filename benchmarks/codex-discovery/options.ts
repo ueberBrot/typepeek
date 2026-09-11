@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { seededRandom, shuffled } from "../discovery/statistics.ts";
+import { seededRandom, shuffled } from "../support/statistics.ts";
 import type { CodexCondition, CodexScenario } from "./scenarios.ts";
 
 const CODEX_MODELS = ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-6-astra"] as const;
@@ -14,7 +14,7 @@ export function readCodexOptions() {
   --cases IDS               Comma-separated workload IDs or all (default: five-package suite)
   --models IDS              Codex model IDs (default: Terra, Luna, Sol, Astra)
   --efforts LEVELS          low,high (default: both)
-  --conditions VALUES       files,typepeek,typepeek-skill,typepeek-required (default: files,typepeek,typepeek-skill)
+  --conditions VALUES       files,typepeek-skill (default); typepeek and typepeek-required are optional diagnostics
   --repeats N               Fresh trials per task/model/effort/condition (default: 3)
   --deadline-seconds N      Hard per-trial deadline (default: 120)
   --trial-token-limit N     Codex rollout budget per trial (default: 60000)
@@ -37,7 +37,7 @@ The fixtures and grading are deterministic; live Codex time and token usage are 
       },
       models: { type: "string", default: CODEX_MODELS.join(",") },
       efforts: { type: "string", default: CODEX_EFFORTS.join(",") },
-      conditions: { type: "string", default: "files,typepeek,typepeek-skill" },
+      conditions: { type: "string", default: "files,typepeek-skill" },
       repeats: { type: "string", default: "3" },
       "deadline-seconds": { type: "string", default: "120" },
       "trial-token-limit": { type: "string", default: "60000" },

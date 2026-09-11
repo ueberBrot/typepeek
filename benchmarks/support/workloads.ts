@@ -4,7 +4,6 @@ export interface DiscoveryWorkload {
   readonly specifier: string;
   readonly kind: "search" | "signatures";
   readonly target: string;
-  readonly filesPackage?: string;
   readonly expectedCount?: number;
 }
 
@@ -15,7 +14,6 @@ const DISCOVERY_WORKLOADS: readonly DiscoveryWorkload[] = [
     specifier: "execa",
     kind: "signatures",
     target: "parseCommandString",
-    filesPackage: "execa",
     expectedCount: 1,
   },
   {
@@ -24,7 +22,6 @@ const DISCOVERY_WORKLOADS: readonly DiscoveryWorkload[] = [
     specifier: "execa",
     kind: "signatures",
     target: "getCancelSignal",
-    filesPackage: "execa",
     expectedCount: 1,
   },
   {
@@ -56,7 +53,6 @@ const DISCOVERY_WORKLOADS: readonly DiscoveryWorkload[] = [
     specifier: "node:fs",
     kind: "signatures",
     target: "readFile",
-    filesPackage: "@types/node",
   },
   {
     id: "node-exists",
@@ -64,7 +60,6 @@ const DISCOVERY_WORKLOADS: readonly DiscoveryWorkload[] = [
     specifier: "node:fs",
     kind: "signatures",
     target: "existsSync",
-    filesPackage: "@types/node",
     expectedCount: 1,
   },
   {
@@ -82,7 +77,6 @@ const DISCOVERY_WORKLOADS: readonly DiscoveryWorkload[] = [
     specifier: "@stricli/core",
     kind: "signatures",
     target: "buildRouteMap",
-    filesPackage: "@stricli/core",
     expectedCount: 1,
   },
   {

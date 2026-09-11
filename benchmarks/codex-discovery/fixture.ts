@@ -242,6 +242,11 @@ async function repositoryEvidencePaths(): Promise<readonly string[]> {
       .map((field) => field.slice("worktree ".length)),
   ]);
   return [...roots].flatMap((root) =>
-    ["benchmarks/discovery/compiler.ts", "src/cli.ts"].map((path) => join(root, path)),
+    [
+      "benchmarks/support/compiler.ts",
+      "benchmarks/discovery/compiler.ts",
+      "benchmarks/codex-discovery/acquisition.ts",
+      "src/cli.ts",
+    ].map((path) => join(root, path)),
   );
 }

@@ -3,13 +3,13 @@ import { countTokens } from "gpt-tokenizer/encoding/o200k_base";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import { inspectWithCompiler } from "../discovery/compiler.ts";
+import { inspectWithCompiler } from "../support/compiler.ts";
 import {
   discoveryIdentity,
   evidenceFingerprint,
   hashText,
   requirePackagedArtifact,
-} from "../discovery/identity.ts";
+} from "../support/identity.ts";
 import { type AcquisitionOracle, measureAcquisition } from "./acquisition.ts";
 import { captureCodex } from "./capture.ts";
 import { createCodexFixture, createCodexTrial, verifyCodexIsolation } from "./fixture.ts";
@@ -233,7 +233,7 @@ async function runStudy(): Promise<void> {
     await writeFile(join(directory, "result.json"), JSON.stringify(attempt, null, 2));
     await saveSummary("running");
     process.stderr.write(
-      `  ${attempt.passed ? "evidence complete" : "FAILED"}: acquisition ${acquisition.retrievalSeconds?.toFixed(3) ?? "unknown"} s, ${acquisition.evidenceTokens} evidence tokens; whole run ${seconds.toFixed(1)} s, input ${telemetry.inputTokens ?? "unknown"}, output ${telemetry.outputTokens ?? "unknown"}, ${telemetry.commands.length} commands.\n`,
+      `  ${attempt.passed ? "evidence complete" : "FAILED"}: acquisition ${acquisition.taskToEvidenceSeconds?.toFixed(3) ?? "unknown"} s, ${acquisition.evidenceTokens} evidence tokens; whole run ${seconds.toFixed(1)} s, input ${telemetry.inputTokens ?? "unknown"}, output ${telemetry.outputTokens ?? "unknown"}, ${telemetry.commands.length} commands.\n`,
     );
     if (attempt.classification === "infrastructure") {
       await saveSummary("infrastructure-failure");

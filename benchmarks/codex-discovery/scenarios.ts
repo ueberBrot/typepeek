@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
-import { signatureFact } from "../discovery/signature.ts";
-import { type DiscoveryWorkload, selectDiscoveryWorkloads } from "../discovery/workloads.ts";
+import { signatureFact } from "../support/signature.ts";
+import { type DiscoveryWorkload, selectDiscoveryWorkloads } from "../support/workloads.ts";
 
 export type CodexCondition = "files" | "typepeek" | "typepeek-skill" | "typepeek-required";
 export interface CodexScenario {

@@ -1,8 +1,8 @@
 import { Schema } from "effect";
 import { countTokens } from "gpt-tokenizer/encoding/o200k_base";
 
-import { typepeekFacts } from "../discovery/evidence.ts";
-import { signatureFact } from "../discovery/signature.ts";
+import { typepeekFacts } from "../support/evidence.ts";
+import { signatureFact } from "../support/signature.ts";
 
 const millisecondsSchema = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0));
 const oracleSchema = Schema.Struct({
@@ -23,6 +23,10 @@ export const decodeAcquisitionOracle = Schema.decodeUnknownSync(oracleSchema);
 const observationSchema = Schema.Struct({
   milliseconds: millisecondsSchema,
   event: Schema.Unknown,
+});
+const submissionSchema = Schema.Struct({
+  method: Schema.Literal("benchmark/taskSubmitted"),
+  params: Schema.Struct({ threadId: Schema.String }),
 });
 export type TimedCodexEvent = typeof observationSchema.Type;
 
@@ -72,6 +76,8 @@ export function measureAcquisition(oracle: AcquisitionOracle, events: readonly T
   let invalidReason: string | null = null;
   let previousMilliseconds = 0;
   let identity: string | undefined;
+  let submittedThread: string | undefined;
+  let taskSubmittedMilliseconds: number | null = null;
   let firstRequestMilliseconds: number | null = null;
   let sufficientEvidenceMilliseconds: number | null = null;
   let toolMilliseconds = 0;
@@ -93,11 +99,24 @@ export function measureAcquisition(oracle: AcquisitionOracle, events: readonly T
       break;
     }
     previousMilliseconds = milliseconds;
+    if (Schema.is(submissionSchema)(event)) {
+      if (taskSubmittedMilliseconds !== null || firstRequestMilliseconds !== null) {
+        invalidReason = "Task submission must precede retrieval and occur once.";
+        break;
+      }
+      submittedThread = event.params.threadId;
+      taskSubmittedMilliseconds = milliseconds;
+      continue;
+    }
     if (Schema.is(executionSchema)(event)) {
       commandMilliseconds += event.params.item.durationMs;
       measuredCommands += 1;
     }
     if (!Schema.is(rawItemSchema)(event)) continue;
+    if (submittedThread !== undefined && submittedThread !== event.params.threadId) {
+      invalidReason = "Task submission and evidence belong to different threads.";
+      break;
+    }
     const currentIdentity = JSON.stringify([event.params.threadId, event.params.turnId]);
     identity ??= currentIdentity;
     if (identity !== currentIdentity) {
@@ -211,6 +230,11 @@ export function measureAcquisition(oracle: AcquisitionOracle, events: readonly T
           ? "insufficient"
           : "complete",
     invalidReason,
+    taskSubmittedMilliseconds,
+    taskToEvidenceSeconds:
+      taskSubmittedMilliseconds === null || sufficientEvidenceMilliseconds === null
+        ? null
+        : (sufficientEvidenceMilliseconds - taskSubmittedMilliseconds) / 1000,
     firstRequestMilliseconds,
     sufficientEvidenceMilliseconds,
     retrievalSeconds:
