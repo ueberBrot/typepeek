@@ -166,19 +166,15 @@ export function measureAcquisition(oracle: AcquisitionOracle, events: readonly T
         continue;
       }
     }
-    const numbered = returnedText
-      .replace(
-        /^(?:Script completed|Wall time[^\n]*|Chunk ID:[^\n]*|Process exited[^\n]*|(?:Final )?[Oo]utput:|```(?:typescript|ts)?)[\r\n]*/gmu,
-        "",
-      )
-      .replace(/^(?:[^\n]*?\.(?:[cm]?ts|tsx)[:-])?\d+[:-]/gmu, "");
-    sourceBodies.push(numbered);
-    const output = signatureFact("declaration", numbered).slice("declaration:".length);
-    const accumulated = signatureFact("declaration", sourceBodies.join("\n")).slice(
-      "declaration:".length,
+    const numbered = returnedText.replace(
+      /^(?:Script completed|Wall time[^\n]*|Chunk ID:[^\n]*|Process exited[^\n]*|(?:Final )?[Oo]utput:|```(?:typescript|ts)?)[\r\n]*/gmu,
+      "",
     );
-    const contains = (text: string) =>
-      [output, accumulated].some((body) => ` ${body} `.includes(` ${text} `));
+    sourceBodies.push(numbered.trim());
+    const outputs = [...sourceFragments(numbered), ...sourceFragments(sourceBodies.join("\n"))].map(
+      (text) => signatureFact("declaration", text).slice("declaration:".length),
+    );
+    const contains = (text: string) => outputs.some((body) => ` ${body} `.includes(` ${text} `));
     for (const declaration of oracle.declarations) {
       const text = signatureFact("declaration", declaration.text).slice("declaration:".length);
       if (contains(text)) matched.add(declaration.fact);
@@ -236,6 +232,35 @@ export function measureAcquisition(oracle: AcquisitionOracle, events: readonly T
       : oracle.exportDeclarations.filter((declaration) => !indexes.has(declaration)).length,
     evidenceEvents,
   };
+}
+
+function sourceFragments(text: string): string[] {
+  const fragments: string[] = [];
+  let previousFile: string | undefined;
+  let previousLine: number | undefined;
+  for (const line of text.split("\n")) {
+    const match = /^(?:(.*?\.(?:[cm]?[jt]s|[jt]sx))[:-])?(\d+)[:-](.*)$/u.exec(line);
+    if (match === null) {
+      if (previousLine === undefined && fragments.length > 0) {
+        fragments[fragments.length - 1] += `\n${line}`;
+      } else {
+        fragments.push(line);
+      }
+      previousFile = undefined;
+      previousLine = undefined;
+      continue;
+    }
+    const [, file, number, body] = match;
+    const lineNumber = Number(number);
+    if (file === previousFile && previousLine !== undefined && lineNumber === previousLine + 1) {
+      fragments[fragments.length - 1] += `\n${body}`;
+    } else {
+      fragments.push(body!);
+    }
+    previousFile = file;
+    previousLine = lineNumber;
+  }
+  return fragments;
 }
 
 function* jsonObjects(text: string): Generator<string> {

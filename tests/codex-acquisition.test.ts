@@ -158,6 +158,69 @@ it("does not credit evidence present only in the command log rather than the too
   });
 });
 
+it("recognizes a declaration after unrelated grep matches with incomplete template syntax", async () => {
+  const result = await replay([
+    command(1000, "read"),
+    command(
+      2000,
+      "read",
+      [
+        "node_modules/execa/lib/command.js:4:throw new Error(`Invalid: ${String(command)}.`);",
+        "node_modules/execa/types/command.d.ts:2:Split a `command` string, like `$`.",
+        "node_modules/execa/types/command.d.ts:19:export function parseCommandString(command: string): string[];",
+      ].join("\n"),
+    ),
+  ]);
+  expect(result).toMatchObject({ status: "complete", retrievalSeconds: 1 });
+});
+
+it("preserves contiguous numbered declarations without joining gaps or separate files", async () => {
+  for (const prefix of ["", "node_modules/execa/index.d.ts:"]) {
+    for (const [lastPrefix, lastLine, status] of [
+      [prefix, 20, "complete"],
+      [prefix, 22, "insufficient"],
+      ["node_modules/execa/other.d.ts:", 20, "insufficient"],
+    ] as const) {
+      const result = await replay([
+        command(1000, "read"),
+        command(
+          2000,
+          "read",
+          `${prefix}19:export function parseCommandString(\n${lastPrefix}${lastLine}:command: string): string[];`,
+        ),
+      ]);
+      expect(result.status).toBe(status);
+    }
+  }
+});
+
+it("keeps comment and string boundaries when matching unnumbered source", async () => {
+  for (const text of [
+    `/*\n${oracle.declarations[0]!.text}\n*/`,
+    `const example = \`\n${oracle.declarations[0]!.text}\n\`;`,
+  ]) {
+    const result = await replay([command(1000, "read"), command(2000, "read", text)]);
+    expect(result.status).toBe("insufficient");
+  }
+});
+
+it("combines consecutive numbered reads across responses while preserving file and line boundaries", async () => {
+  for (const [file, line, status] of [
+    ["index.d.ts", 20, "complete"],
+    ["index.d.ts", 22, "insufficient"],
+    ["other.d.ts", 20, "insufficient"],
+  ] as const) {
+    const result = await replay([
+      command(1000, "first"),
+      command(2000, "first", "Output:\nindex.d.ts:19:export function parseCommandString(\n"),
+      command(3000, "second"),
+      command(4000, "second", `Output:\n${file}:${line}:command: string): string[];\n`),
+    ]);
+    expect(result.status).toBe(status);
+    expect(result.retrievalSeconds).toBe(status === "complete" ? 3 : null);
+  }
+});
+
 it("counts returned text with a named reference tokenizer even when retrieval is incomplete", async () => {
   const result = await replay([
     command(1000, "first"),
