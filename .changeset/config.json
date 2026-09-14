@@ -16,7 +16,7 @@
   "ignore": [],
   "bumpVersionsWithWorkspaceProtocolOnly": false,
   "changedFilePatterns": ["**"],
-  "format": "auto",
+  "format": false,
   "privatePackages": {
     "version": false,
     "tag": false
