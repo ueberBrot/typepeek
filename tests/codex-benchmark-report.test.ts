@@ -13,6 +13,7 @@ const options: CodexOptions = {
   deadlineSeconds: 120,
   trialTokenLimit: 60000,
   totalTokenLimit: 2000000,
+  startAt: 0,
   seed: 1729,
   output: "/unused",
   prepareOnly: false,

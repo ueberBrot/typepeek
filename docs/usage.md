@@ -74,7 +74,9 @@ npx typepeek search execa error
 npx typepeek declarations execa ExecaError
 ```
 
-When you know the behaviour rather than the name, `npx typepeek discover execa split --json` searches names and attached documentation and returns matching signatures in the same call. Matching is a case-insensitive substring, not semantic search. Results include all overloads and marked, untrusted documentation excerpts, without supporting types. An empty result means the phrase did not match; it does not prove the behaviour is unavailable.
+When you know the behaviour but not the export name, use `npx typepeek discover execa split --json`. It searches export names and attached documentation, returning matching signatures with all overloads and documentation excerpts in the same call. Excerpts are marked as untrusted; results omit supporting types.
+
+`discover` matches a case-insensitive substring. It does not perform semantic search. An empty result means the phrase did not match, not that the behaviour is unavailable. Try a shorter phrase or use `overview` to browse export names.
 
 Add `--json` for structured output. Add `--pretty` with `--json` when a person needs to read that output:
 

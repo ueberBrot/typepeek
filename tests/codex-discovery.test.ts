@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vite-plus/test";
 
+import { readCodexOptions } from "../benchmarks/codex-discovery/options.ts";
 import {
   codexPrompt,
   codexTelemetry,
@@ -12,6 +13,21 @@ import {
   selectCodexScenarios,
 } from "../benchmarks/codex-discovery/scenarios.ts";
 import { signatureFact } from "../benchmarks/support/signature.ts";
+
+it("allows an explicit unlimited campaign while retaining per-trial limits", () => {
+  const original = process.argv;
+  try {
+    process.argv = [process.execPath, "benchmark", "--total-token-limit", "unlimited"];
+    const options = readCodexOptions();
+    expect(options.totalTokenLimit).toBeNull();
+    expect(options.trialTokenLimit).toBe(60000);
+    expect(options.deadlineSeconds).toBe(120);
+    process.argv = [process.execPath, "benchmark"];
+    expect(readCodexOptions().totalTokenLimit).toBe(2000000);
+  } finally {
+    process.argv = original;
+  }
+});
 
 it("previews the eight-runner matrix reproducibly without creating trial artifacts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-schedule-"));
@@ -29,6 +45,8 @@ it("previews the eight-runner matrix reproducibly without creating trial artifac
       trials: { model: string; effort: string; condition: string }[];
     };
     expect(plan.trials).toHaveLength(240);
+    const continuation = await execa(process.execPath, [...args, "--start-at", "155"]);
+    expect(JSON.parse(continuation.stdout).trials).toEqual(plan.trials.slice(155));
     expect([...new Set(plan.trials.map(({ condition }) => condition))].sort()).toEqual([
       "files",
       "typepeek-skill",

@@ -16,6 +16,7 @@ Install Typepeek in a project that already contains the dependency you want to i
 npm install --save-dev typepeek
 npx typepeek overview execa
 npx typepeek search execa error
+npx typepeek discover execa split --json
 npx typepeek signatures execa execa --json
 ```
 
@@ -35,18 +36,17 @@ The skill guides agents in choosing an inspection and retrieving installed evide
 
 This controlled test compares agents searching and reading dependency files without Typepeek against agents given the Typepeek CLI and its shipped skill. Five fixed dependency-discovery tasks do not establish a real-world productivity benefit.
 
-| Model / effort       | Without CLI: median time | With CLI + skill: median time | Without CLI: verified | With CLI + skill: verified |
-| -------------------- | ------------------------ | ----------------------------- | --------------------- | -------------------------- |
-| GPT-5.6 Terra / low  | 7.6 s                    | 12.9 s                        | 14/15                 | 15/15                      |
-| GPT-5.6 Terra / high | 8.3 s                    | 12.8 s                        | 15/15                 | 15/15                      |
-| GPT-5.6 Luna / low   | 9.8 s                    | 14.3 s                        | 15/15                 | 13/15                      |
-| GPT-5.6 Luna / high  | 15.9 s                   | 21.6 s                        | 15/15                 | 15/15                      |
-| GPT-5.6 Sol / low    | 7.7 s                    | 13.7 s                        | 13/15                 | 15/15                      |
-| GPT-5.6 Sol / high   | 8.5 s                    | 15.8 s                        | 15/15                 | 15/15                      |
-| GPT-6 Astra / low    | 9.2 s                    | 11.6 s                        | 15/15                 | 15/15                      |
-| GPT-6 Astra / high   | 13.4 s                   | 11.7 s                        | 15/15                 | 14/15                      |
+| Task       | Files: time | CLI + skill: time | Files: tokens | CLI + skill: tokens |
+| ---------- | ----------: | ----------------: | ------------: | ------------------: |
+| TypeScript |      40.5 s |            12.2 s |         86.8k |               18.3k |
+| Stricli    |       8.1 s |            18.1 s |         29.5k |               34.3k |
+| Execa      |       8.5 s |            17.9 s |         26.6k |               33.2k |
+| Effect     |      10.7 s |            13.3 s |         30.4k |               19.3k |
+| Node       |       7.6 s |             9.6 s |         24.6k |               16.1k |
 
-Times measure retrieval of sufficient evidence for verified matched pairs. These results show no general speedup from CLI plus skill. [Method, limitations, and reproduction](benchmarks/README.md).
+Medians cover 118 matched pairs with verified evidence. Times measure task submission to sufficient evidence; tokens cover the whole task, including final-answer generation.
+
+Typepeek was faster on the TypeScript task and slower on the other four. Across all 240 attempts, it used 34.3% fewer tokens, although savings varied by task. [Method, limitations, and reproduction](benchmarks/README.md).
 
 ## Documentation
 

@@ -26,7 +26,10 @@ import {
 
 const options = readCodexOptions();
 const scenarios = selectCodexScenarios(options.cases);
-const schedule = scheduleCodexTrials(options, scenarios);
+const fullSchedule = scheduleCodexTrials(options, scenarios);
+if (options.startAt >= fullSchedule.length)
+  throw new Error("start-at must be within the schedule.");
+const schedule = fullSchedule.slice(options.startAt);
 if (options.dryRun) {
   process.stdout.write(
     `${JSON.stringify(
@@ -101,13 +104,13 @@ async function runStudy(): Promise<void> {
         sum + (attempt.telemetry.inputTokens ?? 0) + (attempt.telemetry.outputTokens ?? 0),
       0,
     );
-    if (accounted >= options.totalTokenLimit) {
+    if (options.totalTokenLimit !== null && accounted >= options.totalTokenLimit) {
       process.stderr.write("Campaign token limit reached; remaining trials were not started.\n");
       await saveSummary("token-limit");
       process.exitCode = 1;
       return;
     }
-    const id = `${String(attempts.length).padStart(3, "0")}-${plan.scenario.workload.id}-${condition}`;
+    const id = `${String(options.startAt + attempts.length).padStart(3, "0")}-${plan.scenario.workload.id}-${condition}`;
     const directory = join(options.output, id);
     await mkdir(directory, { recursive: true });
     const trial = await createCodexTrial(fixture, id, condition);

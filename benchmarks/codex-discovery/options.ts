@@ -18,8 +18,9 @@ export function readCodexOptions() {
   --repeats N               Fresh trials per task/model/effort/condition (default: 3)
   --deadline-seconds N      Hard per-trial deadline (default: 120)
   --trial-token-limit N     Codex rollout budget per trial (default: 60000)
-  --total-token-limit N     Stop launching trials after reported cumulative usage (default: 2000000)
+  --total-token-limit N     Stop after cumulative usage; unlimited disables the campaign cap (default: 2000000)
   --seed N                  Reproducible pairing/order seed (default: 1729)
+  --start-at N              Skip N scheduled trials when continuing in a new output directory (default: 0)
   --output DIRECTORY        Empty directory for trial artifacts (default: timestamped .benchmarks/codex-discovery subdirectory)
   --prepare-only            Verify isolation without making model requests
   --dry-run                 Print the scheduled trials without accessing Codex or creating files
@@ -43,6 +44,7 @@ The fixtures and grading are deterministic; live Codex time and token usage are 
       "trial-token-limit": { type: "string", default: "60000" },
       "total-token-limit": { type: "string", default: "2000000" },
       seed: { type: "string", default: "1729" },
+      "start-at": { type: "string", default: "0" },
       output: {
         type: "string",
         default: `.benchmarks/codex-discovery/${new Date().toISOString().replaceAll(":", "-")}`,
@@ -87,8 +89,12 @@ The fixtures and grading are deterministic; live Codex time and token usage are 
     repeats: number(values.repeats, 1, 20),
     deadlineSeconds: number(values["deadline-seconds"], 10, 600),
     trialTokenLimit: number(values["trial-token-limit"], 1000, 1_000_000),
-    totalTokenLimit: number(values["total-token-limit"], 1000, 10_000_000),
+    totalTokenLimit:
+      values["total-token-limit"] === "unlimited"
+        ? null
+        : number(values["total-token-limit"], 1000, 10_000_000),
     seed: number(values.seed, 0, 4_294_967_295),
+    startAt: number(values["start-at"], 0, Number.MAX_SAFE_INTEGER),
     output: resolve(values.output),
     prepareOnly: values["prepare-only"],
     dryRun: values["dry-run"],
