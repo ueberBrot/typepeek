@@ -1,4 +1,5 @@
-import { Effect, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { execaNode } from "execa";
 
 import {
@@ -9,7 +10,7 @@ import {
   readInspectionCacheHitNotice,
   removeInspectionCacheEntry,
   writeValidatedInspectionCacheOutcome,
-} from "#typepeek/inspection/inspection-cache";
+} from "#typepeek/inspection/inspection-cache-storage";
 import { enforceAnalysisRequestOutcome } from "#typepeek/inspection/inspection-outcome-authority";
 import {
   forwardInspectionProfile,
@@ -82,7 +83,6 @@ const INVALID_PROCESS_RESULT_OUTCOME: InspectionFailure = {
   message: "Inspection could not validate the analysis process result.",
 };
 
-/** Runs one production analysis behind this module's complete isolation policy. */
 export const runBoundedAnalysis = Effect.fn("runBoundedAnalysis")(function* <
   Request extends AnalysisRequest,
 >(
@@ -105,7 +105,6 @@ export const runBoundedAnalysis = Effect.fn("runBoundedAnalysis")(function* <
   );
 });
 
-/** Exact trusted Node arguments shared with static-inspection adapters. */
 export function analysisProcessNodeArguments(entrypoint: string): readonly string[] {
   return [
     `--max-old-space-size=${PRODUCTION_LIMITS.maxHeapMegabytes}`,
@@ -114,7 +113,7 @@ export function analysisProcessNodeArguments(entrypoint: string): readonly strin
   ];
 }
 
-/** Runs hostile process-protocol fixtures through the production isolation implementation. */
+/** Runs process fixtures with the same isolation as production analysis. */
 export const runAnalysisFixtureProcess = Effect.fn("runAnalysisFixtureProcess")(function* (
   request: AnalysisRequest,
   entryUrl: URL,
@@ -123,10 +122,7 @@ export const runAnalysisFixtureProcess = Effect.fn("runAnalysisFixtureProcess")(
   return yield* runAnalysisProcess(request, entryUrl, limits, false);
 });
 
-/**
- * Requires a clean exit behind wall-clock, heap, diagnostics, and byte-framed
- * result limits before allowing one result to cross the process seam.
- */
+/** Accepts a result only after a clean exit within the time, memory, and output limits. */
 const runAnalysisProcess = Effect.fn("runAnalysisProcess")(function* <
   Request extends AnalysisRequest,
 >(

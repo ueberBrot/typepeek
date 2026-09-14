@@ -46,6 +46,7 @@
     "@effect/vitest": "4.0.0-rc.110",
     "@types/node": "^24.13.3",
     "fallow": "^3.10.0",
+    "gpt-tokenizer": "4.0.0",
     "publint": "^0.3.22",
     "taze": "^19.16.0",
     "typescript": "7.0.2",

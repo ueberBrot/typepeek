@@ -1,4 +1,5 @@
-import { Result, Schema } from "effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
 const PROFILE_SCHEMA_VERSION = 1;
 const nonNegativeFiniteSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
@@ -14,7 +15,7 @@ const inspectionProfileSchema = Schema.Struct({
 });
 const decodeProfile = Schema.decodeUnknownResult(inspectionProfileSchema);
 
-/** Build and pack replace this expression with `false`; source diagnostics retain it. */
+/** Packaged builds use performance-profile-disabled.ts instead of this module. */
 export const inspectionProfilingEnabled = process.env["TYPEPEEK_PROFILE"] === "1";
 
 type InspectionProfilePhase = typeof inspectionProfilePhaseSchema.Type;
@@ -22,12 +23,11 @@ export type InspectionProfile = typeof inspectionProfileSchema.Type;
 
 let phases: InspectionProfilePhase[] | undefined;
 
-/** Starts one opt-in, process-local profile that never enters an Inspection Result. */
+/** Starts a process-local profile, kept separate from Inspection Results. */
 export function beginInspectionProfile(): void {
   phases = inspectionProfilingEnabled ? [] : undefined;
 }
 
-/** Measures a trusted analysis phase when profiling is explicitly enabled. */
 export function profileInspectionPhase<Value>(name: string, inspect: () => Value): Value {
   if (phases === undefined) {
     return inspect();
@@ -54,7 +54,6 @@ export function completeInspectionProfile(): InspectionProfile | undefined {
       };
 }
 
-/** Validates and forwards one bounded source-diagnostic profile. */
 export function forwardInspectionProfile(serialized: Uint8Array): void {
   const profile = decodeInspectionProfile(serialized);
   if (profile !== undefined) {
@@ -62,10 +61,7 @@ export function forwardInspectionProfile(serialized: Uint8Array): void {
   }
 }
 
-/** Decodes one bounded analysis-process profile at a diagnostic transport seam. */
-export function decodeInspectionProfile(
-  serialized: string | Uint8Array,
-): InspectionProfile | undefined {
+function decodeInspectionProfile(serialized: string | Uint8Array): InspectionProfile | undefined {
   try {
     const text =
       typeof serialized === "string"

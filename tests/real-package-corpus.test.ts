@@ -1,3 +1,7 @@
+import { execa } from "execa";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import {
@@ -6,6 +10,8 @@ import {
   inspectExportMember,
   inspectExportSignatures,
   inspectInterfaceOverview,
+  inspectPlan,
+  inspectExportSearch,
   type ExportInspection,
   type InterfaceOverview,
 } from "#typepeek/inspection";
@@ -271,7 +277,7 @@ describe("pinned real-package corpus", () => {
     const runtimePackages = corpus.packageNames.filter(
       (packageName) => !packageName.startsWith("@types/"),
     );
-    expect(runtimePackages).toHaveLength(12);
+    expect(runtimePackages).toHaveLength(14);
     const identities = await Promise.all(
       corpus.packageNames.map((packageName) => corpus.packageIdentity(packageName)),
     );
@@ -350,6 +356,104 @@ describe("pinned real-package corpus", () => {
     },
     20_000,
   );
+
+  it.each([
+    ["@aws-sdk/client-s3", "S3Client"],
+    ["@aws-sdk/client-ec2", "EC2Client"],
+  ])("inspects a constructor in the large %s declaration graph", async (specifier, exportName) => {
+    const outcome = await inspectExportSignatures({
+      exportName,
+      resolutionContext: corpus.resolutionContext,
+      specifier,
+    });
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({
+      status: "success",
+      result: {
+        moduleExport: {
+          name: exportName,
+          signatures: [expect.objectContaining({ kind: "construct" })],
+        },
+      },
+    });
+  });
+
+  it("reuses validated evidence for a focused large SDK query through the CLI", async () => {
+    const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-sdk-cache-"));
+    try {
+      const args = [
+        "src/cli.ts",
+        "signatures",
+        "@aws-sdk/client-ec2",
+        "EC2Client",
+        "--workspace",
+        corpus.resolutionContext,
+        "--json",
+      ];
+      const env = { TYPEPEEK_CACHE_DIRECTORY: cacheDirectory, TYPEPEEK_PROFILE: "1" };
+      const first = await execa(process.execPath, args, { env });
+      const repeated = await execa(process.execPath, args, { env });
+      expect(JSON.parse(first.stdout)).toMatchObject({ status: "success" });
+      expect(repeated.stdout).toBe(first.stdout);
+      expect(repeated.stderr).toContain('"inspection-cache-hit"');
+      expect(repeated.stderr).not.toContain('"program-materialization"');
+    } finally {
+      await rm(cacheDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("pages the large SDK export index", async () => {
+    const outcome = await inspectInterfaceOverview({
+      resolutionContext: corpus.resolutionContext,
+      specifier: "@aws-sdk/client-ec2",
+      cursor: "start",
+    });
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({
+      status: "success",
+      result: { exportPage: { complete: false, nextCursor: expect.any(String) } },
+    });
+    if (outcome.status !== "success") return;
+    expect(outcome.result.moduleExports).toHaveLength(100);
+    expect(outcome.result.exportPage?.totalModuleExports).toBeGreaterThan(8_000);
+  });
+
+  it("searches the large SDK export index by name", async () => {
+    const outcome = await inspectExportSearch({
+      resolutionContext: corpus.resolutionContext,
+      specifier: "@aws-sdk/client-ec2",
+      query: "EC2Client",
+    });
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({
+      status: "success",
+      result: {
+        matches: expect.arrayContaining([{ name: "EC2Client" }]),
+      },
+    });
+  });
+
+  it("combines a large SDK export page and focused signature in one Inspection Plan", async () => {
+    const outcome = await inspectPlan({
+      resolutionContext: corpus.resolutionContext,
+      specifier: "@aws-sdk/client-ec2",
+      queries: [
+        { intent: "interface-overview", cursor: "start" },
+        { intent: "signature-inspection", exportName: "EC2Client" },
+      ],
+    });
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({
+      status: "success",
+      result: {
+        inspections: [
+          { exportPage: { complete: false, nextCursor: expect.any(String) } },
+          {
+            moduleExport: {
+              name: "EC2Client",
+              signatures: [expect.objectContaining({ kind: "construct" })],
+            },
+          },
+        ],
+      },
+    });
+  });
 
   it("uses the effective generic default from ExecaError's selected constructor signature", async () => {
     const probe = await corpus.compileProbe({

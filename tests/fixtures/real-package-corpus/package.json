@@ -6,6 +6,8 @@
     "workspaces/*"
   ],
   "dependencies": {
+    "@aws-sdk/client-ec2": "3.1128.0",
+    "@aws-sdk/client-s3": "3.1128.0",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/lodash": "^4.17.23",

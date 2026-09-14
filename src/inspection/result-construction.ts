@@ -140,12 +140,12 @@ class ResultConstructionBudget {
   }
 }
 
-/** Applies the canonical aggregate result budget to a fully assembled core result. */
+/** Checks the aggregate budget of an assembled result. */
 export function assertInspectionResultConstructionBound(value: object): void {
   new ResultConstructionBudget().leaf(value);
 }
 
-/** Owns one aggregate Inspection Result construction budget and all assembly paths. */
+/** Shares one result budget across all queries in an inspection. */
 export class InspectionResultConstruction {
   #memberCandidates = 0;
   readonly #budget = new ResultConstructionBudget();
@@ -178,9 +178,11 @@ export class InspectionResultConstruction {
   interfaceOverview(
     publicSubpaths: readonly PublicSubpath[],
     moduleExports: readonly { readonly name: string }[],
+    exportPage?: InterfaceOverview["exportPage"],
   ): InterfaceOverview {
     const retainedSubpaths = publicSubpaths.map((subpath) => this.#budget.leaf(subpath));
     const retainedExports = moduleExports.map((moduleExport) => this.#budget.leaf(moduleExport));
+    const retainedPage = exportPage === undefined ? undefined : this.#budget.leaf(exportPage);
     return this.#budget.container(
       {
         intent: "interface-overview",
@@ -189,17 +191,27 @@ export class InspectionResultConstruction {
         ...this.#target.identity,
         publicSubpaths: retainedSubpaths,
         moduleExports: retainedExports,
+        ...(retainedPage === undefined ? {} : { exportPage: retainedPage }),
       },
-      [...retainedSubpaths, ...retainedExports],
+      [
+        ...retainedSubpaths,
+        ...retainedExports,
+        ...(retainedPage === undefined ? [] : [retainedPage]),
+      ],
     );
+  }
+
+  exportSearchMatch(match: ExportSearch["matches"][number]): ExportSearch["matches"][number] {
+    return this.#budget.leaf(match);
   }
 
   exportSearch(
     query: string,
     totalModuleExports: number,
-    matches: readonly { readonly name: string }[],
+    matches: ExportSearch["matches"],
+    scope?: ExportSearch["scope"],
   ): ExportSearch {
-    const retainedMatches = matches.map((match) => this.#budget.leaf(match));
+    const retainedMatches = matches;
     return this.#budget.container(
       {
         intent: "export-search",
@@ -207,6 +219,7 @@ export class InspectionResultConstruction {
         resolutionVariant: this.#target.resolutionVariant,
         ...this.#target.identity,
         query,
+        ...(scope === undefined ? {} : { scope }),
         totalModuleExports,
         matches: retainedMatches,
       },
@@ -267,7 +280,6 @@ export class InspectionResultConstruction {
   }
 }
 
-/** Owns exact aggregate accounting and assembly for one Export Inspection. */
 class FocusedInspectionResultConstruction implements FocusedInspectionConstruction {
   readonly #budget: ResultConstructionBudget;
   readonly #target: InspectionResultConstructionTarget;
@@ -405,7 +417,6 @@ class FocusedInspectionResultConstruction implements FocusedInspectionConstructi
   }
 }
 
-/** Owns aggregate accounting and assembly for one Signature Inspection. */
 class OwnedSignatureInspectionConstruction implements SignatureInspectionConstruction {
   readonly #budget: ResultConstructionBudget;
   readonly #target: InspectionResultConstructionTarget;

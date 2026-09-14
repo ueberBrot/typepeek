@@ -151,7 +151,15 @@ function renderExportSearch(result: ExportSearch): string {
   return [
     ...renderSingleTargetHeading("Export Search", result),
     `Module Exports (${result.matches.length} matching "${terminalSafeLine(result.query)}"; ${result.totalModuleExports} total):`,
-    ...result.matches.map(({ name }) => `- ${terminalSafeLine(name)}`),
+    ...result.matches.flatMap(({ name, signatures, packageDocumentation }) => [
+      `- ${terminalSafeLine(name)}`,
+      ...(signatures?.map((signature) => `  ${terminalSafeLine(signature.text)}`) ?? []),
+      ...(packageDocumentation === undefined
+        ? []
+        : [
+            `  Package Documentation excerpt (untrusted): ${terminalSafeLine(packageDocumentation.text)}`,
+          ]),
+    ]),
   ].join("\n");
 }
 
@@ -183,6 +191,14 @@ function renderInterfaceOverview(
     ...renderSingleTargetHeading("Interface Overview", result),
     renderModuleExportsHeading(result, moduleExports.length, moduleExportMatch),
     ...moduleExports.map(({ name }) => `- ${terminalSafeLine(name)}`),
+    ...(result.exportPage === undefined
+      ? []
+      : [
+          `Export index: ${result.exportPage.totalModuleExports} total; ${result.exportPage.complete ? "complete index" : "one page"}.`,
+          ...(result.exportPage.nextCursor === undefined
+            ? ["End of export index."]
+            : [`Next page: --cursor ${terminalSafeLine(result.exportPage.nextCursor)}`]),
+        ]),
     includePublicSubpaths
       ? `Public Subpaths (${result.publicSubpaths.length}):`
       : `Public Subpaths (${result.publicSubpaths.length}; use --subpaths to list):`,

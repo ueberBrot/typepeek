@@ -13,12 +13,12 @@ function isUnsafeOutputCodePoint(codePoint: number): boolean {
   return isCodePointInRanges(codePoint, UNSAFE_OUTPUT_RANGES);
 }
 
-/** Escapes one dynamic value so it cannot acquire terminal control semantics. */
+/** Escapes control characters in a terminal value. */
 export function terminalSafeLine(value: string): string {
   return Array.from(value, terminalSafeCharacter).join("");
 }
 
-/** Serializes JSON without allowing any value to acquire terminal control semantics. */
+/** Escapes control characters in JSON while preserving pretty-print line breaks. */
 export function serializeTerminalSafeJson(value: unknown, pretty = false): string {
   const serialized = JSON.stringify(value, undefined, pretty ? 2 : undefined);
   if (serialized === undefined) {
@@ -26,8 +26,7 @@ export function serializeTerminalSafeJson(value: unknown, pretty = false): strin
   }
   return Array.from(serialized, (character) => {
     const codePoint = character.codePointAt(0) ?? 0;
-    // JSON.stringify escapes line feeds inside values. A raw line feed can therefore only be
-    // formatter-owned layout, while every data-derived control character remains escaped below.
+    // JSON.stringify escapes newlines inside values; remaining newlines belong to the layout.
     if (pretty && codePoint === 0x0a) {
       return character;
     }

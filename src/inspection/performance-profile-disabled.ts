@@ -1,4 +1,4 @@
-/** Release artifacts intentionally exclude repository profiling diagnostics. */
+/** Packaged builds disable profiling. */
 export const inspectionProfilingEnabled = false;
 
 export function beginInspectionProfile(): void {}

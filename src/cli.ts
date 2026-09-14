@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
-import { runCli } from "#typepeek/cli-runtime";
+import { enableCompileCache } from "node:module";
 
+enableCompileCache();
+const { runCli } = await import("#typepeek/cli-runtime");
 await runCli(process.argv.slice(2));

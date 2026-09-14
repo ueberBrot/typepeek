@@ -47,7 +47,7 @@ export interface DeclarationProjectionContext {
   readonly validatedTypes: Set<ts.Type>;
 }
 
-/** Projects one declaration onto the semantic Public Interface consumed by every adapter. */
+/** Removes implementation details while preserving the declaration's Public Interface. */
 export function projectPublicDeclaration(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
@@ -63,7 +63,6 @@ export function projectPublicDeclaration(
   };
 }
 
-/** Renders one semantic Public Interface projection as stable declaration text. */
 export function renderPublicDeclaration(
   checker: ts.TypeChecker,
   declaration: ts.Declaration,
@@ -101,7 +100,6 @@ function publicDeclarationSyntaxBeforeMemberTypeQueries(
   return publicDeclaration(checker, printableDeclaration, context, 0);
 }
 
-/** Identifies declaration nodes that cannot contribute to a Public Interface. */
 export function isPrivateDeclaration(node: ts.Node): boolean {
   return (
     hasPrivateIdentifier(node) ||
@@ -420,6 +418,7 @@ export function inferredPublicTypeChildren(
         ...publicChildren,
         ...signatureTypeChildren(checker, type),
         ...propertyTypeChildren(checker, type),
+        ...indexTypeChildren(checker, type),
       ];
 }
 
@@ -779,7 +778,6 @@ function isImplementationLocalDeclaration(
   return false;
 }
 
-/** Identifies declaration kinds that can be represented as named Supporting Types. */
 export function isNamedTypeDeclarationSyntax(
   declaration: ts.Declaration,
 ): declaration is
@@ -805,13 +803,23 @@ function compositeTypeChildren(type: ts.Type): readonly ts.Type[] {
 }
 
 function genericTypeChildren(checker: ts.TypeChecker, type: ts.Type): readonly ts.Type[] {
-  const children = [...(type.aliasTypeArguments ?? [])];
+  const children = [...(type.aliasTypeArguments ?? []), ...typeParameterTypeChildren(type)];
   if (
     (type.flags & ts.TypeFlags.Object) !== 0 &&
     ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0
   ) {
     children.push(...checker.getTypeArguments(type as ts.TypeReference));
   }
+  return children;
+}
+
+function typeParameterTypeChildren(type: ts.Type): readonly ts.Type[] {
+  if (!type.isTypeParameter()) return [];
+  const children: ts.Type[] = [];
+  const constraint = type.getConstraint();
+  const defaultType = type.getDefault();
+  if (constraint !== undefined) children.push(constraint);
+  if (defaultType !== undefined) children.push(defaultType);
   return children;
 }
 
@@ -822,6 +830,10 @@ function signatureTypeChildren(checker: ts.TypeChecker, type: ts.Type): readonly
       .flatMap((signature) => [
         checker.getReturnTypeOfSignature(signature),
         ...signature.getParameters().flatMap((parameter) => symbolType(checker, parameter)),
+        ...(signature.getTypeParameters() ?? []).flatMap(typeParameterTypeChildren),
+        ...(signature.thisParameter === undefined
+          ? []
+          : symbolType(checker, signature.thisParameter)),
       ]),
   );
 }
@@ -834,6 +846,10 @@ function propertyTypeChildren(checker: ts.TypeChecker, type: ts.Type): readonly 
         property.declarations?.some((declaration) => isPrivateDeclaration(declaration)) !== true,
     )
     .flatMap((property) => symbolType(checker, property));
+}
+
+function indexTypeChildren(checker: ts.TypeChecker, type: ts.Type): readonly ts.Type[] {
+  return checker.getIndexInfosOfType(type).flatMap((index) => [index.keyType, index.type]);
 }
 
 function symbolType(checker: ts.TypeChecker, symbol: ts.Symbol): readonly ts.Type[] {

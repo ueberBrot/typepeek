@@ -1,4 +1,9 @@
 import {
+  MAX_MODULE_EXPORTS,
+  MAX_EXPORT_INDEX_CANDIDATES,
+  MAX_EXPORT_SEARCH_MATCHES,
+} from "#typepeek/inspection/budget-policy";
+import {
   InspectionLimitError,
   StaticBoundaryInspectionError,
   UnsupportedInspectionError,
@@ -7,6 +12,8 @@ import {
   createModuleExportInspection,
   type ModuleExportInspection,
 } from "#typepeek/inspection/export-inspection";
+import { paginateExports } from "#typepeek/inspection/export-pagination";
+import { resolveFocusedExportSymbol } from "#typepeek/inspection/focused-export";
 import {
   createInspectionCacheIdentity,
   createInspectionCacheHitNotice,
@@ -28,6 +35,7 @@ import {
   type InstalledEvidenceProof,
 } from "#typepeek/inspection/installed-evidence-fingerprint";
 import { formatMemberPath, type MemberPath } from "#typepeek/inspection/member-path";
+import { inspectPackageDocumentation } from "#typepeek/inspection/package-documentation";
 import { profileInspectionPhase } from "#typepeek/inspection/performance-profile";
 import type {
   AnalysisRequest,
@@ -35,23 +43,20 @@ import type {
   InspectionFailure,
   InspectionOutcome,
   InspectionPlanQuery,
+  ExportSearch,
 } from "#typepeek/inspection/protocol";
 import { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
-import { inspectModuleExportSignatures } from "#typepeek/inspection/signature-inspection";
-
-const MAX_MODULE_EXPORTS = 320;
-const MAX_EXPORT_SEARCH_CANDIDATES = 4_096;
-const MAX_EXPORT_SEARCH_MATCHES = 320;
+import {
+  inspectModuleExportSignatures,
+  inspectResolvedExportSignatures,
+} from "#typepeek/inspection/signature-inspection";
 
 export interface AnalysisExecution {
   readonly cacheMessage?: InspectionCacheHitNotice | InspectionCacheWriteReceipt;
   readonly outcome: InspectionOutcome;
 }
 
-/**
- * Runs one normalized request inside the analysis subprocess, using only a
- * previously validated outcome whose Installed Evidence still matches.
- */
+/** Reuses a validated cache entry when its evidence matches; otherwise inspects the module. */
 export function analyzeInspection(
   analysisRequest: AnalysisRequest,
   readCache = true,
@@ -115,7 +120,12 @@ function inspectSelectedModule(
     resolutionVariant: { accessStyle: request.accessStyle },
     identity: selection.resultIdentity,
   });
-  const inspectQuery = prepareQueryInspection(selection, queries, construction);
+  const inspectQuery = prepareQueryInspection(
+    selection,
+    queries,
+    construction,
+    request.accessStyle,
+  );
   const inspections: AtomicInspectionResult[] = [];
   for (const query of queries) {
     const inspection = inspectQuery(query);
@@ -134,11 +144,11 @@ function inspectSelectedModule(
   return { status: "success", result };
 }
 
-/** Selects one evidence path while keeping query order and atomicity in the caller. */
 function prepareQueryInspection(
   selection: InspectableModuleSelection,
   queries: readonly InspectionPlanQuery[],
   construction: InspectionResultConstruction,
+  accessStyle: AnalysisRequest["request"]["accessStyle"],
 ): (query: InspectionPlanQuery) => EvidenceQueryResult {
   if (queries.every((query) => query.intent === "public-subpath-discovery")) {
     const publicSubpaths = selection.readPublicSubpaths();
@@ -149,6 +159,13 @@ function prepareQueryInspection(
     evidence,
     construction,
     moduleExport: createModuleExportInspection(evidence, construction),
+    paginationScope: JSON.stringify([
+      selection.resolutionContextDirectory,
+      selection.declarationAuthority,
+      selection.resultIdentity,
+      construction.specifier,
+      accessStyle,
+    ]),
   };
   return (query) => inspectEvidenceQuery(context, query);
 }
@@ -157,20 +174,36 @@ interface EvidenceQueryContext {
   readonly evidence: InspectableModuleEvidence;
   readonly construction: InspectionResultConstruction;
   readonly moduleExport: ModuleExportInspection;
+  readonly paginationScope: string;
 }
 
 type EvidenceQueryResult = AtomicInspectionResult | InspectionFailure;
 
 function inspectEvidenceQuery(
-  { evidence, construction, moduleExport }: EvidenceQueryContext,
+  { evidence, construction, moduleExport, paginationScope }: EvidenceQueryContext,
   query: InspectionPlanQuery,
 ): EvidenceQueryResult {
   switch (query.intent) {
-    case "interface-overview":
+    case "interface-overview": {
+      if (query.cursor !== undefined) {
+        const page = paginateExports(
+          inspectModuleExports(evidence, MAX_EXPORT_INDEX_CANDIDATES),
+          query.cursor,
+          paginationScope,
+        );
+        return page === undefined
+          ? {
+              status: "unsupported",
+              reason: "invalid-request",
+              message: 'The export cursor does not match this index. Restart with cursor "start".',
+            }
+          : construction.interfaceOverview(evidence.publicSubpaths, page.moduleExports, page.page);
+      }
       return construction.interfaceOverview(
         evidence.publicSubpaths,
         inspectModuleExports(evidence),
       );
+    }
     case "export-inspection":
       return focusedQueryResult(
         moduleExport.inspectExport(query.exportName),
@@ -202,8 +235,13 @@ function inspectEvidenceQuery(
         construction.specifier,
       );
     case "export-search": {
-      const search = searchModuleExports(evidence, query.query);
-      return construction.exportSearch(query.query, search.totalModuleExports, search.matches);
+      const search = searchModuleExports(evidence, query.query, construction, query.scope);
+      return construction.exportSearch(
+        query.query,
+        search.totalModuleExports,
+        search.matches,
+        query.scope,
+      );
     }
     case "public-subpath-discovery":
       return construction.publicSubpathDiscovery(evidence.publicSubpaths);
@@ -283,12 +321,12 @@ function unsupportedMemberOutcome(exportName: string, memberPath: MemberPath): I
   };
 }
 
-function inspectModuleExports({
-  checker,
-  moduleSymbol,
-}: InspectableModuleEvidence): readonly { readonly name: string }[] {
+function inspectModuleExports(
+  { checker, moduleSymbol }: InspectableModuleEvidence,
+  maximum = MAX_MODULE_EXPORTS,
+): readonly { readonly name: string }[] {
   const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
-  if (exportedSymbols.length > MAX_MODULE_EXPORTS) {
+  if (exportedSymbols.length > maximum) {
     throw new InspectionLimitError(
       "module-exports",
       "Inspection exceeded its Module Export limit.",
@@ -300,29 +338,79 @@ function inspectModuleExports({
 function searchModuleExports(
   { checker, moduleSymbol }: InspectableModuleEvidence,
   query: string,
+  construction: InspectionResultConstruction,
+  scope?: ExportSearch["scope"],
 ): {
   readonly totalModuleExports: number;
-  readonly matches: readonly { readonly name: string }[];
+  readonly matches: ExportSearch["matches"];
 } {
   const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
-  if (exportedSymbols.length > MAX_EXPORT_SEARCH_CANDIDATES) {
+  if (exportedSymbols.length > MAX_EXPORT_INDEX_CANDIDATES) {
     throw new InspectionLimitError(
       "export-search-candidates",
       "Inspection exceeded its Module Export search limit.",
     );
   }
   const normalizedQuery = query.toLowerCase();
-  const matches = exportedSymbols
-    .map((symbol) => ({ name: symbol.getName() }))
-    .filter(({ name }) => name.toLowerCase().includes(normalizedQuery))
-    .sort(compareModuleExports);
-  if (matches.length > MAX_EXPORT_SEARCH_MATCHES) {
-    throw new InspectionLimitError(
-      "export-search-matches",
-      "Inspection exceeded its Module Export search match limit.",
+  const matches: ExportSearch["matches"][number][] = [];
+  for (const symbol of exportedSymbols) {
+    const name = symbol.getName();
+    if (scope === undefined) {
+      if (name.toLowerCase().includes(normalizedQuery)) append({ name });
+      continue;
+    }
+    const resolution = resolveFocusedExportSymbol(checker, symbol, moduleSymbol);
+    const documentation = inspectPackageDocumentation(
+      checker,
+      symbol,
+      resolution.targetSymbol,
+      resolution.aliasDeclaration,
     );
+    if (
+      !name.toLowerCase().includes(normalizedQuery) &&
+      !documentation?.text.toLowerCase().includes(normalizedQuery)
+    )
+      continue;
+    append({
+      name,
+      signatures: inspectResolvedExportSignatures(checker, resolution, (value) => value),
+      ...(documentation === undefined
+        ? {}
+        : {
+            packageDocumentation: {
+              ...documentation,
+              excerpt: true as const,
+              text: documentationExcerpt(documentation.text, normalizedQuery),
+            },
+          }),
+    });
   }
+  matches.sort(compareModuleExports);
   return { totalModuleExports: exportedSymbols.length, matches };
+
+  function append(match: ExportSearch["matches"][number]): void {
+    if (matches.length >= MAX_EXPORT_SEARCH_MATCHES) {
+      throw new InspectionLimitError(
+        "export-search-matches",
+        "Inspection exceeded its Module Export search match limit.",
+      );
+    }
+    matches.push(construction.exportSearchMatch(match));
+  }
+}
+
+function documentationExcerpt(text: string, normalizedQuery: string): string {
+  const characters = Array.from(text);
+  const matchOffset = text.toLowerCase().indexOf(normalizedQuery);
+  let normalizedOffset = 0;
+  let matchIndex = 0;
+  while (matchIndex < characters.length && normalizedOffset < matchOffset) {
+    normalizedOffset += characters[matchIndex]!.toLowerCase().length;
+    matchIndex += 1;
+  }
+  return characters
+    .slice(Math.max(0, matchIndex - 64), matchIndex + normalizedQuery.length + 128)
+    .join("");
 }
 
 function compareModuleExports(
@@ -344,8 +432,7 @@ function errorOutcome(error: unknown): InspectionOutcome {
   if (error instanceof StaticBoundaryInspectionError) {
     return { status: "static-boundary", reason: "static-boundary", message: error.message };
   }
-  // Unexpected errors may contain host paths or analyzer details, neither of
-  // which belongs in the transport-neutral Inspection Result.
+  // Unexpected errors may expose host paths or analyzer internals; return a generic failure.
   return error instanceof UnsupportedInspectionError
     ? { status: "unsupported", reason: "unsupported-evidence", message: error.message }
     : {

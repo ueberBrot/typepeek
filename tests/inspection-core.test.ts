@@ -2608,3 +2608,18 @@ it("does not probe outside paths from unresolved declaration imports", async () 
     message: "A declaration references source outside its installed package boundary.",
   });
 });
+
+it("shares wildcard directory discovery across public subpath patterns", async () => {
+  const outcome = await inspectPublicSubpaths({
+    resolutionContext: fixture.resolutionContext,
+    specifier: "@typepeek-fixture/shared-pattern-files",
+  });
+  expect(outcome).toMatchObject({
+    status: "success",
+    result: {
+      publicSubpaths: Array.from({ length: 8 }, (_, index) => ({
+        specifier: `@typepeek-fixture/shared-pattern-files/group-${index}/red`,
+      })),
+    },
+  });
+});

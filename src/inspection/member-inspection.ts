@@ -64,6 +64,7 @@ export function discoverPublicMembers(
   const names = new Map<string, DeclarationSpace[]>();
   for (const space of memberDeclarationSpaceSchema.literals) {
     const candidates = membersInSpace(checker, symbol, space, construction);
+    const valueType = space === "value" ? memberType(checker, symbol, space) : undefined;
     for (const candidate of candidates) {
       if (!hasPublicDeclaration(checker, candidate)) {
         continue;
@@ -82,6 +83,10 @@ export function discoverPublicMembers(
         throw new UnsupportedInspectionError(
           "Member Discovery found a public name without a bounded exact selector.",
         );
+      }
+      // Enumeration includes type-only star exports that exact value lookup rejects.
+      if (valueType !== undefined && valueType.getProperty(name) !== candidate) {
+        continue;
       }
       const spaces = names.get(name) ?? [];
       spaces.push(space);
@@ -238,7 +243,6 @@ function isUndeclaredPublicProperty(symbol: ts.Symbol): boolean {
   );
 }
 
-/** Selects caller-accessible declarations and applies the shared merge bound. */
 export function publicMemberDeclarations(
   checker: ts.TypeChecker,
   symbol: ts.Symbol,

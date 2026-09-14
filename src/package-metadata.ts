@@ -1,4 +1,5 @@
-import { Result, Schema } from "effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { readFileSync } from "node:fs";
 
 declare const __TYPEPEEK_VERSION__: string | undefined;
@@ -10,7 +11,6 @@ const decodePackageVersion = Schema.decodeUnknownResult(Schema.Struct({ version:
 /** The package version embedded into cache semantics by both source and packaged builds. */
 export const TYPEPEEK_VERSION = embeddedTypepeekVersion ?? readSourcePackageVersion();
 
-/** True only when the build injected a stable package identity. */
 export const HAS_EMBEDDED_TYPEPEEK_VERSION = embeddedTypepeekVersion !== undefined;
 
 function readSourcePackageVersion(): string {

@@ -28,6 +28,23 @@ function nestedExportTarget(depth: number): object {
 
 const PACKAGE_SOURCES: readonly PackageSource[] = [
   {
+    directory: "shared-pattern-files-package",
+    name: "@typepeek-fixture/shared-pattern-files",
+    version: "1.0.0",
+    declaration: "export declare const rootExport: string;\n",
+    runtime: 'throw new Error("Typepeek executed the shared pattern fixture runtime");\n',
+    additionalDeclarations: { "patterns/red.d.ts": "export declare const red: string;\n" },
+    exports: {
+      ".": { types: "./dist/index.d.ts" },
+      ...Object.fromEntries(
+        Array.from({ length: 8 }, (_, index) => [
+          `./group-${index}/*`,
+          { types: "./dist/patterns/*.d.ts" },
+        ]),
+      ),
+    },
+  },
+  {
     directory: "package",
     name: "@typepeek-fixture/compiled",
     version: "1.2.3",
@@ -877,7 +894,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     version: "1.0.0",
     declaration: [
       ...Array.from(
-        { length: 6_000 },
+        { length: 20_000 },
         (_, index) => `import type {} from "@missing/package-${index}";`,
       ),
       "export declare const visible: string;",
@@ -890,7 +907,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     name: "@typepeek-fixture/duplicate-path-references",
     version: "1.0.0",
     declaration: [
-      ...Array.from({ length: 26_000 }, () => '/// <reference path="./helper.d.ts" />'),
+      ...Array.from({ length: 80_000 }, () => '/// <reference path="./helper.d.ts" />'),
       "export declare const visible: ReferencedValue;",
       "",
     ].join("\n"),
@@ -905,13 +922,13 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     version: "1.0.0",
     declaration: [
       ...Array.from(
-        { length: 384 },
+        { length: 2_200 },
         (_, index) => `export { value${index} } from "./part-${index}.js";`,
       ),
       "",
     ].join("\n"),
     additionalDeclarations: Object.fromEntries(
-      Array.from({ length: 384 }, (_, index) => [
+      Array.from({ length: 2_200 }, (_, index) => [
         `part-${index}.d.ts`,
         `export declare const value${index}: string;\n`,
       ]),
@@ -1015,21 +1032,26 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     directory: "oversized-resolution-dependency-package",
     name: "@typepeek-fixture/oversized-resolution-dependency",
     version: "1.0.0",
-    declaration: "export declare const dependencyValue: string;\n",
-    installedManifest: JSON.stringify({
-      name: "@typepeek-fixture/oversized-resolution-dependency",
-      version: "1.0.0",
-      types: "./dist/index.d.ts",
-      padding: "x".repeat(8 * 1_024 * 1_024),
-    }),
+    declaration: Array.from(
+      { length: 40 },
+      (_, index) => `export { value${index} } from "./entry${index}/value.js";`,
+    ).join("\n"),
+    additionalDeclarations: Object.fromEntries(
+      Array.from({ length: 40 }, (_, index) => [
+        [`entry${index}/value.d.ts`, `export declare const value${index}: string;\n`],
+        [
+          `entry${index}/package.json`,
+          JSON.stringify({ type: "module", padding: "x".repeat(220 * 1_024) }),
+        ],
+      ]).flat(),
+    ),
     runtime: 'throw new Error("Typepeek executed the resolution dependency runtime");\n',
   },
   {
     directory: "oversized-resolution-package",
     name: "@typepeek-fixture/oversized-resolution",
     version: "1.0.0",
-    declaration:
-      'export { dependencyValue } from "@typepeek-fixture/oversized-resolution-dependency";\n',
+    declaration: 'export { value0 } from "@typepeek-fixture/oversized-resolution-dependency";\n',
     dependencies: {
       "@typepeek-fixture/oversized-resolution-dependency": "1.0.0",
     },
@@ -1171,6 +1193,20 @@ async function materializeInstalledEvidenceScenarios(repositoryRoot: string): Pr
                 : JSON.stringify(source.installedManifest),
             ),
           ],
+    ),
+  );
+
+  const sharedPatternDirectory = join(
+    repositoryRoot,
+    "node_modules",
+    "@typepeek-fixture",
+    "shared-pattern-files",
+    "dist",
+    "patterns",
+  );
+  await Promise.all(
+    Array.from({ length: 550 }, (_, index) =>
+      writeFile(join(sharedPatternDirectory, `ignored-${index}.js`), ""),
     ),
   );
 

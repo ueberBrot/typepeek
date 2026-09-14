@@ -111,8 +111,7 @@ function renderJsDocNodeTag(tag: ts.JSDocTag): string {
 }
 
 function sanitizePackageDocumentation(documentation: string): string {
-  // Sanitize at the evidence seam so non-terminal adapters also receive inert
-  // text; terminal rendering applies its own defense-in-depth escaping.
+  // Strip presentation controls for every adapter; terminal rendering also escapes its output.
   return stripUnsafePresentationCharacters(
     documentation.replaceAll("\r\n", "\n").replaceAll("\r", "\n"),
   ).trim();

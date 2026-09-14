@@ -1,4 +1,4 @@
-/** Transport-neutral package API for the CLI and future inspection adapters. */
+/** Internal entrypoint for CLI adapters and tests. */
 export {
   comparePublicInterfaces,
   inspectExport,
@@ -40,10 +40,6 @@ export type {
   ResolutionVariant,
   SignatureInspection,
 } from "#typepeek/inspection/protocol";
-export type {
-  InspectionProtocolRequest,
-  InspectionProtocolResponse,
-} from "#typepeek/inspection/inspection-protocol-schema";
 export type { InspectionIntent } from "#typepeek/inspection/protocol-metadata";
 
 export type { MemberPath } from "#typepeek/inspection/member-path";

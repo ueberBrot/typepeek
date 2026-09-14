@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 export const INSPECTION_PROTOCOL_VERSION = "1" as const;
 

@@ -1,7 +1,7 @@
-import { Result, Schema } from "effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 
 import type {
-  ProtocolInspectionOutcome,
   SignatureEvidenceKind,
   SignatureEvidenceProjection,
 } from "#typepeek/inspection/inspection-protocol-schema";
@@ -16,11 +16,10 @@ import type {
   SignatureInspection,
 } from "#typepeek/inspection/protocol";
 
-/** Removes only the Signature Evidence excluded by an explicit transport projection. */
-export function projectInspectionOutcome(
+export function projectSignatureEvidence(
   outcome: InspectionOutcome,
   evidence: SignatureEvidenceKind,
-): ProtocolInspectionOutcome<SignatureEvidenceKind> | undefined {
+) {
   const candidate =
     outcome.status === "success"
       ? {
@@ -28,12 +27,15 @@ export function projectInspectionOutcome(
           result: projectInspectionResult(outcome.result, evidence),
         }
       : outcome;
-  return Result.getOrUndefined(
-    Schema.decodeUnknownResult(protocolInspectionSchemas[evidence].outcomeSchema)(candidate),
-  );
+  return {
+    projection: signatureEvidenceProjection(evidence),
+    outcome: Result.getOrUndefined(
+      Schema.decodeUnknownResult(protocolInspectionSchemas[evidence].outcomeSchema)(candidate),
+    ),
+  };
 }
 
-export function signatureEvidenceProjection(
+function signatureEvidenceProjection(
   signatureEvidence: SignatureEvidenceKind,
 ): SignatureEvidenceProjection | undefined {
   switch (signatureEvidence) {

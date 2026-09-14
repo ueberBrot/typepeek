@@ -1,4 +1,5 @@
-import { Result, Schema } from "effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { createHash } from "node:crypto";
 import { opendirSync, type Dirent } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
@@ -7,21 +8,21 @@ import {
   canonicalEvidenceCandidatePath,
   canonicalEvidencePath,
 } from "#typepeek/inspection/evidence-boundary";
+import {
+  EVIDENCE_PROOF_LIMITS,
+  MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
+  MAX_EXPANDED_EVIDENCE_PROOF_BYTES,
+  compactEvidenceProof,
+} from "#typepeek/inspection/installed-evidence-format";
 import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted-data";
 
-const MAX_FINGERPRINTED_FILES = 512;
-const MAX_FINGERPRINTED_DIRECTORIES = 512;
-export const MAX_FINGERPRINTED_DIRECTORY_ENTRIES = 4_096;
-const MAX_RESOLUTION_PROBES = 1_024;
-export const MAX_INSTALLED_EVIDENCE_PROOF_BYTES = 64 * 1_024;
-const MAX_EVIDENCE_STRING_BYTES = 4 * 1_024;
-const MAX_EVIDENCE_PROOF_OBJECTS = 4_096;
-const MAX_EVIDENCE_PROOF_VALUES = 32_768;
+export const MAX_FINGERPRINTED_DIRECTORY_ENTRIES = EVIDENCE_PROOF_LIMITS.directoryEntries;
+export { MAX_INSTALLED_EVIDENCE_PROOF_BYTES } from "#typepeek/inspection/installed-evidence-format";
 
 const SHA256_PATTERN = /^[\da-f]{64}$/u;
 const boundedEvidenceStringSchema = Schema.String.check(
-  Schema.makeFilter((value) => Buffer.byteLength(value) <= MAX_EVIDENCE_STRING_BYTES, {
-    expected: `a string no larger than ${MAX_EVIDENCE_STRING_BYTES} UTF-8 bytes`,
+  Schema.makeFilter((value) => Buffer.byteLength(value) <= EVIDENCE_PROOF_LIMITS.stringBytes, {
+    expected: `a string no larger than ${EVIDENCE_PROOF_LIMITS.stringBytes} UTF-8 bytes`,
   }),
 );
 const boundedEvidencePathSchema = boundedEvidenceStringSchema.check(
@@ -36,7 +37,22 @@ const installedEvidenceFingerprintSchema = Schema.Struct({
   kind: Schema.Literals(["declaration", "manifest"]),
   path: boundedEvidencePathSchema,
   sha256: evidenceSha256Schema,
-});
+  sourceFormat: Schema.optionalKey(
+    Schema.Struct({
+      accessStyle: Schema.Literals(["import", "require"]),
+      path: boundedEvidencePathSchema,
+    }),
+  ),
+}).check(
+  Schema.makeFilter(
+    (fingerprint) => fingerprint.sourceFormat === undefined || fingerprint.kind === "declaration",
+  ),
+);
+const installedEvidenceFilePresenceSchema = Schema.Struct({
+  path: boundedEvidencePathSchema,
+  exists: Schema.Boolean,
+  canonicalPath: Schema.optionalKey(boundedEvidencePathSchema),
+}).check(Schema.makeFilter((check) => check.exists === (check.canonicalPath !== undefined)));
 const installedEvidenceDirectoryFingerprintSchema = Schema.Struct({
   entries: Schema.Natural,
   path: boundedEvidencePathSchema,
@@ -45,7 +61,7 @@ const installedEvidenceDirectoryFingerprintSchema = Schema.Struct({
 const installedEvidenceDirectoriesSchema = Schema.Array(
   installedEvidenceDirectoryFingerprintSchema,
 ).check(
-  Schema.isMaxLength(MAX_FINGERPRINTED_DIRECTORIES),
+  Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.directories),
   Schema.makeFilter(hasBoundedDirectoryEntryTotal, {
     expected: `at most ${MAX_FINGERPRINTED_DIRECTORY_ENTRIES} aggregate directory entries`,
   }),
@@ -53,7 +69,9 @@ const installedEvidenceDirectoriesSchema = Schema.Array(
 const installedEvidenceResolutionProbeSchema = Schema.Struct({
   accessStyle: Schema.optionalKey(Schema.Literals(["import", "require"])),
   allowedRoots: Schema.optionalKey(
-    Schema.Array(boundedEvidencePathSchema).check(Schema.isMaxLength(16)),
+    Schema.Array(boundedEvidencePathSchema).check(
+      Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.rootsPerProbe),
+    ),
   ),
   canonicalContainingFile: Schema.optionalKey(boundedEvidencePathSchema),
   containingFile: boundedEvidencePathSchema,
@@ -62,12 +80,17 @@ const installedEvidenceResolutionProbeSchema = Schema.Struct({
   specifier: boundedEvidenceStringSchema,
 });
 export const installedEvidenceProofSchema = Schema.Struct({
+  fileChecks: Schema.optionalKey(
+    Schema.Array(installedEvidenceFilePresenceSchema).check(
+      Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.fileChecks),
+    ),
+  ),
   directories: installedEvidenceDirectoriesSchema,
   files: Schema.Array(installedEvidenceFingerprintSchema).check(
-    Schema.isMaxLength(MAX_FINGERPRINTED_FILES),
+    Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.files),
   ),
   resolutions: Schema.Array(installedEvidenceResolutionProbeSchema).check(
-    Schema.isMaxLength(MAX_RESOLUTION_PROBES),
+    Schema.isMaxLength(EVIDENCE_PROOF_LIMITS.probes),
   ),
 }).check(
   Schema.makeFilter(hasBoundedProofSize, {
@@ -76,6 +99,7 @@ export const installedEvidenceProofSchema = Schema.Struct({
 );
 
 export type InstalledEvidenceFingerprint = typeof installedEvidenceFingerprintSchema.Type;
+export type InstalledEvidenceFilePresence = typeof installedEvidenceFilePresenceSchema.Type;
 export type InstalledEvidenceDirectoryFingerprint =
   typeof installedEvidenceDirectoryFingerprintSchema.Type;
 export type InstalledEvidenceResolutionProbe = typeof installedEvidenceResolutionProbeSchema.Type;
@@ -93,7 +117,10 @@ export type ObserveInstalledEvidenceFile = (
   fileName: string,
   contents: string,
   kind: InstalledEvidenceFingerprint["kind"],
+  sourceFormat?: InstalledEvidenceFingerprint["sourceFormat"],
 ) => void;
+
+export type ObserveInstalledEvidenceFilePresence = (fileName: string, exists: boolean) => void;
 
 export type ObserveInstalledEvidenceDirectory = (
   directory: string,
@@ -103,6 +130,7 @@ export type ObserveInstalledEvidenceDirectory = (
 export interface InstalledEvidenceObserver {
   readonly observeDirectory: ObserveInstalledEvidenceDirectory;
   readonly observeFile: ObserveInstalledEvidenceFile;
+  readonly observeFilePresence: ObserveInstalledEvidenceFilePresence;
   readonly observeResolution: (probe: InstalledEvidenceResolutionProbe) => void;
 }
 
@@ -110,21 +138,63 @@ export interface InstalledEvidenceFingerprintRecorder extends InstalledEvidenceO
   readonly snapshot: () => InstalledEvidenceProof | undefined;
 }
 
-/** Records bounded content fingerprints for exactly the files consumed by one inspection. */
+/** Records the files, lookups, and directories consumed by an inspection. */
 export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceFingerprintRecorder {
   const fingerprints = new Map<string, InstalledEvidenceFingerprint>();
+  const fileChecks = new Map<string, InstalledEvidenceFilePresence>();
   const directories = new Map<string, InstalledEvidenceDirectoryFingerprint>();
   const resolutions = new Map<string, InstalledEvidenceResolutionProbe>();
   let directoryEntryCount = 0;
+  let proofBytes = Buffer.byteLength('{"directories":[],"files":[],"resolutions":[]}');
   let cacheable = true;
 
+  const reserveProofEntry = (serialized: string, entries: number): void => {
+    proofBytes += Buffer.byteLength(serialized) + (entries === 0 ? 0 : 1);
+    if (proofBytes > MAX_EXPANDED_EVIDENCE_PROOF_BYTES) {
+      cacheable = false;
+    }
+  };
+
   return {
-    observeFile: (fileName, contents, kind) => {
+    observeFilePresence: (fileName, exists) => {
+      if (!cacheable) return;
+      if (!isAbsolute(fileName)) {
+        cacheable = false;
+        return;
+      }
+      const path = resolve(fileName);
+      const canonicalPath = exists ? canonicalEvidencePath(path) : undefined;
+      if (exists && canonicalPath === undefined) {
+        cacheable = false;
+        return;
+      }
+      const previous = fileChecks.get(path);
+      if (
+        previous !== undefined &&
+        (previous.exists !== exists || previous.canonicalPath !== canonicalPath)
+      ) {
+        cacheable = false;
+        return;
+      }
+      if (previous !== undefined) return;
+      const check = { path, exists, ...(canonicalPath === undefined ? {} : { canonicalPath }) };
+      if (fileChecks.size === 0) {
+        proofBytes += Buffer.byteLength(',"fileChecks":[]');
+      }
+      reserveProofEntry(JSON.stringify(check), fileChecks.size);
+      fileChecks.set(path, check);
+      if (fileChecks.size > EVIDENCE_PROOF_LIMITS.fileChecks) cacheable = false;
+    },
+    observeFile: (fileName, contents, kind, sourceFormat) => {
       if (!cacheable) {
         return;
       }
       const path = canonicalEvidencePath(fileName);
-      if (path === undefined) {
+      if (
+        path === undefined ||
+        (sourceFormat !== undefined &&
+          (kind !== "declaration" || canonicalEvidencePath(sourceFormat.path) !== path))
+      ) {
         cacheable = false;
         return;
       }
@@ -132,17 +202,30 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
         kind,
         path,
         sha256: sha256(contents),
+        ...(sourceFormat === undefined
+          ? {}
+          : {
+              sourceFormat: {
+                accessStyle: sourceFormat.accessStyle,
+                path: resolve(sourceFormat.path),
+              },
+            }),
       } as const;
       const previous = fingerprints.get(path);
       if (
         previous !== undefined &&
-        (previous.kind !== fingerprint.kind || previous.sha256 !== fingerprint.sha256)
+        (previous.kind !== fingerprint.kind ||
+          previous.sha256 !== fingerprint.sha256 ||
+          JSON.stringify(previous.sourceFormat) !== JSON.stringify(fingerprint.sourceFormat))
       ) {
         cacheable = false;
         return;
       }
-      fingerprints.set(path, fingerprint);
-      if (fingerprints.size > MAX_FINGERPRINTED_FILES) {
+      if (previous === undefined) {
+        reserveProofEntry(JSON.stringify(fingerprint), fingerprints.size);
+        fingerprints.set(path, fingerprint);
+      }
+      if (fingerprints.size > EVIDENCE_PROOF_LIMITS.files) {
         cacheable = false;
       }
     },
@@ -163,10 +246,13 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
         cacheable = false;
         return;
       }
-      directories.set(fingerprint.path, fingerprint);
+      if (previous === undefined) {
+        reserveProofEntry(JSON.stringify(fingerprint), directories.size);
+        directories.set(fingerprint.path, fingerprint);
+      }
       directoryEntryCount += previous === undefined ? fingerprint.entries : 0;
       if (
-        directories.size > MAX_FINGERPRINTED_DIRECTORIES ||
+        directories.size > EVIDENCE_PROOF_LIMITS.directories ||
         directoryEntryCount > MAX_FINGERPRINTED_DIRECTORY_ENTRIES
       ) {
         cacheable = false;
@@ -181,8 +267,12 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
         cacheable = false;
         return;
       }
-      resolutions.set(JSON.stringify(normalized), normalized);
-      if (resolutions.size > MAX_RESOLUTION_PROBES) {
+      const key = JSON.stringify(normalized);
+      if (!resolutions.has(key)) {
+        reserveProofEntry(key, resolutions.size);
+        resolutions.set(key, normalized);
+      }
+      if (resolutions.size > EVIDENCE_PROOF_LIMITS.probes) {
         cacheable = false;
       }
     },
@@ -194,6 +284,13 @@ export function createInstalledEvidenceFingerprintRecorder(): InstalledEvidenceF
         left.path.localeCompare(right.path),
       );
       const proof = {
+        ...(fileChecks.size === 0
+          ? {}
+          : {
+              fileChecks: [...fileChecks.values()].sort((left, right) =>
+                left.path.localeCompare(right.path),
+              ),
+            }),
         directories: [...directories.values()].sort((left, right) =>
           left.path.localeCompare(right.path),
         ),
@@ -344,10 +441,16 @@ function hasBoundedDirectoryEntryTotal(
 function hasBoundedProofSize(proof: typeof installedEvidenceProofSchema.Type): boolean {
   return (
     snapshotBoundedDataPropertyGraph(proof, {
-      maximumObjects: MAX_EVIDENCE_PROOF_OBJECTS,
+      maximumObjects: EVIDENCE_PROOF_LIMITS.objects,
+      maximumSerializedBytes: MAX_EXPANDED_EVIDENCE_PROOF_BYTES,
+      maximumStringBytes: EVIDENCE_PROOF_LIMITS.stringBytes,
+      maximumValues: EVIDENCE_PROOF_LIMITS.values,
+    }) !== undefined &&
+    snapshotBoundedDataPropertyGraph(compactEvidenceProof(proof), {
+      maximumObjects: EVIDENCE_PROOF_LIMITS.objects,
       maximumSerializedBytes: MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
-      maximumStringBytes: MAX_EVIDENCE_STRING_BYTES,
-      maximumValues: MAX_EVIDENCE_PROOF_VALUES,
+      maximumStringBytes: EVIDENCE_PROOF_LIMITS.stringBytes,
+      maximumValues: EVIDENCE_PROOF_LIMITS.values,
     }) !== undefined
   );
 }

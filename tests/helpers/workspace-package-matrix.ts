@@ -248,8 +248,7 @@ async function materializeWorkspaceInstallation(
     packageManager,
     resolutionContext: repositoryRoot,
   });
-  // A Resolution Context manifest may legitimately declare dependencies without
-  // declaring its own Package Identity.
+  // Consumer manifests can declare dependencies without their own name or version.
   await writeConsumerManifest(consumerOneContext, packages.consumerOne, false, false);
   return {
     consumerOneContext,
