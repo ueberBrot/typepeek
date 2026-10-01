@@ -1,5 +1,15 @@
 # typepeek
 
+## 0.4.0
+
+### Minor Changes
+
+- [#69](https://github.com/ueberBrot/typepeek/pull/69) [`f8340e4`](https://github.com/ueberBrot/typepeek/commit/f8340e4da12daad544b259981ba0c3b67952c39c) - Update the runtime dependencies to Effect 4.0.0-rc.112 and Execa 10.0.1.
+
+### Patch Changes
+
+- [#69](https://github.com/ueberBrot/typepeek/pull/69) [`f8340e4`](https://github.com/ueberBrot/typepeek/commit/f8340e4da12daad544b259981ba0c3b67952c39c) - Validate advertised Inspection Protocol request examples as JSON objects.
+
 ## 0.3.0
 
 ### Minor Changes
