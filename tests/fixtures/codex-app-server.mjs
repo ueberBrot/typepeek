@@ -25,6 +25,10 @@ for await (const line of createInterface({ input: process.stdin })) {
   if (request.method === "initialize") {
     if (request.params.capabilities.experimentalApi !== true)
       throw new Error("Raw events require opt-in");
+    if (process.env.CODEX_FIXTURE_NONFINITE_ID) {
+      process.stdout.write('{"id":1e999,"result":{}}\n');
+      continue;
+    }
     send({ id: request.id, result: {} });
   } else if (request.method === "skills/list") {
     send({

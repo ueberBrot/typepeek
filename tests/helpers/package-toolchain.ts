@@ -3,8 +3,8 @@ import { mkdir } from "node:fs/promises";
 import { join, sep } from "node:path";
 
 export const PACKAGE_MANAGER_PINS = [
-  { command: "npm", manager: "npm", version: "11.16.0" },
-  { command: "pnpm", manager: "pnpm", version: "12.3.4" },
+  { command: "npm", manager: "npm", version: "11.19.0" },
+  { command: "pnpm", manager: "pnpm", version: "12.6.0" },
   { command: "bun", manager: "bun", version: "1.4.2" },
 ] as const;
 

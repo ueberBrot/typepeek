@@ -2,7 +2,7 @@
 
 ## Set up
 
-Install [Vite+ CLI](https://viteplus.dev/guide/) 0.3.0 or newer, then install the project's locked dependencies:
+Install [Vite+ CLI](https://viteplus.dev/guide/) 0.3.3 or newer, then install the project's locked dependencies:
 
 ```bash
 vp install --frozen-lockfile

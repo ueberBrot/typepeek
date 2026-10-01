@@ -16,18 +16,20 @@ runs:
   using: composite
   steps:
     - name: Set up Vite+
-      uses: voidzero-dev/setup-vp@313600b80b104eadebb9111787d37a2e83e014ca # v1.17.0
+      uses: voidzero-dev/setup-vp@3754dd7dbdb32bd8f6d28b6043de13ad3a75f21f # v1.21.1
       with:
-        node-version: "24.18.0"
+        version: "0.3.3"
+        node-version-file: ".node-version"
         cache: ${{ inputs.cache }}
         registry-url: ${{ inputs.registry-url }}
         run-install: |
           - args: ["--frozen-lockfile"]
 
     - name: Set up pnpm for direct commands
-      uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+      uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
       with:
         install: false
+        node-version-file: "false"
 
     - name: Set up Bun
       if: inputs.install-bun == 'true'

@@ -132,7 +132,7 @@ const inspectionRequestDescriptorSchema = Schema.Struct({
     Schema.isMinLength(1),
     Schema.isMaxLength(MAX_CAPABILITY_FIELDS),
   ),
-  example: Schema.Json,
+  example: Schema.JsonObject,
 });
 
 export type SchemaDerivedRequestDescriptor = typeof inspectionRequestDescriptorSchema.Type;
@@ -141,7 +141,7 @@ declare module "effect/Schema" {
   namespace Annotations {
     interface Annotations {
       readonly inspectionRequestField?: InspectionRequestFieldCapability | undefined;
-      readonly inspectionRequestExample?: typeof Schema.Json.Type | undefined;
+      readonly inspectionRequestExample?: typeof Schema.JsonObject.Type | undefined;
     }
   }
 }
@@ -180,7 +180,7 @@ export function deriveInspectionRequestDescriptor<
     });
   });
   const example = Schema.resolveAnnotations(schema)?.inspectionRequestExample;
-  if (example === undefined || Result.isFailure(Schema.decodeUnknownResult(schema)(example))) {
+  if (example === undefined || Result.isFailure(Schema.decodeResult(schema)(example))) {
     throw new Error(`Request schema "${intent}" must declare one valid encoded example.`);
   }
   return Schema.decodeUnknownSync(inspectionRequestDescriptorSchema)({ intent, fields, example });

@@ -20,7 +20,7 @@ const launchSchema = Schema.Struct({
 export type CodexLaunch = typeof launchSchema.Type;
 
 const messageSchema = Schema.Struct({
-  id: Schema.optional(Schema.Union([Schema.String, Schema.Number])),
+  id: Schema.optional(Schema.Union([Schema.String, Schema.Finite])),
   method: Schema.optional(Schema.String),
   params: Schema.optional(Schema.Unknown),
   result: Schema.optional(Schema.Unknown),

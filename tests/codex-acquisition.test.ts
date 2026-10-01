@@ -655,6 +655,45 @@ it("captures tool responses while the server is running instead of timestamping 
   }
 });
 
+it("rejects overflowing numeric JSON-RPC IDs before waiting for a response", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "codex-capture-overflow-"));
+  try {
+    const bin = join(directory, "bin");
+    await mkdir(bin);
+    await cp("tests/fixtures/codex-app-server.mjs", join(bin, "codex"));
+    await chmod(join(bin, "codex"), 0o755);
+    const launchPath = join(directory, "launch.json");
+    await writeFile(
+      launchPath,
+      JSON.stringify({
+        workspace: directory,
+        model: "gpt-5.6-luna",
+        effort: "low",
+        prompt: "fixture",
+        configArguments: [],
+        timeoutMilliseconds: 5000,
+      }),
+    );
+    const output = join(directory, "captured");
+    const result = await execa(
+      process.execPath,
+      ["benchmarks/codex-discovery/capture.ts", "--launch", launchPath, "--output", output],
+      {
+        env: { PATH: `${bin}:${process.env["PATH"]}`, CODEX_FIXTURE_NONFINITE_ID: "1" },
+        reject: false,
+      },
+    );
+    const captured = JSON.parse(await readFile(join(output, "capture.json"), "utf8"));
+    expect(result.exitCode).toBe(1);
+    expect(captured.failureKind).toBe("protocol");
+    expect(captured.timedOut).toBe(false);
+    expect(captured.error).toContain("finite");
+    expect(captured.error).toContain('["id"]');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 it("grades an acquisition campaign by retrieved evidence even when the final answers are wrong", async () => {
   const directory = await mkdtemp(join(tmpdir(), "codex-acquisition-study-"));
   try {

@@ -211,7 +211,7 @@ describe("Node Platform Modules", () => {
       status: "success",
       result: {
         specifier: "node:fs",
-        declarationProvider: { name: "@types/node", version: "24.13.3" },
+        declarationProvider: { name: "@types/node", version: "24.13.6" },
         moduleExports: expect.arrayContaining([{ name: "readFile" }]),
       },
     });
@@ -230,7 +230,7 @@ describe("Node Platform Modules", () => {
     expect(outcome, JSON.stringify(outcome)).toMatchObject({
       status: "success",
       result: {
-        declarationProvider: { name: "@types/node", version: "24.13.3" },
+        declarationProvider: { name: "@types/node", version: "24.13.6" },
         moduleExport: { name: "readFile" },
       },
     });
