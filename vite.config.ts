@@ -100,6 +100,7 @@ export default defineConfig({
     // Apply the local compiler loader alias before dependency externalization.
     deps: {
       alwaysBundle: ["@typescript/typescript6"],
+      resolveDepSubpath: true,
     },
     entry: ["src/cli.ts", "src/inspection/analysis-process-entry.ts"],
     dts: true,

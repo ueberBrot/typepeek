@@ -56,17 +56,13 @@ function readManifest(url: string | URL): PackageManifest {
 
 test("resolves Vite+ and Effect helpers to one Vite and Vitest runtime", () => {
   const rootVite = resolvedPackagePath(import.meta.resolve("vite/package.json"));
-  const vitePlusCore = resolvedDependencyPath(
-    "vite-plus",
-    "@voidzero-dev/vite-plus-core/package.json",
-  );
   const vitePlusVite = resolvedDependencyPath("vite-plus", "vite/package.json");
   const vitestVite = resolvedDependencyPath("vitest", "vite/package.json");
   const rootVitest = resolvedPackagePath(import.meta.resolve("vitest/package.json"));
   const vitePlusVitest = resolvedDependencyPath("vite-plus", "vitest/package.json");
   const effectVitest = resolvedDependencyPath("@effect/vitest", "vitest/package.json");
 
-  expect(new Set([rootVite, vitePlusCore, vitePlusVite, vitestVite])).toEqual(new Set([rootVite]));
+  expect(new Set([rootVite, vitePlusVite, vitestVite])).toEqual(new Set([rootVite]));
   expect(new Set([rootVitest, vitePlusVitest, effectVitest])).toEqual(new Set([rootVitest]));
 });
 

@@ -26,6 +26,15 @@ function nestedExportTarget(depth: number): object {
   return target;
 }
 
+function fixturePadding(bytes: number): string {
+  // Vary each block to keep large fixtures below npm's tar compression-ratio limit.
+  return Array.from({ length: Math.ceil(bytes / 64) }, (_, index) =>
+    index.toString(36).padStart(64, "x"),
+  )
+    .join("")
+    .slice(0, bytes);
+}
+
 const PACKAGE_SOURCES: readonly PackageSource[] = [
   {
     directory: "shared-pattern-files-package",
@@ -939,7 +948,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     directory: "oversized-declaration-source-package",
     name: "@typepeek-fixture/oversized-declaration-source",
     version: "1.0.0",
-    declaration: `export type Oversized = "${"x".repeat(
+    declaration: `export type Oversized = "${fixturePadding(
       INSPECTION_BUDGET_POLICY.declarationSourceBytes,
     )}";\n`,
     runtime: 'throw new Error("Typepeek executed the oversized declaration runtime");\n',
@@ -1041,7 +1050,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
         [`entry${index}/value.d.ts`, `export declare const value${index}: string;\n`],
         [
           `entry${index}/package.json`,
-          JSON.stringify({ type: "module", padding: "x".repeat(220 * 1_024) }),
+          JSON.stringify({ type: "module", padding: fixturePadding(220 * 1_024) }),
         ],
       ]).flat(),
     ),
