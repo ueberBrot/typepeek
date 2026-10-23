@@ -6,7 +6,7 @@
 
 Typepeek shows the TypeScript interface of an installed package without importing or executing it. Find exports, inspect signatures and declarations, and discover public subpaths from the version installed in your project.
 
-Requires Node.js 24.18 or later within the Node.js 24 release line and a `node_modules` installation. Typepeek does not download missing packages; unsupported or oversized inspections return a typed failure.
+Requires Node.js 24.22.1 or later within the Node.js 24 release line and a `node_modules` installation. Typepeek does not download missing packages; unsupported or oversized inspections return a typed failure.
 
 ## Quick start
 

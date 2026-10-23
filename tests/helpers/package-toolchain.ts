@@ -3,9 +3,9 @@ import { mkdir } from "node:fs/promises";
 import { join, sep } from "node:path";
 
 export const PACKAGE_MANAGER_PINS = [
-  { command: "npm", manager: "npm", version: "11.19.0" },
+  { command: "npm", manager: "npm", version: "11.19.1" },
   { command: "pnpm", manager: "pnpm", version: "12.6.0" },
-  { command: "bun", manager: "bun", version: "1.4.2" },
+  { command: "bun", manager: "bun", version: "1.4.4" },
 ] as const;
 
 export type PackageManagerPin = (typeof PACKAGE_MANAGER_PINS)[number];
