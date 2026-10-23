@@ -1,5 +1,11 @@
 # typepeek
 
+## 0.4.1
+
+### Patch Changes
+
+- [#71](https://github.com/ueberBrot/typepeek/pull/71) [`bb7d6e8`](https://github.com/ueberBrot/typepeek/commit/bb7d6e8e3d0c3d2b198d3c7d0ef79d95d0aabba9) - Require Node.js 24.22.1 or later within the Node.js 24 release line to include the October 2026 security fixes.
+
 ## 0.4.0
 
 ### Minor Changes
