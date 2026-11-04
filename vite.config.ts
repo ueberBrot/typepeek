@@ -281,7 +281,7 @@ export default defineConfig({
   },
   staged: {
     "*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}": "vp check --fix",
-    "*.{json,jsonc,md,yaml,yml}": "vp fmt",
+    "*.{json,jsonc,md,yaml,yml}": "vp fmt --no-error-on-unmatched-pattern",
   },
   test: {
     include: ["tests/**/*.test.ts"],
