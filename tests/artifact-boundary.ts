@@ -2,106 +2,191 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import nodePath from "node:path";
+
+import { Schema } from "effect";
+
+import { requireDefined } from "#typepeek/defined-value";
+import { decodeJson } from "#typepeek/json-data";
+
+const SMOKE_PACKAGE = "@stricli/core";
 
 /** The parent must run a real inspection without loading the worker's compiler. */
-export function assertCompilerLoadsOnlyInWorker(cliPath: string): void {
-  const hook = `import { registerHooks } from 'node:module';
+export const assertCompilerLoadsOnlyInWorker =
+  function assertCompilerLoadsOnlyInWorker(cliPath: string): void {
+    const hook = `import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier === '@typescript/typescript6') throw new Error('Compiler loaded in CLI parent');
   return nextResolve(specifier, context);
 } });`;
-  const result = spawnSync(
-    process.execPath,
-    [
-      "--import",
-      `data:text/javascript,${encodeURIComponent(hook)}`,
-      cliPath,
-      "signatures",
-      "@stricli/core",
-      "buildRouteMap",
-      "--json",
-    ],
-    { encoding: "utf8", env: { ...process.env, TYPEPEEK_CACHE_BYPASS: "1" } },
-  );
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.equal((JSON.parse(result.stdout) as { readonly status: string }).status, "success");
-}
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        `data:text/javascript,${encodeURIComponent(hook)}`,
+        cliPath,
+        "signatures",
+        SMOKE_PACKAGE,
+        "buildRouteMap",
+        "--json",
+      ],
+      { encoding: "utf-8", env: { ...process.env, TYPEPEEK_CACHE_BYPASS: "1" } }
+    );
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(
+      decodeJson(
+        Schema.Struct({
+          status: Schema.mutableKey(Schema.String),
+        }),
+        result.stdout
+      ).status,
+      "success"
+    );
+  };
 
 /** ESM imports scan the compiler's CommonJS exports before loading it. */
-export function assertWorkerUsesCommonJsCompiler(cliPath: string): void {
-  const hook = `import { registerHooks } from 'node:module';
+export const assertWorkerUsesCommonJsCompiler =
+  function assertWorkerUsesCommonJsCompiler(cliPath: string): void {
+    const hook = `import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier === '@typescript/typescript6' && !context.conditions.includes('require')) {
     throw new Error('Compiler load requires a CommonJS export scan');
   }
   return nextResolve(specifier, context);
 } });`;
-  const result = spawnSync(
-    process.execPath,
-    [cliPath, "signatures", "@stricli/core", "buildRouteMap", "--json"],
-    {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(hook)}`,
-        TYPEPEEK_CACHE_BYPASS: "1",
-      },
-    },
-  );
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.equal((JSON.parse(result.stdout) as { readonly status: string }).status, "success");
-}
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "signatures", SMOKE_PACKAGE, "buildRouteMap", "--json"],
+      {
+        encoding: "utf-8",
+        env: {
+          ...process.env,
+          NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(hook)}`,
+          TYPEPEEK_CACHE_BYPASS: "1",
+        },
+      }
+    );
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(
+      decodeJson(
+        Schema.Struct({
+          status: Schema.mutableKey(Schema.String),
+        }),
+        result.stdout
+      ).status,
+      "success"
+    );
+  };
 
 /** Verifies that repository-only phase tracing is absent from every shipped JavaScript file. */
-export async function assertRepositoryProfilingExcluded(directory: string): Promise<void> {
-  const entries = await readdir(directory, { withFileTypes: true, recursive: true });
-  const sources = await Promise.all(
-    entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".js"))
-      .map((entry) => readFile(resolve(entry.parentPath, entry.name), "utf8")),
-  );
-  assert.doesNotMatch(
-    sources.join("\n"),
-    /TYPEPEEK_PROFILE|inspection-profile|node:perf_hooks/u,
-    `Repository profiling diagnostics must not ship in ${directory}.`,
-  );
-}
+export const assertRepositoryProfilingExcluded =
+  async function assertRepositoryProfilingExcluded(
+    directory: string
+  ): Promise<void> {
+    const entries = await readdir(directory, {
+      recursive: true,
+      withFileTypes: true,
+    });
 
-/** Executes the shipped worker twice and proves the second run reuses one cache entry. */
-export async function assertArtifactCacheReuse(cliPath: string): Promise<void> {
-  for (const arguments_ of [
-    ["overview", "@stricli/core"],
-    ["signatures", "effect/Option", "getOrNull"],
-    ["signatures", "execa", "execa"],
-    ["signatures", "node:fs", "readFile"],
-  ]) {
-    await assertInspectionCacheReuse([cliPath, ...arguments_, "--workspace", ".", "--json"]);
-  }
-}
+    const sources = await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".js"))
+        .map(
+          async (entry) =>
+            await readFile(
+              nodePath.resolve(entry.parentPath, entry.name),
+              "utf-8"
+            )
+        )
+    );
 
-async function assertInspectionCacheReuse(arguments_: readonly string[]): Promise<void> {
-  const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-artifact-cache-"));
+    assert.doesNotMatch(
+      sources.join("\n"),
+      /TYPEPEEK_PROFILE|inspection-profile|node:perf_hooks/u,
+      `Repository profiling diagnostics must not ship in ${directory}.`
+    );
+  };
+
+const assertInspectionCacheReuse = async function assertInspectionCacheReuse(
+  cliArguments: readonly string[]
+): Promise<void> {
+  const cacheDirectory = await mkdtemp(
+    nodePath.join(tmpdir(), "typepeek-artifact-cache-")
+  );
+
   const env = { ...process.env, TYPEPEEK_CACHE_DIRECTORY: cacheDirectory };
+
   try {
-    const first = spawnSync(process.execPath, arguments_, { encoding: "utf8", env });
+    const first = spawnSync(process.execPath, cliArguments, {
+      encoding: "utf-8",
+      env,
+    });
+
     assert.equal(first.status, 0, first.stderr || first.stdout);
-    const entryNames = (await readdir(cacheDirectory)).filter((name) => name.endsWith(".json"));
+
+    const readdirResult = await readdir(cacheDirectory);
+
+    const entryNames = readdirResult.filter((name) => name.endsWith(".json"));
+
     assert.equal(
       entryNames.length,
       1,
-      "The first artifact inspection must create one cache entry.",
+      "The first artifact inspection must create one cache entry."
     );
-    const entryPath = join(cacheDirectory, entryNames[0] as string);
+
+    const entryPath = nodePath.join(
+      cacheDirectory,
+      requireDefined(entryNames[0])
+    );
+
     const before = await lstat(entryPath, { bigint: true });
 
-    const repeated = spawnSync(process.execPath, arguments_, { encoding: "utf8", env });
+    const repeated = spawnSync(process.execPath, cliArguments, {
+      encoding: "utf-8",
+      env,
+    });
+
     assert.equal(repeated.status, 0, repeated.stderr || repeated.stdout);
     assert.equal(repeated.stdout, first.stdout);
     const after = await lstat(entryPath, { bigint: true });
-    assert.equal(after.ino, before.ino, "A cache hit must not replace the stored entry.");
-    assert.equal(after.mtimeNs, before.mtimeNs, "A cache hit must not rewrite the stored entry.");
+    assert.equal(
+      after.ino,
+      before.ino,
+      "A cache hit must not replace the stored entry."
+    );
+    assert.equal(
+      after.mtimeNs,
+      before.mtimeNs,
+      "A cache hit must not rewrite the stored entry."
+    );
   } finally {
-    await rm(cacheDirectory, { recursive: true, force: true });
+    await rm(cacheDirectory, { force: true, recursive: true });
   }
-}
+};
+
+/** Executes the shipped worker twice and proves the second run reuses one cache entry. */
+export const assertArtifactCacheReuse = async function assertArtifactCacheReuse(
+  cliPath: string
+): Promise<void> {
+  await Array.fromAsync(
+    [
+      ["overview", SMOKE_PACKAGE],
+      ["signatures", "effect/Option", "getOrNull"],
+      ["signatures", "execa", "execa"],
+      ["signatures", "node:fs", "readFile"],
+    ],
+    async (cliArguments) => {
+      await assertInspectionCacheReuse([
+        cliPath,
+        ...cliArguments,
+        "--workspace",
+        ".",
+        "--json",
+      ]);
+    }
+  );
+};

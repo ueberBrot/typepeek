@@ -1,15 +1,18 @@
-import ts from "@typescript/typescript6";
-import * as Effect from "effect/Effect";
+import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeAll, expect, it } from "vite-plus/test";
+import nodePath from "node:path";
+
+import ts from "@typescript/typescript6";
+import { Effect } from "effect";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { invokeInspectionCore } from "#typepeek/inspection/core";
 
 let resolutionContext: string;
 const specifier = "signature-rest-fixture";
 const compilerOmission = new Map<string, boolean>();
+
 const REST_CASES = [
   ["required", false],
   ["nested", false],
@@ -34,18 +37,35 @@ const REST_CASES = [
   ["unionConstraint", true],
 ] as const;
 
-beforeAll(async () => {
-  resolutionContext = await mkdtemp(join(tmpdir(), "typepeek-signature-rest-"));
-  const packageRoot = join(resolutionContext, "node_modules", specifier);
-  await mkdir(packageRoot, { recursive: true });
-  await writeFile(join(resolutionContext, "package.json"), JSON.stringify({ type: "module" }));
-  await writeFile(
-    join(packageRoot, "package.json"),
-    JSON.stringify({ name: specifier, version: "1.0.0", type: "module", types: "index.d.ts" }),
-  );
-  await writeFile(
-    join(packageRoot, "index.d.ts"),
-    `
+describe("signature-rest-parameters", () => {
+  beforeAll(async () => {
+    resolutionContext = await mkdtemp(
+      nodePath.join(tmpdir(), "typepeek-signature-rest-")
+    );
+
+    const packageRoot = nodePath.join(
+      resolutionContext,
+      "node_modules",
+      specifier
+    );
+
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(
+      nodePath.join(resolutionContext, "package.json"),
+      JSON.stringify({ type: "module" })
+    );
+    await writeFile(
+      nodePath.join(packageRoot, "package.json"),
+      JSON.stringify({
+        name: specifier,
+        type: "module",
+        types: "index.d.ts",
+        version: "1.0.0",
+      })
+    );
+    await writeFile(
+      nodePath.join(packageRoot, "index.d.ts"),
+      `
     export declare function required<T extends [string]>(...args: T): void;
     export declare function nested<T extends [string], U extends T>(...args: U): void;
     export declare function requiredUnion<T extends [string] | [number]>(...args: T): void;
@@ -67,62 +87,75 @@ beforeAll(async () => {
     export declare function requiredIntersectionUnion(...args: ([string] & { readonly brand: true }) | [number]): void;
     export declare function constrainedIntersection<T extends string[] & { readonly brand: true }>(...args: T): void;
     export declare function unionConstraint<T extends string[]>(...args: T | [number]): void;
-  `,
-  );
-  const consumerPath = join(resolutionContext, "consumer.ts");
-  await writeFile(
-    consumerPath,
-    `import { ${REST_CASES.map(([name]) => name).join(", ")} } from "${specifier}";\n` +
-      REST_CASES.map(([name]) => `${name}();`).join("\n"),
-  );
-  const program = ts.createProgram([consumerPath], {
-    module: ts.ModuleKind.NodeNext,
-    moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    strict: true,
-    types: [],
-    noEmit: true,
-  });
-  const consumer = program.getSourceFile(consumerPath);
-  expect(consumer).toBeDefined();
-  if (consumer === undefined) return;
-  const diagnostics = program.getSemanticDiagnostics();
-  expect(diagnostics.filter((diagnostic) => diagnostic.file !== consumer)).toEqual([]);
-  for (const [index, [name]] of REST_CASES.entries()) {
-    const call = consumer.statements[index + 1];
-    expect(call).toBeDefined();
-    if (call === undefined) continue;
-    compilerOmission.set(
-      name,
-      !diagnostics.some(
-        (diagnostic) =>
-          diagnostic.start !== undefined &&
-          diagnostic.start >= call.pos &&
-          diagnostic.start < call.end,
-      ),
+  `
     );
-  }
-});
-
-afterAll(async () => {
-  if (resolutionContext !== undefined) {
-    await rm(resolutionContext, { recursive: true, force: true });
-  }
-});
-
-it.each(REST_CASES)(
-  "matches compiler call checking for the %s rest parameter",
-  async (exportName, optional) => {
-    expect(compilerOmission.get(exportName)).toBe(optional);
-    const { outcome } = await Effect.runPromise(
-      invokeInspectionCore("signature-inspection", { resolutionContext, specifier, exportName }),
+    const consumerPath = nodePath.join(resolutionContext, "consumer.ts");
+    const generatedText1 = REST_CASES.map(([name]) => `${name}();`).join("\n");
+    await writeFile(
+      consumerPath,
+      `import { ${REST_CASES.map(([name]) => name).join(", ")} } from "${specifier}";\n${generatedText1}`
     );
-    expect(outcome, JSON.stringify(outcome)).toMatchObject({
-      status: "success",
-      result: {
-        moduleExport: {
-          signatures: [{ parameters: [{ rest: true, optional }] }],
-        },
-      },
+
+    const program = ts.createProgram([consumerPath], {
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      noEmit: true,
+      strict: true,
+      types: [],
     });
-  },
-);
+
+    const consumer = program.getSourceFile(consumerPath);
+    assert.ok(consumer, "The compiler must load the generated consumer.");
+
+    const diagnostics = program.getSemanticDiagnostics();
+    assert.deepEqual(
+      diagnostics.filter((diagnostic) => diagnostic.file !== consumer),
+      []
+    );
+
+    for (const [index, [name]] of REST_CASES.entries()) {
+      const call = consumer.statements[index + 1];
+      assert.ok(call, "Every rest-parameter case must have a generated call.");
+
+      compilerOmission.set(
+        name,
+        !diagnostics.some(
+          (diagnostic) =>
+            diagnostic.start !== undefined &&
+            diagnostic.start >= call.pos &&
+            diagnostic.start < call.end
+        )
+      );
+    }
+  });
+
+  afterAll(async () => {
+    if (resolutionContext !== undefined) {
+      await rm(resolutionContext, { force: true, recursive: true });
+    }
+  });
+
+  it.each(REST_CASES)(
+    "matches compiler call checking for the %s rest parameter",
+    async (exportName, optional) => {
+      expect(compilerOmission.get(exportName)).toBe(optional);
+
+      const { outcome } = await Effect.runPromise(
+        invokeInspectionCore("signature-inspection", {
+          exportName,
+          resolutionContext,
+          specifier,
+        })
+      );
+
+      expect(outcome).toMatchObject({
+        result: {
+          moduleExport: {
+            signatures: [{ parameters: [{ optional, rest: true }] }],
+          },
+        },
+        status: "success",
+      });
+    }
+  );
+});

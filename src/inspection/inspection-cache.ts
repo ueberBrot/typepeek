@@ -5,60 +5,77 @@ import {
   INSPECTION_CACHE_SEMANTICS,
   encodeInspectionCacheIdentityValue,
 } from "#typepeek/inspection/inspection-cache-codec";
+import type { InspectionCacheIdentity } from "#typepeek/inspection/inspection-cache-storage";
 import {
   identityFromValue,
   readInspectionCacheCandidate,
-  type InspectionCacheIdentity,
 } from "#typepeek/inspection/inspection-cache-storage";
 import type { InspectableModuleSelection } from "#typepeek/inspection/installed-evidence";
 import type { InstalledEvidenceProof } from "#typepeek/inspection/installed-evidence-fingerprint";
 import { installedEvidenceProofStillMatches } from "#typepeek/inspection/installed-evidence-proof";
-import type { AnalysisRequest, InspectionOutcome } from "#typepeek/inspection/protocol";
+import type {
+  AnalysisRequest,
+  InspectionOutcome,
+} from "#typepeek/inspection/protocol";
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
 
 export {
   createInspectionCacheHitNotice,
   createInspectionCacheWriteReceipt,
   readInspectionCacheHitNotice,
-  type InspectionCacheIdentity,
   type InspectionCacheHitNotice,
+  type InspectionCacheIdentity,
   type InspectionCacheWriteReceipt,
 } from "#typepeek/inspection/inspection-cache-storage";
 
-export function createInspectionCacheIdentity(
-  request: AnalysisRequest,
-  selection: InspectableModuleSelection,
-): InspectionCacheIdentity | undefined {
-  const candidate = {
-    budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
-    cacheSemantics: INSPECTION_CACHE_SEMANTICS,
-    compilerVersion: ts.version,
-    evidence: {
-      declarationPath: selection.declarationAuthority.declarationPath,
-      declarationRoot: selection.declarationAuthority.root.canonical,
-      kind: selection.kind,
-      repositoryRoot: selection.repositoryRoot,
-      resolutionContextDirectory: selection.resolutionContextDirectory,
-      resultIdentity: selection.resultIdentity,
-    },
-    request,
-    typepeekVersion: TYPEPEEK_VERSION,
+export type InspectionCacheSelection = Pick<
+  InspectableModuleSelection,
+  | "declarationAuthority"
+  | "kind"
+  | "repositoryRoot"
+  | "resolutionContextDirectory"
+  | "resultIdentity"
+>;
+
+export const createInspectionCacheIdentity =
+  function createInspectionCacheIdentity(
+    request: AnalysisRequest,
+    selection: InspectionCacheSelection
+  ): InspectionCacheIdentity | undefined {
+    const candidate = {
+      budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
+      cacheSemantics: INSPECTION_CACHE_SEMANTICS,
+      compilerVersion: ts.version,
+      evidence: {
+        declarationPath: selection.declarationAuthority.declarationPath,
+        declarationRoot: selection.declarationAuthority.root.canonical,
+        kind: selection.kind,
+        repositoryRoot: selection.repositoryRoot,
+        resolutionContextDirectory: selection.resolutionContextDirectory,
+        resultIdentity: selection.resultIdentity,
+      },
+      request,
+      typepeekVersion: TYPEPEEK_VERSION,
+    };
+
+    const value = encodeInspectionCacheIdentityValue(candidate);
+
+    if (value === undefined) {
+      return undefined;
+    }
+
+    return identityFromValue(value);
   };
-  const value = encodeInspectionCacheIdentityValue(candidate);
-  if (value === undefined) {
-    return undefined;
-  }
-  return identityFromValue(value);
-}
 
 /** Returns a cached outcome only when its full evidence proof still matches. */
-export function readInspectionCacheOutcome(
+export const readInspectionCacheOutcome = function readInspectionCacheOutcome(
   identity: InspectionCacheIdentity,
-  currentSelectionProof: InstalledEvidenceProof,
+  currentSelectionProof: InstalledEvidenceProof
 ): InspectionOutcome | undefined {
   const entry = readInspectionCacheCandidate(identity);
+
   return entry !== undefined &&
     installedEvidenceProofStillMatches(entry.proof, currentSelectionProof)
     ? entry.outcome
     : undefined;
-}
+};

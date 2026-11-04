@@ -36,13 +36,13 @@ The skill guides agents in choosing an inspection and retrieving installed evide
 
 This controlled test compares agents searching and reading dependency files without Typepeek against agents given the Typepeek CLI and its shipped skill. Five fixed dependency-discovery tasks do not establish a real-world productivity benefit.
 
-| Task       | Files: time | CLI + skill: time | Files: tokens | CLI + skill: tokens |
-| ---------- | ----------: | ----------------: | ------------: | ------------------: |
-| TypeScript |      40.5 s |            12.2 s |         86.8k |               18.3k |
-| Stricli    |       8.1 s |            18.1 s |         29.5k |               34.3k |
-| Execa      |       8.5 s |            17.9 s |         26.6k |               33.2k |
-| Effect     |      10.7 s |            13.3 s |         30.4k |               19.3k |
-| Node       |       7.6 s |             9.6 s |         24.6k |               16.1k |
+| Task | Files: time | CLI + skill: time | Files: tokens | CLI + skill: tokens |
+| --- | --: | --: | --: | --: |
+| TypeScript | 40.5 s | 12.2 s | 86.8k | 18.3k |
+| Stricli | 8.1 s | 18.1 s | 29.5k | 34.3k |
+| Execa | 8.5 s | 17.9 s | 26.6k | 33.2k |
+| Effect | 10.7 s | 13.3 s | 30.4k | 19.3k |
+| Node | 7.6 s | 9.6 s | 24.6k | 16.1k |
 
 Medians cover 118 matched pairs with verified evidence. Times measure task submission to sufficient evidence; tokens cover the whole task, including final-answer generation.
 

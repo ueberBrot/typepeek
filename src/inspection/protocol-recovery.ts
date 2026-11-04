@@ -1,12 +1,11 @@
-import * as Result from "effect/Result";
-import * as Schema from "effect/Schema";
+import { Result, Schema } from "effect";
 
 import { isBoundedExportSearchQuery } from "#typepeek/inspection/inspection-plan-query";
+import type { ProtocolRecovery } from "#typepeek/inspection/inspection-protocol-schema";
 import {
   exportNotFoundOutcomeSchema,
   protocolRecoverySchema,
   supportingTypeLimitOutcomeSchema,
-  type ProtocolRecovery,
 } from "#typepeek/inspection/inspection-protocol-schema";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import {
@@ -14,73 +13,21 @@ import {
   protocolRecoveryReasonSchemas,
 } from "#typepeek/inspection/protocol-vocabulary";
 import type { PreparedInspectionCoreRequest } from "#typepeek/inspection/request-definitions";
+import { unreachableCase } from "#typepeek/unreachable-case";
 
-const decodeProtocolRecovery = Schema.decodeUnknownResult(protocolRecoverySchema);
+const decodeProtocolRecovery = Schema.decodeUnknownResult(
+  protocolRecoverySchema
+);
+
 const isExportNotFoundOutcome = Schema.is(exportNotFoundOutcomeSchema);
-const isSupportingTypeLimitOutcome = Schema.is(supportingTypeLimitOutcomeSchema);
 
-/** Builds recovery requests from the validated original request. */
-export function protocolRecoveryGuidance(
-  prepared: PreparedInspectionCoreRequest,
-  outcome: InspectionOutcome,
-): ProtocolRecovery | readonly [] {
-  const candidates = recoveryCandidates(prepared, outcome);
-  if (candidates.length === 0) {
-    return candidates;
-  }
-  return Result.getOrElse(decodeProtocolRecovery(candidates), () => []);
-}
+const isSupportingTypeLimitOutcome = Schema.is(
+  supportingTypeLimitOutcomeSchema
+);
 
-function recoveryCandidates(
-  prepared: PreparedInspectionCoreRequest,
-  outcome: InspectionOutcome,
-): ProtocolRecovery | readonly [] {
-  if (prepared.intent === "export-inspection" && isSupportingTypeLimitOutcome(outcome)) {
-    const request = prepared.request;
-    return [
-      {
-        reason: protocolRecoveryReasonSchemas.declarationsWithoutSupportingTypes.literal,
-        request: {
-          protocolVersion: INSPECTION_PROTOCOL_VERSION,
-          intent: "declaration-inspection",
-          request,
-        },
-      },
-      {
-        reason: protocolRecoveryReasonSchemas.signaturesWithoutSupportingTypes.literal,
-        request: {
-          protocolVersion: INSPECTION_PROTOCOL_VERSION,
-          intent: "signature-inspection",
-          request,
-          response: { signatureEvidence: "structured" },
-        },
-      },
-    ];
-  }
-  if (!isExportNotFoundOutcome(outcome)) {
-    return [];
-  }
-  const focusedRequest = focusedExportRequest(prepared);
-  return focusedRequest === undefined || !isBoundedExportSearchQuery(focusedRequest.exportName)
-    ? []
-    : [
-        {
-          reason: protocolRecoveryReasonSchemas.relatedExportNames.literal,
-          request: {
-            protocolVersion: INSPECTION_PROTOCOL_VERSION,
-            intent: "export-search",
-            request: {
-              resolutionContext: focusedRequest.resolutionContext,
-              specifier: focusedRequest.specifier,
-              accessStyle: focusedRequest.accessStyle,
-              query: focusedRequest.exportName,
-            },
-          },
-        },
-      ];
-}
-
-function focusedExportRequest(prepared: PreparedInspectionCoreRequest):
+const focusedExportRequest = function focusedExportRequest(
+  prepared: PreparedInspectionCoreRequest
+):
   | {
       readonly resolutionContext: string;
       readonly specifier: string;
@@ -93,9 +40,95 @@ function focusedExportRequest(prepared: PreparedInspectionCoreRequest):
     case "signature-inspection":
     case "declaration-inspection":
     case "member-inspection":
-    case "member-discovery":
+    case "member-discovery": {
       return prepared.request;
-    default:
+    }
+
+    case "export-search":
+    case "inspection-plan":
+    case "interface-overview":
+    case "public-interface-comparison":
+    case "public-subpath-discovery": {
       return undefined;
+    }
+
+    default: {
+      return unreachableCase(prepared);
+    }
   }
-}
+};
+
+const recoveryCandidates = function recoveryCandidates(
+  prepared: PreparedInspectionCoreRequest,
+  outcome: InspectionOutcome
+): ProtocolRecovery | readonly [] {
+  if (
+    prepared.intent === "export-inspection" &&
+    isSupportingTypeLimitOutcome(outcome)
+  ) {
+    const { request } = prepared;
+
+    return [
+      {
+        reason:
+          protocolRecoveryReasonSchemas.declarationsWithoutSupportingTypes
+            .literal,
+        request: {
+          intent: "declaration-inspection",
+          protocolVersion: INSPECTION_PROTOCOL_VERSION,
+          request,
+        },
+      },
+      {
+        reason:
+          protocolRecoveryReasonSchemas.signaturesWithoutSupportingTypes
+            .literal,
+        request: {
+          intent: "signature-inspection",
+          protocolVersion: INSPECTION_PROTOCOL_VERSION,
+          request,
+          response: { signatureEvidence: "structured" },
+        },
+      },
+    ];
+  }
+
+  if (!isExportNotFoundOutcome(outcome)) {
+    return [];
+  }
+
+  const focusedRequest = focusedExportRequest(prepared);
+
+  return focusedRequest === undefined ||
+    !isBoundedExportSearchQuery(focusedRequest.exportName)
+    ? []
+    : [
+        {
+          reason: protocolRecoveryReasonSchemas.relatedExportNames.literal,
+          request: {
+            intent: "export-search",
+            protocolVersion: INSPECTION_PROTOCOL_VERSION,
+            request: {
+              accessStyle: focusedRequest.accessStyle,
+              query: focusedRequest.exportName,
+              resolutionContext: focusedRequest.resolutionContext,
+              specifier: focusedRequest.specifier,
+            },
+          },
+        },
+      ];
+};
+
+/** Builds recovery requests from the validated original request. */
+export const protocolRecoveryGuidance = function protocolRecoveryGuidance(
+  prepared: PreparedInspectionCoreRequest,
+  outcome: InspectionOutcome
+): ProtocolRecovery | readonly [] {
+  const candidates = recoveryCandidates(prepared, outcome);
+
+  if (candidates.length === 0) {
+    return candidates;
+  }
+
+  return Result.getOrElse(decodeProtocolRecovery(candidates), () => []);
+};

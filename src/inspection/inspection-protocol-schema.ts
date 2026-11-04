@@ -1,6 +1,14 @@
-import * as Schema from "effect/Schema";
+import { Schema } from "effect";
 
 import { MAX_INSPECTION_PLAN_QUERIES } from "#typepeek/inspection/inspection-plan-query";
+import type {
+  AtomicInspectionResult,
+  InspectedSignature,
+  InspectionFailure,
+  InspectionPlan,
+  InspectionResult,
+  SignatureInspection,
+} from "#typepeek/inspection/protocol";
 import {
   atomicInspectionResultSchemas,
   inspectionFailureSchema,
@@ -8,35 +16,32 @@ import {
   inspectionResultSchemas,
   inspectionResultWithIdentity,
   signatureInspectionSchemaComponents,
-  type AtomicInspectionResult,
-  type InspectedSignature,
-  type InspectionFailure,
-  type InspectionPlan,
-  type InspectionResult,
-  type SignatureInspection,
 } from "#typepeek/inspection/protocol";
+import type {
+  InspectionIntent,
+  SignatureEvidenceIntent,
+  SignatureEvidenceKind,
+} from "#typepeek/inspection/protocol-vocabulary";
 import {
-  inspectionProtocolResponseOptionsSchema,
   INSPECTION_PROTOCOL_VERSION,
+  inspectionProtocolResponseOptionsSchema,
   PROTOCOL_RECOVERY_POLICY,
   protocolRecoveryReasonSchemas,
   signatureEvidenceIntentSchema,
   supportingTypeRecoveryBudgetSchema,
-  type InspectionIntent,
-  type SignatureEvidenceKind,
-  type SignatureEvidenceIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
-import {
-  inspectionRequestSchemas,
-  type InspectionRequestByIntent,
-  type NormalizedInspectionRequestByIntent,
+import type {
+  InspectionRequestByIntent,
+  NormalizedInspectionRequestByIntent,
 } from "#typepeek/inspection/request-definitions";
+import { inspectionRequestSchemas } from "#typepeek/inspection/request-definitions";
 
 const protocolVersionSchema = Schema.Literal(INSPECTION_PROTOCOL_VERSION);
 const omittedFieldSchema = Schema.optionalKey(Schema.Never);
 const isSignatureEvidenceIntent = Schema.is(signatureEvidenceIntentSchema);
 
-function authoritativeContract<Type, Encoded>() {
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- Both directions of the returned schema contract must match Type and Encoded at compile time.
+const authoritativeContract = function authoritativeContract<Type, Encoded>() {
   return <Contract extends Schema.Constraint>(
     schema: [Contract["Type"]] extends [Type]
       ? [Type] extends [Contract["Type"]]
@@ -46,16 +51,18 @@ function authoritativeContract<Type, Encoded>() {
             : never
           : never
         : never
-      : never,
+      : never
   ): Contract => schema;
-}
+};
 
 const structuredInspectedSignatureSchema = Schema.Struct({
   kind: signatureInspectionSchemaComponents.signature.fields.kind,
-  typeParameters: signatureInspectionSchemaComponents.signature.fields.typeParameters,
-  thisParameter: signatureInspectionSchemaComponents.signature.fields.thisParameter,
   parameters: signatureInspectionSchemaComponents.signature.fields.parameters,
   returns: signatureInspectionSchemaComponents.signature.fields.returns,
+  thisParameter:
+    signatureInspectionSchemaComponents.signature.fields.thisParameter,
+  typeParameters:
+    signatureInspectionSchemaComponents.signature.fields.typeParameters,
 });
 
 const exactInspectedSignatureSchema = Schema.Struct({
@@ -63,24 +70,24 @@ const exactInspectedSignatureSchema = Schema.Struct({
   text: signatureInspectionSchemaComponents.signature.fields.text,
 });
 
-function signatureInspectionWith<SignatureSchema extends Schema.Constraint>(
-  signatureSchema: SignatureSchema,
-) {
-  const moduleExportSchema = signatureInspectionSchemaComponents.moduleExport.mapFields(
-    (fields) => ({
+const signatureInspectionWith = function signatureInspectionWith<
+  SignatureSchema extends Schema.Constraint,
+>(signatureSchema: SignatureSchema) {
+  const moduleExportSchema =
+    signatureInspectionSchemaComponents.moduleExport.mapFields((fields) => ({
       ...fields,
       signatures: Schema.Array(signatureSchema),
-    }),
-  );
+    }));
+
   return inspectionResultWithIdentity({
     intent: Schema.Literal("signature-inspection"),
     moduleExport: moduleExportSchema,
   });
-}
+};
 
-function atomicInspectionResultWith<SignatureInspectionSchema extends Schema.Constraint>(
-  signatureInspectionSchema: SignatureInspectionSchema,
-) {
+const atomicInspectionResultWith = function atomicInspectionResultWith<
+  SignatureInspectionSchema extends Schema.Constraint,
+>(signatureInspectionSchema: SignatureInspectionSchema) {
   return Schema.Union([
     atomicInspectionResultSchemas["interface-overview"],
     atomicInspectionResultSchemas["export-inspection"],
@@ -91,110 +98,119 @@ function atomicInspectionResultWith<SignatureInspectionSchema extends Schema.Con
     atomicInspectionResultSchemas["member-inspection"],
     atomicInspectionResultSchemas["member-discovery"],
   ]);
-}
+};
 
-function inspectionResultWith<SignatureSchema extends Schema.Constraint>(
-  signatureSchema: SignatureSchema,
-) {
+const inspectionResultWith = function inspectionResultWith<
+  SignatureSchema extends Schema.Constraint,
+>(signatureSchema: SignatureSchema) {
   const signatureInspectionSchema = signatureInspectionWith(signatureSchema);
   const atomicSchema = atomicInspectionResultWith(signatureInspectionSchema);
+
   const planSchema = Schema.Struct({
-    intent: Schema.Literal("inspection-plan"),
     inspections: Schema.Array(atomicSchema).check(
       Schema.isMinLength(1),
-      Schema.isMaxLength(MAX_INSPECTION_PLAN_QUERIES),
+      Schema.isMaxLength(MAX_INSPECTION_PLAN_QUERIES)
     ),
+    intent: Schema.Literal("inspection-plan"),
   });
+
   return {
-    signatureInspectionSchema,
     planSchema,
     resultSchema: Schema.Union([signatureInspectionSchema, planSchema]),
+    signatureInspectionSchema,
   } as const;
-}
+};
 
-function inspectionOutcomeWith<SignatureSchema extends Schema.Constraint>(
-  signatureSchema: SignatureSchema,
-) {
+const inspectionOutcomeWith = function inspectionOutcomeWith<
+  SignatureSchema extends Schema.Constraint,
+>(signatureSchema: SignatureSchema) {
   const projected = inspectionResultWith(signatureSchema);
+
   return {
     ...projected,
     outcomeSchema: Schema.Union([
-      Schema.Struct({ status: Schema.Literal("success"), result: projected.resultSchema }),
+      Schema.Struct({
+        result: projected.resultSchema,
+        status: Schema.Literal("success"),
+      }),
       inspectionFailureSchema,
     ]),
   } as const;
-}
+};
 
 export const protocolInspectionSchemas = {
-  structured: inspectionOutcomeWith(structuredInspectedSignatureSchema),
-  exact: inspectionOutcomeWith(exactInspectedSignatureSchema),
   both: inspectionOutcomeWith(signatureInspectionSchemaComponents.signature),
-} as const satisfies Readonly<Record<SignatureEvidenceKind, unknown>>;
+  exact: inspectionOutcomeWith(exactInspectedSignatureSchema),
+  structured: inspectionOutcomeWith(structuredInspectedSignatureSchema),
+} as const satisfies Readonly<
+  Record<SignatureEvidenceKind, ReturnType<typeof inspectionOutcomeWith>>
+>;
 
-function requestEnvelopeWithoutProjection<
-  const Intent extends Exclude<InspectionIntent, SignatureEvidenceIntent>,
-  RequestSchema extends Schema.Constraint,
->(intent: Intent, request: RequestSchema) {
-  return Schema.Struct({
-    protocolVersion: protocolVersionSchema,
-    intent: Schema.Literal(intent),
-    request,
-    response: omittedFieldSchema,
-  });
-}
+const requestEnvelopeWithoutProjection =
+  function requestEnvelopeWithoutProjection<
+    const Intent extends Exclude<InspectionIntent, SignatureEvidenceIntent>,
+    RequestSchema extends Schema.Constraint,
+  >(intent: Intent, request: RequestSchema) {
+    return Schema.Struct({
+      intent: Schema.Literal(intent),
+      protocolVersion: protocolVersionSchema,
+      request,
+      response: omittedFieldSchema,
+    });
+  };
 
-function requestEnvelopeWithProjection<
+const requestEnvelopeWithProjection = function requestEnvelopeWithProjection<
   const Intent extends SignatureEvidenceIntent,
   RequestSchema extends Schema.Constraint,
 >(intent: Intent, request: RequestSchema) {
   return Schema.Struct({
-    protocolVersion: protocolVersionSchema,
     intent: Schema.Literal(intent),
+    protocolVersion: protocolVersionSchema,
     request,
     response: Schema.optionalKey(inspectionProtocolResponseOptionsSchema),
   });
-}
+};
 
 const inspectionProtocolRequestSchemas = {
-  "interface-overview": requestEnvelopeWithoutProjection(
-    "interface-overview",
-    inspectionRequestSchemas["interface-overview"],
+  "declaration-inspection": requestEnvelopeWithoutProjection(
+    "declaration-inspection",
+    inspectionRequestSchemas["declaration-inspection"]
   ),
   "export-inspection": requestEnvelopeWithoutProjection(
     "export-inspection",
-    inspectionRequestSchemas["export-inspection"],
-  ),
-  "signature-inspection": requestEnvelopeWithProjection(
-    "signature-inspection",
-    inspectionRequestSchemas["signature-inspection"],
+    inspectionRequestSchemas["export-inspection"]
   ),
   "export-search": requestEnvelopeWithoutProjection(
     "export-search",
-    inspectionRequestSchemas["export-search"],
-  ),
-  "public-subpath-discovery": requestEnvelopeWithoutProjection(
-    "public-subpath-discovery",
-    inspectionRequestSchemas["public-subpath-discovery"],
-  ),
-  "declaration-inspection": requestEnvelopeWithoutProjection(
-    "declaration-inspection",
-    inspectionRequestSchemas["declaration-inspection"],
-  ),
-  "member-discovery": requestEnvelopeWithoutProjection(
-    "member-discovery",
-    inspectionRequestSchemas["member-discovery"],
-  ),
-  "member-inspection": requestEnvelopeWithoutProjection(
-    "member-inspection",
-    inspectionRequestSchemas["member-inspection"],
+    inspectionRequestSchemas["export-search"]
   ),
   "inspection-plan": requestEnvelopeWithProjection(
     "inspection-plan",
-    inspectionRequestSchemas["inspection-plan"],
+    inspectionRequestSchemas["inspection-plan"]
+  ),
+  "interface-overview": requestEnvelopeWithoutProjection(
+    "interface-overview",
+    inspectionRequestSchemas["interface-overview"]
+  ),
+  "member-discovery": requestEnvelopeWithoutProjection(
+    "member-discovery",
+    inspectionRequestSchemas["member-discovery"]
+  ),
+  "member-inspection": requestEnvelopeWithoutProjection(
+    "member-inspection",
+    inspectionRequestSchemas["member-inspection"]
   ),
   "public-interface-comparison": requestEnvelopeWithoutProjection(
     "public-interface-comparison",
-    inspectionRequestSchemas["public-interface-comparison"],
+    inspectionRequestSchemas["public-interface-comparison"]
+  ),
+  "public-subpath-discovery": requestEnvelopeWithoutProjection(
+    "public-subpath-discovery",
+    inspectionRequestSchemas["public-subpath-discovery"]
+  ),
+  "signature-inspection": requestEnvelopeWithProjection(
+    "signature-inspection",
+    inspectionRequestSchemas["signature-inspection"]
   ),
 } as const satisfies Readonly<Record<InspectionIntent, Schema.Constraint>>;
 
@@ -213,72 +229,109 @@ const exactInspectionProtocolRequestSchema = authoritativeContract<
     inspectionProtocolRequestSchemas["member-discovery"],
     inspectionProtocolRequestSchemas["inspection-plan"],
     inspectionProtocolRequestSchemas["public-interface-comparison"],
-  ]),
+  ])
 );
+
 export const inspectionProtocolRequestSchema: Schema.Codec<
   NormalizedInspectionProtocolRequestContract,
   InspectionProtocolRequestContract
 > = exactInspectionProtocolRequestSchema;
 
-export function supportsSignatureEvidence(
-  intent: InspectionIntent,
+export const supportsSignatureEvidence = function supportsSignatureEvidence(
+  intent: InspectionIntent
 ): intent is SignatureEvidenceIntent {
   return isSignatureEvidenceIntent(intent);
-}
+};
 
-const structuredSignatureRecoveryRequestSchema = inspectionProtocolRequestSchemas[
-  "signature-inspection"
-].mapFields((fields) => ({
-  ...fields,
-  response: Schema.Struct({ signatureEvidence: Schema.Literal("structured") }),
-}));
+const structuredSignatureRecoveryRequestSchema =
+  inspectionProtocolRequestSchemas["signature-inspection"].mapFields(
+    (fields) => ({
+      ...fields,
+      response: Schema.Struct({
+        signatureEvidence: Schema.Literal("structured"),
+      }),
+    })
+  );
+
 const declarationRecoveryGuidanceSchema = Schema.Struct({
   reason: protocolRecoveryReasonSchemas.declarationsWithoutSupportingTypes,
-  request: Schema.toEncoded(inspectionProtocolRequestSchemas["declaration-inspection"]),
+  request: Schema.toEncoded(
+    inspectionProtocolRequestSchemas["declaration-inspection"]
+  ),
 });
+
 const signatureRecoveryGuidanceSchema = Schema.Struct({
   reason: protocolRecoveryReasonSchemas.signaturesWithoutSupportingTypes,
   request: Schema.toEncoded(structuredSignatureRecoveryRequestSchema),
 });
+
 const searchRecoveryGuidanceSchema = Schema.Struct({
   reason: protocolRecoveryReasonSchemas.relatedExportNames,
   request: Schema.toEncoded(inspectionProtocolRequestSchemas["export-search"]),
 });
-function boundedRecovery<
-  RecoverySchema extends Schema.Top & Schema.ConstraintDecoder<readonly unknown[]>,
+
+const hasBoundedRecoveryBytes = function hasBoundedRecoveryBytes(
+  guidance: readonly unknown[]
+): boolean {
+  try {
+    return (
+      Buffer.byteLength(JSON.stringify(guidance)) <=
+      PROTOCOL_RECOVERY_POLICY.maximumBytes
+    );
+  } catch {
+    return false;
+  }
+};
+
+const boundedRecovery = function boundedRecovery<
+  RecoverySchema extends Schema.Top &
+    Schema.ConstraintDecoder<readonly unknown[]>,
 >(schema: RecoverySchema): RecoverySchema["Rebuild"] {
   return schema.check(
     Schema.isMaxLength(PROTOCOL_RECOVERY_POLICY.maximumEntries),
     Schema.makeFilter(hasBoundedRecoveryBytes, {
       expected: `at most ${PROTOCOL_RECOVERY_POLICY.maximumBytes} serialized bytes`,
-    }),
+    })
   );
-}
-const searchRecoverySchema = boundedRecovery(Schema.Tuple([searchRecoveryGuidanceSchema]));
-const supportingTypeRecoverySchema = boundedRecovery(
-  Schema.Tuple([declarationRecoveryGuidanceSchema, signatureRecoveryGuidanceSchema]),
+};
+
+const searchRecoverySchema = boundedRecovery(
+  Schema.Tuple([searchRecoveryGuidanceSchema])
 );
+
+const supportingTypeRecoverySchema = boundedRecovery(
+  Schema.Tuple([
+    declarationRecoveryGuidanceSchema,
+    signatureRecoveryGuidanceSchema,
+  ])
+);
+
 export const protocolRecoverySchema = Schema.Union([
   searchRecoverySchema,
   supportingTypeRecoverySchema,
 ]);
+
 const structuredProjectionSchema = Schema.Struct({
-  signatureEvidence: Schema.Literal("structured"),
   omittedEvidence: Schema.Tuple([Schema.Literal("exact-signature-text")]),
+  signatureEvidence: Schema.Literal("structured"),
 });
+
 const exactProjectionSchema = Schema.Struct({
+  omittedEvidence: Schema.Tuple([
+    Schema.Literal("structured-signature-fields"),
+  ]),
   signatureEvidence: Schema.Literal("exact"),
-  omittedEvidence: Schema.Tuple([Schema.Literal("structured-signature-fields")]),
 });
+
 const bothProjectionSchema = Schema.Struct({
-  signatureEvidence: Schema.Literal("both"),
   omittedEvidence: Schema.Tuple([]),
+  signatureEvidence: Schema.Literal("both"),
 });
 
 export const signatureEvidenceProjectionSchemas = {
-  structured: structuredProjectionSchema,
-  exact: exactProjectionSchema,
   both: bothProjectionSchema,
+  exact: exactProjectionSchema,
+  structured: structuredProjectionSchema,
 } as const satisfies Readonly<Record<SignatureEvidenceKind, Schema.Constraint>>;
 
 const nonProjectedInspectionResultSchema = Schema.Union([
@@ -291,80 +344,96 @@ const nonProjectedInspectionResultSchema = Schema.Union([
   inspectionResultSchemas["member-discovery"],
   inspectionResultSchemas["public-interface-comparison"],
 ]);
+
 const nonProjectedInspectionOutcomeSchema = Schema.Union([
-  Schema.Struct({ status: Schema.Literal("success"), result: nonProjectedInspectionResultSchema }),
+  Schema.Struct({
+    result: nonProjectedInspectionResultSchema,
+    status: Schema.Literal("success"),
+  }),
   inspectionFailureSchema,
 ]);
-export const exportNotFoundOutcomeSchema = inspectionFailureSchemas.notFound.mapFields(
-  (fields) => ({
+
+export const exportNotFoundOutcomeSchema =
+  inspectionFailureSchemas.notFound.mapFields((fields) => ({
     ...fields,
     reason: Schema.Literal("export-not-found"),
-  }),
-);
-export const supportingTypeLimitOutcomeSchema = inspectionFailureSchemas.limit.mapFields(
-  (fields) => ({
+  }));
+
+export const supportingTypeLimitOutcomeSchema =
+  inspectionFailureSchemas.limit.mapFields((fields) => ({
     ...fields,
     exceededBudget: supportingTypeRecoveryBudgetSchema,
-  }),
-);
+  }));
+
 const unprojectedResponseSchema = Schema.Struct({
-  protocolVersion: protocolVersionSchema,
   outcome: nonProjectedInspectionOutcomeSchema,
   projection: omittedFieldSchema,
+  protocolVersion: protocolVersionSchema,
   recovery: omittedFieldSchema,
 });
+
 const unprojectedSearchRecoveryResponseSchema = Schema.Struct({
-  protocolVersion: protocolVersionSchema,
   outcome: exportNotFoundOutcomeSchema,
   projection: omittedFieldSchema,
+  protocolVersion: protocolVersionSchema,
   recovery: searchRecoverySchema,
 });
+
 const supportingTypeRecoveryResponseSchema = Schema.Struct({
-  protocolVersion: protocolVersionSchema,
   outcome: supportingTypeLimitOutcomeSchema,
   projection: omittedFieldSchema,
+  protocolVersion: protocolVersionSchema,
   recovery: supportingTypeRecoverySchema,
 });
 
-function projectedResponseSchema<
+const projectedResponseSchema = function projectedResponseSchema<
   OutcomeSchema extends Schema.Constraint,
   ProjectionSchema extends Schema.Constraint,
 >(outcome: OutcomeSchema, projection: ProjectionSchema) {
   return Schema.Struct({
-    protocolVersion: protocolVersionSchema,
     outcome,
     projection,
+    protocolVersion: protocolVersionSchema,
     recovery: omittedFieldSchema,
   });
-}
+};
 
-function projectedSearchRecoveryResponseSchema<ProjectionSchema extends Schema.Constraint>(
-  projection: ProjectionSchema,
-) {
-  return Schema.Struct({
-    protocolVersion: protocolVersionSchema,
-    outcome: exportNotFoundOutcomeSchema,
-    projection,
-    recovery: searchRecoverySchema,
-  });
-}
+const projectedSearchRecoveryResponseSchema =
+  function projectedSearchRecoveryResponseSchema<
+    ProjectionSchema extends Schema.Constraint,
+  >(projection: ProjectionSchema) {
+    return Schema.Struct({
+      outcome: exportNotFoundOutcomeSchema,
+      projection,
+      protocolVersion: protocolVersionSchema,
+      recovery: searchRecoverySchema,
+    });
+  };
 
 const inspectionProtocolResponseSchemas = {
-  unprojected: unprojectedResponseSchema,
-  unprojectedSearchRecovery: unprojectedSearchRecoveryResponseSchema,
-  supportingTypeRecovery: supportingTypeRecoveryResponseSchema,
-  structured: projectedResponseSchema(
-    protocolInspectionSchemas.structured.outcomeSchema,
-    structuredProjectionSchema,
+  both: projectedResponseSchema(
+    protocolInspectionSchemas.both.outcomeSchema,
+    bothProjectionSchema
   ),
-  structuredSearchRecovery: projectedSearchRecoveryResponseSchema(structuredProjectionSchema),
+  bothSearchRecovery:
+    projectedSearchRecoveryResponseSchema(bothProjectionSchema),
   exact: projectedResponseSchema(
     protocolInspectionSchemas.exact.outcomeSchema,
-    exactProjectionSchema,
+    exactProjectionSchema
   ),
-  exactSearchRecovery: projectedSearchRecoveryResponseSchema(exactProjectionSchema),
-  both: projectedResponseSchema(protocolInspectionSchemas.both.outcomeSchema, bothProjectionSchema),
-  bothSearchRecovery: projectedSearchRecoveryResponseSchema(bothProjectionSchema),
+  exactSearchRecovery: projectedSearchRecoveryResponseSchema(
+    exactProjectionSchema
+  ),
+  structured: projectedResponseSchema(
+    protocolInspectionSchemas.structured.outcomeSchema,
+    structuredProjectionSchema
+  ),
+  structuredSearchRecovery: projectedSearchRecoveryResponseSchema(
+    structuredProjectionSchema
+  ),
+  supportingTypeRecovery: supportingTypeRecoveryResponseSchema,
+  unprojected: unprojectedResponseSchema,
+  unprojectedSearchRecovery: unprojectedSearchRecoveryResponseSchema,
 } as const;
 
 const exactInspectionProtocolResponseSchema = authoritativeContract<
@@ -381,54 +450,59 @@ const exactInspectionProtocolResponseSchema = authoritativeContract<
     inspectionProtocolResponseSchemas.exactSearchRecovery,
     inspectionProtocolResponseSchemas.both,
     inspectionProtocolResponseSchemas.bothSearchRecovery,
-  ]),
+  ])
 );
+
 export const inspectionProtocolResponseSchema: Schema.Codec<InspectionProtocolResponseContract> =
   exactInspectionProtocolResponseSchema;
 
-function hasBoundedRecoveryBytes(guidance: readonly unknown[]): boolean {
-  try {
-    return Buffer.byteLength(JSON.stringify(guidance)) <= PROTOCOL_RECOVERY_POLICY.maximumBytes;
-  } catch {
-    return false;
-  }
-}
-
 export type StructuredInspectedSignature = Omit<InspectedSignature, "text">;
+
 export type ExactInspectedSignature = Pick<InspectedSignature, "kind" | "text">;
+
 export type ProtocolInspectedSignature<Evidence extends SignatureEvidenceKind> =
   Evidence extends "structured"
     ? StructuredInspectedSignature
     : Evidence extends "exact"
       ? ExactInspectedSignature
       : InspectedSignature;
-export type ProtocolSignatureInspection<Evidence extends SignatureEvidenceKind> = Omit<
-  SignatureInspection,
-  "moduleExport"
-> & {
-  readonly moduleExport: Omit<SignatureInspection["moduleExport"], "signatures"> & {
+
+export type ProtocolSignatureInspection<
+  Evidence extends SignatureEvidenceKind,
+> = Omit<SignatureInspection, "moduleExport"> & {
+  readonly moduleExport: Omit<
+    SignatureInspection["moduleExport"],
+    "signatures"
+  > & {
     readonly signatures: readonly ProtocolInspectedSignature<Evidence>[];
   };
 };
-export type ProtocolInspectionPlan<Evidence extends SignatureEvidenceKind> = Omit<
-  InspectionPlan,
-  "inspections"
-> & {
-  readonly inspections: readonly (
-    | Exclude<AtomicInspectionResult, SignatureInspection>
-    | ProtocolSignatureInspection<Evidence>
-  )[];
-};
+
+export type ProtocolInspectionPlan<Evidence extends SignatureEvidenceKind> =
+  Omit<InspectionPlan, "inspections"> & {
+    readonly inspections: readonly (
+      | Exclude<AtomicInspectionResult, SignatureInspection>
+      | ProtocolSignatureInspection<Evidence>
+    )[];
+  };
+
 export type ProtocolInspectionResult<Evidence extends SignatureEvidenceKind> =
   | ProtocolSignatureInspection<Evidence>
   | ProtocolInspectionPlan<Evidence>;
+
 export type ProtocolInspectionOutcome<Evidence extends SignatureEvidenceKind> =
-  | { readonly status: "success"; readonly result: ProtocolInspectionResult<Evidence> }
+  | {
+      readonly status: "success";
+      readonly result: ProtocolInspectionResult<Evidence>;
+    }
   | InspectionFailure;
 
-export type InspectionProtocolResponseOptions<
+export interface InspectionProtocolResponseOptions<
   Evidence extends SignatureEvidenceKind = SignatureEvidenceKind,
-> = { readonly signatureEvidence: Evidence };
+> {
+  readonly signatureEvidence: Evidence;
+}
+
 export type InspectionProtocolEnvelope<
   Intent extends InspectionIntent,
   RequestByIntent extends Readonly<Record<InspectionIntent, unknown>>,
@@ -438,8 +512,13 @@ export type InspectionProtocolEnvelope<
   readonly intent: Intent;
   readonly request: RequestByIntent[Intent];
 } & (Intent extends SignatureEvidenceIntent
-  ? { readonly response?: InspectionProtocolResponseOptions<Evidence> }
-  : { readonly response?: never });
+  ? {
+      readonly response?: InspectionProtocolResponseOptions<Evidence>;
+    }
+  : {
+      readonly response?: never;
+    });
+
 export type InspectionProtocolRequestFrom<
   RequestByIntent extends Readonly<Record<InspectionIntent, unknown>>,
   Evidence extends SignatureEvidenceKind = SignatureEvidenceKind,
@@ -450,80 +529,114 @@ export type InspectionProtocolRequestFrom<
     Evidence
   >;
 }[InspectionIntent];
+
 export type InspectionProtocolRequestContract<
   Evidence extends SignatureEvidenceKind = SignatureEvidenceKind,
 > = InspectionProtocolRequestFrom<InspectionRequestByIntent, Evidence>;
+
 export type NormalizedInspectionProtocolRequestContract<
   Evidence extends SignatureEvidenceKind = SignatureEvidenceKind,
-> = InspectionProtocolRequestFrom<NormalizedInspectionRequestByIntent, Evidence>;
+> = InspectionProtocolRequestFrom<
+  NormalizedInspectionRequestByIntent,
+  Evidence
+>;
 
-export type DeclarationRecoveryGuidance = typeof declarationRecoveryGuidanceSchema.Type;
-export type SignatureRecoveryGuidance = typeof signatureRecoveryGuidanceSchema.Type;
+export type DeclarationRecoveryGuidance =
+  typeof declarationRecoveryGuidanceSchema.Type;
+
+export type SignatureRecoveryGuidance =
+  typeof signatureRecoveryGuidanceSchema.Type;
+
 export type SearchRecoveryGuidance = typeof searchRecoveryGuidanceSchema.Type;
+
 export type ProtocolRecovery = typeof protocolRecoverySchema.Type;
 
-export type SignatureEvidenceProjectionFor<Evidence extends SignatureEvidenceKind> =
-  Evidence extends "structured"
+export type SignatureEvidenceProjectionFor<
+  Evidence extends SignatureEvidenceKind,
+> = Evidence extends "structured"
+  ? {
+      readonly signatureEvidence: Evidence;
+      readonly omittedEvidence: readonly ["exact-signature-text"];
+    }
+  : Evidence extends "exact"
     ? {
         readonly signatureEvidence: Evidence;
-        readonly omittedEvidence: readonly ["exact-signature-text"];
+        readonly omittedEvidence: readonly ["structured-signature-fields"];
       }
-    : Evidence extends "exact"
-      ? {
-          readonly signatureEvidence: Evidence;
-          readonly omittedEvidence: readonly ["structured-signature-fields"];
-        }
-      : { readonly signatureEvidence: Evidence; readonly omittedEvidence: readonly [] };
-export type SignatureEvidenceProjection = SignatureEvidenceProjectionFor<SignatureEvidenceKind>;
+    : {
+        readonly signatureEvidence: Evidence;
+        readonly omittedEvidence: readonly [];
+      };
+
+export type SignatureEvidenceProjection =
+  SignatureEvidenceProjectionFor<SignatureEvidenceKind>;
 
 export type ExportNotFoundOutcome = typeof exportNotFoundOutcomeSchema.Type;
-export type SupportingTypeLimitOutcome = typeof supportingTypeLimitOutcomeSchema.Type;
+
+export type SupportingTypeLimitOutcome =
+  typeof supportingTypeLimitOutcomeSchema.Type;
+
 export type UnprojectedInspectionOutcome =
   | {
       readonly status: "success";
-      readonly result: Exclude<InspectionResult, SignatureInspection | InspectionPlan>;
+      readonly result: Exclude<
+        InspectionResult,
+        SignatureInspection | InspectionPlan
+      >;
     }
   | InspectionFailure;
-export type UnprojectedProtocolResponse = {
+
+export interface UnprojectedProtocolResponse {
   readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
   readonly outcome: UnprojectedInspectionOutcome;
   readonly projection?: never;
   readonly recovery?: never;
-};
-export type SearchRecoveryProtocolResponse = {
+}
+
+export interface SearchRecoveryProtocolResponse {
   readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
   readonly outcome: ExportNotFoundOutcome;
   readonly projection?: never;
   readonly recovery: readonly [SearchRecoveryGuidance];
-};
-export type SupportingTypeRecoveryProtocolResponse = {
+}
+
+export interface SupportingTypeRecoveryProtocolResponse {
   readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
   readonly outcome: SupportingTypeLimitOutcome;
   readonly projection?: never;
-  readonly recovery: readonly [DeclarationRecoveryGuidance, SignatureRecoveryGuidance];
-};
-export type ProjectedProtocolResponse<Evidence extends SignatureEvidenceKind> = {
-  readonly [Kind in Evidence]:
-    | {
-        readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
-        readonly outcome: ProtocolInspectionOutcome<Kind>;
-        readonly projection: SignatureEvidenceProjectionFor<Kind>;
-        readonly recovery?: never;
-      }
-    | {
-        readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
-        readonly outcome: ExportNotFoundOutcome;
-        readonly projection: SignatureEvidenceProjectionFor<Kind>;
-        readonly recovery: readonly [SearchRecoveryGuidance];
-      };
-}[Evidence];
+  readonly recovery: readonly [
+    DeclarationRecoveryGuidance,
+    SignatureRecoveryGuidance,
+  ];
+}
+
+export type ProjectedProtocolResponse<Evidence extends SignatureEvidenceKind> =
+  {
+    readonly [Kind in Evidence]:
+      | {
+          readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
+          readonly outcome: ProtocolInspectionOutcome<Kind>;
+          readonly projection: SignatureEvidenceProjectionFor<Kind>;
+          readonly recovery?: never;
+        }
+      | {
+          readonly protocolVersion: typeof INSPECTION_PROTOCOL_VERSION;
+          readonly outcome: ExportNotFoundOutcome;
+          readonly projection: SignatureEvidenceProjectionFor<Kind>;
+          readonly recovery: readonly [SearchRecoveryGuidance];
+        };
+  }[Evidence];
+
 export type InspectionProtocolResponseContract =
   | UnprojectedProtocolResponse
   | SearchRecoveryProtocolResponse
   | SupportingTypeRecoveryProtocolResponse
   | ProjectedProtocolResponse<SignatureEvidenceKind>;
 
-export type NormalizedInspectionProtocolRequest = typeof inspectionProtocolRequestSchema.Type;
-export type InspectionProtocolResponse = typeof inspectionProtocolResponseSchema.Type;
+export type NormalizedInspectionProtocolRequest =
+  typeof inspectionProtocolRequestSchema.Type;
+
+export type InspectionProtocolResponse =
+  typeof inspectionProtocolResponseSchema.Type;
 
 export type { SignatureEvidenceKind } from "#typepeek/inspection/protocol-vocabulary";

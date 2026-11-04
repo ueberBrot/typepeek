@@ -1,243 +1,378 @@
-import { Schema } from "effect";
-import { execa } from "execa";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import nodePath from "node:path";
 import { createInterface } from "node:readline";
 import { parseArgs } from "node:util";
+
+import { Predicate, Schema } from "effect";
+import { execa } from "execa";
+
+import type { JsonInput } from "#typepeek/json-data";
+import { decodeJson } from "#typepeek/json-data";
 
 import type { TimedCodexEvent } from "./acquisition.ts";
 
 const launchSchema = Schema.Struct({
-  workspace: Schema.String,
-  model: Schema.String,
-  effort: Schema.Literals(["low", "high"]),
-  prompt: Schema.String,
-  configArguments: Schema.Array(Schema.String),
-  timeoutMilliseconds: Schema.Int.check(Schema.isGreaterThan(0)),
   codexHome: Schema.optional(Schema.String),
-  outputSchema: Schema.optional(Schema.Unknown),
+  configArguments: Schema.Array(Schema.String),
+  effort: Schema.Literals(["low", "high"]),
+  model: Schema.String,
+  outputSchema: Schema.optional(Schema.Json),
+  prompt: Schema.String,
+  timeoutMilliseconds: Schema.Int.check(Schema.isGreaterThan(0)),
+  workspace: Schema.String,
 });
+
 export type CodexLaunch = typeof launchSchema.Type;
 
 const messageSchema = Schema.Struct({
+  error: Schema.optional(Schema.Struct({ message: Schema.String })),
   id: Schema.optional(Schema.Union([Schema.String, Schema.Finite])),
   method: Schema.optional(Schema.String),
-  params: Schema.optional(Schema.Unknown),
-  result: Schema.optional(Schema.Unknown),
-  error: Schema.optional(Schema.Struct({ message: Schema.String })),
+  params: Schema.optional(Schema.Json),
+  result: Schema.optional(Schema.Json),
 });
+
 const threadSchema = Schema.Struct({
-  thread: Schema.Struct({ id: Schema.String }),
-  model: Schema.String,
   activePermissionProfile: Schema.Struct({ id: Schema.Literal("discovery") }),
   instructionSources: Schema.Array(Schema.String),
+  model: Schema.String,
+  thread: Schema.Struct({ id: Schema.String }),
 });
+
 const skillsSchema = Schema.Struct({
   data: Schema.Array(
     Schema.Struct({
-      skills: Schema.Array(Schema.Struct({ path: Schema.String })),
       errors: Schema.Array(Schema.Unknown),
-    }),
+      skills: Schema.Array(Schema.Struct({ path: Schema.String })),
+    })
   ),
 });
+
 const turnSchema = Schema.Struct({
   threadId: Schema.String,
   turn: Schema.Struct({
+    error: Schema.optional(
+      Schema.NullOr(Schema.Struct({ message: Schema.String }))
+    ),
     id: Schema.String,
     status: Schema.String,
-    error: Schema.optional(Schema.NullOr(Schema.Struct({ message: Schema.String }))),
-  }),
-});
-const answerSchema = Schema.Struct({
-  threadId: Schema.String,
-  item: Schema.Struct({
-    type: Schema.Literal("agentMessage"),
-    text: Schema.String,
-    phase: Schema.optional(Schema.NullOr(Schema.String)),
   }),
 });
 
-export async function captureCodex(launch: CodexLaunch) {
+const answerSchema = Schema.Struct({
+  item: Schema.Struct({
+    phase: Schema.optional(Schema.NullOr(Schema.String)),
+    text: Schema.String,
+    type: Schema.Literal("agentMessage"),
+  }),
+  threadId: Schema.String,
+});
+
+type CodexFailureKind = "protocol" | "turn" | "process" | "cleanup";
+
+export const captureCodex = async function captureCodex(launch: CodexLaunch) {
   const started = performance.now();
   const events: TimedCodexEvent[] = [];
-  const child = execa("codex", ["app-server", "--stdio", ...launch.configArguments], {
-    stdin: "pipe",
-    reject: false,
-    timeout: launch.timeoutMilliseconds,
-    forceKillAfterDelay: 1000,
-    maxBuffer: 32 * 1024 * 1024,
-    ...(launch.codexHome === undefined ? {} : { env: { CODEX_HOME: launch.codexHome } }),
-  });
+
+  const child = execa(
+    "codex",
+    ["app-server", "--stdio", ...launch.configArguments],
+    {
+      forceKillAfterDelay: 1000,
+      maxBuffer: 32 * 1024 * 1024,
+      reject: false,
+      stdin: "pipe",
+      timeout: launch.timeoutMilliseconds,
+      ...(launch.codexHome !== undefined && {
+        env: { CODEX_HOME: launch.codexHome },
+      }),
+    }
+  );
+
   const lines = createInterface({ input: child.stdout });
-  const finished = Promise.withResolvers<void>();
-  void finished.promise.catch(() => {});
+  const finished = Promise.withResolvers<undefined>();
+  // The request path observes this rejection after initialization and cleanup.
+  void finished.promise.catch(() => null);
+
   const pending = new Map<
     number,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+    {
+      resolve: (value: Schema.Json | undefined) => void;
+      reject: (error: Error) => void;
+    }
   >();
+
   let sequence = 0;
   let threadId: string | undefined;
   let answer = "";
   let turnCompletedMilliseconds: number | null = null;
   let error: string | null = null;
-  let failureKind: "protocol" | "turn" | "process" | "cleanup" | null = null;
+  let failureKind: CodexFailureKind | null = null;
   let cleaningTerminals = false;
-  const fail = (cause: Error, kind: NonNullable<typeof failureKind> = "protocol") => {
+
+  const fail = (
+    cause: Error,
+    kind: NonNullable<typeof failureKind> = "protocol"
+  ) => {
     if (error === null) {
       error = cause.message;
       failureKind = kind;
     }
-    for (const request of pending.values()) request.reject(cause);
+
+    for (const request of pending.values()) {
+      request.reject(cause);
+    }
+
     pending.clear();
     finished.reject(cause);
   };
-  const send = (value: unknown) => child.stdin.write(`${JSON.stringify(value)}\n`);
-  const request = (method: string, params: unknown): Promise<unknown> =>
-    new Promise((resolve, reject) => {
-      const id = sequence++;
-      pending.set(id, { resolve, reject });
-      send({ id, method, params });
-    });
+
+  const send = (value: JsonInput) =>
+    child.stdin.write(`${JSON.stringify(value)}\n`);
+
+  const request = async (
+    method: string,
+    params: JsonInput
+  ): Promise<Schema.Json | undefined> => {
+    const pendingRequest = Promise.withResolvers<Schema.Json | undefined>();
+    const id = sequence;
+    sequence += 1;
+    pending.set(id, pendingRequest);
+    send({ id, method, params });
+
+    return await pendingRequest.promise;
+  };
+
+  const resolveResponse = (message: typeof messageSchema.Type): void => {
+    if (Predicate.isNumber(message.id)) {
+      const response = pending.get(message.id);
+
+      if (response !== undefined) {
+        pending.delete(message.id);
+
+        if (message.error === undefined) {
+          response.resolve(message.result);
+        } else {
+          response.reject(new Error(message.error.message));
+        }
+      }
+    }
+  };
+
   lines.on("line", (line) => {
     const milliseconds = performance.now() - started;
+
     try {
-      const event: unknown = JSON.parse(line);
-      events.push({ milliseconds, event });
+      const event = decodeJson(Schema.MutableJson, line);
+      events.push({ event, milliseconds });
       const message = Schema.decodeUnknownSync(messageSchema)(event);
+
       if (
         message.method === "rawResponseItem/completed" &&
         JSON.stringify(message.params).includes("<skills_instructions>")
-      )
-        throw new Error("Host skill instructions leaked into the benchmark thread.");
+      ) {
+        throw new Error(
+          "Host skill instructions leaked into the benchmark thread."
+        );
+      }
+
       if (message.id !== undefined && message.method !== undefined) {
         send({
-          id: message.id,
           error: {
-            code: -32601,
-            message: "Benchmark does not grant requests or additional permissions.",
+            code: -32_601,
+            message:
+              "Benchmark does not grant requests or additional permissions.",
           },
+          id: message.id,
         });
         throw new Error(`Unexpected server request: ${message.method}`);
       }
-      if (typeof message.id === "number") {
-        const response = pending.get(message.id);
-        if (response !== undefined) {
-          pending.delete(message.id);
-          if (message.error !== undefined) response.reject(new Error(message.error.message));
-          else response.resolve(message.result);
-        }
+
+      resolveResponse(message);
+
+      if (
+        message.method === "item/completed" &&
+        Schema.is(answerSchema)(message.params) &&
+        message.params.threadId === threadId &&
+        message.params.item.phase !== "commentary"
+      ) {
+        answer = message.params.item.text;
       }
-      if (message.method === "item/completed" && Schema.is(answerSchema)(message.params)) {
-        if (message.params.threadId === threadId && message.params.item.phase !== "commentary") {
-          answer = message.params.item.text;
-        }
-      }
+
       if (message.method === "turn/completed") {
         const completion = Schema.decodeUnknownSync(turnSchema)(message.params);
-        if (completion.threadId !== threadId) throw new Error("Received another thread's turn.");
+
+        if (completion.threadId !== threadId) {
+          throw new Error("Received another thread's turn.");
+        }
+
         turnCompletedMilliseconds = milliseconds;
-        if (completion.turn.status !== "completed") {
+
+        if (completion.turn.status === "completed") {
+          finished.resolve(undefined);
+        } else {
           fail(
-            new Error(completion.turn.error?.message ?? `Turn ${completion.turn.status}`),
-            "turn",
+            new Error(
+              completion.turn.error?.message ?? `Turn ${completion.turn.status}`
+            ),
+            "turn"
           );
-        } else finished.resolve();
+        }
       }
-    } catch (cause) {
-      fail(cause instanceof Error ? cause : new Error(String(cause)));
+    } catch (caughtError) {
+      fail(
+        caughtError instanceof Error
+          ? caughtError
+          : new Error(String(caughtError))
+      );
       child.kill();
     }
   });
-  void child.then((result) => {
-    if (turnCompletedMilliseconds === null || pending.size > 0)
-      fail(new Error(result.shortMessage ?? "Codex exited before completing the turn."), "process");
-  });
+
+  const observeExit = async (): Promise<void> => {
+    const result = await child;
+
+    if (turnCompletedMilliseconds === null || pending.size > 0) {
+      fail(
+        new Error(
+          result.shortMessage ?? "Codex exited before completing the turn."
+        ),
+        "process"
+      );
+    }
+  };
+
+  void observeExit();
+
   try {
     await request("initialize", {
-      clientInfo: { name: "typepeek_benchmark", version: "1" },
       capabilities: { experimentalApi: true },
+      clientInfo: { name: "typepeek_benchmark", version: "1" },
     });
     send({ method: "initialized", params: {} });
+
     const skills = Schema.decodeUnknownSync(skillsSchema)(
-      await request("skills/list", { cwds: [launch.workspace], forceReload: true }),
+      await request("skills/list", {
+        cwds: [launch.workspace],
+        forceReload: true,
+      })
     );
-    if (skills.data.some(({ errors }) => errors.length > 0))
+
+    if (skills.data.some(({ errors }) => errors.length > 0)) {
       throw new Error("Host skill discovery failed; cannot verify isolation.");
+    }
+
     const thread = Schema.decodeUnknownSync(threadSchema)(
       await request("thread/start", {
-        model: launch.model,
-        cwd: launch.workspace,
-        permissions: "discovery",
-        approvalPolicy: "never",
-        ephemeral: true,
-        experimentalRawEvents: true,
         allowProviderModelFallback: false,
+        approvalPolicy: "never",
         config: {
-          "skills.config": skills.data.flatMap(({ skills }) =>
-            skills.map(({ path }) => ({ path, enabled: false })),
+          "skills.config": skills.data.flatMap(({ skills: availableSkills }) =>
+            availableSkills.map(({ path }) => ({ enabled: false, path }))
           ),
         },
-      }),
+        cwd: launch.workspace,
+        ephemeral: true,
+        experimentalRawEvents: true,
+        model: launch.model,
+        permissions: "discovery",
+      })
     );
-    if (thread.model !== launch.model) throw new Error("Codex substituted the requested model.");
-    if (thread.instructionSources.length !== 0)
+
+    if (thread.model !== launch.model) {
+      throw new Error("Codex substituted the requested model.");
+    }
+
+    if (thread.instructionSources.length !== 0) {
       throw new Error("Host instructions leaked into the benchmark thread.");
+    }
+
     threadId = thread.thread.id;
     events.push({
-      milliseconds: performance.now() - started,
       event: { method: "benchmark/taskSubmitted", params: { threadId } },
+      milliseconds: performance.now() - started,
     });
     await request("turn/start", {
-      threadId,
-      input: [{ type: "text", text: launch.prompt }],
       effort: launch.effort,
-      ...(launch.outputSchema === undefined ? {} : { outputSchema: launch.outputSchema }),
+      input: [{ text: launch.prompt, type: "text" }],
+      threadId,
+      ...(launch.outputSchema !== undefined && {
+        outputSchema: launch.outputSchema,
+      }),
     });
     await finished.promise;
     cleaningTerminals = true;
     await request("thread/backgroundTerminals/clean", { threadId });
-  } catch (cause) {
+  } catch (caughtError) {
     fail(
-      cause instanceof Error ? cause : new Error(String(cause)),
-      cleaningTerminals ? "cleanup" : "protocol",
+      caughtError instanceof Error
+        ? caughtError
+        : new Error(String(caughtError)),
+      cleaningTerminals ? "cleanup" : "protocol"
     );
     child.kill();
   } finally {
     child.stdin.end();
   }
+
   const result = await child;
   lines.close();
+
   return {
-    events,
     answer,
-    turnCompletedMilliseconds,
-    processSeconds: (performance.now() - started) / 1000,
+    error:
+      error ??
+      (result.failed ? (result.shortMessage ?? "Codex failed.") : null),
+    events,
     exitCode: result.exitCode ?? null,
-    timedOut: result.timedOut,
-    error: error ?? (result.failed ? (result.shortMessage ?? "Codex failed.") : null),
     failureKind,
+    processSeconds: (performance.now() - started) / 1000,
     stderr: result.stderr,
+    timedOut: result.timedOut,
+    turnCompletedMilliseconds,
   };
-}
+};
 
 if (import.meta.main) {
   const { values } = parseArgs({
     options: { launch: { type: "string" }, output: { type: "string" } },
   });
-  if (!values.launch || !values.output)
-    throw new Error("Usage: capture.ts --launch launch.json --output EMPTY_DIRECTORY");
-  const launch = Schema.decodeUnknownSync(launchSchema)(
-    JSON.parse(await readFile(values.launch, "utf8")),
+
+  if (
+    values.launch === undefined ||
+    values.launch === "" ||
+    values.output === undefined ||
+    values.output === ""
+  ) {
+    throw new Error(
+      "Usage: capture.ts --launch launch.json --output EMPTY_DIRECTORY"
+    );
+  }
+
+  const launch = Schema.decodeSync(Schema.fromJsonString(launchSchema))(
+    await readFile(values.launch, "utf-8")
   );
+
   await mkdir(values.output, { recursive: true });
-  if ((await readdir(values.output)).length !== 0)
+
+  const readdirResult = await readdir(values.output);
+
+  if (readdirResult.length !== 0) {
     throw new Error("Use an empty capture directory.");
+  }
+
   const { events, stderr, ...result } = await captureCodex(launch);
   await writeFile(
-    join(values.output, "events.timed.jsonl"),
-    events.map((event) => JSON.stringify(event)).join("\n") + "\n",
+    nodePath.join(values.output, "events.timed.jsonl"),
+    `${events.map((event) => JSON.stringify(event)).join("\n")}\n`
   );
-  await writeFile(join(values.output, "stderr.txt"), stderr);
-  await writeFile(join(values.output, "capture.json"), JSON.stringify(result, null, 2) + "\n");
-  if (result.error !== null) process.exitCode = 1;
+  await writeFile(nodePath.join(values.output, "stderr.txt"), stderr);
+  await writeFile(
+    nodePath.join(values.output, "capture.json"),
+    `${JSON.stringify(result, null, 2)}\n`
+  );
+
+  if (result.error !== null) {
+    process.exitCode = 1;
+  }
 }

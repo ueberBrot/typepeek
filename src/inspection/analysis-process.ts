@@ -1,5 +1,4 @@
-import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
+import { Effect, Schema } from "effect";
 import { execaNode } from "execa";
 
 import {
@@ -22,8 +21,12 @@ import type {
   InspectionOutcome,
   InspectionResultByIntent,
 } from "#typepeek/inspection/protocol";
+import { decodeJson } from "#typepeek/json-data";
 
-interface AnalysisProcessLimits {
+const BUDGET_EXCEEDED = "budget-exceeded";
+const LIMIT_EXCEEDED = "limit-exceeded";
+
+export interface AnalysisProcessLimits {
   readonly deadlineMilliseconds: number;
   readonly maxHeapMegabytes: number;
   readonly maxResultBytes: number;
@@ -40,183 +43,343 @@ interface AnalysisProcessResult {
   readonly timedOut: boolean;
 }
 
-class AnalysisProcessExecutionError extends Schema.TaggedError<AnalysisProcessExecutionError>()(
-  "AnalysisProcessExecutionError",
-  { cause: Schema.Defect() },
-) {}
+const taggedError = Schema.TaggedError;
+
+class AnalysisProcessExecutionError extends taggedError<
+  AnalysisProcessExecutionError,
+  {
+    readonly brand: unique symbol;
+  }
+>()("AnalysisProcessExecutionError", { cause: Schema.Defect() }) {}
 
 const PRODUCTION_LIMITS: AnalysisProcessLimits = {
   deadlineMilliseconds: 10_000,
+  maxDiagnosticBytes: 64 * 1024,
   maxHeapMegabytes: INSPECTION_BUDGET_POLICY.analysisHeapMegabytes,
   maxResultBytes: MAX_ANALYSIS_RESULT_BYTES,
-  maxDiagnosticBytes: 64 * 1_024,
 };
-const MAX_REQUEST_BYTES = 16 * 1_024;
-const STACK_SIZE_KIBIBYTES = 4_096;
+
+const MAX_REQUEST_BYTES = 16 * 1024;
+const STACK_SIZE_KIBIBYTES = 4096;
 
 const DEADLINE_OUTCOME: InspectionFailure = {
-  status: "limit-exceeded",
-  reason: "budget-exceeded",
   exceededBudget: "analysis-deadline",
   message: "Inspection exceeded its analysis deadline.",
+  reason: BUDGET_EXCEEDED,
+  status: LIMIT_EXCEEDED,
 };
+
 const MEMORY_OUTCOME: InspectionFailure = {
-  status: "limit-exceeded",
-  reason: "budget-exceeded",
   exceededBudget: "analysis-memory",
   message: "Inspection exceeded its analysis memory limit.",
+  reason: BUDGET_EXCEEDED,
+  status: LIMIT_EXCEEDED,
 };
+
 const OUTPUT_OUTCOME: InspectionFailure = {
-  status: "limit-exceeded",
-  reason: "budget-exceeded",
   exceededBudget: "analysis-output-bytes",
   message: "Inspection exceeded its analysis process output limit.",
+  reason: BUDGET_EXCEEDED,
+  status: LIMIT_EXCEEDED,
 };
+
 const TERMINATED_OUTCOME: InspectionFailure = {
-  status: "unsupported",
-  reason: "analysis-terminated",
   message: "Inspection analysis terminated before completion.",
-};
-const INVALID_PROCESS_RESULT_OUTCOME: InspectionFailure = {
+  reason: "analysis-terminated",
   status: "unsupported",
-  reason: "invalid-result",
-  message: "Inspection could not validate the analysis process result.",
 };
 
-export const runBoundedAnalysis = Effect.fn("runBoundedAnalysis")(function* <
-  Request extends AnalysisRequest,
->(
-  request: Request,
-): Effect.fn.Return<InspectionOutcome<InspectionResultByIntent[Request["intent"]]>> {
-  if (Buffer.byteLength(JSON.stringify(request)) > MAX_REQUEST_BYTES) {
-    return {
-      status: "limit-exceeded",
-      reason: "budget-exceeded",
-      exceededBudget: "request-bytes",
-      message: "Inspection exceeded its request input limit.",
-    } satisfies InspectionOutcome;
-  }
-  return yield* runAnalysisProcess(
-    request,
-    analysisProcessEntryUrl(),
-    PRODUCTION_LIMITS,
-    inspectionProfilingEnabled,
-    true,
-  );
-});
+const INVALID_PROCESS_RESULT_OUTCOME: InspectionFailure = {
+  message: "Inspection could not validate the analysis process result.",
+  reason: "invalid-result",
+  status: "unsupported",
+};
 
-export function analysisProcessNodeArguments(entrypoint: string): readonly string[] {
-  return [
-    `--max-old-space-size=${PRODUCTION_LIMITS.maxHeapMegabytes}`,
-    `--stack-size=${STACK_SIZE_KIBIBYTES}`,
-    entrypoint,
-  ];
-}
-
-/** Runs process fixtures with the same isolation as production analysis. */
-export const runAnalysisFixtureProcess = Effect.fn("runAnalysisFixtureProcess")(function* (
+const executeAnalysisProcess = function executeAnalysisProcess(
   request: AnalysisRequest,
   entryUrl: URL,
   limits: AnalysisProcessLimits,
-) {
-  return yield* runAnalysisProcess(request, entryUrl, limits, false);
-});
-
-/** Accepts a result only after a clean exit within the time, memory, and output limits. */
-const runAnalysisProcess = Effect.fn("runAnalysisProcess")(function* <
-  Request extends AnalysisRequest,
->(
-  request: Request,
-  entryUrl: URL,
-  limits: AnalysisProcessLimits,
-  forwardProfile: boolean,
-  allowCacheWrite = false,
-  bypassCache = false,
-): Effect.fn.Return<InspectionOutcome<InspectionResultByIntent[Request["intent"]]>> {
-  const result = yield* executeAnalysisProcess(request, entryUrl, limits, bypassCache).pipe(
-    Effect.catchTag("AnalysisProcessExecutionError", () => Effect.void),
-  );
-  if (result === undefined) {
-    return TERMINATED_OUTCOME;
-  }
-  const processFailure = analysisProcessFailure(result, limits);
-  if (processFailure !== undefined) {
-    return processFailure;
-  }
-  const value = parseResult(result.stdout);
-  if (value === undefined) {
-    return INVALID_PROCESS_RESULT_OUTCOME;
-  }
-  const outcome = enforceAnalysisRequestOutcome(request, value);
-  return yield* finalizeAnalysisProcessOutcome({
-    allowCacheWrite,
-    bypassCache,
-    entryUrl,
-    forwardProfile,
-    limits,
-    outcome,
-    request,
-    result,
-  });
-});
-
-function executeAnalysisProcess(
-  request: AnalysisRequest,
-  entryUrl: URL,
-  limits: AnalysisProcessLimits,
-  bypassCache: boolean,
+  bypassCache: boolean
 ): Effect.Effect<AnalysisProcessResult, AnalysisProcessExecutionError> {
   return Effect.callback<AnalysisProcessResult, AnalysisProcessExecutionError>(
     (resume, cancelSignal) => {
       try {
         const subprocess = execaNode(entryUrl, [], {
           ipcInput: request,
-          ...(bypassCache ? { env: { TYPEPEEK_CACHE_BYPASS: "1" } } : {}),
-          serialization: "advanced",
-          timeout: limits.deadlineMilliseconds,
-          forceKillAfterDelay: 100,
+          ...(bypassCache && { env: { TYPEPEEK_CACHE_BYPASS: "1" } }),
           cancelSignal,
+          encoding: "buffer",
+          forceKillAfterDelay: 100,
+          maxBuffer: {
+            ipc: 1,
+            stderr: limits.maxDiagnosticBytes,
+            stdout: limits.maxResultBytes,
+          },
           nodeOptions: [
             `--max-old-space-size=${limits.maxHeapMegabytes}`,
             `--stack-size=${STACK_SIZE_KIBIBYTES}`,
           ],
-          maxBuffer: {
-            ipc: 1,
-            stdout: limits.maxResultBytes,
-            stderr: limits.maxDiagnosticBytes,
-          },
-          encoding: "buffer",
           reject: false,
+          serialization: "advanced",
+          timeout: limits.deadlineMilliseconds,
         });
-        void subprocess.then(
-          (result) => resume(Effect.succeed(result)),
-          (cause) => resume(Effect.fail(new AnalysisProcessExecutionError({ cause }))),
+
+        const forwardResult = async (): Promise<void> => {
+          try {
+            resume(Effect.succeed(await subprocess));
+          } catch (error) {
+            resume(
+              Effect.fail(new AnalysisProcessExecutionError({ cause: error }))
+            );
+          }
+        };
+
+        void forwardResult();
+
+        return Effect.promise(async () => {
+          try {
+            await subprocess;
+          } catch {
+            // The forwarding task reports the subprocess failure through resume.
+          }
+        });
+      } catch (error) {
+        resume(
+          Effect.fail(new AnalysisProcessExecutionError({ cause: error }))
         );
-        return Effect.promise(() =>
-          subprocess.then(
-            () => undefined,
-            () => undefined,
-          ),
-        );
-      } catch (cause) {
-        resume(Effect.fail(new AnalysisProcessExecutionError({ cause })));
+
         return Effect.void;
       }
-    },
+    }
   );
-}
+};
 
-function analysisProcessFailure(
+const isMemoryFailure = function isMemoryFailure(stderr: Uint8Array): boolean {
+  const text = Buffer.from(stderr).toString("utf-8");
+
+  return /heap out of memory|allocation failed - javascript heap/iu.test(text);
+};
+
+const analysisProcessFailure = function analysisProcessFailure(
   result: AnalysisProcessResult,
-  limits: AnalysisProcessLimits,
+  limits: AnalysisProcessLimits
 ): InspectionFailure | undefined {
-  if (result.timedOut) return DEADLINE_OUTCOME;
+  if (result.timedOut) {
+    return DEADLINE_OUTCOME;
+  }
+
   if (result.isMaxBuffer || result.stdout.byteLength > limits.maxResultBytes) {
     return OUTPUT_OUTCOME;
   }
-  if (isMemoryFailure(result.stderr)) return MEMORY_OUTCOME;
-  return result.failed || result.exitCode !== 0 ? TERMINATED_OUTCOME : undefined;
-}
+
+  if (isMemoryFailure(result.stderr)) {
+    return MEMORY_OUTCOME;
+  }
+
+  return result.failed || result.exitCode !== 0
+    ? TERMINATED_OUTCOME
+    : undefined;
+};
+
+const parseResult = function parseResult(
+  serialized: Uint8Array
+): Schema.Json | undefined {
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(serialized);
+
+    return decodeJson(Schema.Json, text);
+  } catch {
+    return undefined;
+  }
+};
+
+const shouldRetryInvalidCacheOutcome = function shouldRetryInvalidCacheOutcome(
+  allowCacheWrite: boolean,
+  bypassCache: boolean,
+  cacheHit: ReturnType<typeof readInspectionCacheHitNotice>,
+  outcome: InspectionOutcome
+): cacheHit is NonNullable<typeof cacheHit> {
+  if (!allowCacheWrite) {
+    return false;
+  }
+
+  if (bypassCache) {
+    return false;
+  }
+
+  if (cacheHit === undefined) {
+    return false;
+  }
+
+  if (outcome.status !== "unsupported") {
+    return false;
+  }
+
+  return outcome.reason === "invalid-result";
+};
+
+const analysisLifecycle = {
+  finalizeAnalysisProcessOutcome: Effect.fn("finalizeAnalysisProcessOutcome")(
+    function* finalizeAnalysisProcessOutcome<Request extends AnalysisRequest>({
+      allowCacheWrite,
+      bypassCache,
+      entryUrl,
+      forwardProfile,
+      limits,
+      outcome,
+      request,
+      result,
+    }: AnalysisProcessCompletion<Request>): Effect.fn.Return<
+      InspectionOutcome<InspectionResultByIntent[Request["intent"]]>
+    > {
+      const cacheHit = readInspectionCacheHitNotice(result.ipcOutput[0]);
+
+      if (
+        shouldRetryInvalidCacheOutcome(
+          allowCacheWrite,
+          bypassCache,
+          cacheHit,
+          outcome
+        )
+      ) {
+        removeInspectionCacheEntry(cacheHit.key);
+
+        return yield* analysisLifecycle.runAnalysisProcess(
+          request,
+          entryUrl,
+          limits,
+          forwardProfile,
+          allowCacheWrite,
+          true
+        );
+      }
+
+      if (forwardProfile) {
+        forwardInspectionProfile(result.stderr);
+      }
+
+      if (allowCacheWrite) {
+        writeValidatedInspectionCacheOutcome(
+          request,
+          outcome,
+          result.ipcOutput[0]
+        );
+      }
+
+      return outcome;
+    }
+  ),
+  runAnalysisProcess: Effect.fn("runAnalysisProcess")(
+    function* runAnalysisProcess<Request extends AnalysisRequest>(
+      request: Request,
+      entryUrl: URL,
+      limits: AnalysisProcessLimits,
+      forwardProfile: boolean,
+      allowCacheWrite = false,
+      bypassCache = false
+    ): Effect.fn.Return<
+      InspectionOutcome<InspectionResultByIntent[Request["intent"]]>
+    > {
+      const result = yield* executeAnalysisProcess(
+        request,
+        entryUrl,
+        limits,
+        bypassCache
+      ).pipe(
+        Effect.catchTag("AnalysisProcessExecutionError", () => Effect.void)
+      );
+
+      if (result === undefined) {
+        return TERMINATED_OUTCOME;
+      }
+
+      const processFailure = analysisProcessFailure(result, limits);
+
+      if (processFailure !== undefined) {
+        return processFailure;
+      }
+
+      const value = parseResult(result.stdout);
+
+      if (value === undefined) {
+        return INVALID_PROCESS_RESULT_OUTCOME;
+      }
+
+      const outcome = enforceAnalysisRequestOutcome(request, value);
+
+      return yield* analysisLifecycle.finalizeAnalysisProcessOutcome({
+        allowCacheWrite,
+        bypassCache,
+        entryUrl,
+        forwardProfile,
+        limits,
+        outcome,
+        request,
+        result,
+      });
+    }
+  ),
+};
+
+const analysisProcessEntryUrl = function analysisProcessEntryUrl(): URL {
+  // Node executes TypeScript directly during development. The packed CLI loads
+  // the separately emitted process entry from dist/inspection.
+  const entryPath = import.meta.url.endsWith(".ts")
+    ? "./analysis-process-entry.ts"
+    : "./inspection/analysis-process-entry.js";
+
+  return new URL(entryPath, import.meta.url);
+};
+
+export const runBoundedAnalysis = Effect.fn("runBoundedAnalysis")(
+  function* runBoundedAnalysis<Request extends AnalysisRequest>(
+    request: Request
+  ): Effect.fn.Return<
+    InspectionOutcome<InspectionResultByIntent[Request["intent"]]>
+  > {
+    if (Buffer.byteLength(JSON.stringify(request)) > MAX_REQUEST_BYTES) {
+      return {
+        exceededBudget: "request-bytes",
+        message: "Inspection exceeded its request input limit.",
+        reason: BUDGET_EXCEEDED,
+        status: LIMIT_EXCEEDED,
+      } satisfies InspectionOutcome;
+    }
+
+    return yield* analysisLifecycle.runAnalysisProcess(
+      request,
+      analysisProcessEntryUrl(),
+      PRODUCTION_LIMITS,
+      inspectionProfilingEnabled,
+      true
+    );
+  }
+);
+
+export const analysisProcessNodeArguments =
+  function analysisProcessNodeArguments(entrypoint: string): readonly string[] {
+    return [
+      `--max-old-space-size=${PRODUCTION_LIMITS.maxHeapMegabytes}`,
+      `--stack-size=${STACK_SIZE_KIBIBYTES}`,
+      entrypoint,
+    ];
+  };
+
+/** Runs process fixtures with the same isolation as production analysis. */
+export const runAnalysisFixtureProcess = Effect.fn("runAnalysisFixtureProcess")(
+  function* runAnalysisFixtureProcess(
+    request: AnalysisRequest,
+    entryUrl: URL,
+    limits: AnalysisProcessLimits
+  ) {
+    return yield* analysisLifecycle.runAnalysisProcess(
+      request,
+      entryUrl,
+      limits,
+      false
+    );
+  }
+);
 
 interface AnalysisProcessCompletion<Request extends AnalysisRequest> {
   readonly allowCacheWrite: boolean;
@@ -224,80 +387,9 @@ interface AnalysisProcessCompletion<Request extends AnalysisRequest> {
   readonly entryUrl: URL;
   readonly forwardProfile: boolean;
   readonly limits: AnalysisProcessLimits;
-  readonly outcome: InspectionOutcome<InspectionResultByIntent[Request["intent"]]>;
+  readonly outcome: InspectionOutcome<
+    InspectionResultByIntent[Request["intent"]]
+  >;
   readonly request: Request;
   readonly result: AnalysisProcessResult;
-}
-
-const finalizeAnalysisProcessOutcome = Effect.fn("finalizeAnalysisProcessOutcome")(function* <
-  Request extends AnalysisRequest,
->({
-  allowCacheWrite,
-  bypassCache,
-  entryUrl,
-  forwardProfile,
-  limits,
-  outcome,
-  request,
-  result,
-}: AnalysisProcessCompletion<Request>): Effect.fn.Return<
-  InspectionOutcome<InspectionResultByIntent[Request["intent"]]>
-> {
-  const cacheHit = readInspectionCacheHitNotice(result.ipcOutput[0]);
-  if (shouldRetryInvalidCacheOutcome(allowCacheWrite, bypassCache, cacheHit, outcome)) {
-    removeInspectionCacheEntry(cacheHit.key);
-    return yield* runAnalysisProcess(
-      request,
-      entryUrl,
-      limits,
-      forwardProfile,
-      allowCacheWrite,
-      true,
-    );
-  }
-  if (forwardProfile) {
-    forwardInspectionProfile(result.stderr);
-  }
-  if (allowCacheWrite) {
-    writeValidatedInspectionCacheOutcome(request, outcome, result.ipcOutput[0]);
-  }
-  return outcome;
-});
-
-function shouldRetryInvalidCacheOutcome(
-  allowCacheWrite: boolean,
-  bypassCache: boolean,
-  cacheHit: ReturnType<typeof readInspectionCacheHitNotice>,
-  outcome: InspectionOutcome,
-): cacheHit is NonNullable<typeof cacheHit> {
-  return (
-    allowCacheWrite &&
-    !bypassCache &&
-    cacheHit !== undefined &&
-    outcome.status === "unsupported" &&
-    outcome.reason === "invalid-result"
-  );
-}
-
-function analysisProcessEntryUrl(): URL {
-  // Node executes TypeScript directly during development. The packed CLI loads
-  // the separately emitted process entry from dist/inspection.
-  const entryPath = import.meta.url.endsWith(".ts")
-    ? "./analysis-process-entry.ts"
-    : "./inspection/analysis-process-entry.js";
-  return new URL(entryPath, import.meta.url);
-}
-
-function isMemoryFailure(stderr: Uint8Array): boolean {
-  const text = Buffer.from(stderr).toString("utf8");
-  return /heap out of memory|allocation failed - javascript heap/i.test(text);
-}
-
-function parseResult(serialized: Uint8Array): unknown {
-  try {
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(serialized);
-    return JSON.parse(text) as unknown;
-  } catch {
-    return undefined;
-  }
 }

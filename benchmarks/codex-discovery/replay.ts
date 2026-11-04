@@ -1,6 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 
+import { Schema } from "effect";
+
+import { requireDefined } from "#typepeek/defined-value";
+import { decodeJson } from "#typepeek/json-data";
+
 import { inspectWithCompiler } from "../support/compiler.ts";
 import { selectDiscoveryWorkloads } from "../support/workloads.ts";
 import {
@@ -11,36 +16,64 @@ import {
 
 const { values } = parseArgs({
   options: {
-    trace: { type: "string" },
-    oracle: { type: "string" },
-    workspace: { type: "string" },
     case: { type: "string" },
+    oracle: { type: "string" },
     output: { type: "string" },
+    trace: { type: "string" },
+    workspace: { type: "string" },
   },
 });
-if (!values.trace || !values.output || (!values.oracle && !(values.workspace && values.case))) {
-  throw new Error(
-    "Usage: node benchmarks/codex-discovery/replay.ts --trace events.timed.jsonl --oracle oracle.json --output acquisition.json",
-  );
+
+const USAGE =
+  "Usage: node benchmarks/codex-discovery/replay.ts --trace events.timed.jsonl --oracle oracle.json --output acquisition.json";
+
+if (
+  values.trace === undefined ||
+  values.trace === "" ||
+  values.output === undefined ||
+  values.output === ""
+) {
+  throw new Error(USAGE);
 }
-if (values.oracle && (values.workspace || values.case))
+
+const hasOracle = (values.oracle ?? "") !== "";
+const hasWorkspace = (values.workspace ?? "") !== "";
+const hasCase = (values.case ?? "") !== "";
+
+if (!hasOracle && !(hasWorkspace && hasCase)) {
+  throw new Error(USAGE);
+}
+
+if (hasOracle && (hasWorkspace || hasCase)) {
   throw new Error("Use either --oracle or --workspace with --case.");
-const workload = values.case === undefined ? undefined : selectDiscoveryWorkloads(values.case)[0]!;
+}
+
+const workload =
+  values.case === undefined
+    ? undefined
+    : requireDefined(selectDiscoveryWorkloads(values.case)[0]);
+
 const compiler =
-  workload === undefined ? undefined : inspectWithCompiler(values.workspace!, workload);
+  workload === undefined
+    ? undefined
+    : inspectWithCompiler(requireDefined(values.workspace), workload);
+
 const oracle = decodeAcquisitionOracle(
   values.oracle === undefined
     ? {
+        declarations: requireDefined(compiler).declarations,
+        exportDeclarations: requireDefined(compiler).exportDeclarations,
+        facts: requireDefined(compiler).facts,
         schemaVersion: 1,
         workload,
-        facts: compiler!.facts,
-        declarations: compiler!.declarations,
-        exportDeclarations: compiler!.exportDeclarations,
       }
-    : JSON.parse(await readFile(values.oracle, "utf8")),
+    : decodeJson(Schema.MutableJson, await readFile(values.oracle, "utf-8"))
 );
-const events = decodeTimedCodexEvents(await readFile(values.trace, "utf8"));
+
+const events = decodeTimedCodexEvents(await readFile(values.trace, "utf-8"));
 const result = measureAcquisition(oracle, events);
 const serialized = `${JSON.stringify(result, null, 2)}\n`;
+
 await writeFile(values.output, serialized, { flag: "wx" });
+
 process.stdout.write(serialized);

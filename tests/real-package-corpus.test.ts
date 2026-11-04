@@ -1,23 +1,28 @@
-import { execa } from "execa";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import nodePath from "node:path";
+
+import { Schema } from "effect";
+import { execa } from "execa";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
+import { requireDefined } from "#typepeek/defined-value";
+import type { ExportInspection, InterfaceOverview } from "#typepeek/inspection";
 import {
   inspectExport,
-  inspectExportMembers,
   inspectExportMember,
+  inspectExportMembers,
+  inspectExportSearch,
   inspectExportSignatures,
   inspectInterfaceOverview,
   inspectPlan,
-  inspectExportSearch,
-  type ExportInspection,
-  type InterfaceOverview,
 } from "#typepeek/inspection";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
+import { decodeJson } from "#typepeek/json-data";
 
-import { type RealPackageCorpus, materializeRealPackageCorpus } from "./helpers/index.ts";
+import type { RealPackageCorpus } from "./helpers/index.ts";
+import { materializeRealPackageCorpus } from "./helpers/index.ts";
+import { match } from "./helpers/matchers.ts";
 import { materializeStaticInspection } from "./helpers/static-inspection.ts";
 
 interface CorpusQuestion {
@@ -39,178 +44,187 @@ interface CorpusQuestion {
 
 const QUESTIONS: readonly CorpusQuestion[] = [
   {
-    specifier: "ajv",
     expectedExport: "Ajv",
     expectedPackage: "ajv",
     probe: 'import { Ajv } from "ajv"; new Ajv({ allErrors: true });',
+    specifier: "ajv",
   },
   {
-    specifier: "ajv",
-    exportName: "JSONType",
     expectedPackage: "ajv",
     expectedSurface: /type JSONType/u,
-    probe: 'import type { JSONType } from "ajv"; const kind: JSONType = "string"; void kind;',
+    exportName: "JSONType",
+    probe:
+      'import type { JSONType } from "ajv"; const kind: JSONType = "string"; void kind;',
+    specifier: "ajv",
   },
   {
-    specifier: "execa",
     expectedExport: "execa",
     expectedPackage: "execa",
     probe: 'import { execa } from "execa"; execa("node", ["--version"]);',
+    specifier: "execa",
   },
   {
-    specifier: "execa",
-    exportName: "getCancelSignal",
     expectedPackage: "execa",
     expectedSurface: /getCancelSignal/u,
-    probeSignatures: true,
+    exportName: "getCancelSignal",
     probe:
       'import { getCancelSignal } from "execa"; const signal: Promise<AbortSignal> = getCancelSignal(); void signal;',
+    probeSignatures: true,
+    specifier: "execa",
   },
   {
-    specifier: "chalk",
-    exportName: "default",
     expectedPackage: "chalk",
     expectedSurface: /ChalkInstance/u,
+    exportName: "default",
+    probe:
+      'import chalk from "chalk"; const colored: string = chalk.red("error");',
     probeSignatures: true,
-    probe: 'import chalk from "chalk"; const colored: string = chalk.red("error");',
+    specifier: "chalk",
   },
   {
-    specifier: "commander",
-    exportName: "Command",
     expectedPackage: "commander",
     expectedSurface: /new \(name\??: string\): Command/u,
+    exportName: "Command",
+    probe:
+      'import { Command } from "commander"; new Command("tool").option("--quiet");',
     probeSignatures: true,
-    probe: 'import { Command } from "commander"; new Command("tool").option("--quiet");',
+    specifier: "commander",
   },
   {
-    specifier: "date-fns",
-    exportName: "isDate",
     expectedPackage: "date-fns",
     expectedSurface: /isDate/u,
-    probeSignatures: true,
+    exportName: "isDate",
     probe:
       'import { isDate } from "date-fns"; const valid: boolean = isDate(new Date()); void valid;',
+    probeSignatures: true,
+    specifier: "date-fns",
   },
   {
-    specifier: "date-fns/addDays",
-    exportName: "addDays",
     expectedPackage: "date-fns",
     expectedSurface: /addDays/u,
+    exportName: "addDays",
+    probe:
+      'import { addDays } from "date-fns/addDays"; const date: Date = addDays(new Date(), 2);',
     probeSignatures: true,
-    probe: 'import { addDays } from "date-fns/addDays"; const date: Date = addDays(new Date(), 2);',
+    specifier: "date-fns/addDays",
   },
   {
-    specifier: "execa",
-    exportName: "parseCommandString",
     expectedPackage: "execa",
     expectedSurface: /parseCommandString/u,
-    probeSignatures: true,
+    exportName: "parseCommandString",
     probe:
       'import { parseCommandString } from "execa"; const command: string[] = parseCommandString("node --version"); void command;',
+    probeSignatures: true,
+    specifier: "execa",
   },
   {
-    specifier: "publint",
     expectedExport: "publint",
     expectedPackage: "publint",
     probe: 'import { publint } from "publint"; void publint({pkgDir:"."});',
+    specifier: "publint",
   },
   {
-    specifier: "publint/utils",
-    exportName: "formatMessage",
     expectedPackage: "publint",
     expectedSurface: /formatMessage/u,
-    probeSignatures: true,
+    exportName: "formatMessage",
     probe:
       'import { formatMessage } from "publint/utils"; const text: string | undefined = formatMessage({code:"IMPLICIT_INDEX_FORMAT"} as never, {} as never);',
+    probeSignatures: true,
+    specifier: "publint/utils",
   },
   {
-    specifier: "ts-pattern",
-    exportName: "isMatching",
     expectedPackage: "ts-pattern",
     expectedSurface: /isMatching/u,
-    probeSignatures: true,
+    exportName: "isMatching",
     probe:
       'import { isMatching } from "ts-pattern"; const check = isMatching("string"); const valid: boolean = check("value"); void valid;',
+    probeSignatures: true,
+    specifier: "ts-pattern",
   },
   {
-    specifier: "zod",
     expectedExport: "ZodError",
     expectedPackage: "zod",
     probe: 'import { z } from "zod"; z.string().parse("ok");',
+    specifier: "zod",
   },
   {
-    specifier: "zod",
-    exportName: "ZodError",
     expectedPackage: "zod",
     expectedSurface: /ZodError/u,
-    probe: 'import { ZodError } from "zod"; const error: Error = new ZodError([]); void error;',
+    exportName: "ZodError",
+    probe:
+      'import { ZodError } from "zod"; const error: Error = new ZodError([]); void error;',
+    specifier: "zod",
   },
   {
     context: "legacy",
-    specifier: "zod",
-    exportName: "ZodError",
     expectedPackage: "zod",
     expectedSurface: /ZodError/u,
-    probe: 'import { ZodError } from "zod"; const error: Error = new ZodError([]); void error;',
+    exportName: "ZodError",
+    probe:
+      'import { ZodError } from "zod"; const error: Error = new ZodError([]); void error;',
+    specifier: "zod",
   },
   {
-    specifier: "express",
-    exportName: "json",
+    expectedInspectionFailure: {
+      message: "Inspection exceeded its Supporting Type depth limit.",
+      status: "limit-exceeded",
+    },
     expectedPackage: "express",
     expectedProvider: "@types/express",
-    expectedInspectionFailure: {
-      status: "limit-exceeded",
-      message: "Inspection exceeded its Supporting Type depth limit.",
-    },
     expectedSurface: /json/u,
+    exportName: "json",
+    probe:
+      'import { json } from "express"; const middleware = json(); void middleware;',
     probeSignatures: true,
-    probe: 'import { json } from "express"; const middleware = json(); void middleware;',
+    specifier: "express",
   },
   {
-    specifier: "lodash",
-    exportName: "isMatchWithCustomizer",
     expectedPackage: "lodash",
     expectedProvider: "@types/lodash",
     expectedSurface: /isMatchWithCustomizer/u,
-    probeSignatures: true,
+    exportName: "isMatchWithCustomizer",
     probe:
       'import type { isMatchWithCustomizer } from "lodash"; const customizer = undefined as unknown as isMatchWithCustomizer; void customizer;',
+    probeSignatures: true,
+    specifier: "lodash",
   },
   {
-    specifier: "react",
-    exportName: "isValidElement",
     expectedPackage: "react",
     expectedProvider: "@types/react",
     expectedSurface: /isValidElement/u,
-    probeSignatures: true,
+    exportName: "isValidElement",
     probe:
       'import { isValidElement } from "react"; const valid: boolean = isValidElement(null); void valid;',
+    probeSignatures: true,
+    specifier: "react",
   },
   {
-    specifier: "jsonwebtoken",
-    exportName: "decode",
     expectedPackage: "jsonwebtoken",
     expectedProvider: "@types/jsonwebtoken",
     expectedSurface: /decode/u,
+    exportName: "decode",
+    probe:
+      'import { decode } from "jsonwebtoken"; const payload = decode("token"); void payload;',
     probeSignatures: true,
-    probe: 'import { decode } from "jsonwebtoken"; const payload = decode("token"); void payload;',
+    specifier: "jsonwebtoken",
   },
   {
-    specifier: "node:fs",
-    exportName: "readFile",
     expectedProvider: "@types/node",
     expectedSurface: /readFile/u,
-    probeSignatures: true,
+    exportName: "readFile",
     probe:
       'import { readFile } from "node:fs"; readFile("package.json", "utf8", (_error, text) => void text);',
+    probeSignatures: true,
+    specifier: "node:fs",
   },
   {
     accessStyle: "require",
-    specifier: "ajv",
-    exportName: "JSONType",
     expectedPackage: "ajv",
     expectedSurface: /type JSONType/u,
-    probe: 'import Ajv = require("ajv"); const kind: Ajv.JSONType = "string"; void kind;',
+    exportName: "JSONType",
+    probe:
+      'import Ajv = require("ajv"); const kind: Ajv.JSONType = "string"; void kind;',
+    specifier: "ajv",
   },
 ];
 
@@ -218,7 +232,8 @@ const SIGNATURE_QUESTIONS = [
   {
     expectedParameters: ["command:"],
     exportName: "parseCommandString",
-    probe: 'import { parseCommandString } from "execa"; parseCommandString("node --version");',
+    probe:
+      'import { parseCommandString } from "execa"; parseCommandString("node --version");',
     specifier: "execa",
   },
   {
@@ -235,263 +250,19 @@ const SIGNATURE_QUESTIONS = [
   },
 ] as const;
 
-describe("pinned real-package corpus", () => {
-  let corpus: RealPackageCorpus;
-
-  it("discovers the documented ZodError member and inspects its qualified path", async () => {
-    const target = {
-      resolutionContext: corpus.resolutionContext,
-      specifier: "zod",
-      exportName: "ZodError",
-    };
-    const discovery = await inspectExportMembers({ ...target, query: "ISSUE" });
-    expect(discovery).toMatchObject({
-      status: "success",
-      result: {
-        members: [
-          { name: "addIssue", spaces: ["type"] },
-          { name: "addIssues", spaces: ["type"] },
-          { name: "issues", spaces: ["type"] },
-        ],
-      },
-    });
-    const selected = await inspectExportMember({
-      ...target,
-      memberPath: [{ name: "issues", space: "type" }],
-    });
-    expect(selected).toMatchObject({
-      status: "success",
-      result: { declarations: [{ text: expect.stringContaining("issues") }] },
-    });
-  });
-
-  beforeAll(async () => {
-    corpus = await materializeRealPackageCorpus();
-  }, 300_000);
-
-  afterAll(async () => {
-    await corpus?.cleanup();
-  });
-
-  it("pins at least ten deliberately diverse genuine packages through the lockfile", async () => {
-    const runtimePackages = corpus.packageNames.filter(
-      (packageName) => !packageName.startsWith("@types/"),
-    );
-    expect(runtimePackages).toHaveLength(14);
-    const identities = await Promise.all(
-      corpus.packageNames.map((packageName) => corpus.packageIdentity(packageName)),
-    );
-    const lockedIdentities = await Promise.all(
-      corpus.packageNames.map((packageName) => corpus.lockedPackageIdentity(packageName)),
-    );
-    expect(new Set(identities)).toHaveLength(corpus.packageNames.length);
-    expect(identities).toEqual(lockedIdentities);
-    const [rootZod, nestedZod] = await Promise.all([
-      corpus.packageIdentity("zod"),
-      corpus.packageIdentity("zod", corpus.legacyWorkspaceContext),
-    ]);
-    expect(rootZod).toBe(await corpus.lockedPackageIdentity("zod"));
-    expect(nestedZod).toBe(await corpus.lockedPackageIdentity("zod", "legacy"));
-    expect(rootZod).not.toBe(nestedZod);
-  });
-
-  it("defines at least twenty caller-context questions across the required contexts", () => {
-    expect(QUESTIONS.length).toBeGreaterThanOrEqual(20);
-    expect(
-      QUESTIONS.some(({ specifier }) => ["date-fns/addDays", "publint/utils"].includes(specifier)),
-    ).toBe(true);
-    expect(QUESTIONS.some(({ exportName }) => exportName === undefined)).toBe(true);
-    expect(QUESTIONS.some(({ exportName }) => exportName !== undefined)).toBe(true);
-    expect(QUESTIONS.some(({ accessStyle }) => accessStyle === "require")).toBe(true);
-    expect(QUESTIONS.some(({ accessStyle }) => accessStyle === undefined)).toBe(true);
-    expect(QUESTIONS.some(({ context }) => context === "legacy")).toBe(true);
-    expect(
-      QUESTIONS.filter(({ expectedProvider }) => expectedProvider !== undefined).length,
-    ).toBeGreaterThanOrEqual(4);
-    expect(QUESTIONS.some(({ specifier }) => specifier.startsWith("node:"))).toBe(true);
-    expect(
-      QUESTIONS.filter(({ probeSignatures }) => probeSignatures === true).length,
-    ).toBeGreaterThanOrEqual(10);
-  });
-
-  it("answers the installed corpus without loading runtimes or consulting external systems", async () => {
-    const inspection = await materializeStaticInspection(corpus.resolutionContext, {
-      executableArtifactPaths: [],
-      moduleOnlyRoots: [corpus.resolutionContext],
-    });
-    await assertStaticCorpusQuestions(corpus, inspection);
-    await inspection.verifyNoIo();
-  }, 120_000);
-
-  it.each(QUESTIONS)(
-    "answers $specifier::$exportName consistently with an independent compile probe",
-    (question) => answerCorpusQuestion(corpus, question),
-    20_000,
-  );
-
-  it.each(SIGNATURE_QUESTIONS)(
-    "answers a bounded Signature Inspection for $specifier::$exportName",
-    async ({ expectedParameters, exportName, probe: source, specifier }) => {
-      const probe = await corpus.compileProbe({ exportName, source, specifier });
-      expect(probe.diagnostics).toEqual([]);
-      const outcome = await inspectExportSignatures({
-        exportName,
-        resolutionContext: corpus.resolutionContext,
-        specifier,
-      });
-
-      expect(outcome.status, JSON.stringify(outcome)).toBe("success");
-      if (outcome.status === "success") {
-        expect(outcome.result.moduleExport.signatures.length).toBeGreaterThan(0);
-        expect(outcome.result.moduleExport.signatures.map(({ kind }) => kind)).toEqual(
-          probe.signatures.map(({ kind }) => kind),
-        );
-        const renderedSignatures = signatureLabels(outcome.result.moduleExport.signatures).join(
-          "\n",
-        );
-        for (const parameter of expectedParameters) {
-          expect(renderedSignatures).toContain(parameter);
-        }
-      }
-    },
-    20_000,
-  );
-
-  it.each([
-    ["@aws-sdk/client-s3", "S3Client"],
-    ["@aws-sdk/client-ec2", "EC2Client"],
-  ])("inspects a constructor in the large %s declaration graph", async (specifier, exportName) => {
-    const outcome = await inspectExportSignatures({
-      exportName,
-      resolutionContext: corpus.resolutionContext,
-      specifier,
-    });
-    expect(outcome, JSON.stringify(outcome)).toMatchObject({
-      status: "success",
-      result: {
-        moduleExport: {
-          name: exportName,
-          signatures: [expect.objectContaining({ kind: "construct" })],
-        },
-      },
-    });
-  });
-
-  it("reuses validated evidence for a focused large SDK query through the CLI", async () => {
-    const cacheDirectory = await mkdtemp(join(tmpdir(), "typepeek-sdk-cache-"));
-    try {
-      const args = [
-        "src/cli.ts",
-        "signatures",
-        "@aws-sdk/client-ec2",
-        "EC2Client",
-        "--workspace",
-        corpus.resolutionContext,
-        "--json",
-      ];
-      const env = { TYPEPEEK_CACHE_DIRECTORY: cacheDirectory, TYPEPEEK_PROFILE: "1" };
-      const first = await execa(process.execPath, args, { env });
-      const repeated = await execa(process.execPath, args, { env });
-      expect(JSON.parse(first.stdout)).toMatchObject({ status: "success" });
-      expect(repeated.stdout).toBe(first.stdout);
-      expect(repeated.stderr).toContain('"inspection-cache-hit"');
-      expect(repeated.stderr).not.toContain('"program-materialization"');
-    } finally {
-      await rm(cacheDirectory, { recursive: true, force: true });
-    }
-  });
-
-  it("pages the large SDK export index", async () => {
-    const outcome = await inspectInterfaceOverview({
-      resolutionContext: corpus.resolutionContext,
-      specifier: "@aws-sdk/client-ec2",
-      cursor: "start",
-    });
-    expect(outcome, JSON.stringify(outcome)).toMatchObject({
-      status: "success",
-      result: { exportPage: { complete: false, nextCursor: expect.any(String) } },
-    });
-    if (outcome.status !== "success") return;
-    expect(outcome.result.moduleExports).toHaveLength(100);
-    expect(outcome.result.exportPage?.totalModuleExports).toBeGreaterThan(8_000);
-  });
-
-  it("searches the large SDK export index by name", async () => {
-    const outcome = await inspectExportSearch({
-      resolutionContext: corpus.resolutionContext,
-      specifier: "@aws-sdk/client-ec2",
-      query: "EC2Client",
-    });
-    expect(outcome, JSON.stringify(outcome)).toMatchObject({
-      status: "success",
-      result: {
-        matches: expect.arrayContaining([{ name: "EC2Client" }]),
-      },
-    });
-  });
-
-  it("combines a large SDK export page and focused signature in one Inspection Plan", async () => {
-    const outcome = await inspectPlan({
-      resolutionContext: corpus.resolutionContext,
-      specifier: "@aws-sdk/client-ec2",
-      queries: [
-        { intent: "interface-overview", cursor: "start" },
-        { intent: "signature-inspection", exportName: "EC2Client" },
-      ],
-    });
-    expect(outcome, JSON.stringify(outcome)).toMatchObject({
-      status: "success",
-      result: {
-        inspections: [
-          { exportPage: { complete: false, nextCursor: expect.any(String) } },
-          {
-            moduleExport: {
-              name: "EC2Client",
-              signatures: [expect.objectContaining({ kind: "construct" })],
-            },
-          },
-        ],
-      },
-    });
-  });
-
-  it("uses the effective generic default from ExecaError's selected constructor signature", async () => {
-    const probe = await corpus.compileProbe({
-      exportName: "ExecaError",
-      source: 'import { ExecaError } from "execa"; const error = new ExecaError(); void error;',
-      specifier: "execa",
-    });
-    expect(probe.diagnostics).toEqual([]);
-    const outcome = await inspectExportSignatures({
-      exportName: "ExecaError",
-      resolutionContext: corpus.resolutionContext,
-      specifier: "execa",
-    });
-
-    expect(outcome.status, JSON.stringify(outcome)).toBe("success");
-    if (outcome.status !== "success") {
-      return;
-    }
-    const signature = outcome.result.moduleExport.signatures[0];
-    expect(signature?.text).toBe(probe.signatures[0]?.text);
-    expect(signature?.text).toContain("<OptionsType extends Options = Options>");
-    expect(signature?.typeParameters[0]).toMatchObject({
-      constraint: "Options",
-      default: "Options",
-    });
-  });
-});
-
-async function assertStaticCorpusQuestions(
+const assertStaticCorpusQuestions = async function assertStaticCorpusQuestions(
   corpus: RealPackageCorpus,
-  inspection: Awaited<ReturnType<typeof materializeStaticInspection>>,
+  inspection: Awaited<ReturnType<typeof materializeStaticInspection>>
 ): Promise<void> {
-  for (const question of QUESTIONS) {
+  await Array.fromAsync(QUESTIONS, async (question) => {
     const resolutionContext =
-      question.context === "legacy" ? corpus.legacyWorkspaceContext : corpus.resolutionContext;
+      question.context === "legacy"
+        ? corpus.legacyWorkspaceContext
+        : corpus.resolutionContext;
+
     const result = await inspection.run({
       adapter: { kind: "source-checkout", sourceCheckout: process.cwd() },
-      arguments_: [
+      cliArguments: [
         ...(question.exportName === undefined
           ? [question.specifier]
           : [
@@ -499,142 +270,565 @@ async function assertStaticCorpusQuestions(
               question.specifier,
               question.exportName,
             ]),
-        ...(question.accessStyle === undefined ? [] : ["--access", question.accessStyle]),
+        ...(question.accessStyle === undefined
+          ? []
+          : ["--access", question.accessStyle]),
       ],
       diagnosticContext: `real-package corpus Static Inspection ${question.specifier}`,
       resolutionContext,
     });
-    expect(result.stdout).toContain(
-      question.exportName === undefined
-        ? "Interface Overview"
-        : question.probeSignatures === true
-          ? "Signature Inspection"
-          : "Export Inspection",
-    );
-  }
-}
 
-async function answerCorpusQuestion(
-  corpus: RealPackageCorpus,
-  question: CorpusQuestion,
-): Promise<void> {
-  const resolutionContext =
-    question.context === "legacy" ? corpus.legacyWorkspaceContext : corpus.resolutionContext;
-  const expectedPackageIdentity = await expectedIdentity(
-    corpus,
-    question.expectedPackage,
-    resolutionContext,
-  );
-  const expectedProviderIdentity = await expectedIdentity(
-    corpus,
-    question.expectedProvider,
-    resolutionContext,
-  );
-  const probe = await corpus.compileProbe({
-    ...(question.accessStyle === undefined ? {} : { accessStyle: question.accessStyle }),
-    resolutionContext,
-    source: question.probe,
-    specifier: question.specifier,
-    ...(question.exportName === undefined ? {} : { exportName: question.exportName }),
+    const inspectionNames = new Map([
+      ["overview", "Interface Overview"],
+      ["signatures", "Signature Inspection"],
+      ["export", "Export Inspection"],
+    ]);
+
+    const focusedIntent =
+      question.probeSignatures === true ? "signatures" : "export";
+
+    const intent =
+      question.exportName === undefined ? "overview" : focusedIntent;
+
+    expect(result.stdout).toContain(inspectionNames.get(intent));
   });
-  assertCompileProbe(probe, question, expectedPackageIdentity, expectedProviderIdentity);
-  const outcome = await inspectCorpusQuestion(question, resolutionContext);
-  assertCorpusOutcome(outcome, probe, question, expectedPackageIdentity, expectedProviderIdentity);
-}
+};
 
-function assertCompileProbe(
+const expectedIdentity = async function expectedIdentity(
+  corpus: RealPackageCorpus,
+  packageName: string | undefined,
+  resolutionContext: string
+): Promise<string | undefined> {
+  if (packageName === undefined) {
+    return undefined;
+  }
+
+  return await corpus.packageIdentity(packageName, resolutionContext);
+};
+
+const assertCompileProbe = function assertCompileProbe(
   probe: Awaited<ReturnType<RealPackageCorpus["compileProbe"]>>,
   question: CorpusQuestion,
   expectedPackageIdentity: string | undefined,
-  expectedProviderIdentity: string | undefined,
+  expectedProviderIdentity: string | undefined
 ): void {
-  expect(probe.diagnostics).toEqual([]);
-  expect(probe.packageIdentity).toBe(
+  expect([probe.diagnostics, probe.packageIdentity]).toStrictEqual([
+    [],
     question.specifier.startsWith("node:")
       ? undefined
       : (expectedProviderIdentity ?? expectedPackageIdentity),
-  );
-}
+  ]);
+};
 
-function inspectCorpusQuestion(
+const inspectCorpusQuestion = async function inspectCorpusQuestion(
   question: CorpusQuestion,
-  resolutionContext: string,
+  resolutionContext: string
 ): Promise<InspectionOutcome<InterfaceOverview | ExportInspection>> {
   const request = {
     resolutionContext,
     specifier: question.specifier,
-    ...(question.accessStyle === undefined ? {} : { accessStyle: question.accessStyle }),
+    ...(question.accessStyle !== undefined && {
+      accessStyle: question.accessStyle,
+    }),
   } as const;
-  return question.exportName === undefined
-    ? inspectInterfaceOverview(request)
-    : inspectExport({ ...request, exportName: question.exportName });
-}
 
-function assertCorpusOutcome(
+  return question.exportName === undefined
+    ? await inspectInterfaceOverview(request)
+    : await inspectExport({ ...request, exportName: question.exportName });
+};
+
+const identityLabel = function identityLabel(
+  identity:
+    | {
+        readonly name: string;
+        readonly version?: string;
+      }
+    | undefined
+): string | undefined {
+  if (identity === undefined) {
+    return undefined;
+  }
+
+  const generatedText1 =
+    identity.version === undefined ? "" : `@${identity.version}`;
+
+  return `${identity.name}${generatedText1}`;
+};
+
+const requiredExpectedSurface = function requiredExpectedSurface(
+  question: CorpusQuestion
+): RegExp {
+  if (question.expectedSurface === undefined) {
+    throw new Error(
+      `Focused corpus question ${question.specifier} has no expected surface.`
+    );
+  }
+
+  return question.expectedSurface;
+};
+
+const assertCorpusResult = function assertCorpusResult(
+  result: InterfaceOverview | ExportInspection,
+  question: CorpusQuestion,
+  expectedPackageIdentity: string | undefined,
+  expectedProviderIdentity: string | undefined
+): void {
+  expect([
+    identityLabel(result.packageIdentity),
+    identityLabel(result.declarationProvider),
+  ]).toStrictEqual([expectedPackageIdentity, expectedProviderIdentity]);
+
+  if (result.intent === "interface-overview") {
+    expect(result.moduleExports.map(({ name }) => name)).toContain(
+      question.expectedExport
+    );
+
+    return;
+  }
+
+  expect(JSON.stringify(result.moduleExport)).toMatch(
+    requiredExpectedSurface(question)
+  );
+};
+
+const signatureLabels = function signatureLabels(
+  signatures: readonly {
+    readonly kind: "call" | "construct";
+    readonly text: string;
+  }[]
+): readonly string[] {
+  return signatures.map(({ kind, text }) => `${kind}:${text}`);
+};
+
+const assertCorpusOutcome = function assertCorpusOutcome(
   outcome: InspectionOutcome<InterfaceOverview | ExportInspection>,
   probe: Awaited<ReturnType<RealPackageCorpus["compileProbe"]>>,
   question: CorpusQuestion,
   expectedPackageIdentity: string | undefined,
-  expectedProviderIdentity: string | undefined,
+  expectedProviderIdentity: string | undefined
 ): void {
   if (question.expectedInspectionFailure !== undefined) {
     expect(outcome).toMatchObject(question.expectedInspectionFailure);
+
     return;
   }
-  expect(outcome.status, JSON.stringify(outcome)).toBe("success");
-  if (outcome.status === "success") {
-    assertCorpusResult(outcome.result, question, expectedPackageIdentity, expectedProviderIdentity);
-    if (outcome.result.intent === "export-inspection" && question.probeSignatures === true) {
-      expect(probe.signatures.length).toBeGreaterThan(0);
-      expect(signatureLabels(outcome.result.moduleExport.signatures)).toEqual(
-        signatureLabels(probe.signatures),
-      );
-    }
+
+  expect(outcome.status).toBe("success");
+
+  if (outcome.status !== "success") {
+    throw new Error("Expected a successful inspection result.");
   }
-}
 
-function signatureLabels(
-  signatures: readonly { readonly kind: "call" | "construct"; readonly text: string }[],
-): readonly string[] {
-  return signatures.map(({ kind, text }) => `${kind}:${text}`);
-}
+  assertCorpusResult(
+    outcome.result,
+    question,
+    expectedPackageIdentity,
+    expectedProviderIdentity
+  );
 
-function expectedIdentity(
+  if (
+    outcome.result.intent === "export-inspection" &&
+    question.probeSignatures === true
+  ) {
+    expect([
+      probe.signatures.length > 0,
+      signatureLabels(outcome.result.moduleExport.signatures),
+    ]).toStrictEqual([true, signatureLabels(probe.signatures)]);
+  }
+};
+
+const answerCorpusQuestion = async function answerCorpusQuestion(
   corpus: RealPackageCorpus,
-  packageName: string | undefined,
-  resolutionContext: string,
-): Promise<string | undefined> {
-  return packageName === undefined
-    ? Promise.resolve(undefined)
-    : corpus.packageIdentity(packageName, resolutionContext);
-}
+  question: CorpusQuestion
+): Promise<void> {
+  const resolutionContext =
+    question.context === "legacy"
+      ? corpus.legacyWorkspaceContext
+      : corpus.resolutionContext;
 
-function assertCorpusResult(
-  result: InterfaceOverview | ExportInspection,
-  question: CorpusQuestion,
-  expectedPackageIdentity: string | undefined,
-  expectedProviderIdentity: string | undefined,
-): void {
-  expect(identityLabel(result.packageIdentity)).toBe(expectedPackageIdentity);
-  expect(identityLabel(result.declarationProvider)).toBe(expectedProviderIdentity);
-  if (result.intent === "interface-overview") {
-    expect(result.moduleExports.map(({ name }) => name)).toContain(question.expectedExport);
-    return;
-  }
-  expect(JSON.stringify(result.moduleExport)).toMatch(requiredExpectedSurface(question));
-}
+  const expectedPackageIdentity = await expectedIdentity(
+    corpus,
+    question.expectedPackage,
+    resolutionContext
+  );
 
-function requiredExpectedSurface(question: CorpusQuestion): RegExp {
-  if (question.expectedSurface === undefined) {
-    throw new Error(`Focused corpus question ${question.specifier} has no expected surface.`);
-  }
-  return question.expectedSurface;
-}
+  const expectedProviderIdentity = await expectedIdentity(
+    corpus,
+    question.expectedProvider,
+    resolutionContext
+  );
 
-function identityLabel(
-  identity: { readonly name: string; readonly version?: string } | undefined,
-): string | undefined {
-  return identity === undefined
-    ? undefined
-    : `${identity.name}${identity.version === undefined ? "" : `@${identity.version}`}`;
-}
+  const probe = await corpus.compileProbe({
+    ...(question.accessStyle !== undefined && {
+      accessStyle: question.accessStyle,
+    }),
+    resolutionContext,
+    source: question.probe,
+    specifier: question.specifier,
+    ...(question.exportName !== undefined && {
+      exportName: question.exportName,
+    }),
+  });
+
+  assertCompileProbe(
+    probe,
+    question,
+    expectedPackageIdentity,
+    expectedProviderIdentity
+  );
+  const outcome = await inspectCorpusQuestion(question, resolutionContext);
+  assertCorpusOutcome(
+    outcome,
+    probe,
+    question,
+    expectedPackageIdentity,
+    expectedProviderIdentity
+  );
+};
+
+describe("real-package-corpus", () => {
+  describe("pinned real-package corpus", () => {
+    let corpus: RealPackageCorpus;
+    beforeAll(async () => {
+      corpus = await materializeRealPackageCorpus();
+    }, 300_000);
+
+    afterAll(async () => {
+      await corpus?.cleanup();
+    });
+
+    it("discovers the documented ZodError member and inspects its qualified path", async () => {
+      const target = {
+        exportName: "ZodError",
+        resolutionContext: corpus.resolutionContext,
+        specifier: "zod",
+      };
+
+      const discovery = await inspectExportMembers({
+        ...target,
+        query: "ISSUE",
+      });
+
+      expect(discovery).toMatchObject({
+        result: {
+          members: [
+            { name: "addIssue", spaces: ["type"] },
+            { name: "addIssues", spaces: ["type"] },
+            { name: "issues", spaces: ["type"] },
+          ],
+        },
+        status: "success",
+      });
+
+      const selected = await inspectExportMember({
+        ...target,
+        memberPath: [{ name: "issues", space: "type" }],
+      });
+
+      expect(selected).toMatchObject({
+        result: { declarations: [{ text: match.stringContaining("issues") }] },
+        status: "success",
+      });
+    });
+
+    it("pins at least ten deliberately diverse genuine packages through the lockfile", async () => {
+      const runtimePackages = corpus.packageNames.filter(
+        (packageName) => !packageName.startsWith("@types/")
+      );
+
+      expect(runtimePackages).toHaveLength(14);
+
+      const identities = await Promise.all(
+        corpus.packageNames.map(
+          async (packageName) => await corpus.packageIdentity(packageName)
+        )
+      );
+
+      const lockedIdentities = await Promise.all(
+        corpus.packageNames.map(
+          async (packageName) => await corpus.lockedPackageIdentity(packageName)
+        )
+      );
+
+      expect([new Set(identities).size, identities]).toStrictEqual([
+        corpus.packageNames.length,
+        lockedIdentities,
+      ]);
+
+      const [rootZod, nestedZod] = await Promise.all([
+        corpus.packageIdentity("zod"),
+        corpus.packageIdentity("zod", corpus.legacyWorkspaceContext),
+      ]);
+
+      expect([rootZod, nestedZod, Object.is(rootZod, nestedZod)]).toStrictEqual(
+        [
+          await corpus.lockedPackageIdentity("zod"),
+          await corpus.lockedPackageIdentity("zod", "legacy"),
+          false,
+        ]
+      );
+    });
+
+    it("defines at least twenty caller-context questions across the required contexts", () => {
+      expect([
+        QUESTIONS.length >= 20,
+        QUESTIONS.some(({ specifier }) =>
+          ["date-fns/addDays", "publint/utils"].includes(specifier)
+        ),
+        QUESTIONS.some(({ exportName }) => exportName === undefined),
+        QUESTIONS.some(({ exportName }) => exportName !== undefined),
+        QUESTIONS.some(({ accessStyle }) => accessStyle === "require"),
+        QUESTIONS.some(({ accessStyle }) => accessStyle === undefined),
+        QUESTIONS.some(({ context }) => context === "legacy"),
+        QUESTIONS.filter(
+          ({ expectedProvider }) => expectedProvider !== undefined
+        ).length >= 4,
+        QUESTIONS.some(({ specifier }) => specifier.startsWith("node:")),
+        QUESTIONS.filter(({ probeSignatures }) => probeSignatures === true)
+          .length >= 10,
+      ]).toStrictEqual([
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+      ]);
+    });
+
+    it("answers the installed corpus without loading runtimes or consulting external systems", async () => {
+      const inspection = await materializeStaticInspection(
+        corpus.resolutionContext,
+        {
+          executableArtifactPaths: [],
+          moduleOnlyRoots: [corpus.resolutionContext],
+        }
+      );
+
+      await expect(
+        assertStaticCorpusQuestions(corpus, inspection)
+      ).resolves.toBeUndefined();
+      await inspection.verifyNoIo();
+    }, 120_000);
+
+    it.each(QUESTIONS)(
+      "answers $specifier::$exportName consistently with an independent compile probe",
+      async (question) => {
+        await expect(
+          answerCorpusQuestion(corpus, question)
+        ).resolves.toBeUndefined();
+      },
+      20_000
+    );
+
+    it.each(SIGNATURE_QUESTIONS)(
+      "answers a bounded Signature Inspection for $specifier::$exportName",
+      async ({ expectedParameters, exportName, probe: source, specifier }) => {
+        const probe = await corpus.compileProbe({
+          exportName,
+          source,
+          specifier,
+        });
+
+        expect(probe.diagnostics).toStrictEqual([]);
+
+        const outcome = await inspectExportSignatures({
+          exportName,
+          resolutionContext: corpus.resolutionContext,
+          specifier,
+        });
+
+        expect(outcome.status).toBe("success");
+
+        if (outcome.status !== "success") {
+          throw new Error("Expected a successful inspection.");
+        }
+
+        expect([
+          outcome.result.moduleExport.signatures.length > 0,
+          outcome.result.moduleExport.signatures.map(({ kind }) => kind),
+        ]).toStrictEqual([true, probe.signatures.map(({ kind }) => kind)]);
+
+        const renderedSignatures = signatureLabels(
+          outcome.result.moduleExport.signatures
+        ).join("\n");
+
+        for (const parameter of expectedParameters) {
+          expect(renderedSignatures).toContain(parameter);
+        }
+      },
+      20_000
+    );
+
+    it.each([
+      ["@aws-sdk/client-s3", "S3Client"],
+      ["@aws-sdk/client-ec2", "EC2Client"],
+    ])(
+      "inspects a constructor in the large %s declaration graph",
+      async (specifier, exportName) => {
+        const outcome = await inspectExportSignatures({
+          exportName,
+          resolutionContext: corpus.resolutionContext,
+          specifier,
+        });
+
+        expect(outcome).toMatchObject({
+          result: {
+            moduleExport: {
+              name: exportName,
+              signatures: [match.objectContaining({ kind: "construct" })],
+            },
+          },
+          status: "success",
+        });
+      }
+    );
+
+    it("reuses validated evidence for a focused large SDK query through the CLI", async () => {
+      const cacheDirectory = await mkdtemp(
+        nodePath.join(tmpdir(), "typepeek-sdk-cache-")
+      );
+
+      try {
+        const args = [
+          "src/cli.ts",
+          "signatures",
+          "@aws-sdk/client-ec2",
+          "EC2Client",
+          "--workspace",
+          corpus.resolutionContext,
+          "--json",
+        ];
+
+        const env = {
+          TYPEPEEK_CACHE_DIRECTORY: cacheDirectory,
+          TYPEPEEK_PROFILE: "1",
+        };
+
+        const first = await execa(process.execPath, args, { env });
+        const repeated = await execa(process.execPath, args, { env });
+        expect([
+          decodeJson(Schema.MutableJson, first.stdout),
+          repeated.stdout,
+          repeated.stderr.includes('"inspection-cache-hit"'),
+          repeated.stderr.includes('"program-materialization"'),
+        ]).toStrictEqual([
+          match.objectContaining({ status: "success" }),
+          first.stdout,
+          true,
+          false,
+        ]);
+      } finally {
+        await rm(cacheDirectory, { force: true, recursive: true });
+      }
+    });
+
+    it("pages the large SDK export index", async () => {
+      const outcome = await inspectInterfaceOverview({
+        cursor: "start",
+        resolutionContext: corpus.resolutionContext,
+        specifier: "@aws-sdk/client-ec2",
+      });
+
+      expect(outcome).toMatchObject({
+        result: {
+          exportPage: { complete: false, nextCursor: match.any(String) },
+        },
+        status: "success",
+      });
+
+      if (outcome.status !== "success") {
+        return;
+      }
+
+      expect([
+        outcome.result.moduleExports.length,
+        requireDefined(outcome.result.exportPage?.totalModuleExports) > 8000,
+      ]).toStrictEqual([100, true]);
+    });
+
+    it("searches the large SDK export index by name", async () => {
+      const outcome = await inspectExportSearch({
+        query: "EC2Client",
+        resolutionContext: corpus.resolutionContext,
+        specifier: "@aws-sdk/client-ec2",
+      });
+
+      expect(outcome).toMatchObject({
+        result: {
+          matches: match.arrayContaining([{ name: "EC2Client" }]),
+        },
+        status: "success",
+      });
+    });
+
+    it("combines a large SDK export page and focused signature in one Inspection Plan", async () => {
+      const outcome = await inspectPlan({
+        queries: [
+          { cursor: "start", intent: "interface-overview" },
+          { exportName: "EC2Client", intent: "signature-inspection" },
+        ],
+        resolutionContext: corpus.resolutionContext,
+        specifier: "@aws-sdk/client-ec2",
+      });
+
+      expect(outcome).toMatchObject({
+        result: {
+          inspections: [
+            { exportPage: { complete: false, nextCursor: match.any(String) } },
+            {
+              moduleExport: {
+                name: "EC2Client",
+                signatures: [match.objectContaining({ kind: "construct" })],
+              },
+            },
+          ],
+        },
+        status: "success",
+      });
+    });
+
+    it("uses the effective generic default from ExecaError's selected constructor signature", async () => {
+      const probe = await corpus.compileProbe({
+        exportName: "ExecaError",
+        source:
+          'import { ExecaError } from "execa"; const error = new ExecaError(); void error;',
+        specifier: "execa",
+      });
+
+      expect(probe.diagnostics).toStrictEqual([]);
+
+      const outcome = await inspectExportSignatures({
+        exportName: "ExecaError",
+        resolutionContext: corpus.resolutionContext,
+        specifier: "execa",
+      });
+
+      expect(outcome.status).toBe("success");
+
+      if (outcome.status !== "success") {
+        return;
+      }
+
+      const [signature] = outcome.result.moduleExport.signatures;
+      expect([
+        signature?.text,
+        requireDefined(signature?.text).includes(
+          "<OptionsType extends Options = Options>"
+        ),
+        signature?.typeParameters[0],
+      ]).toStrictEqual([
+        probe.signatures[0]?.text,
+        true,
+        match.objectContaining({
+          constraint: "Options",
+          default: "Options",
+        }),
+      ]);
+    });
+  });
+});

@@ -1,339 +1,566 @@
-import { Schema } from "effect";
+import { Predicate, Schema } from "effect";
 import { countTokens } from "gpt-tokenizer/encoding/o200k_base";
+
+import { requireDefined } from "#typepeek/defined-value";
+import { decodeJson } from "#typepeek/json-data";
 
 import { typepeekFacts } from "../support/evidence.ts";
 import { signatureFact } from "../support/signature.ts";
 
-const millisecondsSchema = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0));
+const millisecondsSchema = Schema.Number.check(
+  Schema.isFinite(),
+  Schema.isGreaterThanOrEqualTo(0)
+);
+
 const oracleSchema = Schema.Struct({
+  declarations: Schema.Array(
+    Schema.Struct({ fact: Schema.String, text: Schema.String })
+  ),
+  exportDeclarations: Schema.Array(Schema.String),
+  facts: Schema.Array(Schema.String),
   schemaVersion: Schema.Literal(1),
   workload: Schema.Struct({
     id: Schema.String,
-    specifier: Schema.String,
     kind: Schema.Literals(["signatures", "search"]),
+    specifier: Schema.String,
     target: Schema.String,
   }),
-  facts: Schema.Array(Schema.String),
-  declarations: Schema.Array(Schema.Struct({ fact: Schema.String, text: Schema.String })),
-  exportDeclarations: Schema.Array(Schema.String),
 });
+
 export type AcquisitionOracle = typeof oracleSchema.Type;
+
 export const decodeAcquisitionOracle = Schema.decodeUnknownSync(oracleSchema);
 
 const observationSchema = Schema.Struct({
-  milliseconds: millisecondsSchema,
   event: Schema.Unknown,
+  milliseconds: millisecondsSchema,
 });
+
 const submissionSchema = Schema.Struct({
   method: Schema.Literal("benchmark/taskSubmitted"),
   params: Schema.Struct({ threadId: Schema.String }),
 });
+
 export type TimedCodexEvent = typeof observationSchema.Type;
 
 const rawItemSchema = Schema.Struct({
   method: Schema.Literal("rawResponseItem/completed"),
-  params: Schema.Struct({ item: Schema.Unknown, threadId: Schema.String, turnId: Schema.String }),
+  params: Schema.Struct({
+    item: Schema.Unknown,
+    threadId: Schema.String,
+    turnId: Schema.String,
+  }),
 });
+
 const callSchema = Schema.Struct({
-  type: Schema.Literals(["function_call", "custom_tool_call"]),
   call_id: Schema.String,
   name: Schema.String,
+  type: Schema.Literals(["function_call", "custom_tool_call"]),
 });
+
 const outputSchema = Schema.Struct({
-  type: Schema.Literals(["function_call_output", "custom_tool_call_output"]),
   call_id: Schema.String,
   output: Schema.Union([
     Schema.String,
-    Schema.Array(Schema.Struct({ type: Schema.Literal("input_text"), text: Schema.String })),
+    Schema.Array(
+      Schema.Struct({ text: Schema.String, type: Schema.Literal("input_text") })
+    ),
   ]),
+  type: Schema.Literals(["function_call_output", "custom_tool_call_output"]),
 });
+
 const executionSchema = Schema.Struct({
   method: Schema.Literal("item/completed"),
   params: Schema.Struct({
     item: Schema.Struct({
-      type: Schema.Literal("commandExecution"),
       durationMs: millisecondsSchema,
+      type: Schema.Literal("commandExecution"),
     }),
   }),
 });
+
 const commandResultSchema = Schema.Struct({
   chunk_id: Schema.String,
-  wall_time_seconds: millisecondsSchema,
   exit_code: Schema.Literal(0),
   output: Schema.String,
+  wall_time_seconds: millisecondsSchema,
 });
 
-export function decodeTimedCodexEvents(serialized: string): readonly TimedCodexEvent[] {
+export const decodeTimedCodexEvents = function decodeTimedCodexEvents(
+  serialized: string
+): readonly TimedCodexEvent[] {
   return serialized
     .split("\n")
     .filter(Boolean)
-    .map((line) => Schema.decodeUnknownSync(observationSchema)(JSON.parse(line)));
-}
-
-export function measureAcquisition(oracle: AcquisitionOracle, events: readonly TimedCodexEvent[]) {
-  const started = new Map<string, number>();
-  const nonRetrieval = new Set<string>();
-  const sourceBodies: string[] = [];
-  const matched = new Set<string>();
-  const completed = new Set<string>();
-  const indexes = new Set<string>();
-  let completeSearch = false;
-  const evidenceEvents: { callId: string; milliseconds: number; facts: string[] }[] = [];
-  let invalidReason: string | null = null;
-  let previousMilliseconds = 0;
-  let identity: string | undefined;
-  let submittedThread: string | undefined;
-  let taskSubmittedMilliseconds: number | null = null;
-  let firstRequestMilliseconds: number | null = null;
-  let sufficientEvidenceMilliseconds: number | null = null;
-  let toolMilliseconds = 0;
-  let commandMilliseconds = 0;
-  let measuredCommands = 0;
-  let evidenceTokens = 0;
-  let evidenceBytes = 0;
-  for (const { milliseconds, event } of events) {
-    if (
-      typeof event === "object" &&
-      event !== null &&
-      JSON.stringify(event).includes('"contextCompaction"')
-    ) {
-      invalidReason = "Context compacted before sufficient evidence.";
-      break;
-    }
-    if (milliseconds < previousMilliseconds) {
-      invalidReason = "Non-monotonic event timestamps.";
-      break;
-    }
-    previousMilliseconds = milliseconds;
-    if (Schema.is(submissionSchema)(event)) {
-      if (taskSubmittedMilliseconds !== null || firstRequestMilliseconds !== null) {
-        invalidReason = "Task submission must precede retrieval and occur once.";
-        break;
-      }
-      submittedThread = event.params.threadId;
-      taskSubmittedMilliseconds = milliseconds;
-      continue;
-    }
-    if (Schema.is(executionSchema)(event)) {
-      commandMilliseconds += event.params.item.durationMs;
-      measuredCommands += 1;
-    }
-    if (!Schema.is(rawItemSchema)(event)) continue;
-    if (submittedThread !== undefined && submittedThread !== event.params.threadId) {
-      invalidReason = "Task submission and evidence belong to different threads.";
-      break;
-    }
-    const currentIdentity = JSON.stringify([event.params.threadId, event.params.turnId]);
-    identity ??= currentIdentity;
-    if (identity !== currentIdentity) {
-      invalidReason = "Mixed thread or turn identities.";
-      break;
-    }
-    const { item } = event.params;
-    if (Schema.is(callSchema)(item)) {
-      if (started.has(item.call_id) || nonRetrieval.has(item.call_id)) {
-        invalidReason = "Duplicate tool request.";
-        break;
-      }
-      if (["update_plan", "request_user_input"].includes(item.name.split(".").at(-1)!)) {
-        nonRetrieval.add(item.call_id);
-        continue;
-      }
-      firstRequestMilliseconds ??= milliseconds;
-      started.set(item.call_id, milliseconds);
-    }
-    if (!Schema.is(outputSchema)(item)) {
-      if (
-        typeof item === "object" &&
-        item !== null &&
-        "type" in item &&
-        ["function_call_output", "custom_tool_call_output"].includes(String(item.type))
-      ) {
-        invalidReason = "Unsupported tool response content.";
-        break;
-      }
-      continue;
-    }
-    if (nonRetrieval.has(item.call_id)) continue;
-    const start = started.get(item.call_id);
-    if (start === undefined || completed.has(item.call_id)) {
-      invalidReason = "Tool response has no unique request.";
-      break;
-    }
-    completed.add(item.call_id);
-    const blocks =
-      typeof item.output === "string" ? [item.output] : item.output.map(({ text }) => text);
-    const returnedText = blocks.flatMap(commandOutputText).join("\n");
-    const returnedBytes = blocks.reduce((sum, text) => sum + Buffer.byteLength(text), 0);
-    if (returnedBytes > 262144) {
-      invalidReason = "Tool response exceeds the verified history retention bound.";
-      break;
-    }
-    const before = new Set(matched);
-    toolMilliseconds += milliseconds - start;
-    evidenceTokens += blocks.reduce(
-      (sum, text) => sum + countTokens(text, { disallowedSpecial: new Set() }),
-      0,
+    .map((line) =>
+      Schema.decodeSync(Schema.fromJsonString(observationSchema))(line)
     );
-    evidenceBytes += returnedBytes;
-    for (const candidate of jsonObjects(returnedText)) {
-      try {
-        const facts = typepeekFacts({ ...oracle.workload, question: "" }, candidate);
-        if (
-          oracle.workload.kind === "search" &&
-          JSON.stringify(facts) === JSON.stringify(oracle.facts)
-        )
-          completeSearch = true;
-        if (facts.every((fact) => oracle.facts.includes(fact))) {
-          for (const fact of facts) matched.add(fact);
-        }
-      } catch {
-        continue;
-      }
-    }
-    const numbered = returnedText.replace(
-      /^(?:Script completed|Wall time[^\n]*|Chunk ID:[^\n]*|Process exited[^\n]*|(?:Final )?[Oo]utput:|```(?:typescript|ts)?)[\r\n]*/gmu,
-      "",
-    );
-    sourceBodies.push(numbered.trim());
-    const outputs = [...sourceFragments(numbered), ...sourceFragments(sourceBodies.join("\n"))].map(
-      (text) => signatureFact("declaration", text).slice("declaration:".length),
-    );
-    const contains = (text: string) => outputs.some((body) => ` ${body} `.includes(` ${text} `));
-    for (const declaration of oracle.declarations) {
-      const text = signatureFact("declaration", declaration.text).slice("declaration:".length);
-      if (contains(text)) matched.add(declaration.fact);
-    }
-    for (const declaration of oracle.exportDeclarations) {
-      const text = signatureFact("declaration", declaration).slice("declaration:".length);
-      if (contains(text)) indexes.add(declaration);
-    }
-    if (
-      oracle.workload.kind === "search" &&
-      oracle.exportDeclarations.length > 0 &&
-      oracle.exportDeclarations.every((declaration) => indexes.has(declaration))
-    ) {
-      completeSearch = true;
-      for (const fact of oracle.facts) matched.add(fact);
-    }
-    const newFacts = [...matched].filter((fact) => !before.has(fact));
-    if (newFacts.length > 0)
-      evidenceEvents.push({ callId: item.call_id, milliseconds, facts: newFacts });
-    if (
-      oracle.workload.kind === "search"
-        ? completeSearch
-        : oracle.facts.length > 0 && oracle.facts.every((fact) => matched.has(fact))
-    ) {
-      sufficientEvidenceMilliseconds = milliseconds;
-      break;
-    }
-  }
-  return {
-    status:
-      invalidReason !== null
-        ? "invalid"
-        : sufficientEvidenceMilliseconds === null
-          ? "insufficient"
-          : "complete",
-    invalidReason,
-    taskSubmittedMilliseconds,
-    taskToEvidenceSeconds:
-      taskSubmittedMilliseconds === null || sufficientEvidenceMilliseconds === null
-        ? null
-        : (sufficientEvidenceMilliseconds - taskSubmittedMilliseconds) / 1000,
-    firstRequestMilliseconds,
-    sufficientEvidenceMilliseconds,
-    retrievalSeconds:
-      firstRequestMilliseconds === null || sufficientEvidenceMilliseconds === null
-        ? null
-        : (sufficientEvidenceMilliseconds - firstRequestMilliseconds) / 1000,
-    toolRoundTripSeconds: toolMilliseconds / 1000,
-    toolExecutionSeconds: measuredCommands === 0 ? null : commandMilliseconds / 1000,
-    measuredCommands,
-    retrievalCalls: started.size,
-    evidenceTokens,
-    evidenceBytes,
-    tokenization: { encoding: "o200k_base", package: "gpt-tokenizer", version: "4.0.0" },
-    acquisitionModelUsage: null,
-    matchedFacts: oracle.facts.filter((fact) => matched.has(fact)),
-    missingFacts: oracle.facts.filter((fact) => !matched.has(fact)),
-    missingExportIndexParts: completeSearch
-      ? 0
-      : oracle.exportDeclarations.filter((declaration) => !indexes.has(declaration)).length,
-    evidenceEvents,
-  };
-}
+};
 
-function commandOutputText(text: string): string[] {
-  const decoded: string[] = [text];
-  for (const candidate of jsonObjects(text)) {
-    try {
-      const value: unknown = JSON.parse(candidate);
-      if (Schema.is(commandResultSchema)(value)) decoded.push(value.output);
-    } catch {
-      continue;
-    }
-  }
-  return decoded;
-}
-
-function sourceFragments(text: string): string[] {
-  const fragments: string[] = [];
-  let previousFile: string | undefined;
-  let previousLine: number | undefined;
-  for (const line of text.split("\n")) {
-    const match = /^(?:(.*?\.(?:[cm]?[jt]s|[jt]sx))[:-])?(\d+)[:-](.*)$/u.exec(line);
-    if (match === null) {
-      if (previousLine === undefined && fragments.length > 0) {
-        fragments[fragments.length - 1] += `\n${line}`;
-      } else {
-        fragments.push(line);
-      }
-      previousFile = undefined;
-      previousLine = undefined;
-      continue;
-    }
-    const [, file, number, body] = match;
-    const lineNumber = Number(number);
-    if (file === previousFile && previousLine !== undefined && lineNumber === previousLine + 1) {
-      fragments[fragments.length - 1] += `\n${body}`;
-    } else {
-      fragments.push(body!);
-    }
-    previousFile = file;
-    previousLine = lineNumber;
-  }
-  return fragments;
-}
-
-function* jsonObjects(text: string): Generator<string> {
+const jsonObjects = function* jsonObjects(text: string): Generator<string> {
   let start = -1;
   let depth = 0;
   let quoted = false;
   let escaped = false;
+
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index];
+
     if (start < 0) {
       if (character === "{") {
         start = index;
         depth = 1;
       }
-      continue;
-    }
-    if (quoted) {
-      if (escaped) escaped = false;
-      else if (character === "\\") escaped = true;
-      else if (character === '"') quoted = false;
-      continue;
-    }
-    if (character === '"') quoted = true;
-    else if (character === "{") depth += 1;
-    else if (character === "}") {
+    } else if (quoted) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        quoted = false;
+      }
+    } else if (character === '"') {
+      quoted = true;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
       depth -= 1;
+
       if (depth === 0) {
         yield text.slice(start, index + 1);
         start = -1;
       }
     }
   }
+};
+
+const commandOutputText = function commandOutputText(text: string): string[] {
+  const decoded: string[] = [text];
+
+  for (const candidate of jsonObjects(text)) {
+    try {
+      const value = decodeJson(Schema.MutableJson, candidate);
+
+      if (Schema.is(commandResultSchema)(value)) {
+        decoded.push(value.output);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return decoded;
+};
+
+const sourceFragments = function sourceFragments(text: string): string[] {
+  const fragments: string[] = [];
+  let previousFile: string | null = null;
+  let previousLine: number | null = null;
+
+  for (const line of text.split("\n")) {
+    const match =
+      /^(?:(?<file>.*?\.(?:[cm]?[jt]s|[jt]sx))[:-])?(?<line>\d+)[:-](?<body>.*)$/u.exec(
+        line
+      );
+
+    if (match === null) {
+      if (previousLine === null && fragments.length > 0) {
+        fragments[fragments.length - 1] += `\n${line}`;
+      } else {
+        fragments.push(line);
+      }
+
+      previousFile = null;
+      previousLine = null;
+      continue;
+    }
+
+    const {
+      file: matchedFile,
+      line: number,
+      body,
+    } = requireDefined(match.groups);
+
+    const file = matchedFile ?? null;
+    const lineNumber = Number(number);
+
+    if (
+      file === previousFile &&
+      previousLine !== null &&
+      lineNumber === previousLine + 1
+    ) {
+      fragments[fragments.length - 1] += `\n${body}`;
+    } else {
+      fragments.push(requireDefined(body));
+    }
+
+    previousFile = file ?? null;
+    previousLine = lineNumber;
+  }
+
+  return fragments;
+};
+
+class AcquisitionMeasurement {
+  started = new Map<string, number>();
+  nonRetrieval = new Set<string>();
+  sourceBodies: string[] = [];
+  matched = new Set<string>();
+  completed = new Set<string>();
+  indexes = new Set<string>();
+  completeSearch = false;
+  evidenceEvents: {
+    callId: string;
+    milliseconds: number;
+    facts: string[];
+  }[] = [];
+  invalidReason: string | null = null;
+  previousMilliseconds = 0;
+  identity: string | undefined;
+  submittedThread: string | undefined;
+  taskSubmittedMilliseconds: number | null = null;
+  firstRequestMilliseconds: number | null = null;
+  sufficientEvidenceMilliseconds: number | null = null;
+  toolMilliseconds = 0;
+  commandMilliseconds = 0;
+  measuredCommands = 0;
+  evidenceTokens = 0;
+  evidenceBytes = 0;
+  readonly oracle: AcquisitionOracle;
+  constructor(oracle: AcquisitionOracle) {
+    this.oracle = oracle;
+  }
+  observe({ milliseconds, event }: TimedCodexEvent): boolean {
+    if (
+      Predicate.isObjectOrArray(event) &&
+      JSON.stringify(event).includes('"contextCompaction"')
+    ) {
+      this.invalidReason = "Context compacted before sufficient evidence.";
+
+      return true;
+    }
+
+    if (milliseconds < this.previousMilliseconds) {
+      this.invalidReason = "Non-monotonic event timestamps.";
+
+      return true;
+    }
+
+    this.previousMilliseconds = milliseconds;
+
+    if (Schema.is(submissionSchema)(event)) {
+      if (
+        this.taskSubmittedMilliseconds !== null ||
+        this.firstRequestMilliseconds !== null
+      ) {
+        this.invalidReason =
+          "Task submission must precede retrieval and occur once.";
+
+        return true;
+      }
+
+      this.submittedThread = event.params.threadId;
+      this.taskSubmittedMilliseconds = milliseconds;
+
+      return false;
+    }
+
+    if (Schema.is(executionSchema)(event)) {
+      this.commandMilliseconds += event.params.item.durationMs;
+      this.measuredCommands += 1;
+    }
+
+    if (!Schema.is(rawItemSchema)(event)) {
+      return false;
+    }
+
+    return this.observeRawItem(event, milliseconds);
+  }
+  observeRawItem(
+    event: typeof rawItemSchema.Type,
+    milliseconds: number
+  ): boolean {
+    if (
+      this.submittedThread !== undefined &&
+      this.submittedThread !== event.params.threadId
+    ) {
+      this.invalidReason =
+        "Task submission and evidence belong to different threads.";
+
+      return true;
+    }
+
+    const currentIdentity = JSON.stringify([
+      event.params.threadId,
+      event.params.turnId,
+    ]);
+
+    this.identity ??= currentIdentity;
+
+    if (this.identity !== currentIdentity) {
+      this.invalidReason = "Mixed thread or turn identities.";
+
+      return true;
+    }
+
+    const { item } = event.params;
+
+    if (Schema.is(callSchema)(item)) {
+      if (
+        this.started.has(item.call_id) ||
+        this.nonRetrieval.has(item.call_id)
+      ) {
+        this.invalidReason = "Duplicate tool request.";
+
+        return true;
+      }
+
+      if (
+        ["update_plan", "request_user_input"].includes(
+          requireDefined(item.name.split(".").at(-1))
+        )
+      ) {
+        this.nonRetrieval.add(item.call_id);
+
+        return false;
+      }
+
+      this.firstRequestMilliseconds ??= milliseconds;
+      this.started.set(item.call_id, milliseconds);
+    }
+
+    if (!Schema.is(outputSchema)(item)) {
+      if (
+        Predicate.isObjectOrArray(item) &&
+        "type" in item &&
+        ["function_call_output", "custom_tool_call_output"].includes(
+          String(item["type"])
+        )
+      ) {
+        this.invalidReason = "Unsupported tool response content.";
+
+        return true;
+      }
+
+      return false;
+    }
+
+    if (this.nonRetrieval.has(item.call_id)) {
+      return false;
+    }
+
+    return this.observeOutput(item, milliseconds);
+  }
+  observeOutput(item: typeof outputSchema.Type, milliseconds: number): boolean {
+    const start = this.started.get(item.call_id);
+
+    if (start === undefined || this.completed.has(item.call_id)) {
+      this.invalidReason = "Tool response has no unique request.";
+
+      return true;
+    }
+
+    this.completed.add(item.call_id);
+
+    const blocks = Predicate.isString(item.output)
+      ? [item.output]
+      : item.output.map(({ text }) => text);
+
+    const returnedText = blocks.flatMap(commandOutputText).join("\n");
+
+    const returnedBytes = blocks.reduce(
+      (sum, text) => sum + Buffer.byteLength(text),
+      0
+    );
+
+    if (returnedBytes > 262_144) {
+      this.invalidReason =
+        "Tool response exceeds the verified history retention bound.";
+
+      return true;
+    }
+
+    const before = new Set(this.matched);
+    this.toolMilliseconds += milliseconds - start;
+    this.evidenceTokens += blocks.reduce(
+      (sum, text) => sum + countTokens(text, { disallowedSpecial: new Set() }),
+      0
+    );
+    this.evidenceBytes += returnedBytes;
+    this.observeEvidence(returnedText);
+    const newFacts = [...this.matched].filter((fact) => !before.has(fact));
+
+    if (newFacts.length > 0) {
+      this.evidenceEvents.push({
+        callId: item.call_id,
+        facts: newFacts,
+        milliseconds,
+      });
+    }
+
+    if (
+      this.oracle.workload.kind === "search"
+        ? this.completeSearch
+        : this.oracle.facts.length > 0 &&
+          this.oracle.facts.every((fact) => this.matched.has(fact))
+    ) {
+      this.sufficientEvidenceMilliseconds = milliseconds;
+
+      return true;
+    }
+
+    return false;
+  }
+  observeStructuredEvidence(returnedText: string): void {
+    for (const candidate of jsonObjects(returnedText)) {
+      try {
+        const facts = typepeekFacts(
+          { ...this.oracle.workload, question: "" },
+          candidate
+        );
+
+        if (
+          this.oracle.workload.kind === "search" &&
+          JSON.stringify(facts) === JSON.stringify(this.oracle.facts)
+        ) {
+          this.completeSearch = true;
+        }
+
+        if (facts.every((fact) => this.oracle.facts.includes(fact))) {
+          for (const fact of facts) {
+            this.matched.add(fact);
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+  observeEvidence(returnedText: string): void {
+    this.observeStructuredEvidence(returnedText);
+
+    const numbered = returnedText.replaceAll(
+      /^(?:Script completed|Wall time[^\n]*|Chunk ID:[^\n]*|Process exited[^\n]*|(?:Final )?[Oo]utput:)[\r\n]*/gmu,
+      ""
+    );
+
+    this.sourceBodies.push(numbered.trim());
+
+    const outputs = [
+      ...sourceFragments(numbered),
+      ...sourceFragments(this.sourceBodies.join("\n")),
+    ].map((text) =>
+      signatureFact("declaration", text).slice("declaration:".length)
+    );
+
+    const contains = (text: string) =>
+      outputs.some((body) => ` ${body} `.includes(` ${text} `));
+
+    for (const declaration of this.oracle.declarations) {
+      const text = signatureFact("declaration", declaration.text).slice(
+        "declaration:".length
+      );
+
+      if (contains(text)) {
+        this.matched.add(declaration.fact);
+      }
+    }
+
+    for (const declaration of this.oracle.exportDeclarations) {
+      const text = signatureFact("declaration", declaration).slice(
+        "declaration:".length
+      );
+
+      if (contains(text)) {
+        this.indexes.add(declaration);
+      }
+    }
+
+    if (
+      this.oracle.workload.kind === "search" &&
+      this.oracle.exportDeclarations.length > 0 &&
+      this.oracle.exportDeclarations.every((declaration) =>
+        this.indexes.has(declaration)
+      )
+    ) {
+      this.completeSearch = true;
+
+      for (const fact of this.oracle.facts) {
+        this.matched.add(fact);
+      }
+    }
+  }
+  result() {
+    const readStatusResult = () => {
+      if (this.invalidReason === null) {
+        if (this.sufficientEvidenceMilliseconds === null) {
+          return "insufficient";
+        }
+
+        return "complete";
+      }
+
+      return "invalid";
+    };
+
+    const statusResult = readStatusResult();
+
+    return {
+      acquisitionModelUsage: null,
+      evidenceBytes: this.evidenceBytes,
+      evidenceEvents: this.evidenceEvents,
+      evidenceTokens: this.evidenceTokens,
+      firstRequestMilliseconds: this.firstRequestMilliseconds,
+      invalidReason: this.invalidReason,
+      matchedFacts: this.oracle.facts.filter((fact) => this.matched.has(fact)),
+      measuredCommands: this.measuredCommands,
+      missingExportIndexParts: this.completeSearch
+        ? 0
+        : this.oracle.exportDeclarations.filter(
+            (declaration) => !this.indexes.has(declaration)
+          ).length,
+      missingFacts: this.oracle.facts.filter((fact) => !this.matched.has(fact)),
+      retrievalCalls: this.started.size,
+      retrievalSeconds:
+        this.firstRequestMilliseconds === null ||
+        this.sufficientEvidenceMilliseconds === null
+          ? null
+          : (this.sufficientEvidenceMilliseconds -
+              this.firstRequestMilliseconds) /
+            1000,
+      status: statusResult,
+      sufficientEvidenceMilliseconds: this.sufficientEvidenceMilliseconds,
+      taskSubmittedMilliseconds: this.taskSubmittedMilliseconds,
+      taskToEvidenceSeconds:
+        this.taskSubmittedMilliseconds === null ||
+        this.sufficientEvidenceMilliseconds === null
+          ? null
+          : (this.sufficientEvidenceMilliseconds -
+              this.taskSubmittedMilliseconds) /
+            1000,
+      tokenization: {
+        encoding: "o200k_base",
+        package: "gpt-tokenizer",
+        version: "4.1.0",
+      },
+      toolExecutionSeconds:
+        this.measuredCommands === 0 ? null : this.commandMilliseconds / 1000,
+      toolRoundTripSeconds: this.toolMilliseconds / 1000,
+    };
+  }
 }
+
+export const measureAcquisition = function measureAcquisition(
+  oracle: AcquisitionOracle,
+  events: readonly TimedCodexEvent[]
+) {
+  const measurement = new AcquisitionMeasurement(oracle);
+
+  for (const event of events) {
+    if (measurement.observe(event)) {
+      break;
+    }
+  }
+
+  return measurement.result();
+};

@@ -16,9 +16,9 @@ runs:
   using: composite
   steps:
     - name: Set up Vite+
-      uses: voidzero-dev/setup-vp@3754dd7dbdb32bd8f6d28b6043de13ad3a75f21f # v1.21.1
+      uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
       with:
-        version: "0.3.3"
+        version: "1.4.0"
         node-version-file: ".node-version"
         cache: ${{ inputs.cache }}
         registry-url: ${{ inputs.registry-url }}
@@ -26,7 +26,7 @@ runs:
           - args: ["--frozen-lockfile"]
 
     - name: Set up pnpm for direct commands
-      uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+      uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
       with:
         install: false
         node-version-file: "false"

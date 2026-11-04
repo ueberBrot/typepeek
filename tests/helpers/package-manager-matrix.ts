@@ -1,15 +1,25 @@
-import { lstat, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import nodePath from "node:path";
 
+import type { PackageManagerPin } from "./package-toolchain.ts";
 import {
   installDeclaredPackages,
   localPackageSpecifier,
-  type PackageManagerPin,
   PACKAGE_MANAGER_PINS,
   packPackage,
 } from "./package-toolchain.ts";
-import { materializeStaticInspection, type StaticInspection } from "./static-inspection.ts";
+import type { StaticInspection } from "./static-inspection.ts";
+import { materializeStaticInspection } from "./static-inspection.ts";
+
+const PACKAGE_MANIFEST_FILE = "package.json";
 
 export interface PackageManagerInstallation {
   readonly installSentinel: string;
@@ -36,100 +46,71 @@ interface PackedFixturePackages {
   readonly subject: string;
 }
 
-export async function materializePackageManagerMatrix(): Promise<PackageManagerMatrix> {
-  // The space catches file-spec path encoding bugs.
-  const fixtureRoot = await mkdtemp(join(tmpdir(), "typepeek package-manager matrix-"));
-
-  try {
-    const npmCacheRoot = join(fixtureRoot, "npm-cache");
-    const packages = await packFixturePackages(fixtureRoot, npmCacheRoot);
-    const installations = [];
-
-    for (const packageManager of PACKAGE_MANAGER_PINS) {
-      installations.push(await materializeInstallation(fixtureRoot, packages, packageManager));
-    }
-    const staticInspection = await materializeStaticInspection(fixtureRoot);
-    const unsupportedInstallation = await materializeUnsupportedInstallation(fixtureRoot);
-
-    return {
-      installations,
-      staticInspection,
-      unsupportedInstallation,
-      cleanup: () => rm(fixtureRoot, { recursive: true, force: true }),
-    };
-  } catch (error) {
-    await rm(fixtureRoot, { recursive: true, force: true });
-    throw error;
+const writeFixturePackage = async function writeFixturePackage(
+  packageRoot: string,
+  options: {
+    readonly declaration: string;
+    readonly dependencies?: Readonly<Record<string, string>>;
+    readonly name: string;
+    readonly scripts?: Readonly<Record<string, string>>;
+    readonly version: string;
   }
-}
-
-async function materializeUnsupportedInstallation(fixtureRoot: string): Promise<{
-  readonly ancestorPackageSpecifier: string;
-  readonly resolutionContext: string;
-  readonly runtimeSentinel: string;
-}> {
-  const ancestorPackageSpecifier = "@typepeek-fixture/ancestor-only";
-  const resolutionContext = join(fixtureRoot, "repositories", "unsupported-pnp");
-  const runtimeSentinel = join(resolutionContext, "PNP_RUNTIME_EXECUTED");
-  const ancestorPackageRoot = join(
-    dirname(resolutionContext),
-    "node_modules",
-    ...ancestorPackageSpecifier.split("/"),
-  );
-  await Promise.all([
-    mkdir(resolutionContext, { recursive: true }),
-    mkdir(join(ancestorPackageRoot, "dist"), { recursive: true }),
-  ]);
+): Promise<void> {
+  const distRoot = nodePath.join(packageRoot, "dist");
+  await mkdir(distRoot, { recursive: true });
+  // The nested manifest is a module scope, not a Package Identity.
   await Promise.all([
     writeFile(
-      join(resolutionContext, "package.json"),
+      nodePath.join(packageRoot, PACKAGE_MANIFEST_FILE),
       JSON.stringify({
-        name: "fixture-unsupported-repository",
-        private: true,
-        dependencies: { "@typepeek-fixture/layout-subject": "1.0.0" },
-      }),
+        exports: {
+          ".": Object.fromEntries([
+            ["types", "./dist/index.d.ts"],
+            ["import", "./dist/index.js"],
+          ]),
+        },
+        files: ["dist"],
+        name: options.name,
+        type: "module",
+        version: options.version,
+        ...(options.dependencies !== undefined && {
+          dependencies: options.dependencies,
+        }),
+        ...(options.scripts !== undefined && { scripts: options.scripts }),
+      })
+    ),
+    writeFile(nodePath.join(distRoot, "index.d.ts"), options.declaration),
+    writeFile(
+      nodePath.join(distRoot, "index.js"),
+      'throw new Error("fixture runtime executed");\n'
     ),
     writeFile(
-      join(resolutionContext, ".pnp.cjs"),
-      `require("node:fs").writeFileSync(${JSON.stringify(runtimeSentinel)}, "executed");\n`,
-    ),
-    writeFile(
-      join(ancestorPackageRoot, "package.json"),
-      JSON.stringify({
-        name: ancestorPackageSpecifier,
-        version: "1.0.0",
-        types: "./dist/index.d.ts",
-      }),
-    ),
-    writeFile(
-      join(ancestorPackageRoot, "dist", "index.d.ts"),
-      "export declare const ancestorOnly: string;\n",
+      nodePath.join(distRoot, PACKAGE_MANIFEST_FILE),
+      JSON.stringify({ type: "module" })
     ),
   ]);
-  return { ancestorPackageSpecifier, resolutionContext, runtimeSentinel };
-}
+};
 
-async function packFixturePackages(
+const packFixturePackages = async function packFixturePackages(
   fixtureRoot: string,
-  npmCacheRoot: string,
+  npmCacheRoot: string
 ): Promise<PackedFixturePackages> {
-  const sourcesRoot = join(fixtureRoot, "sources");
-  const tarballsRoot = join(fixtureRoot, "tarballs");
-  const subjectNestedRoot = join(sourcesRoot, "subject-nested");
-  const repositoryNestedRoot = join(sourcesRoot, "repository-nested");
-  const subjectRoot = join(sourcesRoot, "layout-subject");
+  const sourcesRoot = nodePath.join(fixtureRoot, "sources");
+  const tarballsRoot = nodePath.join(fixtureRoot, "tarballs");
+  const subjectNestedRoot = nodePath.join(sourcesRoot, "subject-nested");
+  const repositoryNestedRoot = nodePath.join(sourcesRoot, "repository-nested");
+  const subjectRoot = nodePath.join(sourcesRoot, "layout-subject");
   await mkdir(tarballsRoot, { recursive: true });
-
   await Promise.all([
     writeFixturePackage(subjectNestedRoot, {
+      declaration: 'export declare const nestedValue: "subject-nested";\n',
       name: "@typepeek-fixture/nested",
       version: "1.0.0",
-      declaration: 'export declare const nestedValue: "subject-nested";\n',
     }),
     writeFixturePackage(repositoryNestedRoot, {
+      declaration: 'export declare const nestedValue: "repository-nested";\n',
       name: "@typepeek-fixture/nested",
       version: "2.0.0",
-      declaration: 'export declare const nestedValue: "repository-nested";\n',
     }),
   ]);
 
@@ -139,16 +120,16 @@ async function packFixturePackages(
     packageRoot: subjectNestedRoot,
     tarballsRoot,
   });
+
   const repositoryNested = await packPackage({
     diagnosticContext: "repository nested Package Module fixture",
     npmCacheRoot,
     packageRoot: repositoryNestedRoot,
     tarballsRoot,
   });
+
   // The repository installs another version; the subject must resolve its own declared dependency.
   await writeFixturePackage(subjectRoot, {
-    name: "@typepeek-fixture/layout-subject",
-    version: "1.0.0",
     declaration: [
       'export { nestedValue } from "@typepeek-fixture/nested";',
       'export declare const subjectValue: "subject";',
@@ -157,10 +138,12 @@ async function packFixturePackages(
     dependencies: {
       "@typepeek-fixture/nested": localPackageSpecifier(subjectNested),
     },
+    name: "@typepeek-fixture/layout-subject",
     scripts: {
       postinstall:
         "node -e \"require('node:fs').writeFileSync('INSTALL_SCRIPT_EXECUTED', 'executed')\"",
     },
+    version: "1.0.0",
   });
 
   return {
@@ -172,62 +155,34 @@ async function packFixturePackages(
       tarballsRoot,
     }),
   };
-}
+};
 
-async function writeFixturePackage(
-  packageRoot: string,
-  options: {
-    readonly declaration: string;
-    readonly dependencies?: Readonly<Record<string, string>>;
-    readonly name: string;
-    readonly scripts?: Readonly<Record<string, string>>;
-    readonly version: string;
-  },
-): Promise<void> {
-  const distRoot = join(packageRoot, "dist");
-  await mkdir(distRoot, { recursive: true });
-  // The nested manifest is a module scope, not a Package Identity.
-  await Promise.all([
-    writeFile(
-      join(packageRoot, "package.json"),
-      JSON.stringify({
-        name: options.name,
-        version: options.version,
-        type: "module",
-        files: ["dist"],
-        exports: {
-          ".": {
-            types: "./dist/index.d.ts",
-            import: "./dist/index.js",
-          },
-        },
-        ...(options.dependencies === undefined ? {} : { dependencies: options.dependencies }),
-        ...(options.scripts === undefined ? {} : { scripts: options.scripts }),
-      }),
-    ),
-    writeFile(join(distRoot, "index.d.ts"), options.declaration),
-    writeFile(join(distRoot, "index.js"), 'throw new Error("fixture runtime executed");\n'),
-    writeFile(join(distRoot, "package.json"), JSON.stringify({ type: "module" })),
-  ]);
-}
-
-async function materializeInstallation(
+const materializeInstallation = async function materializeInstallation(
   fixtureRoot: string,
   packages: PackedFixturePackages,
-  packageManager: PackageManagerPin,
+  packageManager: PackageManagerPin
 ): Promise<PackageManagerInstallation> {
-  const resolutionContext = join(fixtureRoot, "repositories", packageManager.manager);
+  const resolutionContext = nodePath.join(
+    fixtureRoot,
+    "repositories",
+    packageManager.manager
+  );
+
   await mkdir(resolutionContext, { recursive: true });
   await writeFile(
-    join(resolutionContext, "package.json"),
+    nodePath.join(resolutionContext, PACKAGE_MANIFEST_FILE),
     JSON.stringify({
+      dependencies: {
+        "@typepeek-fixture/layout-subject": localPackageSpecifier(
+          packages.subject
+        ),
+        "@typepeek-fixture/nested": localPackageSpecifier(
+          packages.repositoryNested
+        ),
+      },
       name: `fixture-${packageManager.manager}-repository`,
       private: true,
-      dependencies: {
-        "@typepeek-fixture/layout-subject": localPackageSpecifier(packages.subject),
-        "@typepeek-fixture/nested": localPackageSpecifier(packages.repositoryNested),
-      },
-    }),
+    })
   );
 
   const version = await installDeclaredPackages({
@@ -237,18 +192,120 @@ async function materializeInstallation(
     packageManager,
     resolutionContext,
   });
-  const subjectRoot = join(
+
+  const subjectRoot = nodePath.join(
     resolutionContext,
     "node_modules",
     "@typepeek-fixture",
-    "layout-subject",
+    "layout-subject"
   );
+
+  const lstatResult = await lstat(subjectRoot);
+
   return {
-    installSentinel: join(subjectRoot, "INSTALL_SCRIPT_EXECUTED"),
+    installSentinel: nodePath.join(subjectRoot, "INSTALL_SCRIPT_EXECUTED"),
     manager: packageManager.manager,
     resolutionContext,
-    subjectIsSymlink: (await lstat(subjectRoot)).isSymbolicLink(),
+    subjectIsSymlink: lstatResult.isSymbolicLink(),
     subjectPhysicalPath: await realpath(subjectRoot),
     version,
   };
-}
+};
+
+const materializeUnsupportedInstallation =
+  async function materializeUnsupportedInstallation(
+    fixtureRoot: string
+  ): Promise<{
+    readonly ancestorPackageSpecifier: string;
+    readonly resolutionContext: string;
+    readonly runtimeSentinel: string;
+  }> {
+    const ancestorPackageSpecifier = "@typepeek-fixture/ancestor-only";
+
+    const resolutionContext = nodePath.join(
+      fixtureRoot,
+      "repositories",
+      "unsupported-pnp"
+    );
+
+    const runtimeSentinel = nodePath.join(
+      resolutionContext,
+      "PNP_RUNTIME_EXECUTED"
+    );
+
+    const ancestorPackageRoot = nodePath.join(
+      nodePath.dirname(resolutionContext),
+      "node_modules",
+      ...ancestorPackageSpecifier.split("/")
+    );
+
+    await Promise.all([
+      mkdir(resolutionContext, { recursive: true }),
+      mkdir(nodePath.join(ancestorPackageRoot, "dist"), { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(
+        nodePath.join(resolutionContext, PACKAGE_MANIFEST_FILE),
+        JSON.stringify({
+          dependencies: { "@typepeek-fixture/layout-subject": "1.0.0" },
+          name: "fixture-unsupported-repository",
+          private: true,
+        })
+      ),
+      writeFile(
+        nodePath.join(resolutionContext, ".pnp.cjs"),
+        `require("node:fs").writeFileSync(${JSON.stringify(runtimeSentinel)}, "executed");\n`
+      ),
+      writeFile(
+        nodePath.join(ancestorPackageRoot, PACKAGE_MANIFEST_FILE),
+        JSON.stringify({
+          name: ancestorPackageSpecifier,
+          types: "./dist/index.d.ts",
+          version: "1.0.0",
+        })
+      ),
+      writeFile(
+        nodePath.join(ancestorPackageRoot, "dist", "index.d.ts"),
+        "export declare const ancestorOnly: string;\n"
+      ),
+    ]);
+
+    return { ancestorPackageSpecifier, resolutionContext, runtimeSentinel };
+  };
+
+export const materializePackageManagerMatrix =
+  async function materializePackageManagerMatrix(): Promise<PackageManagerMatrix> {
+    // The space catches file-spec path encoding bugs.
+    const fixtureRoot = await mkdtemp(
+      nodePath.join(tmpdir(), "typepeek package-manager matrix-")
+    );
+
+    try {
+      const npmCacheRoot = nodePath.join(fixtureRoot, "npm-cache");
+      const packages = await packFixturePackages(fixtureRoot, npmCacheRoot);
+      const installations: PackageManagerInstallation[] = [];
+
+      await Array.fromAsync(PACKAGE_MANAGER_PINS, async (packageManager) => {
+        installations.push(
+          await materializeInstallation(fixtureRoot, packages, packageManager)
+        );
+      });
+
+      const staticInspection = await materializeStaticInspection(fixtureRoot);
+
+      const unsupportedInstallation =
+        await materializeUnsupportedInstallation(fixtureRoot);
+
+      return {
+        cleanup: async () => {
+          await rm(fixtureRoot, { force: true, recursive: true });
+        },
+        installations,
+        staticInspection,
+        unsupportedInstallation,
+      };
+    } catch (error) {
+      await rm(fixtureRoot, { force: true, recursive: true });
+      throw error;
+    }
+  };

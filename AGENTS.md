@@ -8,8 +8,6 @@
 
 This repository uses the Effect TypeScript library.
 
-Before writing any Effect code, first read `node_modules/effect/AGENTS.md`
-**completely**, and follow the links in the file when required.
+Before writing any Effect code, first read `node_modules/effect/AGENTS.md` **completely**, and follow the links in the file when required.
 
-For APIs and concepts the guide does not cover, search the source code in
-`node_modules/effect/src`.
+For APIs and concepts the guide does not cover, search the source code in `node_modules/effect/src`.

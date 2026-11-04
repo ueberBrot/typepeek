@@ -1,26 +1,35 @@
-import * as Result from "effect/Result";
-import * as Schema from "effect/Schema";
 import { readFileSync } from "node:fs";
 
-declare const __TYPEPEEK_VERSION__: string | undefined;
+import { Result, Schema } from "effect";
 
-const embeddedTypepeekVersion =
-  typeof __TYPEPEEK_VERSION__ === "string" ? __TYPEPEEK_VERSION__ : undefined;
-const decodePackageVersion = Schema.decodeUnknownResult(Schema.Struct({ version: Schema.String }));
+import { decodeJson } from "#typepeek/json-data";
 
-/** The package version embedded into cache semantics by both source and packaged builds. */
-export const TYPEPEEK_VERSION = embeddedTypepeekVersion ?? readSourcePackageVersion();
+const embeddedTypepeekVersion = globalThis.__TYPEPEEK_VERSION__;
 
-export const HAS_EMBEDDED_TYPEPEEK_VERSION = embeddedTypepeekVersion !== undefined;
+const decodePackageVersion = Schema.decodeUnknownResult(
+  Schema.Struct({ version: Schema.String })
+);
 
-function readSourcePackageVersion(): string {
+const readSourcePackageVersion = function readSourcePackageVersion(): string {
   const manifest = Result.getOrUndefined(
     decodePackageVersion(
-      JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as unknown,
-    ),
+      decodeJson(
+        Schema.Unknown,
+        readFileSync(new URL("../package.json", import.meta.url), "utf-8")
+      )
+    )
   );
+
   if (manifest === undefined) {
     throw new Error("Typepeek package manifest has no version.");
   }
+
   return manifest.version;
-}
+};
+
+/** The package version embedded into cache semantics by both source and packaged builds. */
+export const TYPEPEEK_VERSION =
+  embeddedTypepeekVersion ?? readSourcePackageVersion();
+
+export const HAS_EMBEDDED_TYPEPEEK_VERSION =
+  embeddedTypepeekVersion !== undefined;

@@ -1,5 +1,4 @@
-import * as Result from "effect/Result";
-import * as Schema from "effect/Schema";
+import { Result, Schema } from "effect";
 
 import type {
   SignatureEvidenceKind,
@@ -15,104 +14,123 @@ import type {
   InspectionResult,
   SignatureInspection,
 } from "#typepeek/inspection/protocol";
+import { unreachableCase } from "#typepeek/unreachable-case";
 
-export function projectSignatureEvidence(
-  outcome: InspectionOutcome,
-  evidence: SignatureEvidenceKind,
+const projectInspectedSignature = function projectInspectedSignature(
+  signature: InspectedSignature,
+  evidence: SignatureEvidenceKind
 ) {
-  const candidate =
-    outcome.status === "success"
-      ? {
-          status: "success",
-          result: projectInspectionResult(outcome.result, evidence),
-        }
-      : outcome;
-  return {
-    projection: signatureEvidenceProjection(evidence),
-    outcome: Result.getOrUndefined(
-      Schema.decodeUnknownResult(protocolInspectionSchemas[evidence].outcomeSchema)(candidate),
-    ),
-  };
-}
-
-function signatureEvidenceProjection(
-  signatureEvidence: SignatureEvidenceKind,
-): SignatureEvidenceProjection | undefined {
-  switch (signatureEvidence) {
-    case "structured":
-      return Result.getOrUndefined(
-        Schema.decodeResult(signatureEvidenceProjectionSchemas.structured)({
-          signatureEvidence,
-          omittedEvidence: ["exact-signature-text"],
-        }),
-      );
-    case "exact":
-      return Result.getOrUndefined(
-        Schema.decodeResult(signatureEvidenceProjectionSchemas.exact)({
-          signatureEvidence,
-          omittedEvidence: ["structured-signature-fields"],
-        }),
-      );
-    case "both":
-      return Result.getOrUndefined(
-        Schema.decodeResult(signatureEvidenceProjectionSchemas.both)({
-          signatureEvidence,
-          omittedEvidence: [],
-        }),
-      );
+  if (evidence === "exact") {
+    return { kind: signature.kind, text: signature.text };
   }
-}
 
-function projectInspectionResult(
+  if (evidence === "structured") {
+    return {
+      kind: signature.kind,
+      typeParameters: signature.typeParameters,
+      ...(signature.thisParameter !== undefined && {
+        thisParameter: signature.thisParameter,
+      }),
+      parameters: signature.parameters,
+      returns: signature.returns,
+    };
+  }
+
+  return signature;
+};
+
+const projectSignatureInspection = function projectSignatureInspection(
+  inspection: SignatureInspection,
+  evidence: SignatureEvidenceKind
+) {
+  return {
+    ...inspection,
+    moduleExport: {
+      ...inspection.moduleExport,
+      signatures: inspection.moduleExport.signatures.map((signature) =>
+        projectInspectedSignature(signature, evidence)
+      ),
+    },
+  };
+};
+
+const projectInspectionResult = function projectInspectionResult(
   result: InspectionResult,
-  evidence: SignatureEvidenceKind,
-): unknown {
+  evidence: SignatureEvidenceKind
+) {
   if (result.intent === "signature-inspection") {
     return projectSignatureInspection(result, evidence);
   }
+
   if (result.intent === "inspection-plan") {
     return {
       ...result,
       inspections: result.inspections.map((inspection) =>
         inspection.intent === "signature-inspection"
           ? projectSignatureInspection(inspection, evidence)
-          : inspection,
+          : inspection
       ),
     };
   }
+
   return result;
-}
+};
 
-function projectSignatureInspection(
-  inspection: SignatureInspection,
-  evidence: SignatureEvidenceKind,
-): unknown {
+const signatureEvidenceProjection = function signatureEvidenceProjection(
+  signatureEvidence: SignatureEvidenceKind
+): SignatureEvidenceProjection | undefined {
+  switch (signatureEvidence) {
+    case "structured": {
+      return Result.getOrUndefined(
+        Schema.decodeResult(signatureEvidenceProjectionSchemas.structured)({
+          omittedEvidence: ["exact-signature-text"],
+          signatureEvidence,
+        })
+      );
+    }
+
+    case "exact": {
+      return Result.getOrUndefined(
+        Schema.decodeResult(signatureEvidenceProjectionSchemas.exact)({
+          omittedEvidence: ["structured-signature-fields"],
+          signatureEvidence,
+        })
+      );
+    }
+
+    case "both": {
+      return Result.getOrUndefined(
+        Schema.decodeResult(signatureEvidenceProjectionSchemas.both)({
+          omittedEvidence: [],
+          signatureEvidence,
+        })
+      );
+    }
+
+    default: {
+      return unreachableCase(signatureEvidence);
+    }
+  }
+};
+
+export const projectSignatureEvidence = function projectSignatureEvidence(
+  outcome: InspectionOutcome,
+  evidence: SignatureEvidenceKind
+) {
+  const candidate =
+    outcome.status === "success"
+      ? {
+          result: projectInspectionResult(outcome.result, evidence),
+          status: "success",
+        }
+      : outcome;
+
   return {
-    ...inspection,
-    moduleExport: {
-      ...inspection.moduleExport,
-      signatures: inspection.moduleExport.signatures.map((signature) =>
-        projectInspectedSignature(signature, evidence),
-      ),
-    },
+    outcome: Result.getOrUndefined(
+      Schema.decodeUnknownResult(
+        protocolInspectionSchemas[evidence].outcomeSchema
+      )(candidate)
+    ),
+    projection: signatureEvidenceProjection(evidence),
   };
-}
-
-function projectInspectedSignature(
-  signature: InspectedSignature,
-  evidence: SignatureEvidenceKind,
-): unknown {
-  if (evidence === "exact") {
-    return { kind: signature.kind, text: signature.text };
-  }
-  if (evidence === "structured") {
-    return {
-      kind: signature.kind,
-      typeParameters: signature.typeParameters,
-      ...(signature.thisParameter === undefined ? {} : { thisParameter: signature.thisParameter }),
-      parameters: signature.parameters,
-      returns: signature.returns,
-    };
-  }
-  return signature;
-}
+};

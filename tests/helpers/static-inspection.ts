@@ -1,9 +1,24 @@
-import { execa } from "execa";
-import { access, mkdir, rm, symlink, unlink, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import {
+  access,
+  mkdir,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
+import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { execa } from "execa";
+
 import { analysisProcessNodeArguments } from "#typepeek/inspection/analysis-process";
+
+interface GuardedEnvironment {
+  readonly [key: string]: string | undefined;
+}
+
+const PLUGIN_RUNTIME_SOURCE = "module.exports = true;\n";
+const PACKAGE_MANIFEST_FILE = "package.json";
 
 const PROTECTED_TRIPWIRE_ENVIRONMENT_NAMES = [
   "NODE_OPTIONS",
@@ -23,11 +38,16 @@ export interface StaticInspection {
           readonly executablePath: string;
           readonly analysisProcessEntryPath: string;
         }
-      | { readonly kind: "source-checkout"; readonly sourceCheckout: string };
-    readonly arguments_: readonly string[];
+      | {
+          readonly kind: "source-checkout";
+          readonly sourceCheckout: string;
+        };
+    readonly cliArguments: readonly string[];
     readonly diagnosticContext: string;
     readonly resolutionContext: string;
-  }) => Promise<{ readonly stdout: string }>;
+  }) => Promise<{
+    readonly stdout: string;
+  }>;
   readonly verifyNoIo: () => Promise<void>;
 }
 
@@ -42,315 +62,10 @@ interface TripwirePolicy {
   readonly forbiddenReadPaths?: readonly string[];
 }
 
-export async function materializeStaticInspection(
-  fixtureRoot: string,
-  policy: StaticInspectionPolicy = { executableArtifactPaths: [] },
-): Promise<StaticInspection> {
-  const preloadPath = join(fixtureRoot, "inspection-tripwire.cjs");
-  const sentinel = join(fixtureRoot, "INSPECTION_IO_ATTEMPTED");
-  // The preload reaches workers and records prohibited I/O before rejecting it.
-  await writeFile(preloadPath, inspectionTripwireSource());
-  await verifyTripwire(preloadPath, fixtureRoot);
-  const tripwirePolicy = expandStaticInspectionPolicy(policy);
+const inspectionTripwireSource = function inspectionTripwireSource(): string {
+  const [heapArgument, stackArgument] =
+    analysisProcessNodeArguments("<entrypoint>");
 
-  const verifyNoIo = async (): Promise<void> => {
-    try {
-      await access(sentinel);
-    } catch (error) {
-      if (isMissingFileError(error)) {
-        return;
-      }
-      throw error;
-    }
-    throw new Error(`Static Inspection attempted prohibited activity; see ${sentinel}.`);
-  };
-
-  return {
-    run: async ({ adapter, arguments_, diagnosticContext, resolutionContext }) => {
-      const command = adapter.kind === "installed" ? adapter.executablePath : process.execPath;
-      const analysisProcessEntryPath =
-        adapter.kind === "installed"
-          ? adapter.analysisProcessEntryPath
-          : join(adapter.sourceCheckout, "src", "inspection", "analysis-process-entry.ts");
-      const commandArguments =
-        adapter.kind === "installed"
-          ? [...arguments_, "--workspace", resolutionContext]
-          : [
-              join(adapter.sourceCheckout, "src", "cli.ts"),
-              ...arguments_,
-              "--workspace",
-              resolutionContext,
-            ];
-      try {
-        const result = await execa(command, commandArguments, {
-          cwd: resolutionContext,
-          env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
-            allowedAnalysisProcessEntry: analysisProcessEntryPath,
-            denyWorkers: true,
-          }),
-        });
-        await verifyNoIo();
-        return { stdout: result.stdout };
-      } catch (error) {
-        throw new Error(
-          `${diagnosticContext}; command ${JSON.stringify([command, ...commandArguments])} failed: ${error instanceof Error ? error.message : String(error)}`,
-          { cause: error },
-        );
-      }
-    },
-    verifyNoIo,
-  };
-}
-
-async function verifyTripwire(preloadPath: string, fixtureRoot: string): Promise<void> {
-  const controlModule = join(fixtureRoot, "inspection-tripwire-control.cjs");
-  const controlEsmModule = join(fixtureRoot, "inspection-tripwire-control.mjs");
-  const canonicalControlRoot = join(fixtureRoot, "inspection-tripwire-real-root");
-  const symlinkControlRoot = join(fixtureRoot, "inspection-tripwire-link-root");
-  const canonicalControlModule = join(canonicalControlRoot, "control.cjs");
-  const logicalPackageContext = join(fixtureRoot, "inspection-tripwire-logical-context");
-  const physicalPackageRoot = join(fixtureRoot, "inspection-tripwire-physical-package");
-  const logicalPackageLink = join(logicalPackageContext, "node_modules", "control-package");
-  const logicalWorkerLink = join(logicalPackageContext, "linked-worker");
-  try {
-    await Promise.all([
-      mkdir(canonicalControlRoot),
-      mkdir(join(logicalPackageContext, "node_modules"), { recursive: true }),
-      mkdir(physicalPackageRoot),
-    ]);
-    await Promise.all([
-      writeFile(controlModule, "module.exports = true;\n"),
-      writeFile(controlEsmModule, "export default true;\n"),
-      writeFile(canonicalControlModule, "module.exports = true;\n"),
-      writeFile(join(logicalPackageContext, "package.json"), '{"private":true}'),
-      writeFile(
-        join(physicalPackageRoot, "package.json"),
-        '{"name":"control-package","main":"./index.cjs"}',
-      ),
-      writeFile(join(physicalPackageRoot, "index.cjs"), "module.exports = true;\n"),
-      writeFile(join(physicalPackageRoot, "worker.mjs"), "export default true;\n"),
-    ]);
-    await Promise.all([
-      symlink(
-        canonicalControlRoot,
-        symlinkControlRoot,
-        process.platform === "win32" ? "junction" : "dir",
-      ),
-      symlink(
-        physicalPackageRoot,
-        logicalPackageLink,
-        process.platform === "win32" ? "junction" : "dir",
-      ),
-      symlink(
-        physicalPackageRoot,
-        logicalWorkerLink,
-        process.platform === "win32" ? "junction" : "dir",
-      ),
-    ]);
-    const publicArtifactPolicy = expandStaticInspectionPolicy({
-      executableArtifactPaths: [controlModule],
-    });
-    const publicRootPolicy = expandStaticInspectionPolicy({
-      executableArtifactPaths: [],
-      moduleOnlyRoots: [fixtureRoot],
-    });
-    const results = await Promise.allSettled([
-      verifyRejectedAttempt({
-        policy: {},
-        description: "worker network",
-        fixtureRoot,
-        preloadPath,
-        source:
-          'new (require("node:worker_threads").Worker)(\'require("node:net").connect(9, "127.0.0.1")\', { eval: true });',
-      }),
-      verifyRejectedAttempt({
-        policy: publicArtifactPolicy,
-        description: "worker CommonJS module load",
-        fixtureRoot,
-        preloadPath,
-        source: `new (require("node:worker_threads").Worker)(${JSON.stringify(`require(${JSON.stringify(controlModule)})`)}, { eval: true });`,
-      }),
-      verifyRejectedAttempt({
-        policy: publicRootPolicy,
-        description: "worker ESM module load",
-        fixtureRoot,
-        preloadPath,
-        source: `new (require("node:worker_threads").Worker)(${JSON.stringify(`import(${JSON.stringify(pathToFileURL(controlEsmModule).href)})`)}, { eval: true });`,
-      }),
-      verifyRejectedAttempt({
-        policy: publicArtifactPolicy,
-        description: "worker file read",
-        fixtureRoot,
-        preloadPath,
-        source: `new (require("node:worker_threads").Worker)(${JSON.stringify(`require("node:fs").readFileSync(${JSON.stringify(controlModule)})`)}, { eval: true });`,
-      }),
-      verifyRejectedAttempt({
-        policy: publicArtifactPolicy,
-        description: "worker blob file read",
-        fixtureRoot,
-        preloadPath,
-        source: `new (require("node:worker_threads").Worker)(${JSON.stringify(`require("node:fs").openAsBlob(${JSON.stringify(controlModule)}).then((blob) => blob.text())`)}, { eval: true });`,
-      }),
-      verifyRejectedAttempt({
-        policy: publicArtifactPolicy,
-        description: "worker isolated environment file read",
-        fixtureRoot,
-        preloadPath,
-        source: `new (require("node:worker_threads").Worker)(${JSON.stringify(`require("node:fs").readFileSync(${JSON.stringify(controlModule)})`)}, { env: {}, eval: true });`,
-      }),
-      verifyRejectedAttempt({
-        policy: publicArtifactPolicy,
-        description: "worker mutated environment file read",
-        fixtureRoot,
-        preloadPath,
-        source: `for (const name of ${JSON.stringify(PROTECTED_TRIPWIRE_ENVIRONMENT_NAMES)}) process.env[name] = ""; new (require("node:worker_threads").Worker)(${JSON.stringify(`require("node:fs").readFileSync(${JSON.stringify(controlModule)})`)}, { env: {}, eval: true });`,
-      }),
-      verifyRejectedAttempt({
-        policy: {},
-        description: "worker process",
-        fixtureRoot,
-        preloadPath,
-        source:
-          'new (require("node:worker_threads").Worker)(\'require("node:child_process").execFileSync(process.execPath, ["--version"])\', { eval: true });',
-      }),
-      verifyRejectedAttempt({
-        policy: expandStaticInspectionPolicy({
-          executableArtifactPaths: [],
-          moduleOnlyRoots: [symlinkControlRoot],
-        }),
-        description: "canonical worker module load",
-        fixtureRoot,
-        preloadPath,
-        source: `new (require("node:worker_threads").Worker)(${JSON.stringify(`require(${JSON.stringify(canonicalControlModule)})`)}, { eval: true });`,
-      }),
-      verifyRejectedAttempt({
-        policy: expandStaticInspectionPolicy({
-          executableArtifactPaths: [],
-          moduleOnlyRoots: [logicalPackageContext],
-        }),
-        description: "symlinked descendant module load",
-        fixtureRoot,
-        preloadPath,
-        source: `new (require("node:worker_threads").Worker)(${JSON.stringify(`require("node:module").createRequire(${JSON.stringify(join(logicalPackageContext, "package.json"))})("control-package")`)}, { eval: true });`,
-      }),
-      verifyRejectedAttempt({
-        policy: expandStaticInspectionPolicy({
-          executableArtifactPaths: [],
-          moduleOnlyRoots: [logicalPackageContext],
-        }),
-        description: "symlinked worker entry module load",
-        fixtureRoot,
-        preloadPath,
-        source: `new (require("node:worker_threads").Worker)(${JSON.stringify(join(logicalWorkerLink, "worker.mjs"))});`,
-      }),
-      verifyRejectedAttempt({
-        policy: {
-          forbiddenReadPaths: [join(symlinkControlRoot, basename(canonicalControlModule))],
-        },
-        description: "canonical worker file read",
-        fixtureRoot,
-        preloadPath,
-        source: `new (require("node:worker_threads").Worker)(${JSON.stringify(`require("node:fs").readFileSync(${JSON.stringify(canonicalControlModule)})`)}, { eval: true });`,
-      }),
-    ]);
-    const failure = results.find((result) => result.status === "rejected");
-    if (failure?.status === "rejected") {
-      throw failure.reason;
-    }
-  } finally {
-    await Promise.all([
-      rm(controlModule, { force: true }),
-      rm(controlEsmModule, { force: true }),
-      rm(canonicalControlRoot, { recursive: true, force: true }),
-      rm(logicalPackageContext, { recursive: true, force: true }),
-      rm(physicalPackageRoot, { recursive: true, force: true }),
-      unlink(symlinkControlRoot).catch(ignoreMissingFile),
-    ]);
-  }
-}
-
-async function verifyRejectedAttempt(options: {
-  readonly description: string;
-  readonly fixtureRoot: string;
-  readonly policy: TripwirePolicy;
-  readonly preloadPath: string;
-  readonly source: string;
-}): Promise<void> {
-  const controlSentinel = join(
-    options.fixtureRoot,
-    `INSPECTION_TRIPWIRE_CONTROL_${options.description.replaceAll(" ", "_")}`,
-  );
-  let commandFailed = false;
-  let commandError: unknown;
-  try {
-    await execa(process.execPath, ["-e", options.source], {
-      env: guardedEnvironment(options.preloadPath, controlSentinel, options.policy),
-    });
-  } catch (error) {
-    commandFailed = true;
-    commandError = error;
-  }
-
-  try {
-    await access(controlSentinel);
-  } catch (error) {
-    throw new Error(
-      `Static Inspection tripwire control did not record a ${options.description} attempt.`,
-      { cause: commandError ?? error },
-    );
-  }
-  await rm(controlSentinel);
-  if (!commandFailed) {
-    throw new Error(
-      `Static Inspection tripwire control did not reject a ${options.description} attempt.`,
-    );
-  }
-}
-
-function guardedEnvironment(
-  preloadPath: string,
-  sentinel: string,
-  policy: TripwirePolicy,
-  processPolicy: {
-    readonly allowedAnalysisProcessEntry?: string;
-    readonly denyWorkers?: boolean;
-  } = {},
-): Readonly<Record<string, string>> {
-  // Temp roots can canonicalize differently; executable origin is checked separately.
-  return {
-    NODE_OPTIONS: [
-      nodePathOption("--require", preloadPath),
-      "--permission",
-      "--allow-fs-read=*",
-      nodePathOption("--allow-fs-write", sentinel),
-      "--allow-child-process",
-      "--allow-worker",
-    ].join(" "),
-    PATH: process.env["PATH"] ?? "",
-    TYPEPEEK_ALLOWED_ANALYSIS_PROCESS_ENTRY: processPolicy.allowedAnalysisProcessEntry ?? "",
-    TYPEPEEK_DENY_WORKERS: processPolicy.denyWorkers === true ? "true" : "false",
-    TYPEPEEK_EXECUTABLE_PATHS: JSON.stringify(policy.executablePaths ?? []),
-    TYPEPEEK_EXECUTABLE_ROOTS: JSON.stringify(policy.executableRoots ?? []),
-    TYPEPEEK_FORBIDDEN_READ_PATHS: JSON.stringify(policy.forbiddenReadPaths ?? []),
-    TYPEPEEK_IO_SENTINEL: sentinel,
-    npm_config_offline: "true",
-  };
-}
-
-function nodePathOption(option: string, path: string): string {
-  return `${option}=${JSON.stringify(path)}`;
-}
-
-function expandStaticInspectionPolicy(policy: StaticInspectionPolicy): TripwirePolicy {
-  return {
-    executablePaths: policy.executableArtifactPaths,
-    forbiddenReadPaths: policy.executableArtifactPaths,
-    ...(policy.moduleOnlyRoots === undefined ? {} : { executableRoots: policy.moduleOnlyRoots }),
-  };
-}
-
-function inspectionTripwireSource(): string {
-  const [heapArgument, stackArgument] = analysisProcessNodeArguments("<entrypoint>");
   return [
     'const fs = require("node:fs");',
     'const fsPromises = require("node:fs/promises");',
@@ -404,7 +119,7 @@ function inspectionTripwireSource(): string {
     "}",
     "const trip = (activity = 'process or network activity') => {",
     "  originalWriteFileSync(ioSentinel, String(activity));",
-    "  throw new Error(`Inspection attempted prohibited ${activity}`);",
+    `  throw new Error(\`Inspection attempted prohibited \${activity}\`);`,
     "};",
     "for (const [target, method] of [",
     '  [fs, "readFile"], [fs, "readFileSync"], [fs, "open"], [fs, "openSync"], [fs, "openAsBlob"], [fs, "createReadStream"],',
@@ -485,14 +200,464 @@ function inspectionTripwireSource(): string {
     "Module.syncBuiltinESMExports();",
     "",
   ].join("\n");
-}
+};
 
-function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
+const expandStaticInspectionPolicy = function expandStaticInspectionPolicy(
+  policy: StaticInspectionPolicy
+): TripwirePolicy {
+  return {
+    executablePaths: policy.executableArtifactPaths,
+    forbiddenReadPaths: policy.executableArtifactPaths,
+    ...(policy.moduleOnlyRoots !== undefined && {
+      executableRoots: policy.moduleOnlyRoots,
+    }),
+  };
+};
 
-function ignoreMissingFile(error: unknown): void {
-  if (!isMissingFileError(error)) {
-    throw error;
+const nodePathOption = function nodePathOption(
+  option: string,
+  path: string
+): string {
+  return `${option}=${JSON.stringify(path)}`;
+};
+
+const guardedEnvironment = function guardedEnvironment(
+  preloadPath: string,
+  sentinel: string,
+  policy: TripwirePolicy,
+  processPolicy: {
+    readonly allowedAnalysisProcessEntry?: string;
+    readonly denyWorkers?: boolean;
+  } = {}
+): GuardedEnvironment {
+  // Temp roots can canonicalize differently; executable origin is checked separately.
+  return {
+    NODE_OPTIONS: [
+      nodePathOption("--require", preloadPath),
+      "--permission",
+      "--allow-fs-read=*",
+      nodePathOption("--allow-fs-write", sentinel),
+      "--allow-child-process",
+      "--allow-worker",
+    ].join(" "),
+    PATH: process.env["PATH"] ?? "",
+    TYPEPEEK_ALLOWED_ANALYSIS_PROCESS_ENTRY:
+      processPolicy.allowedAnalysisProcessEntry ?? "",
+    TYPEPEEK_DENY_WORKERS:
+      processPolicy.denyWorkers === true ? "true" : "false",
+    TYPEPEEK_EXECUTABLE_PATHS: JSON.stringify(policy.executablePaths ?? []),
+    TYPEPEEK_EXECUTABLE_ROOTS: JSON.stringify(policy.executableRoots ?? []),
+    TYPEPEEK_FORBIDDEN_READ_PATHS: JSON.stringify(
+      policy.forbiddenReadPaths ?? []
+    ),
+    TYPEPEEK_IO_SENTINEL: sentinel,
+    npm_config_offline: "true",
+  };
+};
+
+const verifyRejectedAttempt = async function verifyRejectedAttempt(options: {
+  readonly description: string;
+  readonly fixtureRoot: string;
+  readonly policy: TripwirePolicy;
+  readonly preloadPath: string;
+  readonly source: string;
+}): Promise<void> {
+  const controlSentinel = nodePath.join(
+    options.fixtureRoot,
+    `INSPECTION_TRIPWIRE_CONTROL_${options.description.replaceAll(" ", "_")}`
+  );
+
+  let commandFailed = false;
+
+  try {
+    await execa(process.execPath, ["-e", options.source], {
+      env: guardedEnvironment(
+        options.preloadPath,
+        controlSentinel,
+        options.policy
+      ),
+    });
+  } catch {
+    commandFailed = true;
   }
-}
+
+  try {
+    await access(controlSentinel);
+  } catch (error) {
+    throw new Error(
+      `Static Inspection tripwire control did not record a ${options.description} attempt.`,
+      { cause: error }
+    );
+  }
+
+  await rm(controlSentinel);
+
+  if (!commandFailed) {
+    throw new Error(
+      `Static Inspection tripwire control did not reject a ${options.description} attempt.`
+    );
+  }
+};
+
+const isMissingFileError = function isMissingFileError(
+  cause: unknown
+): cause is NodeJS.ErrnoException {
+  return cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+};
+
+const ignoreMissingFile = function ignoreMissingFile(cause: unknown): void {
+  if (!isMissingFileError(cause)) {
+    throw cause;
+  }
+};
+
+const verifyTripwire = async function verifyTripwire(
+  preloadPath: string,
+  fixtureRoot: string
+): Promise<void> {
+  const controlModule = nodePath.join(
+    fixtureRoot,
+    "inspection-tripwire-control.cjs"
+  );
+
+  const controlEsmModule = nodePath.join(
+    fixtureRoot,
+    "inspection-tripwire-control.mjs"
+  );
+
+  const canonicalControlRoot = nodePath.join(
+    fixtureRoot,
+    "inspection-tripwire-real-root"
+  );
+
+  const symlinkControlRoot = nodePath.join(
+    fixtureRoot,
+    "inspection-tripwire-link-root"
+  );
+
+  const canonicalControlModule = nodePath.join(
+    canonicalControlRoot,
+    "control.cjs"
+  );
+
+  const logicalPackageContext = nodePath.join(
+    fixtureRoot,
+    "inspection-tripwire-logical-context"
+  );
+
+  const physicalPackageRoot = nodePath.join(
+    fixtureRoot,
+    "inspection-tripwire-physical-package"
+  );
+
+  const logicalPackageLink = nodePath.join(
+    logicalPackageContext,
+    "node_modules",
+    "control-package"
+  );
+
+  const logicalWorkerLink = nodePath.join(
+    logicalPackageContext,
+    "linked-worker"
+  );
+
+  try {
+    await Promise.all([
+      mkdir(canonicalControlRoot),
+      mkdir(nodePath.join(logicalPackageContext, "node_modules"), {
+        recursive: true,
+      }),
+      mkdir(physicalPackageRoot),
+    ]);
+    await Promise.all([
+      writeFile(controlModule, PLUGIN_RUNTIME_SOURCE),
+      writeFile(controlEsmModule, "export default true;\n"),
+      writeFile(canonicalControlModule, PLUGIN_RUNTIME_SOURCE),
+      writeFile(
+        nodePath.join(logicalPackageContext, PACKAGE_MANIFEST_FILE),
+        '{"private":true}'
+      ),
+      writeFile(
+        nodePath.join(physicalPackageRoot, PACKAGE_MANIFEST_FILE),
+        '{"name":"control-package","main":"./index.cjs"}'
+      ),
+      writeFile(
+        nodePath.join(physicalPackageRoot, "index.cjs"),
+        PLUGIN_RUNTIME_SOURCE
+      ),
+      writeFile(
+        nodePath.join(physicalPackageRoot, "worker.mjs"),
+        "export default true;\n"
+      ),
+    ]);
+    await Promise.all([
+      symlink(
+        canonicalControlRoot,
+        symlinkControlRoot,
+        process.platform === "win32" ? "junction" : "dir"
+      ),
+      symlink(
+        physicalPackageRoot,
+        logicalPackageLink,
+        process.platform === "win32" ? "junction" : "dir"
+      ),
+      symlink(
+        physicalPackageRoot,
+        logicalWorkerLink,
+        process.platform === "win32" ? "junction" : "dir"
+      ),
+    ]);
+
+    const publicArtifactPolicy = expandStaticInspectionPolicy({
+      executableArtifactPaths: [controlModule],
+    });
+
+    const publicRootPolicy = expandStaticInspectionPolicy({
+      executableArtifactPaths: [],
+      moduleOnlyRoots: [fixtureRoot],
+    });
+
+    const generatedText1 = JSON.stringify(
+      `require(${JSON.stringify(controlModule)})`
+    );
+
+    const generatedText2 = JSON.stringify(
+      `import(${JSON.stringify(pathToFileURL(controlEsmModule).href)})`
+    );
+
+    const generatedText3 = JSON.stringify(
+      `require("node:fs").readFileSync(${JSON.stringify(controlModule)})`
+    );
+
+    const generatedText4 = JSON.stringify(
+      `require("node:fs").openAsBlob(${JSON.stringify(controlModule)}).then((blob) => blob.text())`
+    );
+
+    const generatedText5 = JSON.stringify(
+      `require("node:fs").readFileSync(${JSON.stringify(controlModule)})`
+    );
+
+    const generatedText6 = JSON.stringify(
+      `require("node:fs").readFileSync(${JSON.stringify(controlModule)})`
+    );
+
+    const generatedText7 = JSON.stringify(
+      `require(${JSON.stringify(canonicalControlModule)})`
+    );
+
+    const generatedText8 = JSON.stringify(
+      `require("node:module").createRequire(${JSON.stringify(nodePath.join(logicalPackageContext, PACKAGE_MANIFEST_FILE))})("control-package")`
+    );
+
+    const generatedText9 = JSON.stringify(
+      `require("node:fs").readFileSync(${JSON.stringify(canonicalControlModule)})`
+    );
+
+    const results = await Promise.allSettled([
+      verifyRejectedAttempt({
+        description: "worker network",
+        fixtureRoot,
+        policy: {},
+        preloadPath,
+        source:
+          'new (require("node:worker_threads").Worker)(\'require("node:net").connect(9, "127.0.0.1")\', { eval: true });',
+      }),
+      verifyRejectedAttempt({
+        description: "worker CommonJS module load",
+        fixtureRoot,
+        policy: publicArtifactPolicy,
+        preloadPath,
+        source: `new (require("node:worker_threads").Worker)(${generatedText1}, { eval: true });`,
+      }),
+      verifyRejectedAttempt({
+        description: "worker ESM module load",
+        fixtureRoot,
+        policy: publicRootPolicy,
+        preloadPath,
+        source: `new (require("node:worker_threads").Worker)(${generatedText2}, { eval: true });`,
+      }),
+      verifyRejectedAttempt({
+        description: "worker file read",
+        fixtureRoot,
+        policy: publicArtifactPolicy,
+        preloadPath,
+        source: `new (require("node:worker_threads").Worker)(${generatedText3}, { eval: true });`,
+      }),
+      verifyRejectedAttempt({
+        description: "worker blob file read",
+        fixtureRoot,
+        policy: publicArtifactPolicy,
+        preloadPath,
+        source: `new (require("node:worker_threads").Worker)(${generatedText4}, { eval: true });`,
+      }),
+      verifyRejectedAttempt({
+        description: "worker isolated environment file read",
+        fixtureRoot,
+        policy: publicArtifactPolicy,
+        preloadPath,
+        source: `new (require("node:worker_threads").Worker)(${generatedText5}, { env: {}, eval: true });`,
+      }),
+      verifyRejectedAttempt({
+        description: "worker mutated environment file read",
+        fixtureRoot,
+        policy: publicArtifactPolicy,
+        preloadPath,
+        source: `for (const name of ${JSON.stringify(PROTECTED_TRIPWIRE_ENVIRONMENT_NAMES)}) process.env[name] = ""; new (require("node:worker_threads").Worker)(${generatedText6}, { env: {}, eval: true });`,
+      }),
+      verifyRejectedAttempt({
+        description: "worker process",
+        fixtureRoot,
+        policy: {},
+        preloadPath,
+        source:
+          'new (require("node:worker_threads").Worker)(\'require("node:child_process").execFileSync(process.execPath, ["--version"])\', { eval: true });',
+      }),
+      verifyRejectedAttempt({
+        description: "canonical worker module load",
+        fixtureRoot,
+        policy: expandStaticInspectionPolicy({
+          executableArtifactPaths: [],
+          moduleOnlyRoots: [symlinkControlRoot],
+        }),
+        preloadPath,
+        source: `new (require("node:worker_threads").Worker)(${generatedText7}, { eval: true });`,
+      }),
+      verifyRejectedAttempt({
+        description: "symlinked descendant module load",
+        fixtureRoot,
+        policy: expandStaticInspectionPolicy({
+          executableArtifactPaths: [],
+          moduleOnlyRoots: [logicalPackageContext],
+        }),
+        preloadPath,
+        source: `new (require("node:worker_threads").Worker)(${generatedText8}, { eval: true });`,
+      }),
+      verifyRejectedAttempt({
+        description: "symlinked worker entry module load",
+        fixtureRoot,
+        policy: expandStaticInspectionPolicy({
+          executableArtifactPaths: [],
+          moduleOnlyRoots: [logicalPackageContext],
+        }),
+        preloadPath,
+        source: `new (require("node:worker_threads").Worker)(${JSON.stringify(nodePath.join(logicalWorkerLink, "worker.mjs"))});`,
+      }),
+      verifyRejectedAttempt({
+        description: "canonical worker file read",
+        fixtureRoot,
+        policy: {
+          forbiddenReadPaths: [
+            nodePath.join(
+              symlinkControlRoot,
+              nodePath.basename(canonicalControlModule)
+            ),
+          ],
+        },
+        preloadPath,
+        source: `new (require("node:worker_threads").Worker)(${generatedText9}, { eval: true });`,
+      }),
+    ]);
+
+    const failure = results.find((result) => result.status === "rejected");
+
+    if (failure?.status === "rejected") {
+      throw failure.reason;
+    }
+  } finally {
+    await Promise.all([
+      rm(controlModule, { force: true }),
+      rm(controlEsmModule, { force: true }),
+      rm(canonicalControlRoot, { force: true, recursive: true }),
+      rm(logicalPackageContext, { force: true, recursive: true }),
+      rm(physicalPackageRoot, { force: true, recursive: true }),
+      unlink(symlinkControlRoot).catch(ignoreMissingFile),
+    ]);
+  }
+};
+
+const DEFAULT_STATIC_INSPECTION_POLICY: StaticInspectionPolicy = {
+  executableArtifactPaths: [],
+};
+
+export const materializeStaticInspection =
+  async function materializeStaticInspection(
+    fixtureRoot: string,
+    policy: StaticInspectionPolicy = DEFAULT_STATIC_INSPECTION_POLICY
+  ): Promise<StaticInspection> {
+    const preloadPath = nodePath.join(fixtureRoot, "inspection-tripwire.cjs");
+    const sentinel = nodePath.join(fixtureRoot, "INSPECTION_IO_ATTEMPTED");
+    // The preload reaches workers and records prohibited I/O before rejecting it.
+    await writeFile(preloadPath, inspectionTripwireSource());
+    await verifyTripwire(preloadPath, fixtureRoot);
+    const tripwirePolicy = expandStaticInspectionPolicy(policy);
+
+    const verifyNoIo = async (): Promise<void> => {
+      try {
+        await access(sentinel);
+      } catch (error) {
+        if (isMissingFileError(error)) {
+          return;
+        }
+
+        throw error;
+      }
+
+      throw new Error(
+        `Static Inspection attempted prohibited activity; see ${sentinel}.`
+      );
+    };
+
+    return {
+      run: async ({
+        adapter,
+        cliArguments,
+        diagnosticContext,
+        resolutionContext,
+      }) => {
+        const command =
+          adapter.kind === "installed"
+            ? adapter.executablePath
+            : process.execPath;
+
+        const analysisProcessEntryPath =
+          adapter.kind === "installed"
+            ? adapter.analysisProcessEntryPath
+            : nodePath.join(
+                adapter.sourceCheckout,
+                "src",
+                "inspection",
+                "analysis-process-entry.ts"
+              );
+
+        const commandArguments =
+          adapter.kind === "installed"
+            ? [...cliArguments, "--workspace", resolutionContext]
+            : [
+                nodePath.join(adapter.sourceCheckout, "src", "cli.ts"),
+                ...cliArguments,
+                "--workspace",
+                resolutionContext,
+              ];
+
+        try {
+          const result = await execa(command, commandArguments, {
+            cwd: resolutionContext,
+            env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
+              allowedAnalysisProcessEntry: analysisProcessEntryPath,
+              denyWorkers: true,
+            }),
+          });
+
+          await verifyNoIo();
+
+          return { stdout: result.stdout };
+        } catch (error) {
+          throw new Error(
+            `${diagnosticContext}; command ${JSON.stringify([command, ...commandArguments])} failed: ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error }
+          );
+        }
+      },
+      verifyNoIo,
+    };
+  };

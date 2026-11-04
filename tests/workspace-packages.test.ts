@@ -1,20 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
+import { requireDefined } from "#typepeek/defined-value";
 import {
   comparePublicInterfaces,
   inspectExport,
   inspectInterfaceOverview,
 } from "#typepeek/inspection";
 
+import type { WorkspacePackageMatrix } from "./helpers/index.ts";
 import {
-  type WorkspacePackageMatrix,
   materializeWorkspacePackageMatrix,
   PACKAGE_MANAGER_PINS,
 } from "./helpers/index.ts";
+import { match } from "./helpers/matchers.ts";
+
+let matrix: WorkspacePackageMatrix;
 
 describe("workspace Resolution Contexts", () => {
-  let matrix: WorkspacePackageMatrix;
-
   beforeAll(async () => {
     matrix = await materializeWorkspacePackageMatrix();
   }, 120_000);
@@ -25,375 +27,529 @@ describe("workspace Resolution Contexts", () => {
 
   it("uses genuine workspace links from every supported package manager", () => {
     expect(
-      matrix.installations.map(({ manager, sourceWorkspaceIsLink, version }) => ({
-        manager,
-        sourceWorkspaceIsLink,
-        version,
-      })),
-    ).toEqual(
+      matrix.installations.map(
+        ({ manager, sourceWorkspaceIsLink, version }) => ({
+          manager,
+          sourceWorkspaceIsLink,
+          version,
+        })
+      )
+    ).toStrictEqual(
       PACKAGE_MANAGER_PINS.map(({ manager, version }) => ({
         manager,
         sourceWorkspaceIsLink: true,
         version,
-      })),
+      }))
     );
   });
 
   it("selects the package version visible from each nested Resolution Context", async () => {
-    for (const { consumerOneContext, consumerTwoContext, manager } of matrix.installations) {
-      const [consumerOne, consumerTwo] = await Promise.all([
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: "@typepeek-fixture/contextual",
-          exportName: "contextValue",
-        }),
-        inspectExport({
-          resolutionContext: consumerTwoContext,
-          specifier: "@typepeek-fixture/contextual",
-          exportName: "contextValue",
-        }),
-      ]);
+    await Array.fromAsync(
+      matrix.installations,
+      async ({ consumerOneContext, consumerTwoContext }) => {
+        const [consumerOne, consumerTwo] = await Promise.all([
+          inspectExport({
+            exportName: "contextValue",
+            resolutionContext: consumerOneContext,
+            specifier: "@typepeek-fixture/contextual",
+          }),
+          inspectExport({
+            exportName: "contextValue",
+            resolutionContext: consumerTwoContext,
+            specifier: "@typepeek-fixture/contextual",
+          }),
+        ]);
 
-      expect({ consumerOne, consumerTwo }, manager).toMatchObject({
-        consumerOne: {
-          status: "success",
-          result: { packageIdentity: { version: "1.0.0" } },
-        },
-        consumerTwo: {
-          status: "success",
-          result: { packageIdentity: { version: "2.0.0" } },
-        },
-      });
-      expect(JSON.stringify(consumerOne)).toContain("context-one");
-      expect(JSON.stringify(consumerOne)).not.toContain("context-two");
-      expect(JSON.stringify(consumerTwo)).toContain("context-two");
-      expect(JSON.stringify(consumerTwo)).not.toContain("context-one");
-    }
+        expect([
+          { consumerOne, consumerTwo },
+          JSON.stringify(consumerOne).includes("context-one"),
+          JSON.stringify(consumerOne).includes("context-two"),
+          JSON.stringify(consumerTwo).includes("context-two"),
+          JSON.stringify(consumerTwo).includes("context-one"),
+        ]).toStrictEqual([
+          match.objectContaining({
+            consumerOne: match.objectContaining({
+              result: match.objectContaining({
+                packageIdentity: match.objectContaining({ version: "1.0.0" }),
+              }),
+              status: "success",
+            }),
+            consumerTwo: match.objectContaining({
+              result: match.objectContaining({
+                packageIdentity: match.objectContaining({ version: "2.0.0" }),
+              }),
+              status: "success",
+            }),
+          }),
+          true,
+          false,
+          true,
+          false,
+        ]);
+      }
+    );
   }, 30_000);
 
   it("keeps installed versions distinct when their overview indexes have the same names", async () => {
-    for (const { consumerOneContext, consumerTwoContext, manager } of matrix.installations) {
-      const outcome = await comparePublicInterfaces({
-        before: {
-          resolutionContext: consumerOneContext,
-          specifier: "@typepeek-fixture/contextual",
-        },
-        after: {
-          resolutionContext: consumerTwoContext,
-          specifier: "@typepeek-fixture/contextual",
-        },
-      });
+    await Array.fromAsync(
+      matrix.installations,
+      async ({ consumerOneContext, consumerTwoContext }) => {
+        const outcome = await comparePublicInterfaces({
+          after: {
+            resolutionContext: consumerTwoContext,
+            specifier: "@typepeek-fixture/contextual",
+          },
+          before: {
+            resolutionContext: consumerOneContext,
+            specifier: "@typepeek-fixture/contextual",
+          },
+        });
 
-      expect(outcome, manager).toMatchObject({
-        status: "success",
-        result: {
-          scope: "interface-overview",
-          before: { packageIdentity: { version: "1.0.0" } },
-          after: { packageIdentity: { version: "2.0.0" } },
-          moduleExports: { added: [], removed: [] },
-        },
-      });
-    }
+        expect(outcome).toMatchObject({
+          result: {
+            after: { packageIdentity: { version: "2.0.0" } },
+            before: { packageIdentity: { version: "1.0.0" } },
+            moduleExports: { added: [], removed: [] },
+            scope: "interface-overview",
+          },
+          status: "success",
+        });
+      }
+    );
   }, 30_000);
 
   it("inspects only workspace Package Modules resolvable from the selected Resolution Context", async () => {
-    for (const {
-      consumerOneContext,
-      hiddenWorkspaceInstalledElsewhere,
-      hiddenWorkspacePackage,
-      hiddenWorkspaceResolvableFromConsumerOne,
-      manager,
-    } of matrix.installations) {
-      expect(hiddenWorkspaceInstalledElsewhere, manager).toBe(true);
-      const outcome = await inspectInterfaceOverview({
-        resolutionContext: consumerOneContext,
-        specifier: hiddenWorkspacePackage,
-      });
-
-      if (!hiddenWorkspaceResolvableFromConsumerOne) {
-        expect(outcome, manager).toEqual({
-          status: "not-found",
-          reason: "specifier-not-found",
-          message: `Specifier "${hiddenWorkspacePackage}" is not installed from this Resolution Context.`,
+    await Array.fromAsync(
+      matrix.installations,
+      async ({
+        consumerOneContext,
+        hiddenWorkspaceInstalledElsewhere,
+        hiddenWorkspacePackage,
+        hiddenWorkspaceResolvableFromConsumerOne,
+      }) => {
+        const outcome = await inspectInterfaceOverview({
+          resolutionContext: consumerOneContext,
+          specifier: hiddenWorkspacePackage,
         });
-        continue;
+
+        const expected = hiddenWorkspaceResolvableFromConsumerOne
+          ? match.objectContaining({
+              result: match.objectContaining({
+                moduleExports: [
+                  match.objectContaining({ name: "hiddenWorkspaceValue" }),
+                ],
+                packageIdentity: {
+                  name: hiddenWorkspacePackage,
+                  version: "1.0.0",
+                },
+              }),
+              status: "success",
+            })
+          : {
+              message: `Specifier "${hiddenWorkspacePackage}" is not installed from this Resolution Context.`,
+              reason: "specifier-not-found",
+              status: "not-found",
+            };
+
+        expect([hiddenWorkspaceInstalledElsewhere, outcome]).toStrictEqual([
+          true,
+          expected,
+        ]);
       }
-      expect(outcome, manager).toMatchObject({
-        status: "success",
-        result: {
-          packageIdentity: { name: hiddenWorkspacePackage, version: "1.0.0" },
-          moduleExports: [{ name: "hiddenWorkspaceValue" }],
-        },
-      });
-    }
+    );
   });
 
   it("does not turn TypeScript path aliases into Package Modules", async () => {
-    for (const { consumerOneContext, manager } of matrix.installations) {
-      const outcome = await inspectInterfaceOverview({
-        resolutionContext: consumerOneContext,
-        specifier: "project-source-alias",
-      });
+    await Array.fromAsync(
+      matrix.installations,
+      async ({ consumerOneContext }) => {
+        const outcome = await inspectInterfaceOverview({
+          resolutionContext: consumerOneContext,
+          specifier: "project-source-alias",
+        });
 
-      expect(outcome, manager).toEqual({
-        status: "not-found",
-        reason: "specifier-not-found",
-        message: 'Specifier "project-source-alias" is not installed from this Resolution Context.',
-      });
-    }
+        expect(outcome).toStrictEqual({
+          message:
+            'Specifier "project-source-alias" is not installed from this Resolution Context.',
+          reason: "specifier-not-found",
+          status: "not-found",
+        });
+      }
+    );
   });
 
-  it("inspects unversioned package-exposed TypeScript source without implementation bodies", async () => {
-    for (const { consumerOneContext, manager, sourceWorkspacePackage } of matrix.installations) {
-      const [overview, focused] = await Promise.all([
-        inspectInterfaceOverview({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-        }),
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "createWorkspaceThing",
-        }),
-      ]);
-
-      expect({ focused, overview }, manager).toMatchObject({
-        overview: {
-          status: "success",
-          result: {
-            packageIdentity: { name: sourceWorkspacePackage },
-            moduleExports: [
-              { name: "MixedOverloads" },
-              { name: "WorkspaceOptions" },
-              { name: "WorkspaceOverloadTools" },
-              { name: "WorkspaceSource" },
-              { name: "WorkspaceTools" },
-              { name: "aliasedDestructuredWorkspaceValue" },
-              { name: "boxedWorkspaceShape" },
-              { name: "createWorkspaceThing" },
-              { name: "destructuredWorkspaceValue" },
-              { name: "inferredCarrier" },
-              { name: "inferredWorkspaceShape" },
-              { name: "inferredWorkspaceValue" },
-              { name: "loadWorkspaceArrow" },
-              { name: "loadWorkspaceValue" },
-              { name: "makeLocalWorkspaceValue" },
-              { name: "makeWorkspaceShape" },
-              { name: "nestedWorkspaceLoader" },
-              { name: "overloadedWorkspaceValue" },
-              { name: "publicWorkspaceNumber" },
-              { name: "workspaceValues" },
-            ],
-          },
-        },
-        focused: {
-          status: "success",
-          result: {
-            packageIdentity: { name: sourceWorkspacePackage },
-            moduleExport: { name: "createWorkspaceThing" },
-          },
-        },
-      });
-      expect(JSON.stringify({ focused, overview })).not.toContain("version");
-      expect(JSON.stringify(focused)).not.toContain("implementationSecret");
-      expect(JSON.stringify(focused)).not.toContain("return `");
-
-      const [inferred, namespace, classExport] = await Promise.all([
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "inferredWorkspaceValue",
-        }),
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "WorkspaceTools",
-        }),
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "WorkspaceSource",
-        }),
-      ]);
-      expect({ classExport, inferred, namespace }, manager).toMatchObject({
-        classExport: { status: "success" },
-        inferred: { status: "success" },
-        namespace: { status: "success" },
-      });
-      const sourceDeclarations = JSON.stringify({ classExport, inferred, namespace });
-      expect(sourceDeclarations).toContain('mode: \\"source\\"');
-      expect(sourceDeclarations).toContain("createLabel(): string");
-      expect(sourceDeclarations).not.toContain("implementationSecret");
-      expect(sourceDeclarations).not.toContain("return ");
-      expect(sourceDeclarations).not.toContain("static {");
-      expect(sourceDeclarations).not.toContain("secret");
-
-      const [
-        inferredShape,
-        shapeFactory,
-        overloaded,
-        namespaceOverload,
-        mixedOverloads,
-        asyncExport,
-      ] = await Promise.all([
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "inferredWorkspaceShape",
-        }),
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "makeWorkspaceShape",
-        }),
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "overloadedWorkspaceValue",
-        }),
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "WorkspaceOverloadTools",
-        }),
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "MixedOverloads",
-        }),
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "loadWorkspaceValue",
-        }),
-      ]);
-      expect({ inferredShape, overloaded, shapeFactory }, manager).toMatchObject({
-        inferredShape: {
-          status: "success",
-          result: { supportingTypes: [{ name: "WorkspaceShape" }] },
-        },
-        overloaded: { status: "success" },
-        shapeFactory: {
-          status: "success",
-          result: { supportingTypes: [{ name: "WorkspaceShape" }] },
-        },
-      });
-      expect(JSON.stringify(overloaded).match(/function overloadedWorkspaceValue/g)).toHaveLength(
-        2,
-      );
-      const namespaceOverloadEvidence = JSON.stringify(namespaceOverload);
-      expect(namespaceOverloadEvidence).toContain("function run(value: string): string");
-      expect(namespaceOverloadEvidence).toContain("function unrelated(): number");
-      expect(namespaceOverloadEvidence).not.toContain("run(value: string | number)");
-      const mixedOverloadEvidence = JSON.stringify(mixedOverloads);
-      expect(mixedOverloadEvidence).toContain("static run(value: string): string");
-      expect(mixedOverloadEvidence).toContain("run(): number");
-      expect(mixedOverloadEvidence).not.toContain("static run(value: string | number)");
-      expect(asyncExport).toEqual({
-        status: "unsupported",
-        reason: "unsupported-evidence",
-        message: "An inferred async Public Interface cannot be represented statically.",
-      });
-
-      const [boxed, implementationLocal, asyncArrow] = await Promise.all([
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "boxedWorkspaceShape",
-        }),
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "publicWorkspaceNumber",
-        }),
-        inspectExport({
-          resolutionContext: consumerOneContext,
-          specifier: sourceWorkspacePackage,
-          exportName: "loadWorkspaceArrow",
-        }),
-      ]);
-      expect(boxed).toMatchObject({
-        status: "success",
-        result: {
-          supportingTypes: [{ name: "Box" }, { name: "WorkspaceShape" }],
-        },
-      });
-      expect(implementationLocal).toMatchObject({
-        status: "success",
-        result: { supportingTypes: [] },
-      });
-      expect(asyncArrow).toEqual({
-        status: "unsupported",
-        reason: "unsupported-evidence",
-        message: "An inferred async Public Interface cannot be represented statically.",
-      });
-
-      const [carrier, values, nestedAsync, destructured, aliasedDestructured, localReturn] =
-        await Promise.all([
-          inspectExport({
+  it("projects source declarations for all package managers", async () => {
+    await Array.fromAsync(
+      matrix.installations,
+      async ({ consumerOneContext, sourceWorkspacePackage }) => {
+        const [overview, focused] = await Promise.all([
+          inspectInterfaceOverview({
             resolutionContext: consumerOneContext,
             specifier: sourceWorkspacePackage,
-            exportName: "inferredCarrier",
           }),
           inspectExport({
+            exportName: "createWorkspaceThing",
             resolutionContext: consumerOneContext,
             specifier: sourceWorkspacePackage,
-            exportName: "workspaceValues",
-          }),
-          inspectExport({
-            resolutionContext: consumerOneContext,
-            specifier: sourceWorkspacePackage,
-            exportName: "nestedWorkspaceLoader",
-          }),
-          inspectExport({
-            resolutionContext: consumerOneContext,
-            specifier: sourceWorkspacePackage,
-            exportName: "destructuredWorkspaceValue",
-          }),
-          inspectExport({
-            resolutionContext: consumerOneContext,
-            specifier: sourceWorkspacePackage,
-            exportName: "aliasedDestructuredWorkspaceValue",
-          }),
-          inspectExport({
-            resolutionContext: consumerOneContext,
-            specifier: sourceWorkspacePackage,
-            exportName: "makeLocalWorkspaceValue",
           }),
         ]);
-      expect(carrier).toMatchObject({
-        status: "success",
-        result: { supportingTypes: [{ name: "PublicCarrier" }] },
-      });
-      expect(JSON.stringify(carrier)).not.toContain("HiddenMemberShape");
-      expect(values).toMatchObject({
-        status: "success",
-        result: {
-          moduleExport: {
-            spaces: [{ space: "value", declarations: [{ text: "workspaceValues: number[]" }] }],
+
+        expect([
+          { focused, overview },
+          JSON.stringify({ focused, overview }).includes("version"),
+          JSON.stringify(focused).includes("implementationSecret"),
+          JSON.stringify(focused).includes("return `"),
+        ]).toStrictEqual([
+          match.objectContaining({
+            focused: match.objectContaining({
+              result: match.objectContaining({
+                moduleExport: match.objectContaining({
+                  name: "createWorkspaceThing",
+                }),
+                packageIdentity: match.objectContaining({
+                  name: sourceWorkspacePackage,
+                }),
+              }),
+              status: "success",
+            }),
+            overview: match.objectContaining({
+              result: match.objectContaining({
+                moduleExports: [
+                  match.objectContaining({ name: "MixedOverloads" }),
+                  match.objectContaining({ name: "WorkspaceOptions" }),
+                  match.objectContaining({ name: "WorkspaceOverloadTools" }),
+                  match.objectContaining({ name: "WorkspaceSource" }),
+                  match.objectContaining({ name: "WorkspaceTools" }),
+                  match.objectContaining({
+                    name: "aliasedDestructuredWorkspaceValue",
+                  }),
+                  match.objectContaining({ name: "boxedWorkspaceShape" }),
+                  match.objectContaining({ name: "createWorkspaceThing" }),
+                  match.objectContaining({
+                    name: "destructuredWorkspaceValue",
+                  }),
+                  match.objectContaining({ name: "inferredCarrier" }),
+                  match.objectContaining({ name: "inferredWorkspaceShape" }),
+                  match.objectContaining({ name: "inferredWorkspaceValue" }),
+                  match.objectContaining({ name: "loadWorkspaceArrow" }),
+                  match.objectContaining({ name: "loadWorkspaceValue" }),
+                  match.objectContaining({ name: "makeLocalWorkspaceValue" }),
+                  match.objectContaining({ name: "makeWorkspaceShape" }),
+                  match.objectContaining({ name: "nestedWorkspaceLoader" }),
+                  match.objectContaining({ name: "overloadedWorkspaceValue" }),
+                  match.objectContaining({ name: "publicWorkspaceNumber" }),
+                  match.objectContaining({ name: "workspaceValues" }),
+                ],
+                packageIdentity: match.objectContaining({
+                  name: sourceWorkspacePackage,
+                }),
+              }),
+              status: "success",
+            }),
+          }),
+          false,
+          false,
+          false,
+        ]);
+
+        const [inferred, namespace, classExport] = await Promise.all([
+          inspectExport({
+            exportName: "inferredWorkspaceValue",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "WorkspaceTools",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "WorkspaceSource",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+        ]);
+
+        expect({ classExport, inferred, namespace }).toMatchObject({
+          classExport: { status: "success" },
+          inferred: { status: "success" },
+          namespace: { status: "success" },
+        });
+
+        const sourceDeclarations = JSON.stringify({
+          classExport,
+          inferred,
+          namespace,
+        });
+
+        expect([
+          sourceDeclarations.includes('mode: \\"source\\"'),
+          sourceDeclarations.includes("createLabel(): string"),
+          sourceDeclarations.includes("implementationSecret"),
+          sourceDeclarations.includes("return "),
+          sourceDeclarations.includes("static {"),
+          sourceDeclarations.includes("secret"),
+        ]).toStrictEqual([true, true, false, false, false, false]);
+      }
+    );
+  });
+
+  it("retains inferred dependencies and namespace overloads for all package managers", async () => {
+    await Array.fromAsync(
+      matrix.installations,
+      async ({ consumerOneContext, sourceWorkspacePackage }) => {
+        const [
+          inferredInterfaceOutcome,
+          factoryOutcome,
+          overloaded,
+          namespaceOverload,
+        ] = await Promise.all([
+          inspectExport({
+            exportName: "inferredWorkspaceShape",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "makeWorkspaceShape",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "overloadedWorkspaceValue",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "WorkspaceOverloadTools",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+        ]);
+
+        expect([
+          { factoryOutcome, inferredInterfaceOutcome, overloaded },
+          requireDefined(
+            JSON.stringify(overloaded).match(
+              /function overloadedWorkspaceValue/gu
+            )
+          ).length,
+        ]).toStrictEqual([
+          match.objectContaining({
+            factoryOutcome: match.objectContaining({
+              result: match.objectContaining({
+                supportingTypes: [
+                  match.objectContaining({ name: "WorkspaceShape" }),
+                ],
+              }),
+              status: "success",
+            }),
+            inferredInterfaceOutcome: match.objectContaining({
+              result: match.objectContaining({
+                supportingTypes: [
+                  match.objectContaining({ name: "WorkspaceShape" }),
+                ],
+              }),
+              status: "success",
+            }),
+            overloaded: match.objectContaining({ status: "success" }),
+          }),
+          2,
+        ]);
+        const namespaceOverloadEvidence = JSON.stringify(namespaceOverload);
+        expect([
+          namespaceOverloadEvidence.includes(
+            "function run(value: string): string"
+          ),
+          namespaceOverloadEvidence.includes("function unrelated(): number"),
+          namespaceOverloadEvidence.includes("run(value: string | number)"),
+        ]).toStrictEqual([true, true, false]);
+      }
+    );
+  });
+
+  it("handles boxed values and async overloads for all package managers", async () => {
+    await Array.fromAsync(
+      matrix.installations,
+      async ({ consumerOneContext, sourceWorkspacePackage }) => {
+        const [mixedOverloads, asyncExport] = await Promise.all([
+          inspectExport({
+            exportName: "MixedOverloads",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "loadWorkspaceValue",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+        ]);
+
+        const mixedOverloadEvidence = JSON.stringify(mixedOverloads);
+        expect([
+          mixedOverloadEvidence.includes("static run(value: string): string"),
+          mixedOverloadEvidence.includes("run(): number"),
+          mixedOverloadEvidence.includes("static run(value: string | number)"),
+          asyncExport,
+        ]).toStrictEqual([
+          true,
+          true,
+          false,
+          {
+            message:
+              "An inferred async Public Interface cannot be represented statically.",
+            reason: "unsupported-evidence",
+            status: "unsupported",
           },
-        },
-      });
-      expect(nestedAsync).toEqual({
-        status: "unsupported",
-        reason: "unsupported-evidence",
-        message: "An inferred async Public Interface cannot be represented statically.",
-      });
-      expect(destructured).toEqual({
-        status: "unsupported",
-        reason: "unsupported-evidence",
-        message: "The selected Module Export contains an unsupported declaration kind.",
-      });
-      expect(aliasedDestructured).toEqual({
-        status: "unsupported",
-        reason: "unsupported-evidence",
-        message: "The selected Module Export contains an unsupported declaration kind.",
-      });
-      expect(localReturn).toEqual({
-        status: "unsupported",
-        reason: "unsupported-evidence",
-        message: "An inferred Public Interface references an implementation-local type.",
-      });
-    }
-  }, 60_000);
+        ]);
+
+        const [boxed, implementationLocal, asyncArrow] = await Promise.all([
+          inspectExport({
+            exportName: "boxedWorkspaceShape",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "publicWorkspaceNumber",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "loadWorkspaceArrow",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+        ]);
+
+        expect([boxed, implementationLocal, asyncArrow]).toStrictEqual([
+          match.objectContaining({
+            result: match.objectContaining({
+              supportingTypes: [
+                match.objectContaining({ name: "Box" }),
+                match.objectContaining({ name: "WorkspaceShape" }),
+              ],
+            }),
+            status: "success",
+          }),
+          match.objectContaining({
+            result: match.objectContaining({ supportingTypes: [] }),
+            status: "success",
+          }),
+          {
+            message:
+              "An inferred async Public Interface cannot be represented statically.",
+            reason: "unsupported-evidence",
+            status: "unsupported",
+          },
+        ]);
+      }
+    );
+  });
+
+  it("projects inherited and destructured values for all package managers", async () => {
+    await Array.fromAsync(
+      matrix.installations,
+      async ({ consumerOneContext, sourceWorkspacePackage }) => {
+        const [
+          carrier,
+          values,
+          nestedAsync,
+          destructured,
+          aliasedDestructured,
+          localReturn,
+        ] = await Promise.all([
+          inspectExport({
+            exportName: "inferredCarrier",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "workspaceValues",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "nestedWorkspaceLoader",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "destructuredWorkspaceValue",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "aliasedDestructuredWorkspaceValue",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+          inspectExport({
+            exportName: "makeLocalWorkspaceValue",
+            resolutionContext: consumerOneContext,
+            specifier: sourceWorkspacePackage,
+          }),
+        ]);
+
+        expect([
+          carrier,
+          JSON.stringify(carrier).includes("HiddenMemberShape"),
+          values,
+          nestedAsync,
+          destructured,
+          aliasedDestructured,
+          localReturn,
+        ]).toStrictEqual([
+          match.objectContaining({
+            result: match.objectContaining({
+              supportingTypes: [
+                match.objectContaining({ name: "PublicCarrier" }),
+              ],
+            }),
+            status: "success",
+          }),
+          false,
+          match.objectContaining({
+            result: match.objectContaining({
+              moduleExport: match.objectContaining({
+                spaces: [
+                  match.objectContaining({
+                    declarations: [
+                      match.objectContaining({
+                        text: "workspaceValues: number[]",
+                      }),
+                    ],
+                    space: "value",
+                  }),
+                ],
+              }),
+            }),
+            status: "success",
+          }),
+          {
+            message:
+              "An inferred async Public Interface cannot be represented statically.",
+            reason: "unsupported-evidence",
+            status: "unsupported",
+          },
+          {
+            message:
+              "The selected Module Export contains an unsupported declaration kind.",
+            reason: "unsupported-evidence",
+            status: "unsupported",
+          },
+          {
+            message:
+              "The selected Module Export contains an unsupported declaration kind.",
+            reason: "unsupported-evidence",
+            status: "unsupported",
+          },
+          {
+            message:
+              "An inferred Public Interface references an implementation-local type.",
+            reason: "unsupported-evidence",
+            status: "unsupported",
+          },
+        ]);
+      }
+    );
+  });
 });

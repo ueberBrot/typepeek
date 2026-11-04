@@ -1,26 +1,44 @@
-import * as Effect from "effect/Effect";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeAll, expect, it } from "vite-plus/test";
+import nodePath from "node:path";
+
+import { Effect } from "effect";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { invokeInspectionCore } from "#typepeek/inspection/core";
 
 let resolutionContext: string;
 const specifier = "inferred-supporting-fixture";
 
-beforeAll(async () => {
-  resolutionContext = await mkdtemp(join(tmpdir(), "typepeek-inferred-supporting-"));
-  const packageRoot = join(resolutionContext, "node_modules", specifier);
-  await mkdir(packageRoot, { recursive: true });
-  await writeFile(join(resolutionContext, "package.json"), JSON.stringify({ type: "module" }));
-  await writeFile(
-    join(packageRoot, "package.json"),
-    JSON.stringify({ name: specifier, version: "1.0.0", type: "module", types: "index.ts" }),
-  );
-  await writeFile(
-    join(packageRoot, "index.ts"),
-    `
+describe("inferred-supporting-types", () => {
+  beforeAll(async () => {
+    resolutionContext = await mkdtemp(
+      nodePath.join(tmpdir(), "typepeek-inferred-supporting-")
+    );
+
+    const packageRoot = nodePath.join(
+      resolutionContext,
+      "node_modules",
+      specifier
+    );
+
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(
+      nodePath.join(resolutionContext, "package.json"),
+      JSON.stringify({ type: "module" })
+    );
+    await writeFile(
+      nodePath.join(packageRoot, "package.json"),
+      JSON.stringify({
+        name: specifier,
+        type: "module",
+        types: "index.ts",
+        version: "1.0.0",
+      })
+    );
+    await writeFile(
+      nodePath.join(packageRoot, "index.ts"),
+      `
     interface Item { readonly enabled: boolean; }
     export const directDefault = <T = Item>() => 1;
     export const identity = <T>(value: T) => value;
@@ -58,117 +76,158 @@ beforeAll(async () => {
     interface Recursive { readonly next: Recursive; }
     export const recursiveDefault = withDefault<Recursive>();
     export const recursiveIndex = withIndex<Recursive>();
-  `,
-  );
-});
-
-afterAll(async () => {
-  if (resolutionContext !== undefined) {
-    await rm(resolutionContext, { recursive: true, force: true });
-  }
-});
-
-it.each([
-  "directDefault",
-  "instantiatedDefault",
-  "instantiatedConstraint",
-  "instantiatedReceiver",
-  "instantiatedIndex",
-  "instantiatedIdentity",
-])("retains Supporting Types on the inferred %s edge", async (exportName) => {
-  const { outcome } = await Effect.runPromise(
-    invokeInspectionCore("export-inspection", { resolutionContext, specifier, exportName }),
-  );
-  expect(outcome, JSON.stringify(outcome)).toMatchObject({
-    status: "success",
-    result: {
-      supportingTypes: [{ name: "Item", declarations: [{ kind: "interface" }] }],
-    },
+  `
+    );
   });
-});
 
-it("preserves a public generic binder without inventing a Supporting Type", async () => {
-  const { outcome } = await Effect.runPromise(
-    invokeInspectionCore("export-inspection", {
-      resolutionContext,
-      specifier,
-      exportName: "identity",
-    }),
-  );
-  expect(outcome, JSON.stringify(outcome)).toMatchObject({
-    status: "success",
-    result: {
-      moduleExport: { signatures: [{ kind: "call", text: "<T>(value: T): T" }] },
-      supportingTypes: [],
-    },
+  afterAll(async () => {
+    if (resolutionContext !== undefined) {
+      await rm(resolutionContext, { force: true, recursive: true });
+    }
   });
-});
 
-it.each([
-  ["instantiatedConstraint", [{ name: "U", constraint: "Item" }]],
-  ["instantiatedIdentity", [{ name: "U", constraint: "Item", default: "Item" }]],
-  [
-    "instantiatedChain",
-    [
-      { name: "U", constraint: "Item", default: "Item" },
-      { name: "V", constraint: "U", default: "U" },
-    ],
-  ],
-  [
-    "directChain",
-    [
-      { name: "T", constraint: "Item" },
-      { name: "U", constraint: "T" },
-      { name: "V", constraint: "U" },
-    ],
-  ],
-  ["directDefault", [{ name: "T", default: "Item" }]],
-] as const)(
-  "preserves resolved and local signature constraints in %s",
-  async (exportName, parameters) => {
+  it.each([
+    "directDefault",
+    "instantiatedDefault",
+    "instantiatedConstraint",
+    "instantiatedReceiver",
+    "instantiatedIndex",
+    "instantiatedIdentity",
+  ])("retains Supporting Types on the inferred %s edge", async (exportName) => {
     const { outcome } = await Effect.runPromise(
-      invokeInspectionCore("signature-inspection", { resolutionContext, specifier, exportName }),
+      invokeInspectionCore("export-inspection", {
+        exportName,
+        resolutionContext,
+        specifier,
+      })
     );
-    expect(outcome, JSON.stringify(outcome)).toMatchObject({ status: "success" });
-    if (outcome.status !== "success" || outcome.result.intent !== "signature-inspection") return;
-    expect(outcome.result.moduleExport.signatures[0]?.typeParameters).toEqual(
-      parameters.map((parameter) => ({ ...parameter, modifiers: [], synthetic: false })),
-    );
-  },
-);
 
-it.each(["localDefault", "localConstraint", "localReceiver", "localIndex"])(
-  "rejects an implementation-local type reached through %s",
-  async (exportName) => {
-    const { outcome } = await Effect.runPromise(
-      invokeInspectionCore("export-inspection", { resolutionContext, specifier, exportName }),
-    );
     expect(outcome).toMatchObject({
-      status: "unsupported",
-      reason: "unsupported-evidence",
-      message: "An inferred Public Interface references an implementation-local type.",
+      result: {
+        supportingTypes: [
+          { declarations: [{ kind: "interface" }], name: "Item" },
+        ],
+      },
+      status: "success",
     });
-  },
-);
+  });
 
-it("terminates recursive Supporting Type edges across a shared Inspection Plan", async () => {
-  const { outcome } = await Effect.runPromise(
-    invokeInspectionCore("inspection-plan", {
-      resolutionContext,
-      specifier,
-      queries: [
-        { intent: "export-inspection", exportName: "recursiveDefault" },
-        { intent: "export-inspection", exportName: "recursiveIndex" },
+  it("preserves a public generic binder without inventing a Supporting Type", async () => {
+    const { outcome } = await Effect.runPromise(
+      invokeInspectionCore("export-inspection", {
+        exportName: "identity",
+        resolutionContext,
+        specifier,
+      })
+    );
+
+    expect(outcome).toMatchObject({
+      result: {
+        moduleExport: {
+          signatures: [{ kind: "call", text: "<T>(value: T): T" }],
+        },
+        supportingTypes: [],
+      },
+      status: "success",
+    });
+  });
+
+  it.each([
+    ["instantiatedConstraint", [{ constraint: "Item", name: "U" }]],
+    [
+      "instantiatedIdentity",
+      [{ constraint: "Item", default: "Item", name: "U" }],
+    ],
+    [
+      "instantiatedChain",
+      [
+        { constraint: "Item", default: "Item", name: "U" },
+        { constraint: "U", default: "U", name: "V" },
       ],
-    }),
+    ],
+    [
+      "directChain",
+      [
+        { constraint: "Item", name: "T" },
+        { constraint: "T", name: "U" },
+        { constraint: "U", name: "V" },
+      ],
+    ],
+    ["directDefault", [{ default: "Item", name: "T" }]],
+  ] as const)(
+    "preserves resolved and local signature constraints in %s",
+    async (exportName, parameters) => {
+      const { outcome } = await Effect.runPromise(
+        invokeInspectionCore("signature-inspection", {
+          exportName,
+          resolutionContext,
+          specifier,
+        })
+      );
+
+      expect(outcome).toMatchObject({
+        status: "success",
+      });
+
+      if (
+        outcome.status !== "success" ||
+        outcome.result.intent !== "signature-inspection"
+      ) {
+        return;
+      }
+
+      expect(
+        outcome.result.moduleExport.signatures[0]?.typeParameters
+      ).toStrictEqual(
+        parameters.map((parameter) => ({
+          ...parameter,
+          modifiers: [],
+          synthetic: false,
+        }))
+      );
+    }
   );
-  expect(outcome, JSON.stringify(outcome)).toMatchObject({
-    status: "success",
-    result: {
-      inspections: [
-        { supportingTypes: [{ name: "Recursive" }] },
-        { supportingTypes: [{ name: "Recursive" }] },
-      ],
-    },
+
+  it.each(["localDefault", "localConstraint", "localReceiver", "localIndex"])(
+    "rejects an implementation-local type reached through %s",
+    async (exportName) => {
+      const { outcome } = await Effect.runPromise(
+        invokeInspectionCore("export-inspection", {
+          exportName,
+          resolutionContext,
+          specifier,
+        })
+      );
+
+      expect(outcome).toMatchObject({
+        message:
+          "An inferred Public Interface references an implementation-local type.",
+        reason: "unsupported-evidence",
+        status: "unsupported",
+      });
+    }
+  );
+
+  it("terminates recursive Supporting Type edges across a shared Inspection Plan", async () => {
+    const { outcome } = await Effect.runPromise(
+      invokeInspectionCore("inspection-plan", {
+        queries: [
+          { exportName: "recursiveDefault", intent: "export-inspection" },
+          { exportName: "recursiveIndex", intent: "export-inspection" },
+        ],
+        resolutionContext,
+        specifier,
+      })
+    );
+
+    expect(outcome).toMatchObject({
+      result: {
+        inspections: [
+          { supportingTypes: [{ name: "Recursive" }] },
+          { supportingTypes: [{ name: "Recursive" }] },
+        ],
+      },
+      status: "success",
+    });
   });
 });

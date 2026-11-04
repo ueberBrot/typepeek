@@ -1,37 +1,42 @@
-import { expect, it } from "vite-plus/test";
+import { Schema } from "effect";
+import { describe, expect, it } from "vite-plus/test";
 
+import { decodeJson } from "#typepeek/json-data";
 import { renderJsonOutcome } from "#typepeek/json-rendering";
 
-it("escapes terminal controls without changing parsed outcome values", () => {
-  const outcome = {
-    status: "unsupported",
-    reason: "unsupported-evidence",
-    message: "line\n\u001B[31m\u061C\u202E",
-  } as const;
+describe("json-rendering", () => {
+  it("escapes terminal controls without changing parsed outcome values", () => {
+    const outcome = {
+      message: "line\n\u001B[31m\u061C\u202E",
+      reason: "unsupported-evidence",
+      status: "unsupported",
+    } as const;
 
-  const rendering = renderJsonOutcome(outcome);
-
-  expect(rendering.failed).toBe(true);
-  expect(rendering.text).not.toContain("\u001B");
-  expect(rendering.text).not.toContain("\u061C");
-  expect(rendering.text).not.toContain("\u202E");
-  expect(JSON.parse(rendering.text)).toEqual(outcome);
-});
-
-it("returns one complete failure when escaping exceeds the JSON adapter bound", () => {
-  const rendering = renderJsonOutcome({
-    status: "unsupported",
-    reason: "unsupported-evidence",
-    message: "\0".repeat(30_000),
+    const rendering = renderJsonOutcome(outcome);
+    expect([
+      rendering.failed,
+      rendering.text.includes("\u001B"),
+      rendering.text.includes("\u061C"),
+      rendering.text.includes("\u202E"),
+      decodeJson(Schema.MutableJson, rendering.text),
+    ]).toStrictEqual([true, false, false, false, outcome]);
   });
 
-  expect(rendering).toEqual({
-    failed: true,
-    text: JSON.stringify({
-      status: "limit-exceeded",
-      reason: "budget-exceeded",
-      exceededBudget: "json-output",
-      message: "Inspection exceeded its JSON output limit.",
-    }),
+  it("returns one complete failure when escaping exceeds the JSON adapter bound", () => {
+    const rendering = renderJsonOutcome({
+      message: "\0".repeat(30_000),
+      reason: "unsupported-evidence",
+      status: "unsupported",
+    });
+
+    expect(rendering).toStrictEqual({
+      failed: true,
+      text: JSON.stringify({
+        exceededBudget: "json-output",
+        message: "Inspection exceeded its JSON output limit.",
+        reason: "budget-exceeded",
+        status: "limit-exceeded",
+      }),
+    });
   });
 });

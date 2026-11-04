@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
+import { requireDefined } from "#typepeek/defined-value";
 import {
   inspectExport,
   inspectExportDeclarations,
@@ -8,14 +9,20 @@ import {
   inspectPlan,
 } from "#typepeek/inspection";
 
-import {
-  type InstalledProgramAuthorityFixture,
-  materializeInstalledProgramAuthorityFixture,
-} from "./helpers/index.ts";
+import type { InstalledProgramAuthorityFixture } from "./helpers/index.ts";
+import { materializeInstalledProgramAuthorityFixture } from "./helpers/index.ts";
+import { match } from "./helpers/matchers.ts";
+
+let fixture: InstalledProgramAuthorityFixture;
+
+const inspect = async (exportName: string) =>
+  await inspectExport({
+    exportName,
+    resolutionContext: fixture.standardSpacesContext,
+    specifier: "@typepeek-fixture/standard-spaces",
+  });
 
 describe("Installed Evidence program authority", () => {
-  let fixture: InstalledProgramAuthorityFixture;
-
   beforeAll(async () => {
     fixture = await materializeInstalledProgramAuthorityFixture();
   });
@@ -30,21 +37,24 @@ describe("Installed Evidence program authority", () => {
     ["implicit-import", ["importOnly"]],
     ["implicit-require", ["requireOnly"]],
     ["dual-modes", ["importOnly", "requireOnly"]],
-  ] as const)("preserves %s type-reference resolution conditions", async (subpath, names) => {
-    const outcome = await inspectExportMembers({
-      resolutionContext: fixture.conditionalTypeReferenceContext,
-      specifier: `@typepeek-fixture/conditional-type-reference/${subpath}`,
-      exportName: "Value",
-    });
+  ] as const)(
+    "preserves %s type-reference resolution conditions",
+    async (subpath, names) => {
+      const outcome = await inspectExportMembers({
+        exportName: "Value",
+        resolutionContext: fixture.conditionalTypeReferenceContext,
+        specifier: `@typepeek-fixture/conditional-type-reference/${subpath}`,
+      });
 
-    expect(outcome).toMatchObject({
-      status: "success",
-      result: {
-        totalMembers: names.length,
-        members: names.map((name) => ({ name, spaces: ["type"] })),
-      },
-    });
-  });
+      expect(outcome).toMatchObject({
+        result: {
+          members: names.map((name) => ({ name, spaces: ["type"] })),
+          totalMembers: names.length,
+        },
+        status: "success",
+      });
+    }
+  );
 
   it("does not treat ordinary builtin-looking string literals as Node references", async () => {
     const outcome = await inspectInterfaceOverview({
@@ -67,59 +77,66 @@ describe("Installed Evidence program authority", () => {
   it("ignores private Node references and recognizes standard library globals", async () => {
     const [privateReference, standardReference] = await Promise.all([
       inspectExport({
+        exportName: "inspect",
         resolutionContext: fixture.brokenPrivateNodeContext,
         specifier: "@typepeek-fixture/broken-node-consumer",
-        exportName: "inspect",
       }),
       inspectExport({
+        exportName: "inspect",
         resolutionContext: fixture.brokenStandardNodeContext,
         specifier: "@typepeek-fixture/broken-node-consumer",
-        exportName: "inspect",
       }),
     ]);
 
-    expect(privateReference).toMatchObject({ status: "success" });
-    expect(standardReference).toMatchObject({ status: "success" });
+    expect([privateReference, standardReference]).toStrictEqual([
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+    ]);
   });
 
   it("adds the visible Node provider for a public Node value global", async () => {
     const outcome = await inspectExport({
+      exportName: "inspect",
       resolutionContext: fixture.globalNodeContext,
       specifier: "@typepeek-fixture/node-global",
-      exportName: "inspect",
     });
 
     expect(outcome).toMatchObject({
-      status: "success",
       result: {
         moduleExport: {
-          signatures: [{ kind: "call", text: "(value: typeof process): number" }],
+          signatures: [
+            { kind: "call", text: "(value: typeof process): number" },
+          ],
         },
       },
+      status: "success",
     });
   });
 
   it("derives non-whitelisted value globals and qualified heritage from provider evidence", async () => {
     const collector = await inspectExport({
-      resolutionContext: fixture.globalNodeContext,
-      specifier: "@typepeek-fixture/node-global",
       exportName: "collector",
-    });
-    const stream = await inspectExport({
       resolutionContext: fixture.globalNodeContext,
       specifier: "@typepeek-fixture/node-global",
-      exportName: "Stream",
     });
 
-    expect(collector).toMatchObject({ status: "success" });
-    expect(stream).toMatchObject({ status: "success" });
+    const stream = await inspectExport({
+      exportName: "Stream",
+      resolutionContext: fixture.globalNodeContext,
+      specifier: "@typepeek-fixture/node-global",
+    });
+
+    expect([collector, stream]).toStrictEqual([
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+    ]);
   });
 
   it("activates the provider from an isolated qualified heritage reference", async () => {
     const outcome = await inspectExport({
+      exportName: "Stream",
       resolutionContext: fixture.heritageNodeContext,
       specifier: "@typepeek-fixture/node-heritage",
-      exportName: "Stream",
     });
 
     expect(outcome).toMatchObject({ status: "success" });
@@ -127,78 +144,86 @@ describe("Installed Evidence program authority", () => {
 
   it("rejects an unresolved Node global without a visible provider", async () => {
     const outcome = await inspectExport({
+      exportName: "inspect",
       resolutionContext: fixture.missingNodeContext,
       specifier: "@typepeek-fixture/missing-node-global",
-      exportName: "inspect",
     });
 
-    expect(outcome).toEqual({
-      status: "unsupported",
-      reason: "unsupported-evidence",
+    expect(outcome).toStrictEqual({
       message:
         "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
+      reason: "unsupported-evidence",
+      status: "unsupported",
     });
   });
 
   it("applies Node authority to visible parameter properties on private constructors", async () => {
     const [missingProvider, visibleProvider] = await Promise.all([
       inspectExport({
+        exportName: "PrivateToken",
         resolutionContext: fixture.missingNodeContext,
         specifier: "@typepeek-fixture/missing-node-global",
-        exportName: "PrivateToken",
       }),
       inspectExport({
+        exportName: "PrivateToken",
         resolutionContext: fixture.sourceInferredNodeContext,
         specifier: "@typepeek-fixture/source-inferred-node",
-        exportName: "PrivateToken",
       }),
     ]);
 
-    expect(missingProvider).toEqual({
-      status: "unsupported",
-      reason: "unsupported-evidence",
-      message:
-        "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
-    });
-    expect(visibleProvider).toMatchObject({ status: "success" });
-    expect(JSON.stringify(visibleProvider)).toContain("readonly processValue: typeof process;");
+    expect([
+      missingProvider,
+      visibleProvider,
+      JSON.stringify(visibleProvider).includes(
+        "readonly processValue: typeof process;"
+      ),
+    ]).toStrictEqual([
+      {
+        message:
+          "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
+        reason: "unsupported-evidence",
+        status: "unsupported",
+      },
+      match.objectContaining({ status: "success" }),
+      true,
+    ]);
   });
 
   it("rejects a provider that resolves only part of the public Node globals", async () => {
     const outcome = await inspectExport({
+      exportName: "collector",
       resolutionContext: fixture.partialNodeContext,
       specifier: "@typepeek-fixture/partial-node-global",
-      exportName: "collector",
     });
 
-    expect(outcome).toEqual({
-      status: "unsupported",
-      reason: "unsupported-evidence",
+    expect(outcome).toStrictEqual({
       message:
         "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
+      reason: "unsupported-evidence",
+      status: "unsupported",
     });
   });
 
   it("rejects a missing member from a directly referenced Node module", async () => {
     const outcome = await inspectExport({
+      exportName: "Missing",
       resolutionContext: fixture.missingNodeMemberContext,
       specifier: "@typepeek-fixture/missing-node-member",
-      exportName: "Missing",
     });
 
-    expect(outcome).toEqual({
-      status: "unsupported",
-      reason: "unsupported-evidence",
+    expect(outcome).toStrictEqual({
       message:
         "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
+      reason: "unsupported-evidence",
+      status: "unsupported",
     });
   });
 
   it("rejects a missing directly referenced whole Node module", async () => {
     const outcome = await inspectExport({
+      exportName: "Fs",
       resolutionContext: fixture.missingNodeModuleContext,
       specifier: "@typepeek-fixture/missing-node-module",
-      exportName: "Fs",
     });
 
     expect(outcome).toMatchObject({ status: "unsupported" });
@@ -206,71 +231,83 @@ describe("Installed Evidence program authority", () => {
 
   it("retains standard library inference when adding Node declarations", async () => {
     const request = {
+      exportName: "Values",
       resolutionContext: fixture.sourceInferredNodeContext,
       specifier: "@typepeek-fixture/source-inferred-node",
-      exportName: "Values",
     };
+
     const outcome = await inspectExportDeclarations(request);
-    expect(outcome).toMatchObject({ status: "success" });
-    expect(JSON.stringify(outcome)).toContain("first(): string | undefined;");
+    expect([
+      outcome,
+      JSON.stringify(outcome).includes("first(): string | undefined;"),
+    ]).toStrictEqual([match.objectContaining({ status: "success" }), true]);
 
     const plan = await inspectPlan({
+      queries: [
+        { exportName: request.exportName, intent: "declaration-inspection" },
+        { exportName: request.exportName, intent: "signature-inspection" },
+      ],
       resolutionContext: request.resolutionContext,
       specifier: request.specifier,
-      queries: [
-        { intent: "declaration-inspection", exportName: request.exportName },
-        { intent: "signature-inspection", exportName: request.exportName },
-      ],
     });
+
     expect(plan).toMatchObject({ status: "success" });
-    if (outcome.status === "success" && plan.status === "success") {
-      expect(plan.result.inspections[0]).toEqual(outcome.result);
+
+    if (!(outcome.status === "success" && plan.status === "success")) {
+      throw new Error("Expected a successful inspection result.");
     }
+
+    expect(plan.result.inspections[0]).toStrictEqual(outcome.result);
   });
 
   it("loads Node authority for isolated source-inferred public types", async () => {
     const [value, getProcess, local, helper] = await Promise.all([
       inspectExport({
+        exportName: "value",
         resolutionContext: fixture.sourceInferredNodeContext,
         specifier: "@typepeek-fixture/source-inferred-node",
-        exportName: "value",
       }),
       inspectExport({
+        exportName: "getProcess",
         resolutionContext: fixture.sourceInferredReturnContext,
         specifier: "@typepeek-fixture/source-inferred-return",
-        exportName: "getProcess",
       }),
       inspectExport({
+        exportName: "local",
         resolutionContext: fixture.sourceInferredLocalContext,
         specifier: "@typepeek-fixture/source-inferred-local",
-        exportName: "local",
       }),
       inspectExport({
+        exportName: "helper",
         resolutionContext: fixture.sourceInferredHelperContext,
         specifier: "@typepeek-fixture/source-inferred-helper",
-        exportName: "helper",
       }),
     ]);
 
-    expect(value).toMatchObject({ status: "success" });
-    expect(getProcess).toMatchObject({ status: "success" });
-    expect(local).toMatchObject({ status: "success" });
-    expect(helper).toMatchObject({ status: "success" });
+    expect([value, getProcess, local, helper]).toStrictEqual([
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+    ]);
   });
 
   it("does not let an unrelated Node-only export poison a focused inspection", async () => {
     const focused = await inspectExport({
+      exportName: "inspect",
       resolutionContext: fixture.focusedNodeContext,
       specifier: "@typepeek-fixture/focused-node",
-      exportName: "inspect",
     });
+
     const overview = await inspectInterfaceOverview({
       resolutionContext: fixture.focusedNodeContext,
       specifier: "@typepeek-fixture/focused-node",
     });
 
-    expect(focused).toMatchObject({ status: "success" });
-    expect(overview).toMatchObject({ status: "unsupported" });
+    expect([focused, overview]).toStrictEqual([
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "unsupported" }),
+    ]);
   });
 
   it("preserves focused Node authority across multiple exports in a plan", async () => {
@@ -278,106 +315,134 @@ describe("Installed Evidence program authority", () => {
       resolutionContext: fixture.focusedNodeContext,
       specifier: "@typepeek-fixture/focused-node",
     };
+
     const names = ["inspect", "second"];
+
     const atomic = await Promise.all(
-      names.map((exportName) => inspectExport({ ...request, exportName })),
+      names.map(
+        async (exportName) => await inspectExport({ ...request, exportName })
+      )
     );
-    expect(atomic.map(({ status }) => status)).toEqual(["success", "success"]);
-    for (const orderedNames of [names, [...names].reverse()]) {
-      const plan = await inspectPlan({
-        ...request,
-        queries: orderedNames.map((exportName) => ({ intent: "export-inspection", exportName })),
-      });
-      expect(plan).toMatchObject({ status: "success" });
-      if (plan.status === "success") {
-        expect(plan.result.inspections).toEqual(
+
+    expect(atomic.map(({ status }) => status)).toStrictEqual([
+      "success",
+      "success",
+    ]);
+
+    await Array.fromAsync(
+      [names, [...names].toReversed()],
+      async (orderedNames) => {
+        const plan = await inspectPlan({
+          ...request,
+          queries: orderedNames.map((exportName) => ({
+            exportName,
+            intent: "export-inspection",
+          })),
+        });
+
+        expect(plan).toMatchObject({ status: "success" });
+
+        if (plan.status !== "success") {
+          throw new Error("Expected a successful inspection.");
+        }
+
+        expect(plan.result.inspections).toStrictEqual(
           orderedNames.map((name) => {
-            const outcome = atomic[names.indexOf(name)]!;
+            const outcome = requireDefined(atomic[names.indexOf(name)]);
+
             return outcome.status === "success" ? outcome.result : undefined;
-          }),
+          })
         );
       }
-    }
+    );
   });
 
   it.each([
-    { intent: "export-inspection", exportName: "nodeOnly" },
+    { exportName: "nodeOnly", intent: "export-inspection" },
     { intent: "interface-overview" },
-  ] as const)("retains Node authority for a plan's $intent query", async (query) => {
-    const outcome = await inspectPlan({
-      resolutionContext: fixture.focusedNodeContext,
-      specifier: "@typepeek-fixture/focused-node",
-      queries: [{ intent: "export-inspection", exportName: "inspect" }, query],
-    });
-    expect(outcome).toMatchObject({ status: "unsupported", reason: "unsupported-evidence" });
-    expect(outcome).not.toHaveProperty("result");
-  });
+  ] as const)(
+    "retains Node authority for a plan's $intent query",
+    async (query) => {
+      const outcome = await inspectPlan({
+        queries: [
+          { exportName: "inspect", intent: "export-inspection" },
+          query,
+        ],
+        resolutionContext: fixture.focusedNodeContext,
+        specifier: "@typepeek-fixture/focused-node",
+      });
+
+      expect(outcome).toMatchObject({
+        reason: "unsupported-evidence",
+        status: "unsupported",
+      });
+      expect(outcome).not.toHaveProperty("result");
+    }
+  );
 
   it("follows typed and external dependencies of a source-inferred return", async () => {
     const [typed, wholeModule, external] = await Promise.all([
       inspectExport({
-        resolutionContext: fixture.sourceInferredTypedContext,
-        specifier: "@typepeek-fixture/source-inferred-typed",
         exportName: "getFs",
-      }),
-      inspectExport({
         resolutionContext: fixture.sourceInferredTypedContext,
         specifier: "@typepeek-fixture/source-inferred-typed",
-        exportName: "typedLocal",
       }),
       inspectExport({
+        exportName: "typedLocal",
+        resolutionContext: fixture.sourceInferredTypedContext,
+        specifier: "@typepeek-fixture/source-inferred-typed",
+      }),
+      inspectExport({
+        exportName: "value",
         resolutionContext: fixture.sourceInferredExternalContext,
         specifier: "@typepeek-fixture/source-inferred-external",
-        exportName: "value",
       }),
     ]);
 
-    expect(typed).toMatchObject({ status: "success" });
-    expect(wholeModule).toMatchObject({ status: "success" });
-    expect(external).toMatchObject({ status: "success" });
+    expect([typed, wholeModule, external]).toStrictEqual([
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+    ]);
   });
 
   it("validates public supporting types but ignores private members", async () => {
     const [publicMember, privateMember, protectedMember] = await Promise.all([
       inspectExport({
+        exportName: "result",
         resolutionContext: fixture.supportingNodeContext,
         specifier: "@typepeek-fixture/supporting-node",
-        exportName: "result",
       }),
       inspectExport({
+        exportName: "result",
         resolutionContext: fixture.privateSupportingNodeContext,
         specifier: "@typepeek-fixture/private-supporting-node",
-        exportName: "result",
       }),
       inspectExport({
+        exportName: "result",
         resolutionContext: fixture.protectedSupportingNodeContext,
         specifier: "@typepeek-fixture/protected-supporting-node",
-        exportName: "result",
       }),
     ]);
 
-    expect(publicMember).toMatchObject({ status: "unsupported" });
-    expect(privateMember).toMatchObject({ status: "success" });
-    expect(protectedMember).toMatchObject({ status: "unsupported" });
+    expect([publicMember, privateMember, protectedMember]).toStrictEqual([
+      match.objectContaining({ status: "unsupported" }),
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "unsupported" }),
+    ]);
   });
 
   it("validates every public member of a focused namespace", async () => {
     const outcome = await inspectExport({
+      exportName: "API",
       resolutionContext: fixture.namespaceNodeContext,
       specifier: "@typepeek-fixture/namespace-node",
-      exportName: "API",
     });
 
     expect(outcome).toMatchObject({ status: "unsupported" });
   });
 
   it("distinguishes standard-library type and value symbol spaces", async () => {
-    const inspect = (exportName: string) =>
-      inspectExport({
-        resolutionContext: fixture.standardSpacesContext,
-        specifier: "@typepeek-fixture/standard-spaces",
-        exportName,
-      });
     const [
       invalidConsole,
       invalidIterable,
@@ -400,43 +465,61 @@ describe("Installed Evidence program authority", () => {
       inspect("ValidIntl"),
     ]);
 
-    expect(invalidConsole).toMatchObject({ status: "unsupported" });
-    expect(invalidIterable).toMatchObject({ status: "unsupported" });
-    expect(invalidGlobalThis).toMatchObject({ status: "unsupported" });
-    expect(invalidIntl).toMatchObject({ status: "unsupported" });
-    expect(invalidConst).toMatchObject({ status: "unsupported" });
-    expect(invalidIteratorObjectConstructor).toMatchObject({ status: "unsupported" });
-    expect(validConsole).toMatchObject({ status: "success" });
-    expect(validIterable).toMatchObject({ status: "success" });
-    expect(validIntl).toMatchObject({ status: "success" });
+    expect([
+      invalidConsole,
+      invalidIterable,
+      invalidGlobalThis,
+      invalidIntl,
+      invalidConst,
+      invalidIteratorObjectConstructor,
+      validConsole,
+      validIterable,
+      validIntl,
+    ]).toStrictEqual([
+      match.objectContaining({ status: "unsupported" }),
+      match.objectContaining({ status: "unsupported" }),
+      match.objectContaining({ status: "unsupported" }),
+      match.objectContaining({ status: "unsupported" }),
+      match.objectContaining({ status: "unsupported" }),
+      match.objectContaining({
+        status: "unsupported",
+      }),
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+    ]);
   });
 
   it("validates inferred namespaces and retains their public supporting surface", async () => {
     const [publicNodeMember, privateNodeMember] = await Promise.all([
       inspectExport({
+        exportName: "api",
         resolutionContext: fixture.inferredNamespaceContext,
         specifier: "@typepeek-fixture/inferred-namespace",
-        exportName: "api",
       }),
       inspectExport({
+        exportName: "api",
         resolutionContext: fixture.privateInferredNamespaceContext,
         specifier: "@typepeek-fixture/private-inferred-namespace",
-        exportName: "api",
       }),
     ]);
 
-    expect(publicNodeMember).toMatchObject({ status: "unsupported" });
-    expect(privateNodeMember).toMatchObject({
-      status: "success",
-      result: { supportingTypes: [{ name: "API" }] },
-    });
+    expect([publicNodeMember, privateNodeMember]).toStrictEqual([
+      match.objectContaining({ status: "unsupported" }),
+      match.objectContaining({
+        result: match.objectContaining({
+          supportingTypes: [match.objectContaining({ name: "API" })],
+        }),
+        status: "success",
+      }),
+    ]);
   });
 
   it("loads authority for inferred public members of a Supporting Type", async () => {
     const outcome = await inspectExport({
+      exportName: "result",
       resolutionContext: fixture.inferredSupportingMemberContext,
       specifier: "@typepeek-fixture/inferred-supporting-member",
-      exportName: "result",
     });
 
     expect(outcome).toMatchObject({ status: "success" });
@@ -445,122 +528,128 @@ describe("Installed Evidence program authority", () => {
   it("uses type-space authority for inferred generic type arguments", async () => {
     const [standard, validNode, missingNode] = await Promise.all([
       inspectExport({
+        exportName: "value",
         resolutionContext: fixture.inferredGenericContext,
         specifier: "@typepeek-fixture/inferred-generic",
-        exportName: "value",
       }),
       inspectExport({
-        resolutionContext: fixture.inferredNodeGenericContext,
-        specifier: "@typepeek-fixture/inferred-node-generic",
         exportName: "valid",
-      }),
-      inspectExport({
         resolutionContext: fixture.inferredNodeGenericContext,
         specifier: "@typepeek-fixture/inferred-node-generic",
+      }),
+      inspectExport({
         exportName: "missing",
+        resolutionContext: fixture.inferredNodeGenericContext,
+        specifier: "@typepeek-fixture/inferred-node-generic",
       }),
     ]);
 
-    expect(standard).toMatchObject({ status: "success" });
-    expect(validNode).toMatchObject({ status: "success" });
-    expect(missingNode).toMatchObject({ status: "unsupported" });
+    expect([standard, validNode, missingNode]).toStrictEqual([
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "unsupported" }),
+    ]);
   });
 
   it("ignores overload implementations, constructors, setters, and decorators", async () => {
     const [overload, supportingType, decorator] = await Promise.all([
       inspectExport({
+        exportName: "inspect",
         resolutionContext: fixture.overloadImplementationContext,
         specifier: "@typepeek-fixture/overload-implementation",
-        exportName: "inspect",
       }),
       inspectExport({
+        exportName: "result",
         resolutionContext: fixture.privateSupportingNodeContext,
         specifier: "@typepeek-fixture/private-supporting-node",
-        exportName: "result",
       }),
       inspectExport({
+        exportName: "Result",
         resolutionContext: fixture.decoratorContext,
         specifier: "@typepeek-fixture/decorator",
-        exportName: "Result",
       }),
     ]);
 
-    expect(overload).toMatchObject({ status: "success" });
-    expect(supportingType).toMatchObject({ status: "success" });
-    expect(decorator).toMatchObject({ status: "success" });
+    expect([overload, supportingType, decorator]).toStrictEqual([
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+    ]);
   });
 
   it("validates rendered computed names and permits standard Symbol members", async () => {
     const [bad, badFor, badKeyFor, good, dispose, custom] = await Promise.all([
       inspectExport({
-        resolutionContext: fixture.computedNameContext,
-        specifier: "@typepeek-fixture/computed-name",
         exportName: "BadFor",
-      }),
-      inspectExport({
         resolutionContext: fixture.computedNameContext,
         specifier: "@typepeek-fixture/computed-name",
+      }),
+      inspectExport({
         exportName: "BadKeyFor",
-      }),
-      inspectExport({
         resolutionContext: fixture.computedNameContext,
         specifier: "@typepeek-fixture/computed-name",
+      }),
+      inspectExport({
         exportName: "Bad",
-      }),
-      inspectExport({
         resolutionContext: fixture.computedNameContext,
         specifier: "@typepeek-fixture/computed-name",
+      }),
+      inspectExport({
         exportName: "Good",
-      }),
-      inspectExport({
         resolutionContext: fixture.computedNameContext,
         specifier: "@typepeek-fixture/computed-name",
+      }),
+      inspectExport({
         exportName: "Dispose",
-      }),
-      inspectExport({
         resolutionContext: fixture.computedNameContext,
         specifier: "@typepeek-fixture/computed-name",
+      }),
+      inspectExport({
         exportName: "Custom",
+        resolutionContext: fixture.computedNameContext,
+        specifier: "@typepeek-fixture/computed-name",
       }),
     ]);
 
-    expect(bad).toMatchObject({ status: "unsupported" });
-    expect(badFor).toMatchObject({ status: "unsupported" });
-    expect(badKeyFor).toMatchObject({ status: "unsupported" });
-    expect(good).toMatchObject({ status: "success" });
-    expect(dispose).toMatchObject({ status: "success" });
-    expect(custom).toMatchObject({ status: "success" });
+    expect([bad, badFor, badKeyFor, good, dispose, custom]).toStrictEqual([
+      match.objectContaining({ status: "unsupported" }),
+      match.objectContaining({ status: "unsupported" }),
+      match.objectContaining({ status: "unsupported" }),
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+      match.objectContaining({ status: "success" }),
+    ]);
   });
 
   it("rejects an unresolved qualified name with a standard-library root", async () => {
     const outcome = await inspectExport({
+      exportName: "inspect",
       resolutionContext: fixture.invalidStandardContext,
       specifier: "@typepeek-fixture/invalid-standard",
-      exportName: "inspect",
     });
 
-    expect(outcome).toEqual({
-      status: "unsupported",
-      reason: "unsupported-evidence",
+    expect(outcome).toStrictEqual({
       message:
         "A declaration contains an unresolved global reference without an authoritative visible Declaration Provider.",
+      reason: "unsupported-evidence",
+      status: "unsupported",
     });
   });
 
   it("does not treat a package-local Node-shaped type as provider evidence", async () => {
     const outcome = await inspectExport({
+      exportName: "inspect",
       resolutionContext: fixture.localNodeContext,
       specifier: "@typepeek-fixture/local-node-global",
-      exportName: "inspect",
     });
 
     expect(outcome).toMatchObject({
-      status: "success",
       result: {
         moduleExport: {
           signatures: [{ kind: "call", text: "(value: Buffer): number" }],
         },
       },
+      status: "success",
     });
   });
 
@@ -570,10 +659,11 @@ describe("Installed Evidence program authority", () => {
       specifier: "@typepeek-fixture/node-symlink",
     });
 
-    expect(outcome).toEqual({
-      status: "static-boundary",
+    expect(outcome).toStrictEqual({
+      message:
+        "A declaration references source outside its installed package boundary.",
       reason: "static-boundary",
-      message: "A declaration references source outside its installed package boundary.",
+      status: "static-boundary",
     });
   });
 
@@ -582,24 +672,34 @@ describe("Installed Evidence program authority", () => {
       resolutionContext: fixture.automaticProviderContext,
       specifier: "@typepeek-fixture/automatic-provider",
     });
+
     const focused = await inspectExport({
+      exportName: "helper",
       resolutionContext: fixture.automaticProviderContext,
       specifier: "@typepeek-fixture/automatic-provider",
-      exportName: "helper",
     });
 
-    expect(overview).toMatchObject({
-      status: "success",
-      result: { moduleExports: [{ name: "helper" }] },
-    });
-    expect(focused).toMatchObject({
-      status: "success",
-      result: {
-        moduleExport: {
-          signatures: [{ kind: "call", text: "(value: string): number" }],
-        },
-      },
-    });
+    expect([overview, focused]).toStrictEqual([
+      match.objectContaining({
+        result: match.objectContaining({
+          moduleExports: [match.objectContaining({ name: "helper" })],
+        }),
+        status: "success",
+      }),
+      match.objectContaining({
+        result: match.objectContaining({
+          moduleExport: match.objectContaining({
+            signatures: [
+              match.objectContaining({
+                kind: "call",
+                text: "(value: string): number",
+              }),
+            ],
+          }),
+        }),
+        status: "success",
+      }),
+    ]);
   });
 
   it("rejects an automatic declaration provider with the wrong Package Identity", async () => {
@@ -608,10 +708,11 @@ describe("Installed Evidence program authority", () => {
       specifier: "@typepeek-fixture/automatic-provider",
     });
 
-    expect(outcome).toEqual({
-      status: "unsupported",
+    expect(outcome).toStrictEqual({
+      message:
+        "A declaration re-export could not be resolved from Installed Evidence.",
       reason: "unsupported-evidence",
-      message: "A declaration re-export could not be resolved from Installed Evidence.",
+      status: "unsupported",
     });
   });
 });
