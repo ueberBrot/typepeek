@@ -1,25 +1,42 @@
-import * as Result from "effect/Result";
-import * as Schema from "effect/Schema";
+import { Predicate, Result, Schema } from "effect";
 
 import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted-data";
 
 export const MAX_MEMBER_PATH_SEGMENTS = 16;
 export const MAX_MEMBER_PATH_SEGMENT_BYTES = 256;
-export const memberDeclarationSpaceSchema = Schema.Literals(["type", "value", "namespace"]);
+
+export const memberDeclarationSpaceSchema = Schema.Literals([
+  "type",
+  "value",
+  "namespace",
+]);
+
 export const memberNameSchema = Schema.String.check(
   Schema.isNonEmpty(),
-  Schema.makeFilter((segment) => Buffer.byteLength(segment) <= MAX_MEMBER_PATH_SEGMENT_BYTES, {
-    expected: "a bounded member path segment",
-  }),
+  Schema.makeFilter(
+    (segment) => Buffer.byteLength(segment) <= MAX_MEMBER_PATH_SEGMENT_BYTES,
+    {
+      expected: "a bounded member path segment",
+    }
+  )
 );
+
 const memberPathSegmentSchema = Schema.Union([
   memberNameSchema,
-  Schema.Struct({ name: memberNameSchema, space: memberDeclarationSpaceSchema }),
+  Schema.Struct({
+    name: memberNameSchema,
+    space: memberDeclarationSpaceSchema,
+  }),
 ]);
-export const memberDiscoveryPathSchema = Schema.Array(memberPathSegmentSchema).check(
-  Schema.isMaxLength(MAX_MEMBER_PATH_SEGMENTS),
+
+export const memberDiscoveryPathSchema = Schema.Array(
+  memberPathSegmentSchema
+).check(Schema.isMaxLength(MAX_MEMBER_PATH_SEGMENTS));
+
+export const memberPathSchema = memberDiscoveryPathSchema.check(
+  Schema.isMinLength(1)
 );
-export const memberPathSchema = memberDiscoveryPathSchema.check(Schema.isMinLength(1));
+
 export type MemberPath = typeof memberDiscoveryPathSchema.Type;
 
 const decodeMemberPath = Schema.decodeUnknownResult(memberDiscoveryPathSchema, {
@@ -27,7 +44,11 @@ const decodeMemberPath = Schema.decodeUnknownResult(memberDiscoveryPathSchema, {
 });
 
 /** Snapshots a bounded, dense Member path before decoding its selectors. */
-export function readBoundedMemberPath(value: unknown, allowEmpty = false): MemberPath | undefined {
+export const readBoundedMemberPath = function readBoundedMemberPath(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Member selectors arrive from untrusted requests and require descriptor-safe validation.
+  value: unknown,
+  allowEmpty = false
+): MemberPath | undefined {
   if (
     !Array.isArray(value) ||
     value.length < (allowEmpty ? 0 : 1) ||
@@ -35,29 +56,41 @@ export function readBoundedMemberPath(value: unknown, allowEmpty = false): Membe
   ) {
     return undefined;
   }
+
   const snapshot = snapshotBoundedDataPropertyGraph(value, {
     maximumObjects: MAX_MEMBER_PATH_SEGMENTS + 1,
-    maximumValues: MAX_MEMBER_PATH_SEGMENTS * 3 + 1,
     maximumStringBytes: MAX_MEMBER_PATH_SEGMENT_BYTES,
+    maximumValues: MAX_MEMBER_PATH_SEGMENTS * 3 + 1,
   });
+
   return Result.getOrUndefined(decodeMemberPath(snapshot));
-}
+};
 
 /** Renders selectors using the CLI Member path spelling. */
-export function formatMemberPath(path: MemberPath): string {
+export const formatMemberPath = function formatMemberPath(
+  path: MemberPath
+): string {
   return path
-    .map((segment) => (typeof segment === "string" ? segment : `${segment.space}:${segment.name}`))
+    .map((segment) =>
+      Predicate.isString(segment) ? segment : `${segment.space}:${segment.name}`
+    )
     .join(".");
-}
+};
 
-export function memberPathsEqual(left: MemberPath, right: MemberPath): boolean {
+export const memberPathsEqual = function memberPathsEqual(
+  left: MemberPath,
+  right: MemberPath
+): boolean {
   return (
     left.length === right.length &&
     left.every((segment, index) => {
       const other = right[index];
-      return typeof segment === "string"
+
+      return Predicate.isString(segment)
         ? segment === other
-        : typeof other === "object" && segment.name === other.name && segment.space === other.space;
+        : Predicate.isReadonlyObject(other) &&
+            segment.name === other.name &&
+            segment.space === other.space;
     })
   );
-}
+};

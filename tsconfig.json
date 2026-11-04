@@ -2,7 +2,7 @@
   "$schema": "./node_modules/@effect/tsgo/schema.json",
   "compilerOptions": {
     "target": "ES2024",
-    "lib": ["ES2024"],
+    "lib": ["ES2024", "ESNext.Array"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
@@ -20,7 +20,18 @@
     "types": ["node"],
     "plugins": [
       {
-        "name": "@effect/language-service"
+        "name": "@effect/language-service",
+        "overrides": [
+          {
+            "include": ["tests/**/*.test.ts"],
+            "options": {
+              "allowedUnstableApis": [
+                "@effect/vitest#effect",
+                "@effect/vitest#live"
+              ]
+            }
+          }
+        ]
       }
     ]
   },

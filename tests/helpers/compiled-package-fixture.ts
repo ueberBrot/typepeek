@@ -1,10 +1,30 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import nodePath from "node:path";
+
+import type { Schema } from "effect";
+import { Predicate } from "effect";
 
 import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
 
-import { installPackedPackagesWithNpm, packPackage } from "./package-toolchain.ts";
+import {
+  installPackedPackagesWithNpm,
+  packPackage,
+} from "./package-toolchain.ts";
+
+const PATTERN_DECLARATION_TARGET = "./dist/patterns/*.d.ts";
+const ROOT_EXPORT_DECLARATION = "export declare const rootExport: string;\n";
+const DIST_DECLARATION_ENTRY = "./dist/index.d.ts";
+const DIST_RUNTIME_ENTRY = "./dist/index.js";
+
+const RED_EXPORT_DECLARATION =
+  "export declare const redPatternExport: string;\n";
+
+const MISSING_DECLARATION_TARGET = "./dist/missing/*.d.ts";
+const VISIBLE_EXPORT_DECLARATION = "export declare const visible: string;";
+const READONLY_ID_DECLARATION = "  readonly id: string;";
+const PACKAGE_MANIFEST_FILE = "package.json";
+const FIXTURE_SCOPE = "@typepeek-fixture";
 
 interface PackageSource {
   readonly directory: string;
@@ -12,51 +32,85 @@ interface PackageSource {
   readonly version: string;
   readonly declaration: string;
   readonly additionalDeclarations?: Readonly<Record<string, string>>;
-  readonly installedManifest?: string | Readonly<Record<string, unknown>>;
+  readonly installedManifest?: string | Schema.JsonObject;
   readonly runtime: string;
   readonly dependencies?: Readonly<Record<string, string>>;
-  readonly exports?: object;
+  readonly exports?: Schema.Json;
 }
 
-function nestedExportTarget(depth: number): object {
-  let target: object = { types: "./dist/patterns/*.d.ts" };
+const nestedExportTarget = function nestedExportTarget(
+  depth: number
+): Schema.JsonObject {
+  let target: Schema.JsonObject = { types: PATTERN_DECLARATION_TARGET };
+
   for (let index = 0; index < depth; index += 1) {
     target = { node: target };
   }
-  return target;
-}
 
-function fixturePadding(bytes: number): string {
+  return target;
+};
+
+const fixturePadding = function fixturePadding(bytes: number): string {
   // Vary each block to keep large fixtures below npm's tar compression-ratio limit.
   return Array.from({ length: Math.ceil(bytes / 64) }, (_, index) =>
-    index.toString(36).padStart(64, "x"),
+    index.toString(36).padStart(64, "x")
   )
     .join("")
     .slice(0, bytes);
-}
+};
+
+const broadSupportingTypesParts1 = Array.from(
+  { length: 97 },
+  (_, index) => `Supporting${index}`
+).join(", ");
+
+const aggregateOutputParts2 = Array.from(
+  { length: 48 },
+  (_, index) => `Aggregate${index}`
+).join(", ");
+
+const wideSignatureParts3 = Array.from(
+  { length: 1200 },
+  (_, index) => `readonly property${index}: string;`
+).join(" ");
+
+const broadParametersParts4 = Array.from(
+  { length: 257 },
+  (_, index) => `parameter${index}: number`
+).join(", ");
+
+const broadTypeParametersParts5 = Array.from(
+  { length: 65 },
+  (_, index) => `Type${index}`
+).join(", ");
+
+const detailedWideSignatureParts6 = Array.from(
+  { length: 450 },
+  (_, index) => `readonly property${index}: string;`
+).join(" ");
 
 const PACKAGE_SOURCES: readonly PackageSource[] = [
   {
+    additionalDeclarations: {
+      "patterns/red.d.ts": "export declare const red: string;\n",
+    },
+    declaration: ROOT_EXPORT_DECLARATION,
     directory: "shared-pattern-files-package",
-    name: "@typepeek-fixture/shared-pattern-files",
-    version: "1.0.0",
-    declaration: "export declare const rootExport: string;\n",
-    runtime: 'throw new Error("Typepeek executed the shared pattern fixture runtime");\n',
-    additionalDeclarations: { "patterns/red.d.ts": "export declare const red: string;\n" },
     exports: {
-      ".": { types: "./dist/index.d.ts" },
+      ".": { types: DIST_DECLARATION_ENTRY },
       ...Object.fromEntries(
         Array.from({ length: 8 }, (_, index) => [
           `./group-${index}/*`,
-          { types: "./dist/patterns/*.d.ts" },
-        ]),
+          { types: PATTERN_DECLARATION_TARGET },
+        ])
       ),
     },
+    name: "@typepeek-fixture/shared-pattern-files",
+    runtime:
+      'throw new Error("Typepeek executed the shared pattern fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "package",
-    name: "@typepeek-fixture/compiled",
-    version: "1.2.3",
     declaration: [
       "export interface WidgetOptions {",
       "  readonly size?: number;",
@@ -67,293 +121,343 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "export default class Widget {}",
       "",
     ].join("\n"),
+    dependencies: {
+      "@typepeek-fixture/dependency": "1.0.0",
+    },
+    directory: "package",
+    exports: {
+      ".": Object.fromEntries([
+        ["types", DIST_DECLARATION_ENTRY],
+        ["import", DIST_RUNTIME_ENTRY],
+      ]),
+    },
+    name: "@typepeek-fixture/compiled",
     runtime: [
       'import { writeFileSync } from "node:fs";',
       'writeFileSync(new URL("../RUNTIME_EXECUTED", import.meta.url), "executed");',
       'throw new Error("Typepeek executed the fixture runtime");',
       "",
     ].join("\n"),
-    dependencies: {
-      "@typepeek-fixture/dependency": "1.0.0",
-    },
-    exports: {
-      ".": {
-        types: "./dist/index.d.ts",
-        import: "./dist/index.js",
-      },
-    },
+    version: "1.2.3",
   },
   {
+    declaration: "export declare const dependencyExport: symbol;\n",
     directory: "dependency-package",
     name: "@typepeek-fixture/dependency",
+    runtime:
+      'throw new Error("Typepeek executed the dependency fixture runtime");\n',
     version: "1.0.0",
-    declaration: "export declare const dependencyExport: symbol;\n",
-    runtime: 'throw new Error("Typepeek executed the dependency fixture runtime");\n',
   },
   {
-    directory: "broad-package",
-    name: "@typepeek-fixture/broad",
-    version: "4.5.6",
     declaration: Array.from(
       { length: 321 },
-      (_, index) => `export declare const item${index}: number;`,
+      (_, index) => `export declare const item${index}: number;`
     ).join("\n"),
-    runtime: 'throw new Error("Typepeek executed the broad fixture runtime");\n',
+    directory: "broad-package",
+    name: "@typepeek-fixture/broad",
+    runtime:
+      'throw new Error("Typepeek executed the broad fixture runtime");\n',
+    version: "4.5.6",
   },
   {
+    declaration: ROOT_EXPORT_DECLARATION,
     directory: "broad-subpaths-package",
-    name: "@typepeek-fixture/broad-subpaths",
-    version: "1.0.0",
-    declaration: "export declare const rootExport: string;\n",
-    runtime: 'throw new Error("Typepeek executed the broad subpaths fixture runtime");\n',
     exports: {
-      ".": {
-        types: "./dist/index.d.ts",
-        default: "./dist/index.js",
-      },
+      ".": Object.fromEntries([
+        ["types", DIST_DECLARATION_ENTRY],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
       ...Object.fromEntries(
         Array.from({ length: 513 }, (_, index) => [
           `./feature-${index}`,
-          {
-            types: "./dist/index.d.ts",
-            default: "./dist/index.js",
-          },
-        ]),
+          Object.fromEntries([
+            ["types", DIST_DECLARATION_ENTRY],
+            ["default", DIST_RUNTIME_ENTRY],
+          ]),
+        ])
       ),
     },
+    name: "@typepeek-fixture/broad-subpaths",
+    runtime:
+      'throw new Error("Typepeek executed the broad subpaths fixture runtime");\n',
+    version: "1.0.0",
   },
   {
+    declaration: ROOT_EXPORT_DECLARATION,
     directory: "bounded-subpaths-package",
-    name: "@typepeek-fixture/bounded-subpaths",
-    version: "1.0.0",
-    declaration: "export declare const rootExport: string;\n",
-    runtime: 'throw new Error("Typepeek executed the bounded subpaths fixture runtime");\n',
     exports: {
-      ".": {
-        types: "./dist/index.d.ts",
-        default: "./dist/index.js",
-      },
+      ".": Object.fromEntries([
+        ["types", DIST_DECLARATION_ENTRY],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
       ...Object.fromEntries(
         Array.from({ length: 512 }, (_, index) => [
           `./feature-${index}`,
-          {
-            types: "./dist/index.d.ts",
-            default: "./dist/index.js",
-          },
-        ]),
+          Object.fromEntries([
+            ["types", DIST_DECLARATION_ENTRY],
+            ["default", DIST_RUNTIME_ENTRY],
+          ]),
+        ])
       ),
     },
+    name: "@typepeek-fixture/bounded-subpaths",
+    runtime:
+      'throw new Error("Typepeek executed the bounded subpaths fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "deep-export-target-package",
-    name: "@typepeek-fixture/deep-export-target",
-    version: "1.0.0",
-    declaration: "export declare const rootExport: string;\n",
     additionalDeclarations: {
-      "patterns/red.d.ts": "export declare const redPatternExport: string;\n",
+      "patterns/red.d.ts": RED_EXPORT_DECLARATION,
     },
-    runtime: 'throw new Error("Typepeek executed the deep export target fixture runtime");\n',
+    declaration: ROOT_EXPORT_DECLARATION,
+    directory: "deep-export-target-package",
     exports: {
-      ".": {
-        types: "./dist/index.d.ts",
-        default: "./dist/index.js",
-      },
+      ".": Object.fromEntries([
+        ["types", DIST_DECLARATION_ENTRY],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
       "./patterns/*": nestedExportTarget(33),
     },
+    name: "@typepeek-fixture/deep-export-target",
+    runtime:
+      'throw new Error("Typepeek executed the deep export target fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "conditional-poison-package",
-    name: "@typepeek-fixture/conditional-poison",
-    version: "1.0.0",
+    additionalDeclarations: {
+      "patterns/red.d.ts": RED_EXPORT_DECLARATION,
+    },
     declaration: "export declare const importRootExport: string;\n",
-    additionalDeclarations: {
-      "patterns/red.d.ts": "export declare const redPatternExport: string;\n",
-    },
-    runtime: 'throw new Error("Typepeek executed the conditional poison fixture runtime");\n',
+    directory: "conditional-poison-package",
     exports: {
-      ".": {
-        types: "./dist/index.d.ts",
-        default: "./dist/index.js",
-      },
-      "./patterns/*": {
-        import: {
-          types: "./dist/patterns/*.d.ts",
-          default: "./dist/index.js",
-        },
-        require: nestedExportTarget(33),
-      },
-      "./array/*": ["./dist/missing/*.d.ts", "./dist/patterns/*.d.ts"],
-      "./condition-fallback/*": {
-        types: "./dist/missing/*.d.ts",
-        default: "./dist/patterns/*.d.ts",
-      },
-      "./condition-null/*": {
-        types: { node: null },
-        default: nestedExportTarget(33),
-      },
+      ".": Object.fromEntries([
+        ["types", DIST_DECLARATION_ENTRY],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
+      "./array/*": [MISSING_DECLARATION_TARGET, PATTERN_DECLARATION_TARGET],
+      "./condition-fallback/*": Object.fromEntries([
+        ["types", MISSING_DECLARATION_TARGET],
+        ["default", PATTERN_DECLARATION_TARGET],
+      ]),
+      "./condition-null/*": Object.fromEntries([
+        ["types", { node: null }],
+        ["default", nestedExportTarget(33)],
+      ]),
       "./null/*": [{ node: null }, nestedExportTarget(33)],
-      "./versioned/*": {
-        "types@>=6": "./dist/patterns/*.d.ts",
-        types: "./dist/missing/*.d.ts",
-      },
+      "./patterns/*": Object.fromEntries([
+        [
+          "import",
+          Object.fromEntries([
+            ["types", PATTERN_DECLARATION_TARGET],
+            ["default", DIST_RUNTIME_ENTRY],
+          ]),
+        ],
+        ["require", nestedExportTarget(33)],
+      ]),
+      "./versioned/*": Object.fromEntries([
+        ["types@>=6", PATTERN_DECLARATION_TARGET],
+        ["types", MISSING_DECLARATION_TARGET],
+      ]),
     },
+    name: "@typepeek-fixture/conditional-poison",
+    runtime:
+      'throw new Error("Typepeek executed the conditional poison fixture runtime");\n',
+    version: "1.0.0",
   },
   {
+    declaration: ROOT_EXPORT_DECLARATION,
     directory: "broad-pattern-files-package",
+    exports: {
+      ".": Object.fromEntries([
+        ["types", DIST_DECLARATION_ENTRY],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
+      "./patterns/*": Object.fromEntries([
+        ["types", PATTERN_DECLARATION_TARGET],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
+    },
     name: "@typepeek-fixture/broad-pattern-files",
+    runtime:
+      'throw new Error("Typepeek executed the broad pattern fixture runtime");\n',
     version: "1.0.0",
-    declaration: "export declare const rootExport: string;\n",
-    runtime: 'throw new Error("Typepeek executed the broad pattern fixture runtime");\n',
-    exports: {
-      ".": {
-        types: "./dist/index.d.ts",
-        default: "./dist/index.js",
-      },
-      "./patterns/*": {
-        types: "./dist/patterns/*.d.ts",
-        default: "./dist/index.js",
-      },
-    },
   },
   {
+    declaration: ROOT_EXPORT_DECLARATION,
     directory: "symlink-subpath-package",
+    exports: {
+      ".": Object.fromEntries([
+        ["types", DIST_DECLARATION_ENTRY],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
+      "./linked/*": Object.fromEntries([
+        ["types", "./dist/linked/*.d.ts"],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
+    },
     name: "@typepeek-fixture/symlink-subpath",
+    runtime:
+      'throw new Error("Typepeek executed the symlink subpath fixture runtime");\n',
     version: "1.0.0",
-    declaration: "export declare const rootExport: string;\n",
-    runtime: 'throw new Error("Typepeek executed the symlink subpath fixture runtime");\n',
-    exports: {
-      ".": {
-        types: "./dist/index.d.ts",
-        default: "./dist/index.js",
-      },
-      "./linked/*": {
-        types: "./dist/linked/*.d.ts",
-        default: "./dist/index.js",
-      },
-    },
   },
   {
-    directory: "internal-symlink-subpath-package",
-    name: "@typepeek-fixture/internal-symlink-subpath",
-    version: "1.0.0",
-    declaration: "export declare const rootExport: string;\n",
     additionalDeclarations: {
-      "patterns/red.d.ts": "export declare const redPatternExport: string;\n",
+      "patterns/red.d.ts": RED_EXPORT_DECLARATION,
     },
-    runtime: 'throw new Error("Typepeek executed the internal symlink fixture runtime");\n',
+    declaration: ROOT_EXPORT_DECLARATION,
+    directory: "internal-symlink-subpath-package",
     exports: {
-      ".": {
-        types: "./dist/index.d.ts",
-        default: "./dist/index.js",
-      },
-      "./nested-link/*": {
-        types: "./tree/*.d.ts",
-        default: "./dist/index.js",
-      },
-      "./root-link/*": {
-        types: "./dist-link/*.d.ts",
-        default: "./dist/index.js",
-      },
+      ".": Object.fromEntries([
+        ["types", DIST_DECLARATION_ENTRY],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
+      "./nested-link/*": Object.fromEntries([
+        ["types", "./tree/*.d.ts"],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
+      "./root-link/*": Object.fromEntries([
+        ["types", "./dist-link/*.d.ts"],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
     },
+    name: "@typepeek-fixture/internal-symlink-subpath",
+    runtime:
+      'throw new Error("Typepeek executed the internal symlink fixture runtime");\n',
+    version: "1.0.0",
   },
   {
+    declaration: 'export * from "../../../../project-source.js";\n',
     directory: "escaping-package",
     name: "@typepeek-fixture/escaping",
+    runtime:
+      'throw new Error("Typepeek executed the escaping fixture runtime");\n',
     version: "7.8.9",
-    declaration: 'export * from "../../../../project-source.js";\n',
-    runtime: 'throw new Error("Typepeek executed the escaping fixture runtime");\n',
   },
   {
-    directory: "outside-resolution-storm-package",
-    name: "@typepeek-fixture/outside-resolution-storm",
-    version: "1.0.0",
     declaration: [
       ...Array.from(
         { length: 60_000 },
-        (_, index) => `import type {} from "../../../../outside-missing-${index}.js";`,
+        (_, index) =>
+          `import type {} from "../../../../outside-missing-${index}.js";`
       ),
-      "export declare const visible: string;",
+      VISIBLE_EXPORT_DECLARATION,
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the outside resolution fixture runtime");\n',
+    directory: "outside-resolution-storm-package",
+    name: "@typepeek-fixture/outside-resolution-storm",
+    runtime:
+      'throw new Error("Typepeek executed the outside resolution fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "unresolved-package",
-    name: "@typepeek-fixture/unresolved",
-    version: "1.0.0",
     declaration: [
       'export * from "./missing.js";',
       "export declare const visibleExport: string;",
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the unresolved fixture runtime");\n',
+    directory: "unresolved-package",
+    name: "@typepeek-fixture/unresolved",
+    runtime:
+      'throw new Error("Typepeek executed the unresolved fixture runtime");\n',
+    version: "1.0.0",
   },
   {
+    declaration:
+      'export { dependencyExport } from "@typepeek-fixture/dependency";\n',
     directory: "undeclared-reexport-package",
     name: "@typepeek-fixture/undeclared-reexport",
+    runtime:
+      'throw new Error("Typepeek executed the undeclared re-export runtime");\n',
     version: "1.0.0",
-    declaration: 'export { dependencyExport } from "@typepeek-fixture/dependency";\n',
-    runtime: 'throw new Error("Typepeek executed the undeclared re-export runtime");\n',
   },
   {
-    directory: "conditional-package",
-    name: "@typepeek-fixture/conditional",
-    version: "1.0.0",
-    declaration: "export declare const legacyExport: string;\n",
     additionalDeclarations: {
       "feature.d.ts": "export declare const featureExport: string;\n",
-      "nested-feature.d.ts": "export declare const nestedFeatureExport: string;\n",
-      "patterns/red.d.ts": "export declare const redPatternExport: string;\n",
-      "private.d.ts": "export declare const privateExport: string;\n",
       "import.d.ts": "export declare const importExport: string;\n",
-      "require-feature.d.cts": "export declare const requireFeatureExport: string;\n",
-      "require-patterns/blue.d.cts": "export declare const bluePatternExport: string;\n",
+      "nested-feature.d.ts":
+        "export declare const nestedFeatureExport: string;\n",
+      "patterns/red.d.ts": RED_EXPORT_DECLARATION,
+      "private.d.ts": "export declare const privateExport: string;\n",
+      "require-feature.d.cts":
+        "export declare const requireFeatureExport: string;\n",
+      "require-patterns/blue.d.cts":
+        "export declare const bluePatternExport: string;\n",
       "require.d.cts": "export declare const requireExport: string;\n",
     },
-    runtime: 'throw new Error("Typepeek executed the conditional fixture runtime");\n',
+    declaration: "export declare const legacyExport: string;\n",
+    directory: "conditional-package",
     exports: {
-      ".": {
-        import: {
-          types: "./dist/import.d.ts",
-          default: "./dist/index.js",
-        },
-        require: {
-          types: "./dist/require.d.cts",
-          default: "./dist/index.js",
-        },
-      },
-      "./feature": {
-        types: "./dist/feature.d.ts",
-        default: "./dist/index.js",
-      },
-      "./nested/feature": {
-        types: "./dist/nested-feature.d.ts",
-        default: "./dist/index.js",
-      },
-      "./patterns/*": {
-        types: "./dist/patterns/*.d.ts",
-        default: "./dist/index.js",
-      },
-      "./require-feature": {
-        import: null,
-        require: {
-          types: "./dist/require-feature.d.cts",
-          default: "./dist/index.js",
-        },
-      },
-      "./require-patterns/*": {
-        import: null,
-        require: {
-          types: "./dist/require-patterns/*.d.cts",
-          default: "./dist/index.js",
-        },
-      },
+      ".": Object.fromEntries([
+        [
+          "import",
+          Object.fromEntries([
+            ["types", "./dist/import.d.ts"],
+            ["default", DIST_RUNTIME_ENTRY],
+          ]),
+        ],
+        [
+          "require",
+          Object.fromEntries([
+            ["types", "./dist/require.d.cts"],
+            ["default", DIST_RUNTIME_ENTRY],
+          ]),
+        ],
+      ]),
+      "./feature": Object.fromEntries([
+        ["types", "./dist/feature.d.ts"],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
+      "./nested/feature": Object.fromEntries([
+        ["types", "./dist/nested-feature.d.ts"],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
+      "./patterns/*": Object.fromEntries([
+        ["types", PATTERN_DECLARATION_TARGET],
+        ["default", DIST_RUNTIME_ENTRY],
+      ]),
+      "./require-feature": Object.fromEntries([
+        ["import", null],
+        [
+          "require",
+          Object.fromEntries([
+            ["types", "./dist/require-feature.d.cts"],
+            ["default", DIST_RUNTIME_ENTRY],
+          ]),
+        ],
+      ]),
+      "./require-patterns/*": Object.fromEntries([
+        ["import", null],
+        [
+          "require",
+          Object.fromEntries([
+            ["types", "./dist/require-patterns/*.d.cts"],
+            ["default", DIST_RUNTIME_ENTRY],
+          ]),
+        ],
+      ]),
     },
+    name: "@typepeek-fixture/conditional",
+    runtime:
+      'throw new Error("Typepeek executed the conditional fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "focused-package",
-    name: "@typepeek-fixture/focused",
-    version: "2.0.0",
+    additionalDeclarations: {
+      "inline.d.ts": [
+        "export interface InlineInput {",
+        "  readonly input: string;",
+        "}",
+        "export interface InlineOutput {",
+        "  readonly output: string;",
+        "}",
+        "",
+      ].join("\n"),
+      "member-types.d.ts": [
+        "export interface ImportedMemberType { readonly imported: true; }",
+        "export declare const value: ImportedMemberType;",
+        "",
+      ].join("\n"),
+    },
     declaration: [
       "interface HiddenDrift {",
       "  readonly secret: string;",
@@ -369,7 +473,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "  readonly parent?: WidgetMetadata;",
       "}",
       "interface WidgetResult {",
-      "  readonly id: string;",
+      READONLY_ID_DECLARATION,
       "  readonly metadata: WidgetMetadata;",
       "}",
       "declare function buildWidget(input: WidgetInput): WidgetResult;",
@@ -391,7 +495,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "}",
       "export declare const widgetFactory: WidgetFactory;",
       "export declare class Widget {",
-      "  readonly id: string;",
+      READONLY_ID_DECLARATION,
       "}",
       "export declare namespace Widget {",
       '  const kind: "widget";',
@@ -451,7 +555,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       ...Array.from(
         { length: 13 },
         (_, index) =>
-          `interface TypeQueryLevel${index} { readonly next: TypeQueryLevel${index + 1}; }`,
+          `interface TypeQueryLevel${index} { readonly next: TypeQueryLevel${index + 1}; }`
       ),
       "interface TypeQueryLevel13 { readonly done: true; }",
       "interface MemberTypeValue { readonly done: true; }",
@@ -505,7 +609,12 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "interface PlanMemberTypeBudgetContainer {",
       ...Array.from({ length: 16 }, (_, queryIndex) => {
         const first = queryIndex * 260;
-        const union = Array.from({ length: 260 }, (_, offset) => first + offset).join(" | ");
+
+        const union = Array.from(
+          { length: 260 },
+          (_item, offset) => first + offset
+        ).join(" | ");
+
         return `  readonly query${queryIndex}: ${union};`;
       }),
       "}",
@@ -513,36 +622,20 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       ...Array.from(
         { length: 16 },
         (_, index) =>
-          `export type PlanMemberTypeBudget${index} = typeof planMemberTypeBudgetContainer.query${index};`,
+          `export type PlanMemberTypeBudget${index} = typeof planMemberTypeBudgetContainer.query${index};`
       ),
       'export declare function inspectInline(input: import("./inline.js").InlineInput): import("./inline.js").InlineOutput;',
       "/** @deprecated Use inspectInline instead. */",
       "export declare function deprecatedOnly(): void;",
       "",
     ].join("\n"),
-    additionalDeclarations: {
-      "inline.d.ts": [
-        "export interface InlineInput {",
-        "  readonly input: string;",
-        "}",
-        "export interface InlineOutput {",
-        "  readonly output: string;",
-        "}",
-        "",
-      ].join("\n"),
-      "member-types.d.ts": [
-        "export interface ImportedMemberType { readonly imported: true; }",
-        "export declare const value: ImportedMemberType;",
-        "",
-      ].join("\n"),
-    },
-    runtime: 'throw new Error("Typepeek executed the focused fixture runtime");\n',
+    directory: "focused-package",
+    name: "@typepeek-fixture/focused",
+    runtime:
+      'throw new Error("Typepeek executed the focused fixture runtime");\n',
+    version: "2.0.0",
   },
   {
-    directory: "private-constructor-source-package",
-    name: "@typepeek-fixture/private-constructor-source",
-    version: "1.0.0",
-    declaration: "export {};\n",
     additionalDeclarations: {
       "index.ts": [
         "class VisibleOnly {}",
@@ -609,27 +702,34 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
         "export type InferredPromiseMember = typeof inferredMemberHolder.promise;",
         ...Array.from({ length: 16 }, (_, queryIndex) => {
           const first = queryIndex * 260;
-          const values = Array.from({ length: 260 }, (_, offset) => first + offset).join(", ");
+
+          const values = Array.from(
+            { length: 260 },
+            (_item, offset) => first + offset
+          ).join(", ");
+
           return `export const inferredPlanBudget${queryIndex} = [${values}] as const;`;
         }),
         "",
       ].join("\n"),
     },
+    declaration: "export {};\n",
+    directory: "private-constructor-source-package",
     installedManifest: {
       name: "@typepeek-fixture/private-constructor-source",
-      version: "1.0.0",
       type: "module",
       types: "./dist/index.ts",
+      version: "1.0.0",
     },
-    runtime: 'throw new Error("Typepeek executed the private constructor fixture runtime");\n',
+    name: "@typepeek-fixture/private-constructor-source",
+    runtime:
+      'throw new Error("Typepeek executed the private constructor fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "equivalent-bundled-package",
-    name: "@typepeek-fixture/equivalent-bundled",
-    version: "1.0.0",
     declaration: [
       "interface Item {",
-      "  readonly id: string;",
+      READONLY_ID_DECLARATION,
       "}",
       "interface Inspection {",
       "  readonly item: Item;",
@@ -637,13 +737,13 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       "export declare function inspect(item: Item): Inspection;",
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the bundled fixture runtime");\n',
+    directory: "equivalent-bundled-package",
+    name: "@typepeek-fixture/equivalent-bundled",
+    runtime:
+      'throw new Error("Typepeek executed the bundled fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "equivalent-split-package",
-    name: "@typepeek-fixture/equivalent-split",
-    version: "1.0.0",
-    declaration: 'export { inspect } from "./inspect.js";\n',
     additionalDeclarations: {
       "inspect.d.ts": [
         'import type { Inspection, Item } from "./models.js";',
@@ -652,7 +752,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
       ].join("\n"),
       "models.d.ts": [
         "export interface Item {",
-        "  readonly id: string;",
+        READONLY_ID_DECLARATION,
         "}",
         "export interface Inspection {",
         "  readonly item: Item;",
@@ -660,179 +760,163 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
         "",
       ].join("\n"),
     },
-    runtime: 'throw new Error("Typepeek executed the split fixture runtime");\n',
+    declaration: 'export { inspect } from "./inspect.js";\n',
+    directory: "equivalent-split-package",
+    name: "@typepeek-fixture/equivalent-split",
+    runtime:
+      'throw new Error("Typepeek executed the split fixture runtime");\n',
+    version: "1.0.0",
   },
   {
+    declaration: `/** ${"x".repeat(17 * 1024)} */\nexport declare function documented(): void;\n`,
     directory: "oversized-docs-package",
     name: "@typepeek-fixture/oversized-docs",
+    runtime:
+      'throw new Error("Typepeek executed the oversized docs fixture runtime");\n',
     version: "1.0.0",
-    declaration: `/** ${"x".repeat(17 * 1_024)} */\nexport declare function documented(): void;\n`,
-    runtime: 'throw new Error("Typepeek executed the oversized docs fixture runtime");\n',
   },
   {
-    directory: "broad-supporting-types-package",
-    name: "@typepeek-fixture/broad-supporting-types",
-    version: "1.0.0",
     declaration: [
       ...Array.from(
         { length: 97 },
-        (_, index) => `interface Supporting${index} { readonly value: string; }`,
+        (_, index) => `interface Supporting${index} { readonly value: string; }`
       ),
-      `export declare function inspect(value: [${Array.from(
-        { length: 97 },
-        (_, index) => `Supporting${index}`,
-      ).join(", ")}]): void;`,
+      `export declare function inspect(value: [${broadSupportingTypesParts1}]): void;`,
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the broad Supporting Types fixture runtime");\n',
+    directory: "broad-supporting-types-package",
+    name: "@typepeek-fixture/broad-supporting-types",
+    runtime:
+      'throw new Error("Typepeek executed the broad Supporting Types fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "aggregate-output-package",
-    name: "@typepeek-fixture/aggregate-output",
-    version: "1.0.0",
     declaration: [
       ...Array.from(
         { length: 48 },
         (_, index) =>
-          `interface Aggregate${index} { readonly property${index}: "${"x".repeat(1_400)}"; }`,
+          `interface Aggregate${index} { readonly property${index}: "${"x".repeat(1400)}"; }`
       ),
-      `export declare function inspect(value: [${Array.from(
-        { length: 48 },
-        (_, index) => `Aggregate${index}`,
-      ).join(", ")} ]): void;`,
+      `export declare function inspect(value: [${aggregateOutputParts2} ]): void;`,
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the aggregate output fixture runtime");\n',
+    directory: "aggregate-output-package",
+    name: "@typepeek-fixture/aggregate-output",
+    runtime:
+      'throw new Error("Typepeek executed the aggregate output fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "plan-aggregate-output-package",
-    name: "@typepeek-fixture/plan-aggregate-output",
-    version: "1.0.0",
     declaration: [
       ...Array.from(
         { length: 4 },
         (_, index) =>
-          `interface PlanAggregate${index} { readonly property${index}: "${"x".repeat(1_100)}"; }`,
+          `interface PlanAggregate${index} { readonly property${index}: "${"x".repeat(1100)}"; }`
       ),
       "export declare function inspect(value: [PlanAggregate0, PlanAggregate1, PlanAggregate2, PlanAggregate3]): void;",
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the plan aggregate output fixture runtime");\n',
+    directory: "plan-aggregate-output-package",
+    name: "@typepeek-fixture/plan-aggregate-output",
+    runtime:
+      'throw new Error("Typepeek executed the plan aggregate output fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "deep-supporting-types-package",
-    name: "@typepeek-fixture/deep-supporting-types",
-    version: "1.0.0",
     declaration: [
-      ...Array.from(
-        { length: 14 },
-        (_, index) =>
-          `interface Depth${index} { readonly next: ${index === 13 ? "string" : `Depth${index + 1}`}; }`,
-      ),
+      ...Array.from({ length: 14 }, (_, index) => {
+        const declarationParts1 = index === 13 ? "string" : `Depth${index + 1}`;
+
+        return `interface Depth${index} { readonly next: ${declarationParts1}; }`;
+      }),
       "export declare function inspect(value: Depth0): void;",
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the deep Supporting Types fixture runtime");\n',
+    directory: "deep-supporting-types-package",
+    name: "@typepeek-fixture/deep-supporting-types",
+    runtime:
+      'throw new Error("Typepeek executed the deep Supporting Types fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "deep-anonymous-type-package",
-    name: "@typepeek-fixture/deep-anonymous-type",
-    version: "1.0.0",
     declaration: [
       "interface Leaf { readonly value: string; }",
       `export declare function inspect(value: ${"[".repeat(80)}Leaf${"]".repeat(80)}): void;`,
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the deep anonymous fixture runtime");\n',
+    directory: "deep-anonymous-type-package",
+    name: "@typepeek-fixture/deep-anonymous-type",
+    runtime:
+      'throw new Error("Typepeek executed the deep anonymous fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "broad-overloads-package",
-    name: "@typepeek-fixture/broad-overloads",
-    version: "1.0.0",
     declaration: [
       ...Array.from(
         { length: 65 },
-        (_, index) => `export declare function inspect(value: ${index}): ${index};`,
+        (_, index) =>
+          `export declare function inspect(value: ${index}): ${index};`
       ),
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the broad overload fixture runtime");\n',
+    directory: "broad-overloads-package",
+    name: "@typepeek-fixture/broad-overloads",
+    runtime:
+      'throw new Error("Typepeek executed the broad overload fixture runtime");\n',
+    version: "1.0.0",
   },
   {
+    declaration: `export declare function inspect(value: { ${wideSignatureParts3} }): void;\n`,
     directory: "wide-signature-package",
     name: "@typepeek-fixture/wide-signature",
+    runtime:
+      'throw new Error("Typepeek executed the wide signature fixture runtime");\n',
     version: "1.0.0",
-    declaration: `export declare function inspect(value: { ${Array.from(
-      { length: 1_200 },
-      (_, index) => `readonly property${index}: string;`,
-    ).join(" ")} }): void;\n`,
-    runtime: 'throw new Error("Typepeek executed the wide signature fixture runtime");\n',
   },
   {
+    declaration: `export declare function inspect(${broadParametersParts4}): void;\n`,
     directory: "broad-parameters-package",
     name: "@typepeek-fixture/broad-parameters",
+    runtime:
+      'throw new Error("Typepeek executed the broad parameter fixture runtime");\n',
     version: "1.0.0",
-    declaration: `export declare function inspect(${Array.from(
-      { length: 257 },
-      (_, index) => `parameter${index}: number`,
-    ).join(", ")}): void;\n`,
-    runtime: 'throw new Error("Typepeek executed the broad parameter fixture runtime");\n',
   },
   {
+    declaration: `export declare function inspect<${broadTypeParametersParts5}>(): void;\n`,
     directory: "broad-type-parameters-package",
     name: "@typepeek-fixture/broad-type-parameters",
+    runtime:
+      'throw new Error("Typepeek executed the broad type parameters fixture runtime");\n',
     version: "1.0.0",
-    declaration: `export declare function inspect<${Array.from(
-      { length: 65 },
-      (_, index) => `Type${index}`,
-    ).join(", ")}>(): void;\n`,
-    runtime: 'throw new Error("Typepeek executed the broad type parameters fixture runtime");\n',
   },
   {
+    declaration: `export declare function inspect(value: { ${detailedWideSignatureParts6} }): void;\n`,
     directory: "detailed-wide-signature-package",
     name: "@typepeek-fixture/detailed-wide-signature",
+    runtime:
+      'throw new Error("Typepeek executed the detailed wide signature fixture runtime");\n',
     version: "1.0.0",
-    declaration: `export declare function inspect(value: { ${Array.from(
-      { length: 450 },
-      (_, index) => `readonly property${index}: string;`,
-    ).join(" ")} }): void;\n`,
-    runtime: 'throw new Error("Typepeek executed the detailed wide signature fixture runtime");\n',
   },
   {
+    declaration: [
+      ...Array.from({ length: 5 }, (_, overload) => {
+        const declarationParts2 = Array.from(
+          { length: 175 },
+          (_item, index) => `readonly property${overload}_${index}: string;`
+        ).join(" ");
+
+        return `export declare function inspect(value: { ${declarationParts2} }): ${overload};`;
+      }),
+      "",
+    ].join("\n"),
     directory: "detailed-wide-overloads-package",
     name: "@typepeek-fixture/detailed-wide-overloads",
+    runtime:
+      'throw new Error("Typepeek executed the detailed wide overloads fixture runtime");\n',
     version: "1.0.0",
-    declaration: [
-      ...Array.from(
-        { length: 5 },
-        (_, overload) =>
-          `export declare function inspect(value: { ${Array.from(
-            { length: 175 },
-            (_, index) => `readonly property${overload}_${index}: string;`,
-          ).join(" ")} }): ${overload};`,
-      ),
-      "",
-    ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the detailed wide overloads fixture runtime");\n',
   },
   {
-    directory: "alias-forms-package",
-    name: "@typepeek-fixture/alias-forms",
-    version: "1.0.0",
-    declaration: [
-      "declare function primary(value: string): number;",
-      "declare namespace Internal { class ToolAlias {} }",
-      "export default primary;",
-      "export import ToolAlias = Internal.ToolAlias;",
-      'export * as tools from "./tools.js";',
-      "",
-    ].join("\n"),
     additionalDeclarations: {
-      "tools.d.ts": [
-        'export { useTool } from "./actual.js";',
-        'export * as nested from "./nested.js";',
-        "",
-      ].join("\n"),
       "actual.d.ts": [
         "export interface ToolInput { readonly value: string; }",
         "export declare function useTool(value: ToolInput): string;",
@@ -843,51 +927,69 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
         "export declare function useNested(value: NestedInput): void;",
         "",
       ].join("\n"),
+      "tools.d.ts": [
+        'export { useTool } from "./actual.js";',
+        'export * as nested from "./nested.js";',
+        "",
+      ].join("\n"),
     },
-    runtime: 'throw new Error("Typepeek executed the alias forms fixture runtime");\n',
+    declaration: [
+      "declare function primary(value: string): number;",
+      "declare namespace Internal { class ToolAlias {} }",
+      "export default primary;",
+      "export import ToolAlias = Internal.ToolAlias;",
+      'export * as tools from "./tools.js";',
+      "",
+    ].join("\n"),
+    directory: "alias-forms-package",
+    name: "@typepeek-fixture/alias-forms",
+    runtime:
+      'throw new Error("Typepeek executed the alias forms fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "cross-file-signatures-package",
-    name: "@typepeek-fixture/cross-file-signatures",
-    version: "1.0.0",
+    additionalDeclarations: {
+      "a-second.d.ts":
+        "interface CrossFileSignatures { (value: number): object; }\n",
+      "z-first.d.ts":
+        "interface CrossFileSignatures { new (value: string): object; }\n",
+    },
     declaration: [
       '/// <reference path="./z-first.d.ts" />',
       '/// <reference path="./a-second.d.ts" />',
       "export declare const ordered: CrossFileSignatures;",
       "",
     ].join("\n"),
-    additionalDeclarations: {
-      "z-first.d.ts": "interface CrossFileSignatures { new (value: string): object; }\n",
-      "a-second.d.ts": "interface CrossFileSignatures { (value: number): object; }\n",
-    },
-    runtime: 'throw new Error("Typepeek executed the signature fixture runtime");\n',
+    directory: "cross-file-signatures-package",
+    name: "@typepeek-fixture/cross-file-signatures",
+    runtime:
+      'throw new Error("Typepeek executed the signature fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "circular-alias-package",
-    name: "@typepeek-fixture/circular-alias",
-    version: "1.0.0",
-    declaration: 'export { A } from "./other.js";\n',
     additionalDeclarations: {
       "other.d.ts": 'export { A } from "./index.js";\n',
     },
-    runtime: 'throw new Error("Typepeek executed the circular alias fixture runtime");\n',
+    declaration: 'export { A } from "./other.js";\n',
+    directory: "circular-alias-package",
+    name: "@typepeek-fixture/circular-alias",
+    runtime:
+      'throw new Error("Typepeek executed the circular alias fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "named-re-export-missing-import-package",
-    name: "@typepeek-fixture/named-re-export-missing-import",
-    version: "1.0.0",
-    declaration: 'export { Visible } from "./visible.js";\n',
     additionalDeclarations: {
       "visible.d.ts":
         'export interface Visible { readonly value: import("./missing.js").Missing; }\n',
     },
-    runtime: 'throw new Error("Typepeek executed the named re-export fixture runtime");\n',
+    declaration: 'export { Visible } from "./visible.js";\n',
+    directory: "named-re-export-missing-import-package",
+    name: "@typepeek-fixture/named-re-export-missing-import",
+    runtime:
+      'throw new Error("Typepeek executed the named re-export fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "named-re-export-missing-reference-package",
-    name: "@typepeek-fixture/named-re-export-missing-reference",
-    version: "1.0.0",
-    declaration: 'export { Visible } from "./visible.js";\n',
     additionalDeclarations: {
       "visible.d.ts": [
         '/// <reference path="./missing.d.ts" />',
@@ -895,230 +997,274 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
         "",
       ].join("\n"),
     },
-    runtime: 'throw new Error("Typepeek executed the named re-export fixture runtime");\n',
+    declaration: 'export { Visible } from "./visible.js";\n',
+    directory: "named-re-export-missing-reference-package",
+    name: "@typepeek-fixture/named-re-export-missing-reference",
+    runtime:
+      'throw new Error("Typepeek executed the named re-export fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "failed-lookup-storm-package",
-    name: "@typepeek-fixture/failed-lookup-storm",
-    version: "1.0.0",
     declaration: [
       ...Array.from(
         { length: 20_000 },
-        (_, index) => `import type {} from "@missing/package-${index}";`,
+        (_, index) => `import type {} from "@missing/package-${index}";`
       ),
-      "export declare const visible: string;",
+      VISIBLE_EXPORT_DECLARATION,
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the failed lookup fixture runtime");\n',
+    directory: "failed-lookup-storm-package",
+    name: "@typepeek-fixture/failed-lookup-storm",
+    runtime:
+      'throw new Error("Typepeek executed the failed lookup fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "duplicate-path-references-package",
-    name: "@typepeek-fixture/duplicate-path-references",
-    version: "1.0.0",
-    declaration: [
-      ...Array.from({ length: 80_000 }, () => '/// <reference path="./helper.d.ts" />'),
-      "export declare const visible: ReferencedValue;",
-      "",
-    ].join("\n"),
     additionalDeclarations: {
       "helper.d.ts": "interface ReferencedValue { readonly value: string; }\n",
     },
-    runtime: 'throw new Error("Typepeek executed the duplicate reference fixture runtime");\n',
-  },
-  {
-    directory: "broad-declaration-files-package",
-    name: "@typepeek-fixture/broad-declaration-files",
-    version: "1.0.0",
     declaration: [
       ...Array.from(
-        { length: 2_200 },
-        (_, index) => `export { value${index} } from "./part-${index}.js";`,
+        { length: 80_000 },
+        () => '/// <reference path="./helper.d.ts" />'
+      ),
+      "export declare const visible: ReferencedValue;",
+      "",
+    ].join("\n"),
+    directory: "duplicate-path-references-package",
+    name: "@typepeek-fixture/duplicate-path-references",
+    runtime:
+      'throw new Error("Typepeek executed the duplicate reference fixture runtime");\n',
+    version: "1.0.0",
+  },
+  {
+    additionalDeclarations: Object.fromEntries(
+      Array.from({ length: 2200 }, (_, index) => [
+        `part-${index}.d.ts`,
+        `export declare const value${index}: string;\n`,
+      ])
+    ),
+    declaration: [
+      ...Array.from(
+        { length: 2200 },
+        (_, index) => `export { value${index} } from "./part-${index}.js";`
       ),
       "",
     ].join("\n"),
-    additionalDeclarations: Object.fromEntries(
-      Array.from({ length: 2_200 }, (_, index) => [
-        `part-${index}.d.ts`,
-        `export declare const value${index}: string;\n`,
-      ]),
-    ),
-    runtime: 'throw new Error("Typepeek executed the broad declaration files runtime");\n',
+    directory: "broad-declaration-files-package",
+    name: "@typepeek-fixture/broad-declaration-files",
+    runtime:
+      'throw new Error("Typepeek executed the broad declaration files runtime");\n',
+    version: "1.0.0",
   },
   {
+    declaration: `export type Oversized = "${fixturePadding(INSPECTION_BUDGET_POLICY.declarationSourceBytes)}";\n`,
     directory: "oversized-declaration-source-package",
     name: "@typepeek-fixture/oversized-declaration-source",
+    runtime:
+      'throw new Error("Typepeek executed the oversized declaration runtime");\n',
     version: "1.0.0",
-    declaration: `export type Oversized = "${fixturePadding(
-      INSPECTION_BUDGET_POLICY.declarationSourceBytes,
-    )}";\n`,
-    runtime: 'throw new Error("Typepeek executed the oversized declaration runtime");\n',
   },
   {
-    directory: "merged-declarations-package",
-    name: "@typepeek-fixture/merged-declarations",
-    version: "1.0.0",
     declaration: [
       ...Array.from(
         { length: 129 },
-        (_, index) => `export interface Merged { readonly value${index}: string; }`,
+        (_, index) =>
+          `export interface Merged { readonly value${index}: string; }`
       ),
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the merged declaration runtime");\n',
+    directory: "merged-declarations-package",
+    name: "@typepeek-fixture/merged-declarations",
+    runtime:
+      'throw new Error("Typepeek executed the merged declaration runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "broad-namespace-package",
-    name: "@typepeek-fixture/broad-namespace",
-    version: "1.0.0",
     declaration: [
       "export declare namespace Broad {",
-      ...Array.from({ length: 129 }, (_, index) => `  const value${index}: string;`),
+      ...Array.from(
+        { length: 129 },
+        (_, index) => `  const value${index}: string;`
+      ),
       "}",
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the broad namespace runtime");\n',
+    directory: "broad-namespace-package",
+    name: "@typepeek-fixture/broad-namespace",
+    runtime:
+      'throw new Error("Typepeek executed the broad namespace runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "aggregate-namespace-alias-package",
-    name: "@typepeek-fixture/aggregate-namespace-alias",
-    version: "1.0.0",
-    declaration: 'export * as Root from "./members.js";\n',
     additionalDeclarations: {
       "members.d.ts": [
         ...Array.from(
           { length: 128 },
-          (_, index) => `export declare const value${index}: "${"x".repeat(200)}";`,
+          (_, index) =>
+            `export declare const value${index}: "${"x".repeat(200)}";`
         ),
         "",
       ].join("\n"),
     },
-    runtime: 'throw new Error("Typepeek executed the aggregate namespace runtime");\n',
+    declaration: 'export * as Root from "./members.js";\n',
+    directory: "aggregate-namespace-alias-package",
+    name: "@typepeek-fixture/aggregate-namespace-alias",
+    runtime:
+      'throw new Error("Typepeek executed the aggregate namespace runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "deep-namespace-package",
-    name: "@typepeek-fixture/deep-namespace",
-    version: "1.0.0",
     declaration: [
       "export declare namespace Deep {",
-      ...Array.from({ length: 10 }, (_, index) => `${"  ".repeat(index + 1)}namespace N${index} {`),
+      ...Array.from(
+        { length: 10 },
+        (_, index) => `${"  ".repeat(index + 1)}namespace N${index} {`
+      ),
       `${"  ".repeat(11)}const leaf: string;`,
-      ...Array.from({ length: 10 }, (_, index) => `${"  ".repeat(10 - index)}}`),
+      ...Array.from(
+        { length: 10 },
+        (_, index) => `${"  ".repeat(10 - index)}}`
+      ),
       "}",
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the deep namespace runtime");\n',
+    directory: "deep-namespace-package",
+    name: "@typepeek-fixture/deep-namespace",
+    runtime:
+      'throw new Error("Typepeek executed the deep namespace runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "deep-member-namespace-package",
-    name: "@typepeek-fixture/deep-member-namespace",
-    version: "1.0.0",
     declaration: [
       "export declare namespace Root {",
       "  export namespace Selected {",
-      ...Array.from({ length: 65 }, (_, index) => `export namespace N${index} {`),
+      ...Array.from(
+        { length: 65 },
+        (_, index) => `export namespace N${index} {`
+      ),
       "export const leaf: string;",
       ...Array.from({ length: 65 }, () => "}"),
       "  }",
       "}",
       "",
     ].join("\n"),
-    runtime: 'throw new Error("Typepeek executed the deep member namespace runtime");\n',
+    directory: "deep-member-namespace-package",
+    name: "@typepeek-fixture/deep-member-namespace",
+    runtime:
+      'throw new Error("Typepeek executed the deep member namespace runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "oversized-manifest-package",
-    name: "@typepeek-fixture/oversized-manifest",
-    version: "1.0.0",
     declaration: "export declare const visible: string;\n",
+    directory: "oversized-manifest-package",
     installedManifest: JSON.stringify({
       name: "@typepeek-fixture/oversized-manifest",
+      padding: "x".repeat(256 * 1024),
+      types: DIST_DECLARATION_ENTRY,
       version: "1.0.0",
-      types: "./dist/index.d.ts",
-      padding: "x".repeat(256 * 1_024),
     }),
-    runtime: 'throw new Error("Typepeek executed the oversized manifest runtime");\n',
+    name: "@typepeek-fixture/oversized-manifest",
+    runtime:
+      'throw new Error("Typepeek executed the oversized manifest runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "oversized-resolution-dependency-package",
-    name: "@typepeek-fixture/oversized-resolution-dependency",
-    version: "1.0.0",
-    declaration: Array.from(
-      { length: 40 },
-      (_, index) => `export { value${index} } from "./entry${index}/value.js";`,
-    ).join("\n"),
     additionalDeclarations: Object.fromEntries(
-      Array.from({ length: 40 }, (_, index) => [
-        [`entry${index}/value.d.ts`, `export declare const value${index}: string;\n`],
+      Array.from({ length: 40 }, (_, index): [string, string][] => [
+        [
+          `entry${index}/value.d.ts`,
+          `export declare const value${index}: string;\n`,
+        ],
         [
           `entry${index}/package.json`,
-          JSON.stringify({ type: "module", padding: fixturePadding(220 * 1_024) }),
+          JSON.stringify({
+            padding: fixturePadding(220 * 1024),
+            type: "module",
+          }),
         ],
-      ]).flat(),
+      ]).flat()
     ),
-    runtime: 'throw new Error("Typepeek executed the resolution dependency runtime");\n',
+    declaration: Array.from(
+      { length: 40 },
+      (_, index) => `export { value${index} } from "./entry${index}/value.js";`
+    ).join("\n"),
+    directory: "oversized-resolution-dependency-package",
+    name: "@typepeek-fixture/oversized-resolution-dependency",
+    runtime:
+      'throw new Error("Typepeek executed the resolution dependency runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "oversized-resolution-package",
-    name: "@typepeek-fixture/oversized-resolution",
-    version: "1.0.0",
-    declaration: 'export { value0 } from "@typepeek-fixture/oversized-resolution-dependency";\n',
+    declaration:
+      'export { value0 } from "@typepeek-fixture/oversized-resolution-dependency";\n',
     dependencies: {
       "@typepeek-fixture/oversized-resolution-dependency": "1.0.0",
     },
-    runtime: 'throw new Error("Typepeek executed the oversized resolution runtime");\n',
+    directory: "oversized-resolution-package",
+    name: "@typepeek-fixture/oversized-resolution",
+    runtime:
+      'throw new Error("Typepeek executed the oversized resolution runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "malformed-manifest-package",
-    name: "@typepeek-fixture/malformed-manifest",
-    version: "1.0.0",
     declaration: "export declare const manifestExport: string;\n",
+    directory: "malformed-manifest-package",
     installedManifest: "{",
-    runtime: 'throw new Error("Typepeek executed the malformed manifest fixture runtime");\n',
+    name: "@typepeek-fixture/malformed-manifest",
+    runtime:
+      'throw new Error("Typepeek executed the malformed manifest fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "invalid-version-package",
-    name: "@typepeek-fixture/invalid-version",
-    version: "1.0.0",
     declaration: "export declare const invalidVersionExport: string;\n",
+    directory: "invalid-version-package",
     installedManifest: {
       name: "@typepeek-fixture/invalid-version",
-      version: 42,
       type: "module",
-      types: "./dist/index.d.ts",
+      types: DIST_DECLARATION_ENTRY,
+      version: 42,
     },
-    runtime: 'throw new Error("Typepeek executed the invalid version fixture runtime");\n',
+    name: "@typepeek-fixture/invalid-version",
+    runtime:
+      'throw new Error("Typepeek executed the invalid version fixture runtime");\n',
+    version: "1.0.0",
   },
   {
-    directory: "aliased-unversioned-package",
-    name: "@typepeek-fixture/aliased-unversioned",
-    version: "1.0.0",
     declaration: "export declare const aliasedExport: string;\n",
+    directory: "aliased-unversioned-package",
     installedManifest: {
       name: "@upstream/unversioned",
       type: "module",
-      types: "./dist/index.d.ts",
+      types: DIST_DECLARATION_ENTRY,
     },
-    runtime: 'throw new Error("Typepeek executed the aliased fixture runtime");\n',
+    name: "@typepeek-fixture/aliased-unversioned",
+    runtime:
+      'throw new Error("Typepeek executed the aliased fixture runtime");\n',
+    version: "1.0.0",
   },
 ];
 
 const WORKSPACE_PACKAGE_SOURCES: readonly PackageSource[] = [
   {
-    directory: "packages/workspace-main",
-    name: "@typepeek-fixture/workspace-main",
-    version: "1.0.0",
     declaration:
       'export { workspaceDependencyExport } from "@typepeek-fixture/workspace-dependency";\n',
-    runtime: 'throw new Error("Typepeek executed the workspace fixture runtime");\n',
     dependencies: {
       "@typepeek-fixture/workspace-dependency": "1.0.0",
     },
+    directory: "packages/workspace-main",
+    name: "@typepeek-fixture/workspace-main",
+    runtime:
+      'throw new Error("Typepeek executed the workspace fixture runtime");\n',
+    version: "1.0.0",
   },
   {
+    declaration: "export declare const workspaceDependencyExport: symbol;\n",
     directory: "packages/workspace-dependency",
     name: "@typepeek-fixture/workspace-dependency",
+    runtime:
+      'throw new Error("Typepeek executed the workspace dependency runtime");\n',
     version: "1.0.0",
-    declaration: "export declare const workspaceDependencyExport: symbol;\n",
-    runtime: 'throw new Error("Typepeek executed the workspace dependency runtime");\n',
   },
 ];
 
@@ -1128,181 +1274,246 @@ export interface CompiledPackageFixture {
   readonly cleanup: () => Promise<void>;
 }
 
-export async function materializeCompiledPackageFixture(): Promise<CompiledPackageFixture> {
-  const fixtureRoot = await mkdtemp(join(tmpdir(), "typepeek-compiled-package-"));
-  const repositoryRoot = join(fixtureRoot, "repository");
-  const tarballRoot = join(fixtureRoot, "tarballs");
-  const npmCacheRoot = join(fixtureRoot, "npm-cache");
+const writePackageSource = async function writePackageSource(
+  fixtureRoot: string,
+  source: PackageSource
+): Promise<void> {
+  const packageRoot = nodePath.join(fixtureRoot, source.directory);
+  const packageDist = nodePath.join(packageRoot, "dist");
 
-  await Promise.all([
-    mkdir(repositoryRoot, { recursive: true }),
-    mkdir(tarballRoot, { recursive: true }),
-  ]);
-  await Promise.all([
-    writeFile(
-      join(repositoryRoot, "package.json"),
-      JSON.stringify({
-        name: "fixture-repository",
-        private: true,
-        workspaces: ["packages/*"],
-        dependencies: {
-          "@typepeek-fixture/workspace-main": "1.0.0",
-        },
-      }),
-    ),
-    writeFile(
-      join(repositoryRoot, "project-source.d.ts"),
-      "export declare const leakedProjectExport: string;\n",
-    ),
-    ...PACKAGE_SOURCES.map((source) => writePackageSource(fixtureRoot, source)),
-    ...WORKSPACE_PACKAGE_SOURCES.map((source) => writePackageSource(repositoryRoot, source)),
-  ]);
-
-  const tarballPaths = await Promise.all(
-    PACKAGE_SOURCES.map((source) =>
-      packPackage({
-        diagnosticContext: `fixture package ${source.name}`,
-        npmCacheRoot,
-        packageRoot: join(fixtureRoot, source.directory),
-        tarballsRoot: tarballRoot,
-      }),
-    ),
-  );
-  await installPackedPackagesWithNpm({
-    diagnosticContext: `compiled Package Module fixtures in Resolution Context ${repositoryRoot}`,
-    npmCacheRoot,
-    packagePaths: tarballPaths,
-    resolutionContext: repositoryRoot,
-  });
-  await materializeInstalledEvidenceScenarios(repositoryRoot);
-
-  return {
-    resolutionContext: repositoryRoot,
-    runtimeSentinel: join(
-      repositoryRoot,
-      "node_modules",
-      "@typepeek-fixture",
-      "compiled",
-      "RUNTIME_EXECUTED",
-    ),
-    cleanup: () => rm(fixtureRoot, { recursive: true, force: true }),
-  };
-}
-
-async function materializeInstalledEvidenceScenarios(repositoryRoot: string): Promise<void> {
-  await Promise.all(
-    PACKAGE_SOURCES.flatMap((source) =>
-      source.installedManifest === undefined
-        ? []
-        : [
-            writeFile(
-              join(repositoryRoot, "node_modules", ...source.name.split("/"), "package.json"),
-              typeof source.installedManifest === "string"
-                ? source.installedManifest
-                : JSON.stringify(source.installedManifest),
-            ),
-          ],
-    ),
-  );
-
-  const sharedPatternDirectory = join(
-    repositoryRoot,
-    "node_modules",
-    "@typepeek-fixture",
-    "shared-pattern-files",
-    "dist",
-    "patterns",
-  );
-  await Promise.all(
-    Array.from({ length: 550 }, (_, index) =>
-      writeFile(join(sharedPatternDirectory, `ignored-${index}.js`), ""),
-    ),
-  );
-
-  const broadPatternDirectory = join(
-    repositoryRoot,
-    "node_modules",
-    "@typepeek-fixture",
-    "broad-pattern-files",
-    "dist",
-    "patterns",
-  );
-  await mkdir(broadPatternDirectory, { recursive: true });
-  await writeEmptyDeclarationFiles(broadPatternDirectory, 4_097);
-
-  const linkedPatternDirectory = join(
-    repositoryRoot,
-    "node_modules",
-    "@typepeek-fixture",
-    "symlink-subpath",
-    "dist",
-    "linked",
-  );
-  await symlink(
-    broadPatternDirectory,
-    linkedPatternDirectory,
-    process.platform === "win32" ? "junction" : "dir",
-  );
-
-  const internalSymlinkPackageRoot = join(
-    repositoryRoot,
-    "node_modules",
-    "@typepeek-fixture",
-    "internal-symlink-subpath",
-  );
-  const internalPatternDirectory = join(internalSymlinkPackageRoot, "dist", "patterns");
-  const internalTreeDirectory = join(internalSymlinkPackageRoot, "tree");
-  await mkdir(internalTreeDirectory);
-  await Promise.all([
-    symlink(
-      internalPatternDirectory,
-      join(internalSymlinkPackageRoot, "dist-link"),
-      process.platform === "win32" ? "junction" : "dir",
-    ),
-    symlink(
-      internalPatternDirectory,
-      join(internalTreeDirectory, "patterns"),
-      process.platform === "win32" ? "junction" : "dir",
-    ),
-  ]);
-}
-
-async function writeEmptyDeclarationFiles(directory: string, count: number): Promise<void> {
-  const batchSize = 256;
-  for (let start = 0; start < count; start += batchSize) {
-    await Promise.all(
-      Array.from({ length: Math.min(batchSize, count - start) }, (_, offset) =>
-        writeFile(join(directory, `entry-${start + offset}.d.ts`), ""),
-      ),
-    );
-  }
-}
-
-async function writePackageSource(fixtureRoot: string, source: PackageSource): Promise<void> {
-  const packageRoot = join(fixtureRoot, source.directory);
-  const packageDist = join(packageRoot, "dist");
   const manifest = {
-    name: source.name,
-    version: source.version,
-    type: "module",
-    types: "./dist/index.d.ts",
     files: ["dist"],
-    ...(source.dependencies === undefined ? {} : { dependencies: source.dependencies }),
-    ...(source.exports === undefined ? {} : { exports: source.exports }),
+    name: source.name,
+    type: "module",
+    types: DIST_DECLARATION_ENTRY,
+    version: source.version,
+    ...(source.dependencies !== undefined && {
+      dependencies: source.dependencies,
+    }),
+    ...(source.exports !== undefined && { exports: source.exports }),
   };
 
   await Promise.all(
-    Object.keys(source.additionalDeclarations ?? {}).map((fileName) =>
-      mkdir(dirname(join(packageDist, fileName)), { recursive: true }),
-    ),
+    Object.keys(source.additionalDeclarations ?? {}).map(
+      async (fileName) =>
+        await mkdir(nodePath.dirname(nodePath.join(packageDist, fileName)), {
+          recursive: true,
+        })
+    )
   );
   await mkdir(packageDist, { recursive: true });
   await Promise.all([
-    writeFile(join(packageRoot, "package.json"), JSON.stringify(manifest)),
-    writeFile(join(packageDist, "index.d.ts"), source.declaration),
-    writeFile(join(packageDist, "index.js"), source.runtime),
-    ...Object.entries(source.additionalDeclarations ?? {}).map(([fileName, declaration]) =>
-      writeFile(join(packageDist, fileName), declaration),
+    writeFile(
+      nodePath.join(packageRoot, PACKAGE_MANIFEST_FILE),
+      JSON.stringify(manifest)
+    ),
+    writeFile(nodePath.join(packageDist, "index.d.ts"), source.declaration),
+    writeFile(nodePath.join(packageDist, "index.js"), source.runtime),
+    ...Object.entries(source.additionalDeclarations ?? {}).map(
+      async ([fileName, declaration]) => {
+        await writeFile(nodePath.join(packageDist, fileName), declaration);
+      }
     ),
   ]);
-}
+};
+
+const writeEmptyDeclarationFiles = async function writeEmptyDeclarationFiles(
+  directory: string,
+  count: number
+): Promise<void> {
+  const batchSize = 256;
+
+  await Array.fromAsync(
+    { length: Math.ceil(count / batchSize) },
+    async (_, batch) => {
+      const start = batch * batchSize;
+      await Promise.all(
+        Array.from(
+          { length: Math.min(batchSize, count - start) },
+          async (_item, offset) => {
+            await writeFile(
+              nodePath.join(directory, `entry-${start + offset}.d.ts`),
+              ""
+            );
+          }
+        )
+      );
+    }
+  );
+};
+
+const materializeInstalledEvidenceScenarios =
+  async function materializeInstalledEvidenceScenarios(
+    repositoryRoot: string
+  ): Promise<void> {
+    await Promise.all(
+      PACKAGE_SOURCES.flatMap((source) => {
+        if (source.installedManifest === undefined) {
+          return [];
+        }
+
+        return [
+          writeFile(
+            nodePath.join(
+              repositoryRoot,
+              "node_modules",
+              ...source.name.split("/"),
+              PACKAGE_MANIFEST_FILE
+            ),
+            Predicate.isString(source.installedManifest)
+              ? source.installedManifest
+              : JSON.stringify(source.installedManifest)
+          ),
+        ];
+      })
+    );
+
+    const sharedPatternDirectory = nodePath.join(
+      repositoryRoot,
+      "node_modules",
+      FIXTURE_SCOPE,
+      "shared-pattern-files",
+      "dist",
+      "patterns"
+    );
+
+    await Promise.all(
+      Array.from({ length: 550 }, async (_, index) => {
+        await writeFile(
+          nodePath.join(sharedPatternDirectory, `ignored-${index}.js`),
+          ""
+        );
+      })
+    );
+
+    const broadPatternDirectory = nodePath.join(
+      repositoryRoot,
+      "node_modules",
+      FIXTURE_SCOPE,
+      "broad-pattern-files",
+      "dist",
+      "patterns"
+    );
+
+    await mkdir(broadPatternDirectory, { recursive: true });
+    await writeEmptyDeclarationFiles(broadPatternDirectory, 4097);
+
+    const linkedPatternDirectory = nodePath.join(
+      repositoryRoot,
+      "node_modules",
+      FIXTURE_SCOPE,
+      "symlink-subpath",
+      "dist",
+      "linked"
+    );
+
+    await symlink(
+      broadPatternDirectory,
+      linkedPatternDirectory,
+      process.platform === "win32" ? "junction" : "dir"
+    );
+
+    const internalSymlinkPackageRoot = nodePath.join(
+      repositoryRoot,
+      "node_modules",
+      FIXTURE_SCOPE,
+      "internal-symlink-subpath"
+    );
+
+    const internalPatternDirectory = nodePath.join(
+      internalSymlinkPackageRoot,
+      "dist",
+      "patterns"
+    );
+
+    const internalTreeDirectory = nodePath.join(
+      internalSymlinkPackageRoot,
+      "tree"
+    );
+
+    await mkdir(internalTreeDirectory);
+    await Promise.all([
+      symlink(
+        internalPatternDirectory,
+        nodePath.join(internalSymlinkPackageRoot, "dist-link"),
+        process.platform === "win32" ? "junction" : "dir"
+      ),
+      symlink(
+        internalPatternDirectory,
+        nodePath.join(internalTreeDirectory, "patterns"),
+        process.platform === "win32" ? "junction" : "dir"
+      ),
+    ]);
+  };
+
+export const materializeCompiledPackageFixture =
+  async function materializeCompiledPackageFixture(): Promise<CompiledPackageFixture> {
+    const fixtureRoot = await mkdtemp(
+      nodePath.join(tmpdir(), "typepeek-compiled-package-")
+    );
+
+    const repositoryRoot = nodePath.join(fixtureRoot, "repository");
+    const tarballRoot = nodePath.join(fixtureRoot, "tarballs");
+    const npmCacheRoot = nodePath.join(fixtureRoot, "npm-cache");
+    await Promise.all([
+      mkdir(repositoryRoot, { recursive: true }),
+      mkdir(tarballRoot, { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(
+        nodePath.join(repositoryRoot, PACKAGE_MANIFEST_FILE),
+        JSON.stringify({
+          dependencies: {
+            "@typepeek-fixture/workspace-main": "1.0.0",
+          },
+          name: "fixture-repository",
+          private: true,
+          workspaces: ["packages/*"],
+        })
+      ),
+      writeFile(
+        nodePath.join(repositoryRoot, "project-source.d.ts"),
+        "export declare const leakedProjectExport: string;\n"
+      ),
+      ...PACKAGE_SOURCES.map(async (source) => {
+        await writePackageSource(fixtureRoot, source);
+      }),
+      ...WORKSPACE_PACKAGE_SOURCES.map(async (source) => {
+        await writePackageSource(repositoryRoot, source);
+      }),
+    ]);
+
+    const tarballPaths = await Promise.all(
+      PACKAGE_SOURCES.map(
+        async (source) =>
+          await packPackage({
+            diagnosticContext: `fixture package ${source.name}`,
+            npmCacheRoot,
+            packageRoot: nodePath.join(fixtureRoot, source.directory),
+            tarballsRoot: tarballRoot,
+          })
+      )
+    );
+
+    await installPackedPackagesWithNpm({
+      diagnosticContext: `compiled Package Module fixtures in Resolution Context ${repositoryRoot}`,
+      npmCacheRoot,
+      packagePaths: tarballPaths,
+      resolutionContext: repositoryRoot,
+    });
+    await materializeInstalledEvidenceScenarios(repositoryRoot);
+
+    return {
+      cleanup: async () => {
+        await rm(fixtureRoot, { force: true, recursive: true });
+      },
+      resolutionContext: repositoryRoot,
+      runtimeSentinel: nodePath.join(
+        repositoryRoot,
+        "node_modules",
+        FIXTURE_SCOPE,
+        "compiled",
+        "RUNTIME_EXECUTED"
+      ),
+    };
+  };

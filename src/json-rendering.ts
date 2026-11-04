@@ -1,12 +1,13 @@
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { serializeTerminalSafeJson } from "#typepeek/output-safety";
 
-const MAX_JSON_OUTPUT_BYTES = 128 * 1_024;
+const MAX_JSON_OUTPUT_BYTES = 128 * 1024;
+
 const JSON_OUTPUT_LIMIT_FAILURE = {
-  status: "limit-exceeded",
-  reason: "budget-exceeded",
   exceededBudget: "json-output",
   message: "Inspection exceeded its JSON output limit.",
+  reason: "budget-exceeded",
+  status: "limit-exceeded",
 } as const satisfies InspectionOutcome;
 
 export interface JsonOutcomeRendering {
@@ -14,13 +15,18 @@ export interface JsonOutcomeRendering {
   readonly text: string;
 }
 
-export function renderJsonOutcome(
+export const renderJsonOutcome = function renderJsonOutcome(
   outcome: InspectionOutcome,
-  pretty = false,
+  pretty = false
 ): JsonOutcomeRendering {
   const text = serializeTerminalSafeJson(outcome, pretty);
+
   if (Buffer.byteLength(text) > MAX_JSON_OUTPUT_BYTES) {
-    return { failed: true, text: serializeTerminalSafeJson(JSON_OUTPUT_LIMIT_FAILURE, pretty) };
+    return {
+      failed: true,
+      text: serializeTerminalSafeJson(JSON_OUTPUT_LIMIT_FAILURE, pretty),
+    };
   }
+
   return { failed: outcome.status !== "success", text };
-}
+};

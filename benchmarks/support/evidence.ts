@@ -1,84 +1,114 @@
 import { Schema } from "effect";
 
+import { decodeJson } from "#typepeek/json-data";
+
 import { signatureFact } from "./signature.ts";
 import type { DiscoveryWorkload } from "./workloads.ts";
 
 const searchOutcomeSchema = Schema.Struct({
-  status: Schema.Literal("success"),
   result: Schema.Struct({
     intent: Schema.Literal("export-search"),
-    specifier: Schema.String,
+    matches: Schema.Array(Schema.Struct({ name: Schema.String })),
     query: Schema.String,
     scope: Schema.optionalKey(Schema.Never),
-    matches: Schema.Array(Schema.Struct({ name: Schema.String })),
+    specifier: Schema.String,
   }),
-});
-const signatureOutcomeSchema = Schema.Struct({
   status: Schema.Literal("success"),
+});
+
+const signatureOutcomeSchema = Schema.Struct({
   result: Schema.Struct({
     intent: Schema.Literals(["signature-inspection", "export-inspection"]),
-    specifier: Schema.String,
     moduleExport: Schema.Struct({
       name: Schema.String,
       signatures: Schema.Array(
-        Schema.Struct({ kind: Schema.Literals(["call", "construct"]), text: Schema.String }),
+        Schema.Struct({
+          kind: Schema.Literals(["call", "construct"]),
+          text: Schema.String,
+        })
       ),
     }),
-  }),
-});
-const documentedSearchOutcomeSchema = Schema.Struct({
-  status: Schema.Literal("success"),
-  result: Schema.Struct({
-    intent: Schema.Literal("export-search"),
-    scope: Schema.Literal("documentation"),
     specifier: Schema.String,
-    matches: Schema.Array(signatureOutcomeSchema.fields.result.fields.moduleExport),
   }),
-});
-const planOutcomeSchema = Schema.Struct({
   status: Schema.Literal("success"),
-  result: Schema.Struct({
-    intent: Schema.Literal("inspection-plan"),
-    inspections: Schema.Array(Schema.Unknown),
-  }),
 });
 
-export function typepeekFacts(workload: DiscoveryWorkload, serialized: string): readonly string[] {
-  const value: unknown = JSON.parse(serialized);
+const documentedSearchOutcomeSchema = Schema.Struct({
+  result: Schema.Struct({
+    intent: Schema.Literal("export-search"),
+    matches: Schema.Array(
+      signatureOutcomeSchema.fields.result.fields.moduleExport
+    ),
+    scope: Schema.Literal("documentation"),
+    specifier: Schema.String,
+  }),
+  status: Schema.Literal("success"),
+});
+
+const planOutcomeSchema = Schema.Struct({
+  result: Schema.Struct({
+    inspections: Schema.Array(Schema.Unknown),
+    intent: Schema.Literal("inspection-plan"),
+  }),
+  status: Schema.Literal("success"),
+});
+
+export const typepeekFacts = function typepeekFacts(
+  workload: DiscoveryWorkload,
+  serialized: string
+): readonly string[] {
+  const value = decodeJson(Schema.MutableJson, serialized);
+
   const outcomes = Schema.is(planOutcomeSchema)(value)
-    ? value.result.inspections.map((result) => ({ status: "success", result }))
+    ? value.result.inspections.map((result) => ({ result, status: "success" }))
     : [value];
+
   if (workload.kind === "search") {
     const outcome = outcomes
       .filter(Schema.is(searchOutcomeSchema))
       .find(
         ({ result }) =>
           result.specifier === workload.specifier &&
-          result.query.toLowerCase() === workload.target.toLowerCase(),
+          result.query.toLowerCase() === workload.target.toLowerCase()
       );
-    if (outcome === undefined) throw new Error("Typepeek did not return the requested search.");
+
+    if (outcome === undefined) {
+      throw new Error("Typepeek did not return the requested search.");
+    }
+
     const { result } = outcome;
-    return result.matches.map(({ name }) => name).sort();
+
+    return result.matches.map(({ name }) => name).toSorted();
   }
+
   const signatureOutcomes = outcomes.flatMap((outcome) =>
     Schema.is(documentedSearchOutcomeSchema)(outcome)
       ? outcome.result.matches.map((moduleExport) => ({
-          status: "success",
           result: {
             intent: "signature-inspection",
-            specifier: outcome.result.specifier,
             moduleExport,
+            specifier: outcome.result.specifier,
           },
+          status: "success",
         }))
-      : [outcome],
+      : [outcome]
   );
+
   const outcome = signatureOutcomes
     .filter(Schema.is(signatureOutcomeSchema))
     .find(
       ({ result }) =>
-        result.specifier === workload.specifier && result.moduleExport.name === workload.target,
+        result.specifier === workload.specifier &&
+        result.moduleExport.name === workload.target
     );
-  if (outcome === undefined) throw new Error("Typepeek did not return the requested export.");
+
+  if (outcome === undefined) {
+    throw new Error("Typepeek did not return the requested export.");
+  }
+
   const { result } = outcome;
-  return result.moduleExport.signatures.map(({ kind, text }) => signatureFact(kind, text));
-}
+
+  return result.moduleExport.signatures.map(({ kind, text }) =>
+    signatureFact(kind, text)
+  );
+};

@@ -1,8 +1,9 @@
-import { execa } from "execa";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { cpus, hostname, release } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import nodePath from "node:path";
+
+import { execa } from "execa";
 
 export interface DiscoveryIdentity {
   readonly workspace: string;
@@ -22,35 +23,83 @@ export interface DiscoveryIdentity {
   readonly commit: string;
 }
 
-export function hashText(text: string): string {
+export const hashText = function hashText(text: string): string {
   return createHash("sha256").update(text).digest("hex");
-}
+};
 
-export function requirePackagedArtifact(): string {
-  const cli = resolve("dist/cli.js");
-  if (!existsSync(cli)) {
-    throw new Error(
-      "A prepacked Typepeek artifact is required. Run `vp run pack` separately first; the benchmark never builds or packs Typepeek.",
-    );
+export const requirePackagedArtifact =
+  function requirePackagedArtifact(): string {
+    const cli = nodePath.resolve("dist/cli.js");
+
+    if (!existsSync(cli)) {
+      throw new Error(
+        "A prepacked Typepeek artifact is required. Run `vp run pack` separately first; the benchmark never builds or packs Typepeek."
+      );
+    }
+
+    return cli;
+  };
+
+const hashFiles = function hashFiles(
+  root: string,
+  files: readonly string[]
+): string {
+  const hash = createHash("sha256");
+
+  for (const file of [...new Set(files)].toSorted()) {
+    hash.update(nodePath.relative(root, file).replaceAll("\\", "/"));
+    hash.update("\0");
+    hash.update(readFileSync(file));
+    hash.update("\0");
   }
-  return cli;
-}
 
-export function evidenceFingerprint(workspace: string, files: readonly string[]): string {
+  return hash.digest("hex");
+};
+
+export const evidenceFingerprint = function evidenceFingerprint(
+  workspace: string,
+  files: readonly string[]
+): string {
   const declarations = files.map((file) => realpathSync(file));
   const selected = new Set(declarations);
+
   for (const file of declarations) {
-    let directory = dirname(file);
-    while (directory !== dirname(directory)) {
-      const manifest = join(directory, "package.json");
-      if (existsSync(manifest)) selected.add(manifest);
-      directory = dirname(directory);
+    let directory = nodePath.dirname(file);
+
+    while (directory !== nodePath.dirname(directory)) {
+      const manifest = nodePath.join(directory, "package.json");
+
+      if (existsSync(manifest)) {
+        selected.add(manifest);
+      }
+
+      directory = nodePath.dirname(directory);
     }
   }
-  return hashFiles(workspace, [...selected]);
-}
 
-export async function discoveryIdentity(options: {
+  return hashFiles(workspace, [...selected]);
+};
+
+const sourceFiles = function sourceFiles(
+  root: string,
+  extension: string
+): readonly string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const path = nodePath.join(root, entry.name);
+
+    if (entry.isDirectory()) {
+      return sourceFiles(path, extension);
+    }
+
+    if (entry.isFile() && path.endsWith(extension)) {
+      return [path];
+    }
+
+    return [];
+  });
+};
+
+export const discoveryIdentity = async function discoveryIdentity(options: {
   readonly workspace: string;
   readonly compilerVersion: string;
   readonly evidenceHash: string;
@@ -59,52 +108,46 @@ export async function discoveryIdentity(options: {
     execa("git", ["rev-parse", "HEAD"], { reject: false }),
     execa("rg", ["--version"], { reject: false }),
   ]);
-  const lockfiles = ["pnpm-lock.yaml", "package-lock.json", "bun.lock", "package.json"]
-    .map((name) => join(options.workspace, name))
-    .filter(existsSync);
+
+  const lockfiles = [
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    "bun.lock",
+    "package.json",
+  ].flatMap((name) => {
+    const path = nodePath.join(options.workspace, name);
+
+    return existsSync(path) ? [path] : [];
+  });
+
   if (lockfiles.length < 2) {
     throw new Error(
-      "The benchmark requires a consumer manifest and an installed dependency lockfile.",
+      "The benchmark requires a consumer manifest and an installed dependency lockfile."
     );
   }
-  const repository = resolve(".");
+
+  const repository = nodePath.resolve(".");
+
   return {
-    workspace: realpathSync(options.workspace),
-    node: process.version,
-    compiler: options.compilerVersion,
-    ripgrep: ripgrep.failed ? "unavailable" : (ripgrep.stdout.split("\n")[0] ?? ripgrep.stdout),
-    platform: process.platform,
-    architecture: process.arch,
-    osRelease: release(),
-    cpu: cpus()[0]?.model ?? "unknown",
-    hostname: hostname(),
     adapter: "package",
-    evidenceHash: options.evidenceHash,
-    lockfileHash: hashFiles(options.workspace, lockfiles),
+    architecture: process.arch,
     artifactHash: hashFiles(repository, sourceFiles("dist", ".js")),
-    harnessHash: hashFiles(repository, sourceFiles("benchmarks/support", ".ts")),
     commit: git.stdout || "unavailable",
+    compiler: options.compilerVersion,
+    cpu: cpus()[0]?.model ?? "unknown",
+    evidenceHash: options.evidenceHash,
+    harnessHash: hashFiles(
+      repository,
+      sourceFiles("benchmarks/support", ".ts")
+    ),
+    hostname: hostname(),
+    lockfileHash: hashFiles(options.workspace, lockfiles),
+    node: process.version,
+    osRelease: release(),
+    platform: process.platform,
+    ripgrep: ripgrep.failed
+      ? "unavailable"
+      : (ripgrep.stdout.split("\n")[0] ?? ripgrep.stdout),
+    workspace: realpathSync(options.workspace),
   };
-}
-
-function sourceFiles(root: string, extension: string): readonly string[] {
-  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(root, entry.name);
-    return entry.isDirectory()
-      ? sourceFiles(path, extension)
-      : entry.isFile() && path.endsWith(extension)
-        ? [path]
-        : [];
-  });
-}
-
-function hashFiles(root: string, files: readonly string[]): string {
-  const hash = createHash("sha256");
-  for (const file of [...new Set(files)].sort()) {
-    hash.update(relative(root, file).replaceAll("\\", "/"));
-    hash.update("\0");
-    hash.update(readFileSync(file));
-    hash.update("\0");
-  }
-  return hash.digest("hex");
-}
+};

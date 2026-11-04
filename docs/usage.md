@@ -53,19 +53,19 @@ Run `npx typepeek --help` for all commands and options. With a global installati
 
 Start with the narrowest inspection that answers your question.
 
-| Question                                                                                         | Command        |
-| ------------------------------------------------------------------------------------------------ | -------------- |
-| What does this module export?                                                                    | `overview`     |
-| Which export names contain this text?                                                            | `search`       |
-| Which exports have names or attached documentation containing this phrase?                       | `discover`     |
-| Which public subpaths does this package expose?                                                  | `subpaths`     |
-| How can I call or construct this export?                                                         | `signatures`   |
-| What declarations define this export?                                                            | `declarations` |
-| Which public members are available beneath this export?                                          | `members`      |
-| What defines this exact public member?                                                           | `member`       |
-| Which declarations, signatures, supporting types, and package documentation explain this export? | `export`       |
-| How can I run several inspections against one evidence snapshot?                                 | `plan`         |
-| Which export names or public subpaths differ between two workspaces?                             | `compare`      |
+| Question | Command |
+| --- | --- |
+| What does this module export? | `overview` |
+| Which export names contain this text? | `search` |
+| Which exports have names or attached documentation containing this phrase? | `discover` |
+| Which public subpaths does this package expose? | `subpaths` |
+| How can I call or construct this export? | `signatures` |
+| What declarations define this export? | `declarations` |
+| Which public members are available beneath this export? | `members` |
+| What defines this exact public member? | `member` |
+| Which declarations, signatures, supporting types, and package documentation explain this export? | `export` |
+| How can I run several inspections against one evidence snapshot? | `plan` |
+| Which export names or public subpaths differ between two workspaces? | `compare` |
 
 For example, discover an export before inspecting it:
 

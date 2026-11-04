@@ -1,78 +1,107 @@
-import * as Result from "effect/Result";
-import * as Schema from "effect/Schema";
+import { Predicate, Result, Schema } from "effect";
+
+import { decodeJson } from "#typepeek/json-data";
 
 const PROFILE_SCHEMA_VERSION = 1;
-const nonNegativeFiniteSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
+
+const nonNegativeFiniteSchema = Schema.Finite.check(
+  Schema.isGreaterThanOrEqualTo(0)
+);
+
 const inspectionProfilePhaseSchema = Schema.Struct({
-  name: Schema.String,
   milliseconds: nonNegativeFiniteSchema,
+  name: Schema.String,
 });
+
 const inspectionProfileSchema = Schema.Struct({
   kind: Schema.Literal("inspection-profile"),
-  schemaVersion: Schema.Literal(PROFILE_SCHEMA_VERSION),
   maxRssBytes: Schema.Finite.check(Schema.isGreaterThan(0)),
   phases: Schema.Array(inspectionProfilePhaseSchema),
+  schemaVersion: Schema.Literal(PROFILE_SCHEMA_VERSION),
 });
+
 const decodeProfile = Schema.decodeUnknownResult(inspectionProfileSchema);
 
 /** Packaged builds use performance-profile-disabled.ts instead of this module. */
-export const inspectionProfilingEnabled = process.env["TYPEPEEK_PROFILE"] === "1";
+export const inspectionProfilingEnabled =
+  process.env["TYPEPEEK_PROFILE"] === "1";
 
 type InspectionProfilePhase = typeof inspectionProfilePhaseSchema.Type;
+
 export type InspectionProfile = typeof inspectionProfileSchema.Type;
 
-let phases: InspectionProfilePhase[] | undefined;
+let phases: InspectionProfilePhase[] | null = null;
 
 /** Starts a process-local profile, kept separate from Inspection Results. */
-export function beginInspectionProfile(): void {
-  phases = inspectionProfilingEnabled ? [] : undefined;
-}
+export const beginInspectionProfile = function beginInspectionProfile(): void {
+  phases = inspectionProfilingEnabled ? [] : null;
+};
 
-export function profileInspectionPhase<Value>(name: string, inspect: () => Value): Value {
-  if (phases === undefined) {
+const roundedMilliseconds = function roundedMilliseconds(
+  milliseconds: number
+): number {
+  return Math.round(milliseconds * 1000) / 1000;
+};
+
+export const profileInspectionPhase = function profileInspectionPhase<Value>(
+  name: string,
+  inspect: () => Value
+): Value {
+  if (phases === null) {
     return inspect();
   }
+
   const startedAt = performance.now();
+
   try {
     return inspect();
   } finally {
-    phases.push({ name, milliseconds: roundedMilliseconds(performance.now() - startedAt) });
+    phases.push({
+      milliseconds: roundedMilliseconds(performance.now() - startedAt),
+      name,
+    });
   }
-}
+};
 
 /** Returns and clears the current profile so a later request cannot inherit it. */
-export function completeInspectionProfile(): InspectionProfile | undefined {
+export const completeInspectionProfile = function completeInspectionProfile():
+  | InspectionProfile
+  | undefined {
   const completedPhases = phases;
-  phases = undefined;
-  return completedPhases === undefined
+  phases = null;
+
+  return completedPhases === null
     ? undefined
     : {
         kind: "inspection-profile",
-        schemaVersion: PROFILE_SCHEMA_VERSION,
-        maxRssBytes: process.resourceUsage().maxRSS * 1_024,
+        maxRssBytes: process.resourceUsage().maxRSS * 1024,
         phases: completedPhases,
+        schemaVersion: PROFILE_SCHEMA_VERSION,
       };
-}
+};
 
-export function forwardInspectionProfile(serialized: Uint8Array): void {
-  const profile = decodeInspectionProfile(serialized);
-  if (profile !== undefined) {
-    process.stderr.write(`${JSON.stringify(profile)}\n`);
-  }
-}
-
-function decodeInspectionProfile(serialized: string | Uint8Array): InspectionProfile | undefined {
+const decodeInspectionProfile = function decodeInspectionProfile(
+  serialized: string | Uint8Array
+): InspectionProfile | undefined {
   try {
-    const text =
-      typeof serialized === "string"
-        ? serialized
-        : new TextDecoder("utf-8", { fatal: true }).decode(serialized);
-    return Result.getOrUndefined(decodeProfile(JSON.parse(text) as unknown));
+    const text = Predicate.isString(serialized)
+      ? serialized
+      : new TextDecoder("utf-8", { fatal: true }).decode(serialized);
+
+    return Result.getOrUndefined(
+      decodeProfile(decodeJson(Schema.Unknown, text))
+    );
   } catch {
     return undefined;
   }
-}
+};
 
-function roundedMilliseconds(milliseconds: number): number {
-  return Math.round(milliseconds * 1_000) / 1_000;
-}
+export const forwardInspectionProfile = function forwardInspectionProfile(
+  serialized: Uint8Array
+): void {
+  const profile = decodeInspectionProfile(serialized);
+
+  if (profile !== undefined) {
+    process.stderr.write(`${JSON.stringify(profile)}\n`);
+  }
+};

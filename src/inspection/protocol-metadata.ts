@@ -1,6 +1,8 @@
-import * as Schema from "effect/Schema";
 import { isDeepStrictEqual } from "node:util";
 
+import { Predicate, Schema } from "effect";
+
+import type { InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
 import {
   INSPECTION_BUDGET_DIMENSIONS,
   INSPECTION_FAILURE_REASONS,
@@ -12,12 +14,9 @@ import {
   inspectionIntentSchema,
   protocolRecoveryPolicySchema,
   signatureEvidenceKindSchema,
-  type InspectionIntent,
 } from "#typepeek/inspection/protocol-vocabulary";
-import {
-  type InspectionRequestFieldDescriptorFor,
-  inspectionRequestFieldDescriptorFor,
-} from "#typepeek/inspection/request-capability";
+import type { InspectionRequestFieldDescriptorFor } from "#typepeek/inspection/request-capability";
+import { inspectionRequestFieldDescriptorFor } from "#typepeek/inspection/request-capability";
 import {
   INSPECTION_REQUEST_DESCRIPTORS,
   inspectionRequestFieldNames,
@@ -28,6 +27,7 @@ export {
   INSPECTION_INTENTS,
   INSPECTION_PROTOCOL_VERSION,
 } from "#typepeek/inspection/protocol-vocabulary";
+
 export type { InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
 
 const MAX_INSPECTION_CAPABILITIES_BYTES = 16_384 as const;
@@ -36,47 +36,79 @@ type LiteralSchemas<Values extends readonly string[]> = {
   readonly [Index in keyof Values]: Schema.Literal<Values[Index]>;
 };
 
-function literalTupleSchema<const Values extends readonly string[]>(values: Values) {
+const literalTupleSchema = function literalTupleSchema<
+  const Values extends readonly string[],
+>(values: Values) {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: Each input position becomes its own literal schema; Array.map preserves the tuple's order and length.
   const elements = values.map((value) =>
-    Schema.Literal(value),
-  ) as unknown as LiteralSchemas<Values>;
+    Schema.Literal(value)
+  ) as LiteralSchemas<Values>;
+
   return Schema.Tuple(elements);
-}
+};
 
-function requestDescriptorFor(intent: InspectionIntent) {
+const requestDescriptorFor = function requestDescriptorFor(
+  intent: InspectionIntent
+) {
   const descriptor = INSPECTION_REQUEST_DESCRIPTORS.find(
-    (candidate) => candidate.intent === intent,
+    (candidate) => candidate.intent === intent
   );
-  if (descriptor === undefined) {
-    throw new Error(`Request schema "${intent}" is missing its derived descriptor.`);
-  }
-  return descriptor;
-}
 
-function requestDescriptorSchema<
+  if (descriptor === undefined) {
+    throw new Error(
+      `Request schema "${intent}" is missing its derived descriptor.`
+    );
+  }
+
+  return descriptor;
+};
+
+const requestFieldDescriptorTuple = function requestFieldDescriptorTuple<
+  const FieldNames extends readonly string[],
+>(fieldNames: FieldNames) {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: Every name is mapped to its corresponding field descriptor schema without reordering or dropping entries.
+  const elements = fieldNames.map((name) =>
+    inspectionRequestFieldDescriptorFor(Schema.Literal(name))
+  ) as FieldDescriptorSchemas<FieldNames>;
+
+  return Schema.Tuple(elements);
+};
+
+const requestDescriptorSchema = function requestDescriptorSchema<
   const Intent extends InspectionIntent,
   RequestSchema extends Schema.Struct<Schema.Struct.Fields>,
-  const FieldNames extends readonly Extract<keyof RequestSchema["fields"], string>[],
+  const FieldNames extends readonly Extract<
+    keyof RequestSchema["fields"],
+    string
+  >[],
 >(intent: Intent, requestSchema: RequestSchema, fieldNames: FieldNames) {
   const expected = requestDescriptorFor(intent);
+
   if (!isDeepStrictEqual(fieldNames, Object.keys(requestSchema.fields))) {
-    throw new Error(`Request schema "${intent}" has inconsistent ordered field metadata.`);
+    throw new Error(
+      `Request schema "${intent}" has inconsistent ordered field metadata.`
+    );
   }
+
   const descriptorSchema = Schema.Struct({
-    intent: Schema.Literal(intent),
-    fields: requestFieldDescriptorTuple(fieldNames).check(
-      Schema.makeFilter((fields) => isDeepStrictEqual(fields, expected.fields), {
-        expected: `the schema-derived ${intent} field descriptors`,
-      }),
-    ),
     example: Schema.toEncoded(requestSchema),
+    fields: requestFieldDescriptorTuple(fieldNames).check(
+      Schema.makeFilter(
+        (fields) => isDeepStrictEqual(fields, expected.fields),
+        {
+          expected: `the schema-derived ${intent} field descriptors`,
+        }
+      )
+    ),
+    intent: Schema.Literal(intent),
   });
+
   return descriptorSchema.check(
     Schema.makeFilter((descriptor) => isDeepStrictEqual(descriptor, expected), {
       expected: `the canonical ${intent} request descriptor`,
-    }),
+    })
   );
-}
+};
 
 type FieldDescriptorSchemas<FieldNames extends readonly string[]> = {
   readonly [Index in keyof FieldNames]: Schema.Codec<
@@ -84,144 +116,150 @@ type FieldDescriptorSchemas<FieldNames extends readonly string[]> = {
   >;
 };
 
-function requestFieldDescriptorTuple<const FieldNames extends readonly string[]>(
-  fieldNames: FieldNames,
-) {
-  const elements = fieldNames.map((name) =>
-    inspectionRequestFieldDescriptorFor(Schema.Literal(name)),
-  ) as unknown as FieldDescriptorSchemas<FieldNames>;
-  return Schema.Tuple(elements);
-}
-
 const requestDescriptorsSchema = Schema.Tuple([
   requestDescriptorSchema(
     "interface-overview",
     inspectionRequestSchemas["interface-overview"],
-    inspectionRequestFieldNames["interface-overview"],
+    inspectionRequestFieldNames["interface-overview"]
   ),
   requestDescriptorSchema(
     "export-inspection",
     inspectionRequestSchemas["export-inspection"],
-    inspectionRequestFieldNames["export-inspection"],
+    inspectionRequestFieldNames["export-inspection"]
   ),
   requestDescriptorSchema(
     "signature-inspection",
     inspectionRequestSchemas["signature-inspection"],
-    inspectionRequestFieldNames["signature-inspection"],
+    inspectionRequestFieldNames["signature-inspection"]
   ),
   requestDescriptorSchema(
     "export-search",
     inspectionRequestSchemas["export-search"],
-    inspectionRequestFieldNames["export-search"],
+    inspectionRequestFieldNames["export-search"]
   ),
   requestDescriptorSchema(
     "public-subpath-discovery",
     inspectionRequestSchemas["public-subpath-discovery"],
-    inspectionRequestFieldNames["public-subpath-discovery"],
+    inspectionRequestFieldNames["public-subpath-discovery"]
   ),
   requestDescriptorSchema(
     "declaration-inspection",
     inspectionRequestSchemas["declaration-inspection"],
-    inspectionRequestFieldNames["declaration-inspection"],
+    inspectionRequestFieldNames["declaration-inspection"]
   ),
   requestDescriptorSchema(
     "member-inspection",
     inspectionRequestSchemas["member-inspection"],
-    inspectionRequestFieldNames["member-inspection"],
+    inspectionRequestFieldNames["member-inspection"]
   ),
   requestDescriptorSchema(
     "member-discovery",
     inspectionRequestSchemas["member-discovery"],
-    inspectionRequestFieldNames["member-discovery"],
+    inspectionRequestFieldNames["member-discovery"]
   ),
   requestDescriptorSchema(
     "inspection-plan",
     inspectionRequestSchemas["inspection-plan"],
-    inspectionRequestFieldNames["inspection-plan"],
+    inspectionRequestFieldNames["inspection-plan"]
   ),
   requestDescriptorSchema(
     "public-interface-comparison",
     inspectionRequestSchemas["public-interface-comparison"],
-    inspectionRequestFieldNames["public-interface-comparison"],
+    inspectionRequestFieldNames["public-interface-comparison"]
   ),
 ]);
+
 const responseOptionSchema = Schema.Struct({
-  name: Schema.Literal("signatureEvidence"),
   appliesTo: literalTupleSchema(SIGNATURE_EVIDENCE_INTENTS),
-  values: literalTupleSchema(signatureEvidenceKindSchema.literals),
   default: Schema.Literal("structured"),
+  name: Schema.Literal("signatureEvidence"),
+  values: literalTupleSchema(signatureEvidenceKindSchema.literals),
 });
+
 const inspectionCapabilitiesBaseSchema = Schema.Struct({
-  intent: Schema.Literal("capabilities"),
-  protocolVersion: Schema.Literal(INSPECTION_PROTOCOL_VERSION),
-  supportedProtocolVersions: Schema.Tuple([Schema.Literal(INSPECTION_PROTOCOL_VERSION)]),
-  supportedIntents: literalTupleSchema(inspectionIntentSchema.literals),
-  failureReasons: literalTupleSchema(INSPECTION_FAILURE_REASONS),
   budgetDimensions: literalTupleSchema(INSPECTION_BUDGET_DIMENSIONS),
+  failureReasons: literalTupleSchema(INSPECTION_FAILURE_REASONS),
+  intent: Schema.Literal("capabilities"),
+  limits: Schema.Struct({
+    maxRecoveryBytes: protocolRecoveryPolicySchema.fields.maximumBytes,
+    maxRecoveryEntries: protocolRecoveryPolicySchema.fields.maximumEntries,
+    maxSerializedBytes: Schema.Literal(MAX_INSPECTION_CAPABILITIES_BYTES),
+  }),
+  protocolVersion: Schema.Literal(INSPECTION_PROTOCOL_VERSION),
   recoveryReasons: literalTupleSchema(PROTOCOL_RECOVERY_REASONS),
   requestDescriptors: requestDescriptorsSchema,
   responseOptions: Schema.Tuple([responseOptionSchema]),
-  limits: Schema.Struct({
-    maxSerializedBytes: Schema.Literal(MAX_INSPECTION_CAPABILITIES_BYTES),
-    maxRecoveryEntries: protocolRecoveryPolicySchema.fields.maximumEntries,
-    maxRecoveryBytes: protocolRecoveryPolicySchema.fields.maximumBytes,
-  }),
+  supportedIntents: literalTupleSchema(inspectionIntentSchema.literals),
+  supportedProtocolVersions: Schema.Tuple([
+    Schema.Literal(INSPECTION_PROTOCOL_VERSION),
+  ]),
 });
 
-export const inspectionCapabilitiesSchema = inspectionCapabilitiesBaseSchema.check(
-  Schema.makeFilter(hasBoundedSerializedSize, {
-    expected: `capabilities serialized within ${MAX_INSPECTION_CAPABILITIES_BYTES} bytes`,
-  }),
-);
+const hasBoundedSerializedSize = function hasBoundedSerializedSize(
+  value: typeof inspectionCapabilitiesBaseSchema.Type
+): boolean {
+  try {
+    return (
+      Buffer.byteLength(JSON.stringify(value)) <=
+      MAX_INSPECTION_CAPABILITIES_BYTES
+    );
+  } catch {
+    return false;
+  }
+};
+
+export const inspectionCapabilitiesSchema =
+  inspectionCapabilitiesBaseSchema.check(
+    Schema.makeFilter(hasBoundedSerializedSize, {
+      expected: `capabilities serialized within ${MAX_INSPECTION_CAPABILITIES_BYTES} bytes`,
+    })
+  );
+
 export type InspectionCapabilities = typeof inspectionCapabilitiesSchema.Type;
 
 const REQUEST_DESCRIPTORS = Schema.decodeUnknownSync(requestDescriptorsSchema)(
-  INSPECTION_REQUEST_DESCRIPTORS,
+  INSPECTION_REQUEST_DESCRIPTORS
 );
+
+const deepFreeze = function deepFreeze<Value>(value: Value): Readonly<Value> {
+  if (!Predicate.isObjectOrArray(value) || Object.isFrozen(value)) {
+    return value;
+  }
+
+  for (const child of Object.values(value)) {
+    deepFreeze(child);
+  }
+
+  return Object.freeze(value);
+};
+
 const CAPABILITIES = deepFreeze(
   Schema.decodeSync(inspectionCapabilitiesSchema)({
-    intent: "capabilities",
-    protocolVersion: INSPECTION_PROTOCOL_VERSION,
-    supportedProtocolVersions: [INSPECTION_PROTOCOL_VERSION],
-    supportedIntents: INSPECTION_INTENTS,
-    failureReasons: INSPECTION_FAILURE_REASONS,
     budgetDimensions: INSPECTION_BUDGET_DIMENSIONS,
+    failureReasons: INSPECTION_FAILURE_REASONS,
+    intent: "capabilities",
+    limits: {
+      maxRecoveryBytes: PROTOCOL_RECOVERY_POLICY.maximumBytes,
+      maxRecoveryEntries: PROTOCOL_RECOVERY_POLICY.maximumEntries,
+      maxSerializedBytes: MAX_INSPECTION_CAPABILITIES_BYTES,
+    },
+    protocolVersion: INSPECTION_PROTOCOL_VERSION,
     recoveryReasons: PROTOCOL_RECOVERY_REASONS,
     requestDescriptors: REQUEST_DESCRIPTORS,
     responseOptions: [
       {
-        name: "signatureEvidence",
         appliesTo: SIGNATURE_EVIDENCE_INTENTS,
-        values: signatureEvidenceKindSchema.literals,
         default: "structured",
+        name: "signatureEvidence",
+        values: signatureEvidenceKindSchema.literals,
       },
     ],
-    limits: {
-      maxSerializedBytes: MAX_INSPECTION_CAPABILITIES_BYTES,
-      maxRecoveryEntries: PROTOCOL_RECOVERY_POLICY.maximumEntries,
-      maxRecoveryBytes: PROTOCOL_RECOVERY_POLICY.maximumBytes,
-    },
-  }),
+    supportedIntents: INSPECTION_INTENTS,
+    supportedProtocolVersions: [INSPECTION_PROTOCOL_VERSION],
+  })
 );
 
-export function inspectCapabilities(): InspectionCapabilities {
-  return CAPABILITIES;
-}
-
-function hasBoundedSerializedSize(value: unknown): boolean {
-  try {
-    return Buffer.byteLength(JSON.stringify(value)) <= MAX_INSPECTION_CAPABILITIES_BYTES;
-  } catch {
-    return false;
-  }
-}
-
-function deepFreeze<Value>(value: Value): Readonly<Value> {
-  if (typeof value !== "object" || value === null || Object.isFrozen(value)) {
-    return value;
-  }
-  for (const child of Object.values(value)) {
-    deepFreeze(child);
-  }
-  return Object.freeze(value);
-}
+export const inspectCapabilities =
+  function inspectCapabilities(): InspectionCapabilities {
+    return CAPABILITIES;
+  };

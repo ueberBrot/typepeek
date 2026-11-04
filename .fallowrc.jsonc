@@ -5,36 +5,30 @@
   // roots cover build adapters and repository-only executables.
   "entry": [
     "tests/benchmark-package-smoke.ts",
-    "tests/fixtures/codex-app-server.mjs",
+    "tests/fixtures/codex-app-server.ts",
     "benchmarks/codex-discovery/run.ts",
     "benchmarks/codex-discovery/capture.ts",
     "benchmarks/codex-discovery/replay.ts",
-    "src/inspection/analysis-process-entry.ts",
     "src/inspection/compiler-runtime.ts",
     "src/inspection/performance-profile-disabled.ts",
     "taze.config.ts",
     "tests/build-output-smoke.ts",
-    "tests/package-output-smoke.ts"
+    "tests/package-output-smoke.ts",
   ],
 
   // Fallow cannot detect these tools in Vite+ tasks. Remove exceptions when
   // source imports make the dependencies discoverable.
   "ignoreDependencies": [
-    "@arethetypeswrong/core",
-    "@effect/tsgo",
-    "@typescript/typescript6",
     // Used only by benchmark executables, not the published CLI.
     "gpt-tokenizer",
-    "publint",
-    "unplugin-unused"
   ],
 
   // Score runtime health separately; the other checks also cover tests and benchmarks.
   "health": {
-    "ignore": ["benchmarks/**", "tests/**", "vite.config.ts", "taze.config.ts"]
+    "ignore": ["benchmarks/**", "tests/**", "vite.config.ts", "taze.config.ts"],
   },
 
   "rules": {
-    "private-type-leaks": "error"
-  }
+    "private-type-leaks": "error",
+  },
 }

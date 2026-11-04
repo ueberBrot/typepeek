@@ -1,45 +1,55 @@
 import ts from "@typescript/typescript6";
 
-import { InspectionLimitError, UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import {
-  type FocusedExportResolution,
-  resolveFocusedExport,
-} from "#typepeek/inspection/focused-export";
+  InspectionLimitError,
+  UnsupportedInspectionError,
+} from "#typepeek/inspection/errors";
+import type { FocusedExportResolution } from "#typepeek/inspection/focused-export";
+import { resolveFocusedExport } from "#typepeek/inspection/focused-export";
 import type { InspectableModuleEvidence } from "#typepeek/inspection/installed-evidence";
 import type {
   ExportSignature,
   InspectedSignature,
-  SignatureInspection,
   SignatureBinding,
+  SignatureInspection,
   SignatureParameter,
   SignatureReturn,
   SignatureTypeParameter,
   SignatureTypeParameterModifier,
 } from "#typepeek/inspection/protocol";
-import { type InspectionResultConstruction } from "#typepeek/inspection/result-construction";
+import type { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
+import { bitwiseAnd, bitwiseOr } from "#typepeek/integer-bits";
 
 const MAX_SIGNATURES = 64;
-const MAX_SIGNATURE_BYTES = 16 * 1_024;
-const MAX_SIGNATURE_TOTAL_BYTES = 48 * 1_024;
+const MAX_SIGNATURE_BYTES = 16 * 1024;
+const MAX_SIGNATURE_TOTAL_BYTES = 48 * 1024;
 const MAX_SIGNATURE_PARAMETERS = 256;
 const MAX_SIGNATURE_TYPE_PARAMETERS = 64;
+
 const signatureConstraintPrinter = ts.createPrinter({
   newLine: ts.NewLineKind.LineFeed,
   removeComments: true,
 });
+
 // getTypeFromTypeNode needs parsed syntax for the empty argument tuple.
 // This node is used only for type checking; it is neither loaded nor returned as evidence.
-const EMPTY_ARGUMENTS_DECLARATION = ts.createSourceFile(
+const [EMPTY_ARGUMENTS_DECLARATION] = ts.createSourceFile(
   "typepeek-empty-arguments.d.ts",
   "type EmptyArguments = [];",
   ts.ScriptTarget.Latest,
-  true,
-).statements[0];
-const SIGNATURE_TYPE_FORMAT_FLAGS =
-  ts.TypeFormatFlags.NoTruncation |
-  ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope |
-  ts.TypeFormatFlags.NoTypeReduction |
-  ts.TypeFormatFlags.UseSingleQuotesForStringLiteralType;
+  true
+).statements;
+
+const SIGNATURE_TYPE_FORMAT_FLAGS = bitwiseOr(
+  bitwiseOr(
+    bitwiseOr(
+      ts.TypeFormatFlags.NoTruncation,
+      ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope
+    ),
+    ts.TypeFormatFlags.NoTypeReduction
+  ),
+  ts.TypeFormatFlags.UseSingleQuotesForStringLiteralType
+);
 
 interface SignatureCandidate {
   readonly compilerOrder: number;
@@ -56,370 +66,97 @@ interface SignatureProjection<Value> {
   readonly serializeForBudget: (value: Value) => string;
 }
 
-/** Produces a focused result without declaration or Supporting Type traversal. */
-export function inspectModuleExportSignatures(
-  evidence: InspectableModuleEvidence,
-  exportName: string,
-  constructionOwner: InspectionResultConstruction,
-): SignatureInspection | undefined {
-  const resolution = resolveFocusedExport(evidence.checker, evidence.moduleSymbol, exportName);
-  if (resolution === undefined) {
-    return undefined;
-  }
-
-  const construction = constructionOwner.signatures();
-  const signatures = inspectResolvedExportSignatureDetails(evidence.checker, resolution, (value) =>
-    construction.signature(value),
-  );
-  const moduleExport = construction.moduleExport(
-    resolution.exportedSymbol.getName(),
-    resolution.aliasTargetName,
-    signatures,
-  );
-  return construction.result(moduleExport);
-}
-
-export function inspectResolvedExportSignatures(
-  checker: ts.TypeChecker,
-  resolution: FocusedExportResolution,
-  retainSignature: (value: ExportSignature) => ExportSignature,
-): readonly ExportSignature[] {
-  return inspectBoundedSignatures(checker, resolution, {
-    project: ({ kind, signature, signatureKind }) => ({
-      kind,
-      text: checker.signatureToString(
-        signature,
-        signature.getDeclaration(),
-        SIGNATURE_TYPE_FORMAT_FLAGS,
-        signatureKind,
-      ),
-    }),
-    retain: retainSignature,
-    serializeForBudget: ({ text }) => text,
-  });
-}
-
-function inspectResolvedExportSignatureDetails(
-  checker: ts.TypeChecker,
-  resolution: FocusedExportResolution,
-  retainSignature: RetainSignature<InspectedSignature>,
-): readonly InspectedSignature[] {
-  return inspectBoundedSignatures(checker, resolution, {
-    project: ({ kind, signature, signatureKind }) =>
-      inspectSignatureDetails(checker, kind, signature, signatureKind),
-    retain: retainSignature,
-    serializeForBudget: (signature) => JSON.stringify(signature),
-  });
-}
-
-function inspectBoundedSignatures<Value>(
-  checker: ts.TypeChecker,
-  resolution: FocusedExportResolution,
-  projection: SignatureProjection<Value>,
-): readonly Value[] {
-  let totalBytes = 0;
-  return orderedSignatureCandidates(checker, resolution).map((candidate) => {
-    const inspectedSignature = projection.project(candidate);
-    const signatureBytes = Buffer.byteLength(projection.serializeForBudget(inspectedSignature));
-    totalBytes += signatureBytes;
-    if (signatureBytes > MAX_SIGNATURE_BYTES || totalBytes > MAX_SIGNATURE_TOTAL_BYTES) {
-      throw new InspectionLimitError(
-        "signature-bytes",
-        "Inspection exceeded its Module Export signature byte limit.",
-      );
-    }
-    return projection.retain(inspectedSignature);
-  });
-}
-
-function orderedSignatureCandidates(
-  checker: ts.TypeChecker,
-  resolution: FocusedExportResolution,
-): SignatureCandidate[] {
-  const symbol = resolution.targetSymbol;
-  const declaration = signatureDeclaration(symbol);
-  if (declaration === undefined) {
-    return [];
-  }
-  const type = signatureType(checker, symbol, declaration, resolution.valueAccessible);
-  const candidates: SignatureCandidate[] = [];
-  appendSignatureCandidates(candidates, checker, type, ts.SignatureKind.Call, "call");
-  appendSignatureCandidates(candidates, checker, type, ts.SignatureKind.Construct, "construct");
-  const sourceOrder = declarationSourceOrder(symbol, type);
-  candidates.sort((left, right) => compareSignatureCandidates(left, right, sourceOrder));
-  return candidates;
-}
-
-function inspectSignatureDetails(
-  checker: ts.TypeChecker,
-  kind: InspectedSignature["kind"],
-  signature: ts.Signature,
-  signatureKind: ts.SignatureKind,
-): InspectedSignature {
-  const declaration = signature.getDeclaration();
-  const parameters = signature.getParameters();
-  const typeParameters = signature.getTypeParameters() ?? [];
-  if (parameters.length > MAX_SIGNATURE_PARAMETERS) {
-    throw new InspectionLimitError(
-      "signature-parameters",
-      "Inspection exceeded its signature parameter limit.",
-    );
-  }
-  if (typeParameters.length > MAX_SIGNATURE_TYPE_PARAMETERS) {
-    throw new InspectionLimitError(
-      "signature-type-parameters",
-      "Inspection exceeded its signature type parameter limit.",
-    );
-  }
-  return {
-    kind,
-    text: checker.signatureToString(
-      signature,
-      declaration,
-      SIGNATURE_TYPE_FORMAT_FLAGS,
-      signatureKind,
-    ),
-    typeParameters: typeParameters.map((item) =>
-      inspectSignatureTypeParameter(checker, item, declaration),
-    ),
-    ...(signature.thisParameter === undefined
-      ? {}
-      : {
-          thisParameter: {
-            type: renderSymbolType(checker, signature.thisParameter, declaration),
-          },
-        }),
-    parameters: parameters.map((item) => inspectSignatureParameter(checker, item, declaration)),
-    returns: inspectSignatureReturn(checker, signature, declaration),
-  };
-}
-
-function inspectSignatureParameter(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol,
-  enclosingDeclaration: ts.SignatureDeclaration,
-): SignatureParameter {
-  const declaration = findParameterDeclaration(symbol);
-  const location = declaration ?? enclosingDeclaration;
-  const parameterType = checker.getTypeOfSymbolAtLocation(symbol, location);
-  const rest = declaration?.dotDotDotToken !== undefined;
-  return {
-    binding: inspectSignatureBinding(symbol, declaration),
-    type: renderSignatureType(checker, parameterType, location),
-    optional: rest
-      ? restParameterMayBeOmitted(checker, parameterType)
-      : declaration === undefined
-        ? (symbol.flags & ts.SymbolFlags.Optional) !== 0
-        : checker.isOptionalParameter(declaration),
-    rest,
-  };
-}
-
-function restParameterMayBeOmitted(checker: ts.TypeChecker, type: ts.Type): boolean {
-  if (
-    EMPTY_ARGUMENTS_DECLARATION === undefined ||
-    !ts.isTypeAliasDeclaration(EMPTY_ARGUMENTS_DECLARATION)
-  ) {
-    throw new UnsupportedInspectionError("The compiler could not describe an empty argument list.");
-  }
-  const emptyArguments = checker.getTypeFromTypeNode(EMPTY_ARGUMENTS_DECLARATION.type);
-  if (!checker.isTupleType(emptyArguments)) {
-    throw new UnsupportedInspectionError("The compiler could not describe an empty argument list.");
-  }
-  return checker.isTypeAssignableTo(emptyArguments, checker.getBaseConstraintOfType(type) ?? type);
-}
-
-function inspectSignatureBinding(
-  symbol: ts.Symbol,
-  declaration: ts.ParameterDeclaration | undefined,
-): SignatureBinding {
-  if (declaration === undefined) {
-    return { kind: "identifier", name: symbol.getName(), synthetic: true };
-  }
-  return ts.isIdentifier(declaration.name)
-    ? { kind: "identifier", name: declaration.name.text, synthetic: false }
-    : { kind: "pattern", text: declaration.name.getText(declaration.getSourceFile()) };
-}
-
-function findParameterDeclaration(symbol: ts.Symbol): ts.ParameterDeclaration | undefined {
-  const declaration = symbol.valueDeclaration ?? symbol.declarations?.find(ts.isParameter);
-  return declaration !== undefined && ts.isParameter(declaration) ? declaration : undefined;
-}
-
-function renderSymbolType(checker: ts.TypeChecker, symbol: ts.Symbol, location: ts.Node): string {
-  return renderSignatureType(
-    checker,
-    checker.getTypeOfSymbolAtLocation(symbol, location),
-    location,
-  );
-}
-
-function inspectSignatureTypeParameter(
-  checker: ts.TypeChecker,
-  typeParameter: ts.TypeParameter,
-  enclosingDeclaration: ts.SignatureDeclaration,
-): SignatureTypeParameter {
-  const declaration = typeParameter.symbol?.declarations?.find(ts.isTypeParameterDeclaration);
-  const location = declaration ?? enclosingDeclaration;
-  return {
-    name: signatureTypeParameterName(checker, typeParameter, declaration, location),
-    modifiers: inspectTypeParameterModifiers(declaration),
-    ...signatureTypeParameterConstraint(checker, typeParameter, declaration, location),
-    ...signatureTypeParameterDefault(checker, typeParameter, location),
-    synthetic: declaration === undefined,
-  };
-}
-
-function signatureTypeParameterName(
-  checker: ts.TypeChecker,
-  typeParameter: ts.TypeParameter,
-  declaration: ts.TypeParameterDeclaration | undefined,
-  location: ts.Node,
-): string {
-  return (
-    declaration?.name.text ??
-    typeParameter.symbol?.getName() ??
-    renderSignatureType(checker, typeParameter, location)
-  );
-}
-
-function signatureTypeParameterConstraint(
-  checker: ts.TypeChecker,
-  typeParameter: ts.TypeParameter,
-  declaration: ts.TypeParameterDeclaration | undefined,
-  location: ts.Node,
-): Partial<Pick<SignatureTypeParameter, "constraint">> {
-  if (declaration !== undefined && checker.getTypeAtLocation(declaration) === typeParameter) {
-    return declaration.constraint === undefined
-      ? {}
-      : { constraint: declaration.constraint.getText(declaration.getSourceFile()) };
-  }
-  // Project the immediate constraint after substitution. The base constraint
-  // would erase references to other type parameters in this same signature.
-  const projected = checker.typeParameterToDeclaration(
-    typeParameter,
-    location,
-    ts.NodeBuilderFlags.NoTruncation |
-      ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope |
-      ts.NodeBuilderFlags.NoTypeReduction |
-      ts.NodeBuilderFlags.UseSingleQuotesForStringLiteralType,
-  );
-  if (projected === undefined) {
-    throw new UnsupportedInspectionError("A signature type parameter could not be represented.");
-  }
-  return projected.constraint === undefined
-    ? {}
-    : {
-        constraint: signatureConstraintPrinter.printNode(
-          ts.EmitHint.Unspecified,
-          projected.constraint,
-          location.getSourceFile(),
-        ),
-      };
-}
-
-function signatureTypeParameterDefault(
-  checker: ts.TypeChecker,
-  typeParameter: ts.TypeParameter,
-  location: ts.Node,
-): Partial<Pick<SignatureTypeParameter, "default">> {
-  const defaultType =
-    typeParameter.getDefault() ?? checker.getDefaultFromTypeParameter(typeParameter);
-  return defaultType === undefined
-    ? {}
-    : { default: renderSignatureType(checker, defaultType, location) };
-}
-
-function inspectTypeParameterModifiers(
-  declaration: ts.TypeParameterDeclaration | undefined,
-): readonly SignatureTypeParameterModifier[] {
-  return (declaration?.modifiers ?? []).flatMap((modifier) => {
-    switch (modifier.kind) {
-      case ts.SyntaxKind.ConstKeyword:
-        return ["const"];
-      case ts.SyntaxKind.InKeyword:
-        return ["in"];
-      case ts.SyntaxKind.OutKeyword:
-        return ["out"];
-      default:
-        return [];
-    }
-  });
-}
-
-function inspectSignatureReturn(
-  checker: ts.TypeChecker,
-  signature: ts.Signature,
-  declaration: ts.SignatureDeclaration,
-): SignatureReturn {
-  const predicate = checker.getTypePredicateOfSignature(signature);
-  if (predicate === undefined) {
-    return {
-      kind: "type",
-      type: renderSignatureType(checker, checker.getReturnTypeOfSignature(signature), declaration),
-    };
-  }
-  const parameter =
-    predicate.kind === ts.TypePredicateKind.This ||
-    predicate.kind === ts.TypePredicateKind.AssertsThis
-      ? "this"
-      : predicate.parameterName;
-  if (
-    predicate.kind === ts.TypePredicateKind.AssertsThis ||
-    predicate.kind === ts.TypePredicateKind.AssertsIdentifier
-  ) {
-    return {
-      kind: "assertion",
-      parameter,
-      ...(predicate.type === undefined
-        ? {}
-        : { type: renderSignatureType(checker, predicate.type, declaration) }),
-    };
-  }
-  return {
-    kind: "predicate",
-    parameter,
-    type: renderSignatureType(checker, predicate.type, declaration),
-  };
-}
-
-function renderSignatureType(checker: ts.TypeChecker, type: ts.Type, location: ts.Node): string {
-  return checker.typeToString(type, location, SIGNATURE_TYPE_FORMAT_FLAGS);
-}
-
-function signatureDeclaration(symbol: ts.Symbol): ts.Declaration | undefined {
+const signatureDeclaration = function signatureDeclaration(
+  symbol: ts.Symbol
+): ts.Declaration | undefined {
   return symbol.valueDeclaration ?? symbol.declarations?.[0];
-}
+};
 
-function signatureType(
+const signatureType = function signatureType(
   checker: ts.TypeChecker,
   symbol: ts.Symbol,
   declaration: ts.Declaration,
-  valueAccessible: boolean,
+  valueAccessible: boolean
 ): ts.Type {
   return valueAccessible
     ? checker.getTypeOfSymbolAtLocation(symbol, declaration)
     : checker.getDeclaredTypeOfSymbol(symbol);
-}
+};
 
-function appendSignatureCandidates(
+const hasAnyModifier = function hasAnyModifier(
+  node: ts.Node,
+  kinds: readonly ts.SyntaxKind[]
+): boolean {
+  return (
+    (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some(
+      ({ kind }) => kinds.includes(kind)
+    ) ?? false
+  );
+};
+
+const abstractConstructorDeclaration = function abstractConstructorDeclaration(
+  declaration: ts.SignatureDeclaration
+): boolean {
+  if (ts.isConstructorTypeNode(declaration)) {
+    return hasAnyModifier(declaration, [ts.SyntaxKind.AbstractKeyword]);
+  }
+
+  if (ts.isConstructorDeclaration(declaration)) {
+    return hasAnyModifier(declaration.parent, [ts.SyntaxKind.AbstractKeyword]);
+  }
+
+  return ts.isClassDeclaration(declaration)
+    ? hasAnyModifier(declaration, [ts.SyntaxKind.AbstractKeyword])
+    : false;
+};
+
+const isPublicConstructorSignature = function isPublicConstructorSignature(
+  signature: ts.Signature
+): boolean {
+  const declaration = signature.getDeclaration();
+
+  if (declaration === undefined) {
+    return true;
+  }
+
+  if (abstractConstructorDeclaration(declaration)) {
+    return false;
+  }
+
+  if (!ts.isConstructorDeclaration(declaration)) {
+    return true;
+  }
+
+  return !hasAnyModifier(declaration, [
+    ts.SyntaxKind.PrivateKeyword,
+    ts.SyntaxKind.ProtectedKeyword,
+  ]);
+};
+
+const appendSignatureCandidates = function appendSignatureCandidates(
   candidates: SignatureCandidate[],
   checker: ts.TypeChecker,
   type: ts.Type,
   signatureKind: ts.SignatureKind,
-  kind: ExportSignature["kind"],
+  kind: ExportSignature["kind"]
 ): void {
   const signatures = checker.getSignaturesOfType(type, signatureKind);
+
   for (const [compilerOrder, signature] of signatures.entries()) {
-    if (signatureKind === ts.SignatureKind.Construct && !isPublicConstructorSignature(signature)) {
+    if (
+      signatureKind === ts.SignatureKind.Construct &&
+      !isPublicConstructorSignature(signature)
+    ) {
       continue;
     }
+
     if (candidates.length >= MAX_SIGNATURES) {
       throw new InspectionLimitError(
         "signatures",
-        "Inspection exceeded its Module Export signature limit.",
+        "Inspection exceeded its Module Export signature limit."
       );
     }
+
     candidates.push({
       compilerOrder,
       kind,
@@ -427,85 +164,541 @@ function appendSignatureCandidates(
       signatureKind,
     });
   }
-}
+};
 
-function isPublicConstructorSignature(signature: ts.Signature): boolean {
-  const declaration = signature.getDeclaration();
-  if (declaration === undefined) {
-    return true;
-  }
-  if (abstractConstructorDeclaration(declaration)) {
-    return false;
-  }
-  if (!ts.isConstructorDeclaration(declaration)) {
-    return true;
-  }
-  return !hasAnyModifier(declaration, [
-    ts.SyntaxKind.PrivateKeyword,
-    ts.SyntaxKind.ProtectedKeyword,
-  ]);
-}
+const symbolDeclarations = function symbolDeclarations(
+  symbol: ts.Symbol | undefined
+): readonly ts.Declaration[] {
+  return symbol?.declarations ?? [];
+};
 
-function abstractConstructorDeclaration(declaration: ts.SignatureDeclaration): boolean {
-  if (ts.isConstructorTypeNode(declaration)) {
-    return hasAnyModifier(declaration, [ts.SyntaxKind.AbstractKeyword]);
-  }
-  if (ts.isConstructorDeclaration(declaration)) {
-    return hasAnyModifier(declaration.parent, [ts.SyntaxKind.AbstractKeyword]);
-  }
-  return ts.isClassDeclaration(declaration)
-    ? hasAnyModifier(declaration, [ts.SyntaxKind.AbstractKeyword])
-    : false;
-}
-
-function hasAnyModifier(node: ts.Node, kinds: readonly ts.SyntaxKind[]): boolean {
-  return (
-    (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some(({ kind }) =>
-      kinds.includes(kind),
-    ) ?? false
-  );
-}
-
-function declarationSourceOrder(symbol: ts.Symbol, type: ts.Type): ReadonlyMap<string, number> {
+const declarationSourceOrder = function declarationSourceOrder(
+  symbol: ts.Symbol,
+  type: ts.Type
+): ReadonlyMap<string, number> {
   // TypeScript preserves order within one source file but can interleave
   // signatures from merged declarations. Rank their source files explicitly.
-  const declarations = [...symbolDeclarations(symbol), ...symbolDeclarations(type.symbol)];
-  const sources = declarations.map((declaration) => declaration.getSourceFile().fileName);
-  return new Map(Array.from(new Set(sources), (source, index) => [source, index]));
-}
+  const declarations = [
+    ...symbolDeclarations(symbol),
+    ...symbolDeclarations(type.symbol),
+  ];
 
-function symbolDeclarations(symbol: ts.Symbol | undefined): readonly ts.Declaration[] {
-  return symbol?.declarations ?? [];
-}
+  const sources = declarations.map(
+    (declaration) => declaration.getSourceFile().fileName
+  );
 
-function compareSignatureCandidates(
-  left: SignatureCandidate,
-  right: SignatureCandidate,
-  sourceOrder: ReadonlyMap<string, number>,
-): number {
-  const leftDeclaration = left.signature.getDeclaration();
-  const rightDeclaration = right.signature.getDeclaration();
-  const sameSourceOrder = comparePositionsInSameSource(leftDeclaration, rightDeclaration);
-  if (sameSourceOrder !== undefined) {
-    return sameSourceOrder;
-  }
-  const sourceDifference =
-    sourceRank(sourceOrder, leftDeclaration) - sourceRank(sourceOrder, rightDeclaration);
-  return sourceDifference === 0 ? left.compilerOrder - right.compilerOrder : sourceDifference;
-}
+  return new Map(
+    Array.from(new Set(sources), (source, index) => [source, index])
+  );
+};
 
-function comparePositionsInSameSource(
+const comparePositionsInSameSource = function comparePositionsInSameSource(
   left: ts.SignatureDeclaration,
-  right: ts.SignatureDeclaration,
+  right: ts.SignatureDeclaration
 ): number | undefined {
   return left.getSourceFile() === right.getSourceFile()
     ? left.getStart() - right.getStart()
     : undefined;
-}
+};
 
-function sourceRank(
+const sourceRank = function sourceRank(
   sourceOrder: ReadonlyMap<string, number>,
-  declaration: ts.SignatureDeclaration,
+  declaration: ts.SignatureDeclaration
 ): number {
-  return sourceOrder.get(declaration.getSourceFile().fileName) ?? Number.MAX_SAFE_INTEGER;
-}
+  return (
+    sourceOrder.get(declaration.getSourceFile().fileName) ??
+    Number.MAX_SAFE_INTEGER
+  );
+};
+
+const compareSignatureCandidates = function compareSignatureCandidates(
+  left: SignatureCandidate,
+  right: SignatureCandidate,
+  sourceOrder: ReadonlyMap<string, number>
+): number {
+  const leftDeclaration = left.signature.getDeclaration();
+  const rightDeclaration = right.signature.getDeclaration();
+
+  const sameSourceOrder = comparePositionsInSameSource(
+    leftDeclaration,
+    rightDeclaration
+  );
+
+  if (sameSourceOrder !== undefined) {
+    return sameSourceOrder;
+  }
+
+  const sourceDifference =
+    sourceRank(sourceOrder, leftDeclaration) -
+    sourceRank(sourceOrder, rightDeclaration);
+
+  return sourceDifference === 0
+    ? left.compilerOrder - right.compilerOrder
+    : sourceDifference;
+};
+
+const orderedSignatureCandidates = function orderedSignatureCandidates(
+  checker: ts.TypeChecker,
+  resolution: FocusedExportResolution
+): SignatureCandidate[] {
+  const symbol = resolution.targetSymbol;
+  const declaration = signatureDeclaration(symbol);
+
+  if (declaration === undefined) {
+    return [];
+  }
+
+  const type = signatureType(
+    checker,
+    symbol,
+    declaration,
+    resolution.valueAccessible
+  );
+
+  const candidates: SignatureCandidate[] = [];
+  appendSignatureCandidates(
+    candidates,
+    checker,
+    type,
+    ts.SignatureKind.Call,
+    "call"
+  );
+  appendSignatureCandidates(
+    candidates,
+    checker,
+    type,
+    ts.SignatureKind.Construct,
+    "construct"
+  );
+  const sourceOrder = declarationSourceOrder(symbol, type);
+  candidates.sort((left, right) =>
+    compareSignatureCandidates(left, right, sourceOrder)
+  );
+
+  return candidates;
+};
+
+const inspectBoundedSignatures = function inspectBoundedSignatures<Value>(
+  checker: ts.TypeChecker,
+  resolution: FocusedExportResolution,
+  projection: SignatureProjection<Value>
+): readonly Value[] {
+  let totalBytes = 0;
+
+  return orderedSignatureCandidates(checker, resolution).map((candidate) => {
+    const inspectedSignature = projection.project(candidate);
+
+    const signatureBytes = Buffer.byteLength(
+      projection.serializeForBudget(inspectedSignature)
+    );
+
+    totalBytes += signatureBytes;
+
+    if (
+      signatureBytes > MAX_SIGNATURE_BYTES ||
+      totalBytes > MAX_SIGNATURE_TOTAL_BYTES
+    ) {
+      throw new InspectionLimitError(
+        "signature-bytes",
+        "Inspection exceeded its Module Export signature byte limit."
+      );
+    }
+
+    return projection.retain(inspectedSignature);
+  });
+};
+
+const renderSignatureType = function renderSignatureType(
+  checker: ts.TypeChecker,
+  type: ts.Type,
+  location: ts.Node
+): string {
+  return checker.typeToString(type, location, SIGNATURE_TYPE_FORMAT_FLAGS);
+};
+
+const signatureTypeParameterName = function signatureTypeParameterName(
+  checker: ts.TypeChecker,
+  typeParameter: ts.TypeParameter,
+  declaration: ts.TypeParameterDeclaration | undefined,
+  location: ts.Node
+): string {
+  return (
+    declaration?.name.text ??
+    typeParameter.symbol?.getName() ??
+    renderSignatureType(checker, typeParameter, location)
+  );
+};
+
+const inspectTypeParameterModifiers = function inspectTypeParameterModifiers(
+  declaration: ts.TypeParameterDeclaration | undefined
+): readonly SignatureTypeParameterModifier[] {
+  return (declaration?.modifiers ?? []).flatMap((modifier) => {
+    if (modifier.kind === ts.SyntaxKind.ConstKeyword) {
+      return ["const"];
+    }
+
+    if (modifier.kind === ts.SyntaxKind.InKeyword) {
+      return ["in"];
+    }
+
+    return modifier.kind === ts.SyntaxKind.OutKeyword ? ["out"] : [];
+  });
+};
+
+const signatureTypeParameterConstraint =
+  function signatureTypeParameterConstraint(
+    checker: ts.TypeChecker,
+    typeParameter: ts.TypeParameter,
+    declaration: ts.TypeParameterDeclaration | undefined,
+    location: ts.Node
+  ): Partial<Pick<SignatureTypeParameter, "constraint">> {
+    if (
+      declaration !== undefined &&
+      checker.getTypeAtLocation(declaration) === typeParameter
+    ) {
+      return declaration.constraint === undefined
+        ? {}
+        : {
+            constraint: declaration.constraint.getText(
+              declaration.getSourceFile()
+            ),
+          };
+    }
+
+    // Project the immediate constraint after substitution. The base constraint
+    // would erase references to other type parameters in this same signature.
+    const projected = checker.typeParameterToDeclaration(
+      typeParameter,
+      location,
+      bitwiseOr(
+        bitwiseOr(
+          bitwiseOr(
+            ts.NodeBuilderFlags.NoTruncation,
+            ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope
+          ),
+          ts.NodeBuilderFlags.NoTypeReduction
+        ),
+        ts.NodeBuilderFlags.UseSingleQuotesForStringLiteralType
+      )
+    );
+
+    if (projected === undefined) {
+      throw new UnsupportedInspectionError(
+        "A signature type parameter could not be represented."
+      );
+    }
+
+    return projected.constraint === undefined
+      ? {}
+      : {
+          constraint: signatureConstraintPrinter.printNode(
+            ts.EmitHint.Unspecified,
+            projected.constraint,
+            location.getSourceFile()
+          ),
+        };
+  };
+
+const signatureTypeParameterDefault = function signatureTypeParameterDefault(
+  checker: ts.TypeChecker,
+  typeParameter: ts.TypeParameter,
+  location: ts.Node
+): Partial<Pick<SignatureTypeParameter, "default">> {
+  const defaultType =
+    typeParameter.getDefault() ??
+    checker.getDefaultFromTypeParameter(typeParameter);
+
+  return defaultType === undefined
+    ? {}
+    : { default: renderSignatureType(checker, defaultType, location) };
+};
+
+const inspectSignatureTypeParameter = function inspectSignatureTypeParameter(
+  checker: ts.TypeChecker,
+  typeParameter: ts.TypeParameter,
+  enclosingDeclaration: ts.SignatureDeclaration
+): SignatureTypeParameter {
+  const declaration = typeParameter.symbol?.declarations?.find(
+    ts.isTypeParameterDeclaration
+  );
+
+  const location = declaration ?? enclosingDeclaration;
+
+  return {
+    modifiers: inspectTypeParameterModifiers(declaration),
+    name: signatureTypeParameterName(
+      checker,
+      typeParameter,
+      declaration,
+      location
+    ),
+    ...signatureTypeParameterConstraint(
+      checker,
+      typeParameter,
+      declaration,
+      location
+    ),
+    ...signatureTypeParameterDefault(checker, typeParameter, location),
+    synthetic: declaration === undefined,
+  };
+};
+
+const renderSymbolType = function renderSymbolType(
+  checker: ts.TypeChecker,
+  symbol: ts.Symbol,
+  location: ts.Node
+): string {
+  return renderSignatureType(
+    checker,
+    checker.getTypeOfSymbolAtLocation(symbol, location),
+    location
+  );
+};
+
+const findParameterDeclaration = function findParameterDeclaration(
+  symbol: ts.Symbol
+): ts.ParameterDeclaration | undefined {
+  const declaration =
+    symbol.valueDeclaration ?? symbol.declarations?.find(ts.isParameter);
+
+  return declaration !== undefined && ts.isParameter(declaration)
+    ? declaration
+    : undefined;
+};
+
+const inspectSignatureBinding = function inspectSignatureBinding(
+  symbol: ts.Symbol,
+  declaration: ts.ParameterDeclaration | undefined
+): SignatureBinding {
+  if (declaration === undefined) {
+    return { kind: "identifier", name: symbol.getName(), synthetic: true };
+  }
+
+  return ts.isIdentifier(declaration.name)
+    ? { kind: "identifier", name: declaration.name.text, synthetic: false }
+    : {
+        kind: "pattern",
+        text: declaration.name.getText(declaration.getSourceFile()),
+      };
+};
+
+const restParameterMayBeOmitted = function restParameterMayBeOmitted(
+  checker: ts.TypeChecker,
+  type: ts.Type
+): boolean {
+  if (
+    EMPTY_ARGUMENTS_DECLARATION === undefined ||
+    !ts.isTypeAliasDeclaration(EMPTY_ARGUMENTS_DECLARATION)
+  ) {
+    throw new UnsupportedInspectionError(
+      "The compiler could not describe an empty argument list."
+    );
+  }
+
+  const emptyArguments = checker.getTypeFromTypeNode(
+    EMPTY_ARGUMENTS_DECLARATION.type
+  );
+
+  if (!checker.isTupleType(emptyArguments)) {
+    throw new UnsupportedInspectionError(
+      "The compiler could not describe an empty argument list."
+    );
+  }
+
+  return checker.isTypeAssignableTo(
+    emptyArguments,
+    checker.getBaseConstraintOfType(type) ?? type
+  );
+};
+
+const inspectSignatureParameter = function inspectSignatureParameter(
+  checker: ts.TypeChecker,
+  symbol: ts.Symbol,
+  enclosingDeclaration: ts.SignatureDeclaration
+): SignatureParameter {
+  const declaration = findParameterDeclaration(symbol);
+  const location = declaration ?? enclosingDeclaration;
+  const parameterType = checker.getTypeOfSymbolAtLocation(symbol, location);
+  const rest = declaration?.dotDotDotToken !== undefined;
+
+  const readOptionalResult = () => {
+    if (rest) {
+      return restParameterMayBeOmitted(checker, parameterType);
+    }
+
+    if (declaration === undefined) {
+      return bitwiseAnd(symbol.flags, ts.SymbolFlags.Optional) !== 0;
+    }
+
+    return checker.isOptionalParameter(declaration);
+  };
+
+  const optionalResult = readOptionalResult();
+
+  return {
+    binding: inspectSignatureBinding(symbol, declaration),
+    optional: optionalResult,
+    rest,
+    type: renderSignatureType(checker, parameterType, location),
+  };
+};
+
+const inspectSignatureReturn = function inspectSignatureReturn(
+  checker: ts.TypeChecker,
+  signature: ts.Signature,
+  declaration: ts.SignatureDeclaration
+): SignatureReturn {
+  const predicate = checker.getTypePredicateOfSignature(signature);
+
+  if (predicate === undefined) {
+    return {
+      kind: "type",
+      type: renderSignatureType(
+        checker,
+        checker.getReturnTypeOfSignature(signature),
+        declaration
+      ),
+    };
+  }
+
+  const parameter =
+    predicate.kind === ts.TypePredicateKind.This ||
+    predicate.kind === ts.TypePredicateKind.AssertsThis
+      ? "this"
+      : predicate.parameterName;
+
+  if (
+    predicate.kind === ts.TypePredicateKind.AssertsThis ||
+    predicate.kind === ts.TypePredicateKind.AssertsIdentifier
+  ) {
+    return {
+      kind: "assertion",
+      parameter,
+      ...(predicate.type !== undefined && {
+        type: renderSignatureType(checker, predicate.type, declaration),
+      }),
+    };
+  }
+
+  return {
+    kind: "predicate",
+    parameter,
+    type: renderSignatureType(checker, predicate.type, declaration),
+  };
+};
+
+const inspectSignatureDetails = function inspectSignatureDetails(
+  checker: ts.TypeChecker,
+  kind: InspectedSignature["kind"],
+  signature: ts.Signature,
+  signatureKind: ts.SignatureKind
+): InspectedSignature {
+  const declaration = signature.getDeclaration();
+  const parameters = signature.getParameters();
+  const typeParameters = signature.getTypeParameters() ?? [];
+
+  if (parameters.length > MAX_SIGNATURE_PARAMETERS) {
+    throw new InspectionLimitError(
+      "signature-parameters",
+      "Inspection exceeded its signature parameter limit."
+    );
+  }
+
+  if (typeParameters.length > MAX_SIGNATURE_TYPE_PARAMETERS) {
+    throw new InspectionLimitError(
+      "signature-type-parameters",
+      "Inspection exceeded its signature type parameter limit."
+    );
+  }
+
+  return {
+    kind,
+    text: checker.signatureToString(
+      signature,
+      declaration,
+      SIGNATURE_TYPE_FORMAT_FLAGS,
+      signatureKind
+    ),
+    typeParameters: typeParameters.map((item) =>
+      inspectSignatureTypeParameter(checker, item, declaration)
+    ),
+    ...(signature.thisParameter !== undefined && {
+      thisParameter: {
+        type: renderSymbolType(checker, signature.thisParameter, declaration),
+      },
+    }),
+    parameters: parameters.map((item) =>
+      inspectSignatureParameter(checker, item, declaration)
+    ),
+    returns: inspectSignatureReturn(checker, signature, declaration),
+  };
+};
+
+const inspectResolvedExportSignatureDetails =
+  function inspectResolvedExportSignatureDetails(
+    checker: ts.TypeChecker,
+    resolution: FocusedExportResolution,
+    retainSignature: RetainSignature<InspectedSignature>
+  ): readonly InspectedSignature[] {
+    return inspectBoundedSignatures(checker, resolution, {
+      project: ({ kind, signature, signatureKind }) =>
+        inspectSignatureDetails(checker, kind, signature, signatureKind),
+      retain: retainSignature,
+      serializeForBudget: (signature) => JSON.stringify(signature),
+    });
+  };
+
+/** Produces a focused result without declaration or Supporting Type traversal. */
+export const inspectModuleExportSignatures =
+  function inspectModuleExportSignatures(
+    evidence: InspectableModuleEvidence,
+    exportName: string,
+    constructionOwner: InspectionResultConstruction
+  ): SignatureInspection | undefined {
+    const resolution = resolveFocusedExport(
+      evidence.checker,
+      evidence.moduleSymbol,
+      exportName
+    );
+
+    if (resolution === undefined) {
+      return undefined;
+    }
+
+    const construction = constructionOwner.signatures();
+
+    const signatures = inspectResolvedExportSignatureDetails(
+      evidence.checker,
+      resolution,
+      (value) => construction.signature(value)
+    );
+
+    const moduleExport = construction.moduleExport(
+      resolution.exportedSymbol.getName(),
+      resolution.aliasTargetName,
+      signatures
+    );
+
+    return construction.result(moduleExport);
+  };
+
+export const inspectResolvedExportSignatures =
+  function inspectResolvedExportSignatures(
+    checker: ts.TypeChecker,
+    resolution: FocusedExportResolution,
+    retainSignature: (value: ExportSignature) => ExportSignature
+  ): readonly ExportSignature[] {
+    return inspectBoundedSignatures(checker, resolution, {
+      project: ({ kind, signature, signatureKind }) => ({
+        kind,
+        text: checker.signatureToString(
+          signature,
+          signature.getDeclaration(),
+          SIGNATURE_TYPE_FORMAT_FLAGS,
+          signatureKind
+        ),
+      }),
+      retain: retainSignature,
+      serializeForBudget: ({ text }) => text,
+    });
+  };

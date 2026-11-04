@@ -2,16 +2,14 @@ import type { InspectionBudgetDimension } from "#typepeek/inspection/protocol-vo
 
 /** Signals that an inspection exhausted a measured work or output budget. */
 export class InspectionLimitError extends Error {
+  override name = "InspectionLimitError";
   readonly exceededBudget: InspectionBudgetDimension;
-
   constructor(exceededBudget: InspectionBudgetDimension, message: string) {
     super(message);
     this.exceededBudget = exceededBudget;
   }
 }
 
-/** Signals that Installed Evidence cannot support an authoritative inspection. */
-export class UnsupportedInspectionError extends Error {}
+export { UnsupportedInspectionError } from "#typepeek/inspection/unsupported-inspection-error";
 
-/** Signals that a request crosses Typepeek's no-execution inspection boundary. */
-export class StaticBoundaryInspectionError extends Error {}
+export { StaticBoundaryInspectionError } from "#typepeek/inspection/static-boundary-inspection-error";
