@@ -1,5 +1,11 @@
 # typepeek
 
+## 0.4.2
+
+### Patch Changes
+
+- [#73](https://github.com/ueberBrot/typepeek/pull/73) [`88067ec`](https://github.com/ueberBrot/typepeek/commit/88067ec1ff672bb085683520531fcdbba968d7d9) - Fix unnecessary cache misses caused by unrelated workspace dependencies.
+
 ## 0.4.1
 
 ### Patch Changes
