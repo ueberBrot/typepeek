@@ -179,7 +179,7 @@ const inspectionTripwireSource = function inspectionTripwireSource(): string {
     "const originalSpawn = childProcess.spawn;",
     "function isAllowedCompilerSpawn(command, args) {",
     "  if (!isForbiddenPath(allowedAnalysisProcessEntries, process.argv[1]) || !isForbiddenPath(allowedCompilerExecutables, command)) return false;",
-    "  if (!Array.isArray(args) || (args.length !== 5 && !(process.platform === 'win32' && args.length === 7 && args[5] === '--pipe' && typeof args[6] === 'string' && args[6].startsWith(String.raw`\\.pipe\tsgo-sync-`)))) return false;",
+    "  if (!Array.isArray(args) || (args.length !== 5 && !(process.platform === 'win32' && args.length === 7 && args[5] === '--pipe' && typeof args[6] === 'string' && args[6].startsWith(String.raw`\\\\.\\pipe\\tsgo-sync-`)))) return false;",
     "  if (args[0] !== '--api' || args[1] !== '--cwd' || args[2] !== process.cwd() || !/^--useCaseSensitiveFileNames=(true|false)$/.test(args[3])) return false;",
     "  return args[4].startsWith('--callbacks=') && args[4].slice('--callbacks='.length).split(',').sort().join(',') === 'directoryExists,fileExists,getAccessibleEntries,readFile,realpath,removeFile,stat,writeFile';",
     "}",
