@@ -106,4 +106,4 @@ jobs:
           install-bun: "true"
 
       - name: Test packaged CLI consumers
-        run: vp test tests/packaged-cli-consumers.test.ts
+        run: vp test tests/static-inspection-tripwire.test.ts tests/packaged-cli-consumers.test.ts

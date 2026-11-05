@@ -116,6 +116,8 @@ const inspectionTripwireSource = function inspectionTripwireSource(): string {
     "}",
     "function normalizePaths(value) {",
     "  try {",
+    // Windows realpath opens a path, consuming a named pipe's one client connection.
+    "    if (process.platform === 'win32' && typeof value === 'string' && value.startsWith(String.raw`\\\\.\\pipe\\tsgo-sync-`)) return [value];",
     '    const lexical = value instanceof URL || (typeof value === "string" && value.startsWith("file:"))',
     "      ? path.resolve(fileURLToPath(value))",
     '      : typeof value === "string" || Buffer.isBuffer(value) ? path.resolve(String(value)) : undefined;',
