@@ -1,12 +1,21 @@
-import ts from "@typescript/typescript6";
 import { Predicate } from "effect";
+import {
+  escapeLeadingUnderscores,
+  InternalSymbolName,
+  isExportDeclaration,
+  SyntaxKind,
+} from "tsrs/ast";
+import type { Declaration } from "tsrs/ast";
+import { SymbolFlags } from "tsrs/sync";
+import type { Checker, Symbol as CompilerSymbol, Type } from "tsrs/sync";
 
 import { MAX_MEMBER_MATCHES } from "#typepeek/inspection/budget-policy";
-import { assertMergedDeclarationLimit } from "#typepeek/inspection/declaration-limits";
 import {
-  isPrivateDeclaration,
-  publicDeclarations,
-} from "#typepeek/inspection/declaration-projection";
+  declarationsOf,
+  valueDeclarationOf,
+} from "#typepeek/inspection/compiler-session";
+import { modifiersOf } from "#typepeek/inspection/compiler-syntax";
+import { assertMergedDeclarationLimit } from "#typepeek/inspection/declaration-limits";
 import {
   InspectionLimitError,
   UnsupportedInspectionError,
@@ -17,6 +26,10 @@ import {
   memberDeclarationSpaceSchema,
 } from "#typepeek/inspection/member-path";
 import type { DeclarationSpace } from "#typepeek/inspection/protocol";
+import {
+  isPrivateDeclaration,
+  publicDeclarations,
+} from "#typepeek/inspection/public-declaration-selection";
 import type { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
 import { bitwiseAnd } from "#typepeek/integer-bits";
 
@@ -31,7 +44,7 @@ export interface DiscoveredPublicMembers {
 export type PublicMemberPathResolution =
   | {
       readonly status: "success";
-      readonly symbol: ts.Symbol;
+      readonly symbol: CompilerSymbol;
     }
   | {
       readonly status: "ambiguous-member" | "member-not-found";
@@ -39,52 +52,54 @@ export type PublicMemberPathResolution =
 
 const isCallerAccessibleMemberDeclaration =
   function isCallerAccessibleMemberDeclaration(
-    declaration: ts.Declaration
+    declaration: Declaration
   ): boolean {
     if (isPrivateDeclaration(declaration)) {
       return false;
     }
 
     return (
-      !ts.canHaveModifiers(declaration) ||
+      modifiersOf(declaration) === undefined ||
       !(
-        ts
-          .getModifiers(declaration)
-          ?.some(
-            (modifier) => modifier.kind === ts.SyntaxKind.ProtectedKeyword
-          ) ?? false
+        modifiersOf(declaration)?.some(
+          (modifier) => modifier.kind === SyntaxKind.ProtectedKeyword
+        ) ?? false
       )
     );
   };
 
 export const publicMemberDeclarations = function publicMemberDeclarations(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol
-): readonly ts.Declaration[] {
-  const declarations = publicDeclarations(checker, symbol.declarations ?? []);
+  checker: Checker,
+  symbol: CompilerSymbol
+): readonly Declaration[] {
+  const declarations = publicDeclarations(
+    checker,
+    declarationsOf(symbol) ?? []
+  );
+
   assertMergedDeclarationLimit(declarations);
 
   return declarations.filter(isCallerAccessibleMemberDeclaration);
 };
 
 const resolveAliasTarget = function resolveAliasTarget(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol
-): ts.Symbol {
-  return bitwiseAnd(symbol.flags, ts.SymbolFlags.Alias) === 0
+  checker: Checker,
+  symbol: CompilerSymbol
+): CompilerSymbol {
+  return bitwiseAnd(symbol.flags, SymbolFlags.Alias) === 0
     ? symbol
     : checker.getAliasedSymbol(symbol);
 };
 
 /** Bounds raw export tables and star edges before either value or namespace expansion. */
 const reserveNamespaceExpansion = function reserveNamespaceExpansion(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol,
+  checker: Checker,
+  symbol: CompilerSymbol,
   construction: InspectionResultConstruction
 ): number {
   let reserved = 0;
   const pending = [symbol];
-  const visited = new Set<ts.Symbol>();
+  const visited = new Set<CompilerSymbol>();
 
   for (
     let current = pending.pop();
@@ -96,10 +111,10 @@ const reserveNamespaceExpansion = function reserveNamespaceExpansion(
     }
 
     visited.add(current);
-    const count = current.exports?.size ?? 0;
+    const count = current.getExports().size ?? 0;
     construction.consumeMemberCandidates(count);
     reserved += count;
-    const stars = current.exports?.get(ts.InternalSymbolName.ExportStar);
+    const stars = current.getExports().get(InternalSymbolName.ExportStar);
     const declarations = publicMemberDeclarations(checker, stars ?? current);
 
     if (stars !== undefined) {
@@ -108,7 +123,7 @@ const reserveNamespaceExpansion = function reserveNamespaceExpansion(
         reserved += 1;
 
         if (
-          !ts.isExportDeclaration(declaration) ||
+          !isExportDeclaration(declaration) ||
           declaration.moduleSpecifier === undefined
         ) {
           continue;
@@ -131,27 +146,27 @@ const reserveNamespaceExpansion = function reserveNamespaceExpansion(
 };
 
 const resolvedNamespaceMembers = function resolvedNamespaceMembers(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol,
+  checker: Checker,
+  symbol: CompilerSymbol,
   construction: InspectionResultConstruction
-): readonly ts.Symbol[] {
+): readonly CompilerSymbol[] {
   reserveNamespaceExpansion(checker, symbol, construction);
 
   return checker.getExportsOfModule(symbol);
 };
 
 const memberType = function memberType(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol,
+  checker: Checker,
+  symbol: CompilerSymbol,
   space: "type" | "value"
-): ts.Type | undefined {
+): Type | undefined {
   if (space === "type") {
-    return bitwiseAnd(symbol.flags, ts.SymbolFlags.Type) === 0
+    return bitwiseAnd(symbol.flags, SymbolFlags.Type) === 0
       ? undefined
       : checker.getDeclaredTypeOfSymbol(symbol);
   }
 
-  const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
+  const declaration = valueDeclarationOf(symbol) ?? declarationsOf(symbol)[0];
 
   return declaration === undefined
     ? undefined
@@ -159,34 +174,34 @@ const memberType = function memberType(
 };
 
 const memberInSpace = function memberInSpace(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol,
+  checker: Checker,
+  symbol: CompilerSymbol,
   name: string,
   space: DeclarationSpace,
   construction: InspectionResultConstruction
-): ts.Symbol | undefined {
+): CompilerSymbol | undefined {
   if (space === "namespace") {
-    if (bitwiseAnd(symbol.flags, ts.SymbolFlags.Module) === 0) {
+    if (bitwiseAnd(symbol.flags, SymbolFlags.Module) === 0) {
       return undefined;
     }
 
-    const direct = symbol.exports?.get(ts.escapeLeadingUnderscores(name));
+    const direct = symbol.getExports().get(escapeLeadingUnderscores(name));
 
     if (
       direct !== undefined ||
-      !(symbol.exports?.has(ts.InternalSymbolName.ExportStar) ?? false)
+      !(symbol.getExports().has(InternalSymbolName.ExportStar) ?? false)
     ) {
       return direct;
     }
 
     return resolvedNamespaceMembers(checker, symbol, construction).find(
-      (member) => member.getName() === name
+      (member) => member.name === name
     );
   }
 
   if (
     space === "value" &&
-    (symbol.exports?.has(ts.InternalSymbolName.ExportStar) ?? false)
+    (symbol.getExports().has(InternalSymbolName.ExportStar) ?? false)
   ) {
     reserveNamespaceExpansion(checker, symbol, construction);
   }
@@ -195,12 +210,12 @@ const memberInSpace = function memberInSpace(
 };
 
 const publicMemberCandidates = function publicMemberCandidates(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol,
+  checker: Checker,
+  symbol: CompilerSymbol,
   memberName: string,
   space: DeclarationSpace | undefined,
   construction: InspectionResultConstruction
-): readonly ts.Symbol[] {
+): readonly CompilerSymbol[] {
   const spaces =
     space === undefined ? memberDeclarationSpaceSchema.literals : [space];
 
@@ -208,24 +223,27 @@ const publicMemberCandidates = function publicMemberCandidates(
     .map((selectedSpace) =>
       memberInSpace(checker, symbol, memberName, selectedSpace, construction)
     )
-    .filter((candidate): candidate is ts.Symbol => candidate !== undefined);
+    .filter(
+      (candidate): candidate is CompilerSymbol => candidate !== undefined
+    );
 
   return [...new Set(candidates)];
 };
 
 const isUndeclaredPublicProperty = function isUndeclaredPublicProperty(
-  symbol: ts.Symbol
+  symbol: CompilerSymbol
 ): boolean {
   return (
-    bitwiseAnd(symbol.flags, ts.SymbolFlags.Property) !== 0 &&
-    bitwiseAnd(symbol.flags, ts.SymbolFlags.Prototype) === 0 &&
-    (symbol.declarations === undefined || symbol.declarations.length === 0)
+    bitwiseAnd(symbol.flags, SymbolFlags.Property) !== 0 &&
+    bitwiseAnd(symbol.flags, SymbolFlags.Prototype) === 0 &&
+    (declarationsOf(symbol) === undefined ||
+      declarationsOf(symbol).length === 0)
   );
 };
 
 const hasPublicDeclaration = function hasPublicDeclaration(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol
+  checker: Checker,
+  symbol: CompilerSymbol
 ): boolean {
   const target = resolveAliasTarget(checker, symbol);
 
@@ -237,8 +255,8 @@ const hasPublicDeclaration = function hasPublicDeclaration(
 
 /** Resolves only exact names in the type, value, and namespace declaration spaces. */
 export const resolvePublicMemberPath = function resolvePublicMemberPath(
-  checker: ts.TypeChecker,
-  root: ts.Symbol,
+  checker: Checker,
+  root: CompilerSymbol,
   memberPath: MemberPath,
   construction: InspectionResultConstruction
 ): PublicMemberPathResolution {
@@ -272,19 +290,19 @@ export const resolvePublicMemberPath = function resolvePublicMemberPath(
 };
 
 const membersInSpace = function membersInSpace(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol,
+  checker: Checker,
+  symbol: CompilerSymbol,
   space: DeclarationSpace,
   construction: InspectionResultConstruction
-): readonly ts.Symbol[] {
+): readonly CompilerSymbol[] {
   if (space === "namespace") {
-    return bitwiseAnd(symbol.flags, ts.SymbolFlags.Module) === 0
+    return bitwiseAnd(symbol.flags, SymbolFlags.Module) === 0
       ? []
       : resolvedNamespaceMembers(checker, symbol, construction);
   }
 
   const reserved =
-    space === "value" && bitwiseAnd(symbol.flags, ts.SymbolFlags.Module) !== 0
+    space === "value" && bitwiseAnd(symbol.flags, SymbolFlags.Module) !== 0
       ? reserveNamespaceExpansion(checker, symbol, construction)
       : 0;
 
@@ -296,8 +314,8 @@ const membersInSpace = function membersInSpace(
 
 /** Lists immediate caller-accessible names without projecting their declarations. */
 export const discoverPublicMembers = function discoverPublicMembers(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol,
+  checker: Checker,
+  symbol: CompilerSymbol,
   query: string | undefined,
   construction: InspectionResultConstruction
 ): DiscoveredPublicMembers {
@@ -321,12 +339,12 @@ export const discoverPublicMembers = function discoverPublicMembers(
         );
       }
 
-      const name = candidate.getName();
+      const { name } = candidate;
 
       if (
         name.length === 0 ||
         Buffer.byteLength(name) > MAX_MEMBER_PATH_SEGMENT_BYTES ||
-        candidate.escapedName !== ts.escapeLeadingUnderscores(name)
+        candidate.escapedName !== escapeLeadingUnderscores(name)
       ) {
         throw new UnsupportedInspectionError(
           "Member Discovery found a public name without a bounded exact selector."

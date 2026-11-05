@@ -5,7 +5,7 @@ export const INSPECTION_BUDGET_POLICY = {
   declarationGraphNodes: 500_000,
   declarationSourceBytes: 16 * 1024 * 1024,
   declarationSourceFiles: 2048,
-  identity: "large-declaration-graphs-scoped-resolution-cache-v6",
+  identity: "tsrs-batched-queries-v8",
 } as const;
 
 /** Maximum serialized stdout bytes accepted from the isolated analysis process. */

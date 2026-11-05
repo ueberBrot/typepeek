@@ -16,7 +16,7 @@ export const assertCompilerLoadsOnlyInWorker =
   function assertCompilerLoadsOnlyInWorker(cliPath: string): void {
     const hook = `import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, nextResolve) {
-  if (specifier === '@typescript/typescript6') throw new Error('Compiler loaded in CLI parent');
+  if (specifier === 'tsrs/sync' || specifier === 'tsrs/async') throw new Error('Compiler SDK loaded in CLI parent');
   return nextResolve(specifier, context);
 } });`;
 
@@ -46,13 +46,13 @@ registerHooks({ resolve(specifier, context, nextResolve) {
     );
   };
 
-/** ESM imports scan the compiler's CommonJS exports before loading it. */
-export const assertWorkerUsesCommonJsCompiler =
-  function assertWorkerUsesCommonJsCompiler(cliPath: string): void {
+/** The worker must use its pinned native SDK even when an environment override is present. */
+export const assertWorkerUsesPinnedNativeCompiler =
+  function assertWorkerUsesPinnedNativeCompiler(cliPath: string): void {
     const hook = `import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, nextResolve) {
-  if (specifier === '@typescript/typescript6' && !context.conditions.includes('require')) {
-    throw new Error('Compiler load requires a CommonJS export scan');
+  if (specifier === '@typescript/typescript6' || specifier === 'typescript') {
+    throw new Error('Legacy compiler loaded by the native worker');
   }
   return nextResolve(specifier, context);
 } });`;
@@ -65,6 +65,10 @@ registerHooks({ resolve(specifier, context, nextResolve) {
         env: {
           ...process.env,
           NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(hook)}`,
+          TSRS_BINARY: nodePath.join(
+            tmpdir(),
+            "__typepeek_forbidden_compiler_override__"
+          ),
           TYPEPEEK_CACHE_BYPASS: "1",
         },
       }

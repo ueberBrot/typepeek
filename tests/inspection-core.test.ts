@@ -2278,8 +2278,8 @@ describe("inspection-core", () => {
     )[0]?.text;
 
     expect([
-      requireDefined(declaration).includes(
-        "export type Result = { readonly enabled: true; };"
+      /export type Result = \{\s+readonly enabled: true;\s+\};/u.test(
+        requireDefined(declaration)
       ),
       requireDefined(declaration).includes("typeof local"),
       requireDefined(declaration).includes("const local"),
@@ -2358,14 +2358,14 @@ describe("inspection-core", () => {
           declarations: [{ kind: "alias" }],
           members: [
             {
-              declarations: [{ kind: "function" }],
-              members: [],
-              name: "useNested",
-            },
-            {
               declarations: [{ kind: "interface" }],
               members: [],
               name: "NestedInput",
+            },
+            {
+              declarations: [{ kind: "function" }],
+              members: [],
+              name: "useNested",
             },
           ],
           name: "nested",

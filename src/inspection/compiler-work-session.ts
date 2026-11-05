@@ -1,15 +1,19 @@
 import nodePath from "node:path";
 
-import ts from "@typescript/typescript6";
-import type { Schema } from "effect";
+import { Result, Schema } from "effect";
 import { constVoid } from "effect/Function";
+import { ModuleKind, ModuleResolutionKind } from "tsrs/sync";
+import type {
+  ModuleResolver,
+  RawCompilerOptions,
+  ResolvedModule,
+} from "tsrs/sync";
 
 import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
 import { cachedCompilerLookup } from "#typepeek/inspection/compiler-cache";
-import {
-  InspectionLimitError,
-  UnsupportedInspectionError,
-} from "#typepeek/inspection/errors";
+import { CompilerSession } from "#typepeek/inspection/compiler-session";
+import type { ResolutionFileSystem } from "#typepeek/inspection/compiler-session";
+import { InspectionLimitError } from "#typepeek/inspection/errors";
 import {
   canonicalEvidenceCandidatePath,
   canonicalEvidencePath,
@@ -26,14 +30,29 @@ import type {
 } from "#typepeek/inspection/installed-evidence-fingerprint";
 import type { PackageBoundaryObserver } from "#typepeek/inspection/installed-package-boundary";
 import type { AccessStyle } from "#typepeek/inspection/protocol";
+import { decodeJson } from "#typepeek/json-data";
 
 const COMPILER_HOST_BYTES = "compiler-host-bytes";
+const PACKAGE_MANIFEST_FILE = "package.json";
 
 const COMPILER_BYTES_LIMIT_MESSAGE =
   "Inspection exceeded its compiler host byte limit.";
 
 const DEFAULT_COMPILER_RESOLUTION_BYTES = 8 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 256 * 1024;
+const decodeManifest = Schema.decodeUnknownResult(Schema.JsonObject);
+
+const parseManifest = function parseManifest(
+  manifestText: string
+): Schema.JsonObject | undefined {
+  try {
+    return Result.getOrUndefined(
+      decodeManifest(decodeJson(Schema.Unknown, manifestText))
+    );
+  } catch {
+    return undefined;
+  }
+};
 
 export interface PackageDeclarationResolver {
   readonly canonicalPath: (fileName: string) => string | undefined;
@@ -41,16 +60,14 @@ export interface PackageDeclarationResolver {
   readonly resolve: (specifier: string) => string | undefined;
 }
 
-interface TypeScriptInternals {
-  readonly getConditions?: (
-    options: ts.CompilerOptions,
-    resolutionMode: ts.ResolutionMode
-  ) => readonly string[];
-}
-
-const typescriptInternals: typeof ts & TypeScriptInternals = ts;
-
 export interface CompilerWorkSession {
+  readonly native: CompilerSession;
+  readonly resolveModule: (
+    specifier: string,
+    containingFile: string,
+    allowedRoots: readonly string[],
+    accessStyle: AccessStyle
+  ) => ResolvedModule | undefined;
   readonly createPackageResolver: (
     resolutionContext: string,
     accessStyle: AccessStyle,
@@ -201,7 +218,7 @@ const readPackageResolutionFile = function readPackageResolutionFile(
 
     reserveBytes(Buffer.byteLength(contents));
 
-    if (fileName.endsWith("package.json")) {
+    if (fileName.endsWith(PACKAGE_MANIFEST_FILE)) {
       observeEvidenceFile(fileName, contents, "manifest");
     }
 
@@ -217,14 +234,12 @@ const readPackageResolutionFile = function readPackageResolutionFile(
 
 const createBoundedModuleResolutionHost =
   function createBoundedModuleResolutionHost(
-    contextDirectory: string,
     allowedRoots: readonly string[],
     reserveOperations: (count?: number) => void,
     remainingBytes: () => number,
     reserveBytes: (count: number) => void,
     observeEvidenceFile: ObserveInstalledEvidenceFile
-  ): ts.ModuleResolutionHost &
-    Pick<PackageDeclarationResolver, "canonicalPath"> {
+  ): ResolutionFileSystem & Pick<PackageDeclarationResolver, "canonicalPath"> {
     const canonicalAllowedRoots = allowedRoots.flatMap((root) => {
       reserveOperations();
       const canonicalRoot = canonicalEvidencePath(root);
@@ -287,7 +302,7 @@ const createBoundedModuleResolutionHost =
           fileName,
           () => isEvidenceFile(fileName)
         ),
-      getCurrentDirectory: () => contextDirectory,
+      getDirectories: () => [],
       readFile: (fileName): string | undefined => {
         if (
           !isAuthorizedResolutionPath(
@@ -313,7 +328,6 @@ const createBoundedModuleResolutionHost =
         );
       },
       realpath: (fileName) => observedCanonicalPath(fileName) ?? fileName,
-      useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
     };
   };
 
@@ -325,62 +339,19 @@ const startingDirectory = function startingDirectory(
     : nodePath.dirname(resolutionContext);
 };
 
-const resolutionCompilerOptions =
-  function resolutionCompilerOptions(): ts.CompilerOptions {
-    return {
-      module: ts.ModuleKind.NodeNext,
-      moduleResolution: ts.ModuleResolutionKind.NodeNext,
-      noEmit: true,
-      resolvePackageJsonExports: true,
-      resolvePackageJsonImports: true,
-    };
-  };
+const resolutionCompilerOptions = (): RawCompilerOptions => ({
+  module: ModuleKind.NodeNext,
+  moduleResolution: ModuleResolutionKind.NodeNext,
+  noEmit: true,
+  resolvePackageJsonExports: true,
+  resolvePackageJsonImports: true,
+});
 
-const resolutionMode = function resolutionMode(
-  accessStyle: AccessStyle
-): ts.ResolutionMode {
-  return accessStyle === "import"
-    ? ts.ModuleKind.ESNext
-    : ts.ModuleKind.CommonJS;
-};
-
-const resolutionConditions = function resolutionConditions(
-  compilerOptions: ts.CompilerOptions,
-  accessStyle: AccessStyle
-): ReadonlySet<string> {
-  const { getConditions } = typescriptInternals;
-
-  if (getConditions === undefined) {
-    throw new UnsupportedInspectionError(
-      "The TypeScript compiler cannot select package export conditions."
-    );
-  }
-
-  return new Set(getConditions(compilerOptions, resolutionMode(accessStyle)));
-};
-
-const INSPECTABLE_TYPESCRIPT_EXTENSIONS = new Set<string>([
-  ts.Extension.Ts,
-  ts.Extension.Tsx,
-  ts.Extension.Mts,
-  ts.Extension.Cts,
-  ts.Extension.Dts,
-  ts.Extension.Dmts,
-  ts.Extension.Dcts,
-]);
+const resolutionMode = (accessStyle: AccessStyle) =>
+  accessStyle === "import" ? ModuleKind.ESNext : ModuleKind.CommonJS;
 
 const isInspectableTypeScriptExtension = (extension: string): boolean =>
-  INSPECTABLE_TYPESCRIPT_EXTENSIONS.has(extension);
-
-const isInspectableTypeScriptResolution =
-  function isInspectableTypeScriptResolution(
-    resolvedModule: ts.ResolvedModuleFull | undefined
-  ): resolvedModule is ts.ResolvedModuleFull {
-    return (
-      resolvedModule !== undefined &&
-      isInspectableTypeScriptExtension(resolvedModule.extension)
-    );
-  };
+  /\.(?:[mc]?ts|tsx)$/u.test(extension);
 
 const resolutionCapabilityRoots = function resolutionCapabilityRoots(
   roots: readonly string[]
@@ -398,118 +369,6 @@ const resolutionCapabilityRoots = function resolutionCapabilityRoots(
   ];
 };
 
-const createPackageDeclarationResolver =
-  function createPackageDeclarationResolver(
-    resolutionContext: string,
-    accessStyle: AccessStyle,
-    allowedRoots: readonly string[],
-    reserveOperations: (count?: number) => void,
-    remainingBytes: () => number,
-    reserveBytes: (count: number) => void,
-    observeEvidenceFile: ObserveInstalledEvidenceFile,
-    observeResolution: (probe: InstalledEvidenceResolutionProbe) => void
-  ): PackageDeclarationResolver {
-    reserveOperations();
-    const contextDirectory = startingDirectory(resolutionContext);
-
-    const containingFile = nodePath.join(
-      contextDirectory,
-      accessStyle === "import"
-        ? "__typepeek_resolution__.mts"
-        : "__typepeek_resolution__.cts"
-    );
-
-    const compilerOptions = resolutionCompilerOptions();
-
-    const host = createBoundedModuleResolutionHost(
-      contextDirectory,
-      allowedRoots,
-      reserveOperations,
-      remainingBytes,
-      reserveBytes,
-      observeEvidenceFile
-    );
-
-    const moduleResolutionCache = ts.createModuleResolutionCache(
-      contextDirectory,
-      (fileName) =>
-        ts.sys.useCaseSensitiveFileNames ? fileName : fileName.toLowerCase(),
-      compilerOptions
-    );
-
-    return {
-      canonicalPath: host.canonicalPath,
-      conditions: resolutionConditions(compilerOptions, accessStyle),
-      resolve: (specifier) => {
-        reserveOperations();
-
-        const resolution = ts.resolveModuleName(
-          specifier,
-          containingFile,
-          compilerOptions,
-          host,
-          moduleResolutionCache,
-          undefined,
-          resolutionMode(accessStyle)
-        );
-
-        const resolvedPath = isInspectableTypeScriptResolution(
-          resolution.resolvedModule
-        )
-          ? resolution.resolvedModule.resolvedFileName
-          : undefined;
-
-        observeResolution({
-          accessStyle,
-          allowedRoots: resolutionCapabilityRoots(allowedRoots),
-          containingFile,
-          kind: "module",
-          ...(resolvedPath !== undefined && { resolvedPath }),
-          specifier,
-        });
-
-        return resolvedPath;
-      },
-    };
-  };
-
-const resolveEvidenceProbe = function resolveEvidenceProbe(
-  probe: InstalledEvidenceResolutionProbe,
-  host: ReturnType<typeof createBoundedModuleResolutionHost>
-): string | undefined {
-  const compilerOptions = resolutionCompilerOptions();
-
-  const typeReferenceMode =
-    probe.accessStyle === undefined
-      ? undefined
-      : resolutionMode(probe.accessStyle);
-
-  const resolvedPath =
-    probe.kind === "module"
-      ? ts.resolveModuleName(
-          probe.specifier,
-          probe.containingFile,
-          compilerOptions,
-          host,
-          undefined,
-          undefined,
-          resolutionMode(probe.accessStyle ?? "import")
-        ).resolvedModule?.resolvedFileName
-      : ts.resolveTypeReferenceDirective(
-          probe.specifier,
-          probe.containingFile,
-          compilerOptions,
-          host,
-          undefined,
-          undefined,
-          typeReferenceMode
-        ).resolvedTypeReferenceDirective?.resolvedFileName;
-
-  return resolvedPath === undefined
-    ? undefined
-    : host.canonicalPath(resolvedPath);
-};
-
 /** Shares filesystem reads, resolution caches, and work budgets across one inspection. */
 export const createCompilerWorkSession = function createCompilerWorkSession({
   evidenceObserver,
@@ -525,6 +384,15 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
     string,
     ReturnType<typeof createBoundedModuleResolutionHost>
   >();
+
+  let native: CompilerSession | undefined;
+
+  const nativeSession = (): CompilerSession =>
+    (native ??= new CompilerSession());
+
+  const resolvers = new Map<string, ModuleResolver>();
+  const resolvedModules = new Map<string, ResolvedModule | undefined>();
+  const fileFormats = new Map<string, AccessStyle>();
 
   let operationCount = 0;
   let resolutionByteCount = 0;
@@ -555,7 +423,7 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
   };
 
   const readResolutionFile = (fileName: string): string => {
-    const isManifest = fileName.endsWith("package.json");
+    const isManifest = fileName.endsWith(PACKAGE_MANIFEST_FILE);
     const availableBytes = remainingBytes();
 
     const manifestLimitApplies =
@@ -579,6 +447,24 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
     return contents;
   };
 
+  const readManifest = (packageRoot: string): Schema.JsonObject | undefined => {
+    const manifestPath = nodePath.join(packageRoot, PACKAGE_MANIFEST_FILE);
+    const cachedManifest = packageManifestCache.get(manifestPath);
+
+    if (cachedManifest !== undefined) {
+      return cachedManifest;
+    }
+
+    reserveOperations();
+    const manifest = parseManifest(readResolutionFile(manifestPath));
+
+    if (manifest !== undefined) {
+      packageManifestCache.set(manifestPath, manifest);
+    }
+
+    return manifest;
+  };
+
   const replayHost = (fileName: string, allowedRoots: readonly string[]) => {
     const contextDirectory = nodePath.dirname(fileName);
     const key = JSON.stringify([contextDirectory, allowedRoots]);
@@ -586,7 +472,6 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
 
     if (host === undefined) {
       host = createBoundedModuleResolutionHost(
-        contextDirectory,
         allowedRoots,
         reserveOperations,
         remainingBytes,
@@ -599,25 +484,133 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
     return host;
   };
 
-  return {
-    createPackageResolver: (resolutionContext, accessStyle, allowedRoots) =>
-      createPackageDeclarationResolver(
-        resolutionContext,
-        accessStyle,
+  const resolveModule = (
+    specifier: string,
+    containingFile: string,
+    allowedRoots: readonly string[],
+    accessStyle: AccessStyle
+  ): ResolvedModule | undefined => {
+    reserveOperations();
+    const host = replayHost(containingFile, allowedRoots);
+
+    const key = JSON.stringify([
+      nodePath.dirname(containingFile),
+      allowedRoots,
+    ]);
+
+    const session: CompilerSession = nativeSession();
+
+    if (resolvedModules.size >= 4096) {
+      resolvedModules.clear();
+    }
+
+    return cachedCompilerLookup(
+      resolvedModules,
+      JSON.stringify([key, specifier, accessStyle]),
+      () =>
+        session.withFileSystem(host, () => {
+          let resolver = resolvers.get(key);
+
+          if (resolver === undefined) {
+            resolver = session.api.createModuleResolver(
+              resolutionCompilerOptions()
+            );
+            resolvers.set(key, resolver);
+          }
+
+          return (
+            resolver.resolveModuleName(
+              specifier,
+              nodePath.dirname(containingFile),
+              resolutionMode(accessStyle)
+            ).resolvedModule ?? undefined
+          );
+        })
+    );
+  };
+
+  const resolveProbe = (
+    probe: InstalledEvidenceResolutionProbe,
+    allowedRoots: readonly string[]
+  ): string | undefined => {
+    const candidates =
+      probe.kind === "module"
+        ? [probe.specifier]
+        : [
+            ...new Set([
+              `@types/${probe.specifier.replace(/^@/u, "").replace("/", "__")}`,
+              probe.specifier,
+            ]),
+          ];
+
+    for (const specifier of candidates) {
+      const result = resolveModule(
+        specifier,
+        probe.containingFile,
         allowedRoots,
-        reserveOperations,
-        remainingBytes,
-        reserveBytes,
-        observeEvidenceFile,
-        observeResolution
-      ),
+        probe.accessStyle ?? "import"
+      );
+
+      if (result !== undefined) {
+        return replayHost(probe.containingFile, allowedRoots).canonicalPath(
+          result.resolvedFileName
+        );
+      }
+    }
+
+    return undefined;
+  };
+
+  return {
+    createPackageResolver: (resolutionContext, accessStyle, allowedRoots) => {
+      const contextDirectory = startingDirectory(resolutionContext);
+
+      const containingFile = nodePath.join(
+        contextDirectory,
+        accessStyle === "import"
+          ? "__typepeek_resolution__.mts"
+          : "__typepeek_resolution__.cts"
+      );
+
+      const host = replayHost(containingFile, allowedRoots);
+
+      return {
+        canonicalPath: host.canonicalPath,
+        conditions: new Set([accessStyle, "types", "node"]),
+        resolve: (specifier) => {
+          const resolution = resolveModule(
+            specifier,
+            containingFile,
+            allowedRoots,
+            accessStyle
+          );
+
+          const resolvedPath =
+            resolution !== undefined &&
+            isInspectableTypeScriptExtension(resolution.extension)
+              ? resolution.resolvedFileName
+              : undefined;
+
+          observeResolution({
+            accessStyle,
+            allowedRoots: resolutionCapabilityRoots(allowedRoots),
+            containingFile,
+            kind: "module",
+            ...(resolvedPath !== undefined && { resolvedPath }),
+            specifier,
+          });
+
+          return resolvedPath;
+        },
+      };
+    },
+    get native() {
+      return nativeSession();
+    },
     packageBoundaryObserver: {
-      manifestCache: packageManifestCache,
-      observeEvidenceFile,
       observeEvidenceFilePresence:
         evidenceObserver?.observeFilePresence ?? constVoid,
-      remainingBytes,
-      reserveBytes,
+      readManifest,
       reserveOperation: reserveOperations,
     },
     readEvidenceFileFormat: (
@@ -626,22 +619,52 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
     ): AccessStyle | undefined => {
       reserveOperations();
 
-      const mode = ts.getImpliedNodeFormatForFile(
-        fileName,
-        undefined,
-        replayHost(fileName, allowedRoots),
-        resolutionCompilerOptions()
-      );
-
-      if (mode === undefined) {
-        return undefined;
+      if (/\.[mc]ts$/u.test(fileName)) {
+        return fileName.endsWith(".mts") ? "import" : "require";
       }
 
-      if (mode === ts.ModuleKind.CommonJS) {
-        return "require";
+      const sourceDirectory = nodePath.dirname(fileName);
+
+      const formatKey = JSON.stringify([
+        sourceDirectory,
+        allowedRoots.filter((root) => isPathWithin(root, fileName)),
+      ]);
+
+      const cachedFormat = fileFormats.get(formatKey);
+
+      if (cachedFormat !== undefined) {
+        return cachedFormat;
       }
 
-      return "import";
+      const host = replayHost(fileName, allowedRoots);
+
+      for (let directory = nodePath.dirname(fileName); ;) {
+        const manifest = host.readFile(
+          nodePath.join(directory, PACKAGE_MANIFEST_FILE)
+        );
+
+        if (manifest !== undefined) {
+          const value = decodeJson(
+            Schema.Struct({ type: Schema.optionalKey(Schema.String) }),
+            manifest
+          );
+
+          const format = value.type === "module" ? "import" : "require";
+          fileFormats.set(formatKey, format);
+
+          return format;
+        }
+
+        const parent = nodePath.dirname(directory);
+
+        if (parent === directory) {
+          fileFormats.set(formatKey, "require");
+
+          return "require";
+        }
+
+        directory = parent;
+      }
     },
     readResolutionFile,
     ...(observeEvidenceDirectory !== undefined && { observeEvidenceDirectory }),
@@ -651,10 +674,8 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
     resolveEvidenceProbe: (probe, allowedRoots) => {
       reserveOperations();
 
-      return resolveEvidenceProbe(
-        probe,
-        replayHost(probe.containingFile, allowedRoots)
-      );
+      return resolveProbe(probe, allowedRoots);
     },
+    resolveModule,
   };
 };

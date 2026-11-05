@@ -1,3 +1,6 @@
+# The optional Fallow semantic sidecar requires the Go compiler; normal Rust checks remain enabled.
+ignoredOptionalDependencies:
+  - fallow-type-aware
 allowBuilds:
   msgpackr-extract: false
 minimumReleaseAge: 10080
@@ -7,5 +10,7 @@ minimumReleaseAgeStrict: true
 # https://github.com/pnpm/pnpm/issues/13805
 pmOnFail: ignore
 overrides:
+  # Vite+'s optional legacy compiler is unused: TSRS owns checking and SDK types.
+  "@voidzero-dev/vite-plus-core>typescript": "-"
   vite@*: npm:@voidzero-dev/vite-plus-core@1.4.0
   vitest@*: 5.0.5

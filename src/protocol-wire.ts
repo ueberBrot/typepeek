@@ -116,7 +116,10 @@ const parseProtocolWireInput = function parseProtocolWireInput(
   }
 };
 
-/** Reads newline-delimited requests with a separate byte limit for each line. */
+/**
+ * Reads newline-delimited requests with a separate byte limit for each line.
+ * Each input line yields an independently bounded and decoded request.
+ */
 const readProtocolWireStream = async function* readProtocolWireStream(
   input: Readable
 ): AsyncGenerator<ProtocolWireReading> {

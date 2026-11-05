@@ -1,7 +1,10 @@
+import { readdirSync, readFileSync } from "node:fs";
 import nodePath from "node:path";
 
-import ts from "@typescript/typescript6";
-
+import {
+  COMPILER_LIBRARY_DIRECTORY,
+  COMPILER_VERSION,
+} from "#typepeek/inspection/compiler-distribution";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
 import { bitwiseOr } from "#typepeek/integer-bits";
 
@@ -207,17 +210,9 @@ export const readStandardGlobalCatalog =
       traversalNodes += 1;
     };
 
-    const defaultLibrary = ts.getDefaultLibFilePath({
-      target: ts.ScriptTarget.ESNext,
-    });
-
-    const libraryFiles = ts.sys.readDirectory(
-      nodePath.dirname(defaultLibrary),
-      [".d.ts"],
-      undefined,
-      ["lib.*.d.ts"],
-      1
-    );
+    const libraryFiles = readdirSync(COMPILER_LIBRARY_DIRECTORY)
+      .filter((name) => /^lib\..+\.d\.ts$/u.test(name))
+      .map((name) => nodePath.join(COMPILER_LIBRARY_DIRECTORY, name));
 
     if (libraryFiles.length > MAX_STANDARD_LIBRARY_FILES) {
       throw standardLibraryLimit();
@@ -227,7 +222,7 @@ export const readStandardGlobalCatalog =
     let byteCount = 0;
 
     for (const libraryFile of libraryFiles) {
-      const text = ts.sys.readFile(libraryFile);
+      const text = readFileSync(libraryFile, "utf-8");
 
       if (text !== undefined) {
         byteCount += Buffer.byteLength(text);
@@ -247,7 +242,7 @@ export const readStandardGlobalCatalog =
     addStandardGlobal(names, "globalThis", "value");
 
     return {
-      compilerVersion: ts.version,
+      compilerVersion: COMPILER_VERSION,
       entries: [...names].map(
         ([name, spaces]) =>
           [name, bitwiseOr(spaces.type ? 1 : 0, spaces.value ? 2 : 0)] as const

@@ -1,48 +1,69 @@
-import ts from "@typescript/typescript6";
+import {
+  InternalSymbolName,
+  isExportAssignment,
+  isExportDeclaration,
+  isExportSpecifier,
+  isImportEqualsDeclaration,
+  isNamespaceExport,
+  isStringLiteralLikeNode,
+} from "tsrs/ast";
+import type {
+  Declaration,
+  ExportAssignment,
+  ExportDeclaration,
+  ExportSpecifier,
+  ImportEqualsDeclaration,
+  NamespaceExport,
+} from "tsrs/ast";
+import { SymbolFlags } from "tsrs/sync";
+import type { Checker, Symbol as CompilerSymbol } from "tsrs/sync";
 
+import {
+  declarationsOf,
+  valueDeclarationOf,
+} from "#typepeek/inspection/compiler-session";
+import { isTypeOnlyAlias } from "#typepeek/inspection/compiler-syntax";
 import { UnsupportedInspectionError } from "#typepeek/inspection/errors";
 import { memberDeclarationSpaceSchema } from "#typepeek/inspection/member-path";
 import type { DeclarationSpace } from "#typepeek/inspection/protocol";
 import { bitwiseAnd } from "#typepeek/integer-bits";
 
-const SYMBOL_FLAGS_BY_SPACE: Readonly<
-  Record<DeclarationSpace, ts.SymbolFlags>
-> = {
-  namespace: ts.SymbolFlags.Namespace,
-  type: ts.SymbolFlags.Type,
-  value: ts.SymbolFlags.Value,
+const SYMBOL_FLAGS_BY_SPACE: Readonly<Record<DeclarationSpace, SymbolFlags>> = {
+  namespace: SymbolFlags.Namespace,
+  type: SymbolFlags.Type,
+  value: SymbolFlags.Value,
 };
 
 export type AliasDeclaration =
-  | ts.ExportAssignment
-  | ts.ExportDeclaration
-  | ts.ExportSpecifier
-  | ts.ImportEqualsDeclaration
-  | ts.NamespaceExport;
+  | ExportAssignment
+  | ExportDeclaration
+  | ExportSpecifier
+  | ImportEqualsDeclaration
+  | NamespaceExport;
 
 export interface FocusedExportResolution {
   readonly aliasDeclaration: AliasDeclaration | undefined;
   readonly aliasTargetName?: string;
-  readonly exportedSymbol: ts.Symbol;
+  readonly exportedSymbol: CompilerSymbol;
   readonly spaces: readonly DeclarationSpace[];
-  readonly targetSymbol: ts.Symbol;
+  readonly targetSymbol: CompilerSymbol;
   readonly valueAccessible: boolean;
 }
 
 /** Resolves an alias target without requiring export-alias presentation evidence. */
 export const resolveFocusedExportTarget = function resolveFocusedExportTarget(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol
-): ts.Symbol {
-  if (bitwiseAnd(symbol.flags, ts.SymbolFlags.Alias) === 0) {
+  checker: Checker,
+  symbol: CompilerSymbol
+): CompilerSymbol {
+  if (bitwiseAnd(symbol.flags, SymbolFlags.Alias) === 0) {
     return symbol;
   }
 
   const targetSymbol = checker.getAliasedSymbol(symbol);
 
   if (
-    targetSymbol.declarations === undefined ||
-    targetSymbol.declarations.length === 0
+    declarationsOf(targetSymbol) === undefined ||
+    declarationsOf(targetSymbol).length === 0
   ) {
     throw new UnsupportedInspectionError(
       "The selected Module Export alias could not be resolved from Installed Evidence."
@@ -54,24 +75,21 @@ export const resolveFocusedExportTarget = function resolveFocusedExportTarget(
 
 /** Retains type-only access through reexports and intervening import aliases. */
 const isTypeOnlyExport = function isTypeOnlyExport(
-  checker: ts.TypeChecker,
-  exportedSymbol: ts.Symbol
+  checker: Checker,
+  exportedSymbol: CompilerSymbol
 ): boolean {
-  const visited = new Set<ts.Symbol>();
+  const visited = new Set<CompilerSymbol>();
 
   for (
-    let symbol: ts.Symbol | undefined = exportedSymbol;
+    let symbol: CompilerSymbol | undefined = exportedSymbol;
     symbol !== undefined &&
-    bitwiseAnd(symbol.flags, ts.SymbolFlags.Alias) !== 0 &&
+    bitwiseAnd(symbol.flags, SymbolFlags.Alias) !== 0 &&
     !visited.has(symbol);
     symbol = checker.getImmediateAliasedSymbol(symbol)
   ) {
     visited.add(symbol);
 
-    if (
-      symbol.declarations?.some(ts.isTypeOnlyImportOrExportDeclaration) ??
-      false
-    ) {
+    if (declarationsOf(symbol).some(isTypeOnlyAlias) ?? false) {
       return true;
     }
   }
@@ -81,13 +99,13 @@ const isTypeOnlyExport = function isTypeOnlyExport(
 
 /** Property lookup retains the compiler's contextual type-only export-star restrictions. */
 const isModuleExportValueAccessible = function isModuleExportValueAccessible(
-  checker: ts.TypeChecker,
-  moduleSymbol: ts.Symbol,
-  exportedSymbol: ts.Symbol,
-  targetSymbol: ts.Symbol
+  checker: Checker,
+  moduleSymbol: CompilerSymbol,
+  exportedSymbol: CompilerSymbol,
+  targetSymbol: CompilerSymbol
 ): boolean {
   const declaration =
-    moduleSymbol.valueDeclaration ?? moduleSymbol.declarations?.[0];
+    valueDeclarationOf(moduleSymbol) ?? declarationsOf(moduleSymbol)[0];
 
   if (declaration === undefined) {
     throw new UnsupportedInspectionError(
@@ -100,10 +118,7 @@ const isModuleExportValueAccessible = function isModuleExportValueAccessible(
     declaration
   );
 
-  const property = checker.getPropertyOfType(
-    moduleType,
-    exportedSymbol.getName()
-  );
+  const property = checker.getPropertyOfType(moduleType, exportedSymbol.name);
 
   return (
     property !== undefined &&
@@ -112,25 +127,25 @@ const isModuleExportValueAccessible = function isModuleExportValueAccessible(
 };
 
 const isAliasDeclaration = function isAliasDeclaration(
-  declaration: ts.Declaration
+  declaration: Declaration
 ): declaration is AliasDeclaration {
   return (
-    ts.isExportAssignment(declaration) ||
-    ts.isExportSpecifier(declaration) ||
-    ts.isImportEqualsDeclaration(declaration) ||
-    ts.isNamespaceExport(declaration)
+    isExportAssignment(declaration) ||
+    isExportSpecifier(declaration) ||
+    isImportEqualsDeclaration(declaration) ||
+    isNamespaceExport(declaration)
   );
 };
 
 const findFocusedExportAliasDeclaration =
   function findFocusedExportAliasDeclaration(
-    exportedSymbol: ts.Symbol
+    exportedSymbol: CompilerSymbol
   ): AliasDeclaration | undefined {
-    if (bitwiseAnd(exportedSymbol.flags, ts.SymbolFlags.Alias) === 0) {
+    if (bitwiseAnd(exportedSymbol.flags, SymbolFlags.Alias) === 0) {
       return undefined;
     }
 
-    const declaration = exportedSymbol.declarations?.find(isAliasDeclaration);
+    const declaration = declarationsOf(exportedSymbol).find(isAliasDeclaration);
 
     if (declaration === undefined) {
       throw new UnsupportedInspectionError(
@@ -144,18 +159,18 @@ const findFocusedExportAliasDeclaration =
 /** Uses the export-star declaration as provenance when a type-only value has no named type declaration. */
 const findModuleExportStarDeclaration =
   function findModuleExportStarDeclaration(
-    checker: ts.TypeChecker,
-    moduleSymbol: ts.Symbol,
-    exportedSymbol: ts.Symbol,
-    targetSymbol: ts.Symbol
-  ): ts.ExportDeclaration {
-    const declarations =
-      moduleSymbol.exports?.get(ts.InternalSymbolName.ExportStar)
-        ?.declarations ?? [];
+    checker: Checker,
+    moduleSymbol: CompilerSymbol,
+    exportedSymbol: CompilerSymbol,
+    targetSymbol: CompilerSymbol
+  ): ExportDeclaration {
+    const declarations = declarationsOf(
+      moduleSymbol.getExports().get(InternalSymbolName.ExportStar)
+    );
 
     for (const declaration of declarations) {
       if (
-        !ts.isExportDeclaration(declaration) ||
+        !isExportDeclaration(declaration) ||
         declaration.moduleSpecifier === undefined
       ) {
         continue;
@@ -166,7 +181,7 @@ const findModuleExportStarDeclaration =
       if (source !== undefined) {
         const sourceExport = checker
           .getExportsOfModule(resolveFocusedExportTarget(checker, source))
-          .find((symbol) => symbol.getName() === exportedSymbol.getName());
+          .find((symbol) => symbol.name === exportedSymbol.name);
 
         if (
           sourceExport !== undefined &&
@@ -183,41 +198,43 @@ const findModuleExportStarDeclaration =
   };
 
 const focusedAliasTargetName = function focusedAliasTargetName(
-  exportedSymbol: ts.Symbol,
-  targetSymbol: ts.Symbol,
+  exportedSymbol: CompilerSymbol,
+  targetSymbol: CompilerSymbol,
   aliasDeclaration: AliasDeclaration | undefined
 ): string | undefined {
   if (
     aliasDeclaration === undefined ||
-    ts.isExportDeclaration(aliasDeclaration) ||
-    (ts.isExportSpecifier(aliasDeclaration) &&
-      exportedSymbol.getName() === targetSymbol.getName())
+    isExportDeclaration(aliasDeclaration) ||
+    (isExportSpecifier(aliasDeclaration) &&
+      exportedSymbol.name === targetSymbol.name)
   ) {
     return undefined;
   }
 
-  if (!ts.isNamespaceExport(aliasDeclaration)) {
-    return targetSymbol.getName();
+  if (!isNamespaceExport(aliasDeclaration)) {
+    return targetSymbol.name;
   }
 
-  const { moduleSpecifier } = aliasDeclaration.parent;
+  const moduleSpecifier = isExportDeclaration(aliasDeclaration.parent)
+    ? aliasDeclaration.parent.moduleSpecifier
+    : undefined;
 
   return moduleSpecifier !== undefined &&
-    ts.isStringLiteralLike(moduleSpecifier)
+    isStringLiteralLikeNode(moduleSpecifier)
     ? moduleSpecifier.text
     : "namespace module";
 };
 
 export const resolveFocusedExportSymbol = function resolveFocusedExportSymbol(
-  checker: ts.TypeChecker,
-  exportedSymbol: ts.Symbol,
-  moduleSymbol: ts.Symbol
+  checker: Checker,
+  exportedSymbol: CompilerSymbol,
+  moduleSymbol: CompilerSymbol
 ): FocusedExportResolution {
   const targetSymbol = resolveFocusedExportTarget(checker, exportedSymbol);
 
   const typeOnly =
     isTypeOnlyExport(checker, exportedSymbol) ||
-    (bitwiseAnd(targetSymbol.flags, ts.SymbolFlags.Value) !== 0 &&
+    (bitwiseAnd(targetSymbol.flags, SymbolFlags.Value) !== 0 &&
       !isModuleExportValueAccessible(
         checker,
         moduleSymbol,
@@ -227,7 +244,7 @@ export const resolveFocusedExportSymbol = function resolveFocusedExportSymbol(
 
   const aliasDeclaration =
     findFocusedExportAliasDeclaration(exportedSymbol) ??
-    (typeOnly && bitwiseAnd(targetSymbol.flags, ts.SymbolFlags.Type) === 0
+    (typeOnly && bitwiseAnd(targetSymbol.flags, SymbolFlags.Type) === 0
       ? findModuleExportStarDeclaration(
           checker,
           moduleSymbol,
@@ -254,18 +271,18 @@ export const resolveFocusedExportSymbol = function resolveFocusedExportSymbol(
     targetSymbol,
     ...(aliasTargetName !== undefined && { aliasTargetName }),
     valueAccessible:
-      bitwiseAnd(targetSymbol.flags, ts.SymbolFlags.Value) !== 0 && !typeOnly,
+      bitwiseAnd(targetSymbol.flags, SymbolFlags.Value) !== 0 && !typeOnly,
   };
 };
 
 export const resolveFocusedExport = function resolveFocusedExport(
-  checker: ts.TypeChecker,
-  moduleSymbol: ts.Symbol,
+  checker: Checker,
+  moduleSymbol: CompilerSymbol,
   exportName: string
 ): FocusedExportResolution | undefined {
   const exportedSymbol = checker
     .getExportsOfModule(moduleSymbol)
-    .find((symbol) => symbol.getName() === exportName);
+    .find((symbol) => symbol.name === exportName);
 
   if (exportedSymbol === undefined) {
     return undefined;

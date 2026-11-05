@@ -1,7 +1,11 @@
-import type ts from "@typescript/typescript6";
+import type { Checker, Symbol as CompilerSymbol } from "tsrs/sync";
 
 import type { CompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
 import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
+import {
+  isKnownNodePlatformSpecifier,
+  isNodePlatformSpecifier,
+} from "#typepeek/inspection/declaration-reference-authority";
 import {
   StaticBoundaryInspectionError,
   UnsupportedInspectionError,
@@ -28,10 +32,6 @@ import {
   readInstalledManifest,
 } from "#typepeek/inspection/installed-package-boundary";
 import { materializeInstalledProgram } from "#typepeek/inspection/installed-program";
-import {
-  isKnownNodePlatformSpecifier,
-  isNodePlatformSpecifier,
-} from "#typepeek/inspection/node-declaration-authority";
 import { profileInspectionPhase } from "#typepeek/inspection/performance-profile";
 import type {
   InspectionPlanQuery,
@@ -51,8 +51,8 @@ interface SelectedDeclarationPackage {
 }
 
 export interface InspectableModuleEvidence {
-  readonly checker: ts.TypeChecker;
-  readonly moduleSymbol: ts.Symbol;
+  readonly checker: Checker;
+  readonly moduleSymbol: CompilerSymbol;
   readonly resultIdentity: InspectionResultIdentity;
   readonly publicSubpaths: readonly PublicSubpath[];
   readonly supportingTypeScope: SupportingTypeScope;

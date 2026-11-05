@@ -84,12 +84,11 @@ const DISCOVERY_WORKLOADS: readonly DiscoveryWorkload[] = [
     target: "buildRouteMap",
   },
   {
-    id: "typescript-program",
+    id: "tsrs-filesystem",
     kind: "signatures",
-    question:
-      "Find every public call signature of @typescript/typescript6 createProgram.",
-    specifier: "@typescript/typescript6",
-    target: "createProgram",
+    question: "Find every public call signature of tsrs/fs createFileSystem.",
+    specifier: "tsrs/fs",
+    target: "createFileSystem",
   },
 ];
 

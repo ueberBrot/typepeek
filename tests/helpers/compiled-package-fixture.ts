@@ -901,7 +901,7 @@ const PACKAGE_SOURCES: readonly PackageSource[] = [
     declaration: [
       ...Array.from({ length: 5 }, (_, overload) => {
         const declarationParts2 = Array.from(
-          { length: 175 },
+          { length: 150 },
           (_item, index) => `readonly property${overload}_${index}: string;`
         ).join(" ");
 

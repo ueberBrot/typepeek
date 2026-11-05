@@ -1,17 +1,9 @@
 # Isolate each inspection in a subprocess
 
-## Process boundary
+Use one Execa-managed Node worker per normalized request. Accept one validated, byte-bounded JSON result after a clean exit.
 
-Inspection Core starts one execa-managed Node subprocess for each normalized request. It accepts one JSON result over byte-limited stdout only after the subprocess exits with code zero. The parent enforces a 10-second deadline, 100-millisecond kill escalation, 384 MiB old-generation heap, and 4 MiB stack. The heap allowance supports the pinned large-SDK corpus; it does not cap total process RSS.
+The worker owns its TSRS process. Deadline and cancellation cleanup target the entire process tree; Fiber interruption waits for worker exit. The heap ceiling covers JavaScript memory. Native memory is constrained by input bounds and process lifetime, without a total-RSS guarantee.
 
-Interrupting the caller Fiber aborts the subprocess and waits for its exit, using the same kill escalation. Launch failures, asynchronous transport failures, and nonzero exits return `analysis-terminated`. Inspection Core handles the private Effect errors internally.
+Keep one production launcher; tests vary its entrypoint and limits. Direct Execa preserves lifecycle control without an Effect service.
 
-A process, rather than a worker thread, provides independent termination and startup-time memory enforcement.
-
-## Adapter boundary
-
-Typepeek calls Execa directly. There is one production launcher; tests vary the entrypoint and limits while exercising real process lifecycles. An Effect Context/Layer would add configuration without another launcher or stronger cleanup.
-
-Installed Evidence resolution and compiler-host filesystem work are synchronous because TypeScript requires synchronous host callbacks. These operations return missing-evidence or limit outcomes on failure.
-
-The CLI protocol stream uses Promises, Stricli, and Node streams to invoke Inspection Core Effects.
+Evidence resolution follows the synchronous SDK contract. Missing evidence, exhausted budgets, and process failures become deterministic Inspection Outcomes.

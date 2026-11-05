@@ -208,7 +208,7 @@ describe("codex-discovery", () => {
     "node-exists",
     "effect-option",
     "stricli-routes",
-    "typescript-program",
+    "tsrs-filesystem",
   ])("keeps the %s discovery answer out of every condition's prompt", (id) => {
     const scenario = requireDefined(selectCodexScenarios([id])[0]);
     expect(scenario.discovery).toBeTruthy();

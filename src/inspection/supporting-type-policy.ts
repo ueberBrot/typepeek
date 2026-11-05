@@ -1,4 +1,5 @@
-import ts from "@typescript/typescript6";
+import { isModuleDeclaration, isStringLiteral } from "tsrs/ast";
+import type { Declaration } from "tsrs/ast";
 
 export type SupportingTypeScope =
   | {
@@ -11,7 +12,7 @@ export type SupportingTypeScope =
 
 const belongsToPlatformModule = function belongsToPlatformModule(
   specifier: string,
-  declaration: ts.Declaration
+  declaration: Declaration
 ): boolean {
   const acceptedNames = new Set([specifier, specifier.slice("node:".length)]);
 
@@ -20,7 +21,7 @@ const belongsToPlatformModule = function belongsToPlatformModule(
     ancestor !== undefined;
     ancestor = ancestor.parent
   ) {
-    if (ts.isModuleDeclaration(ancestor) && ts.isStringLiteral(ancestor.name)) {
+    if (isModuleDeclaration(ancestor) && isStringLiteral(ancestor.name)) {
       return acceptedNames.has(ancestor.name.text);
     }
   }
@@ -32,7 +33,7 @@ const belongsToPlatformModule = function belongsToPlatformModule(
 export const shouldExpandSupportingDeclaration =
   function shouldExpandSupportingDeclaration(
     scope: SupportingTypeScope,
-    declaration: ts.Declaration
+    declaration: Declaration
   ): boolean {
     if (scope.kind === "package") {
       return true;

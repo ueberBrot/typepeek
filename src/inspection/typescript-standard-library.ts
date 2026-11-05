@@ -1,7 +1,7 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
 
-import ts from "@typescript/typescript6";
+import { COMPILER_LIBRARY_DIRECTORY } from "#typepeek/inspection/compiler-distribution";
 
 export const INSPECTION_STANDARD_LIBRARY = "lib.es2024.d.ts";
 const STANDARD_LIBRARY_DECLARATION = /^lib\..+\.d\.ts$/u;
@@ -23,9 +23,7 @@ export const createStandardLibraryPredicate =
       paths.relative(canonicalRoot, paths.dirname(fileName)) === "") &&
     STANDARD_LIBRARY_DECLARATION.test(paths.basename(fileName));
 
-const standardLibraryRoot = path.dirname(
-  ts.getDefaultLibFilePath({ target: ts.ScriptTarget.ES2024 })
-);
+const standardLibraryRoot = COMPILER_LIBRARY_DIRECTORY;
 
 /** Identifies declarations shipped with Typepeek's pinned TypeScript analyzer. */
 export const isTypeScriptStandardLibraryDeclaration =

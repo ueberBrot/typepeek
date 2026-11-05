@@ -470,6 +470,66 @@ describe("analysis-process", () => {
     );
   }, 10_000);
 
+  it.each(["deadline", "interruption"] as const)(
+    "reaps native descendants after %s",
+    (reason) => {
+      const readyPath = nodePath.join(fixtureRoot, `native-${reason}-ready`);
+
+      const verifyDescendant = function* verifyDescendant() {
+        const entry = yield* Effect.promise(
+          async () =>
+            await materializeProcessEntry(
+              `native-${reason}`,
+              `import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
+const child = spawn(process.execPath, ["--eval", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'], { stdio: ["ignore", "ignore", "inherit"] });
+writeFileSync(${JSON.stringify(readyPath)}, String(child.pid));
+process.once("message", () => setInterval(() => {}, 1000));`
+            )
+        );
+
+        const fiber = yield* Effect.forkChild(
+          runAnalysisFixtureProcess(request, entry, {
+            ...limits,
+            deadlineMilliseconds: reason === "deadline" ? 1000 : 20_000,
+          })
+        );
+
+        const pid = yield* Effect.promise(
+          async () =>
+            await waitForProcessId(
+              readyPath,
+              LIFECYCLE_ASSERTION_TIMEOUT_MILLISECONDS
+            )
+        );
+
+        if (reason === "interruption") {
+          yield* Fiber.interrupt(fiber);
+        } else {
+          const outcome = yield* Fiber.join(fiber);
+          expect(outcome).toMatchObject({
+            exceededBudget: "analysis-deadline",
+            status: "limit-exceeded",
+          });
+        }
+
+        yield* Effect.promise(async () => {
+          await waitForProcessExit(pid);
+        });
+        expect(processIsAlive(pid)).toBeFalsy();
+      };
+
+      return Effect.gen(verifyDescendant).pipe(
+        Effect.ensuring(
+          Effect.promise(async () => {
+            await forceTerminateProcessFromReadyFile(readyPath);
+          })
+        )
+      );
+    },
+    10_000
+  );
+
   it.each([
     {
       name: "never responds",

@@ -69,7 +69,7 @@ The fixtures and grading are deterministic; live Codex time and token usage are 
     options: {
       cases: {
         default:
-          "execa-command,node-exists,effect-option,stricli-routes,typescript-program",
+          "execa-command,node-exists,effect-option,stricli-routes,tsrs-filesystem",
         type: "string",
       },
       conditions: { default: "files,typepeek-skill", type: "string" },

@@ -1,25 +1,20 @@
-import ts from "@typescript/typescript6";
+import { createScanner, LanguageVariant, SyntaxKind } from "tsrs/ast";
 
 export const signatureFact = function signatureFact(
   kind: string,
   text: string
 ): string {
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    true,
-    ts.LanguageVariant.Standard,
-    text
-  );
+  const scanner = createScanner(true, LanguageVariant.Standard, text);
 
   const tokens: string[] = [];
 
   for (
     let token = scanner.scan();
-    token !== ts.SyntaxKind.EndOfFileToken;
+    token !== SyntaxKind.EndOfFile;
     token = scanner.scan()
   ) {
     tokens.push(
-      token === ts.SyntaxKind.StringLiteral
+      token === SyntaxKind.StringLiteral
         ? JSON.stringify(scanner.getTokenValue())
         : scanner.getTokenText()
     );
