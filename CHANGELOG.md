@@ -1,5 +1,55 @@
 # typepeek
 
+## 0.5.0
+
+### Minor Changes
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Use the TSRS TypeScript 7.1 beta SDK for static inspection, SDK types, and standard libraries. Keep native compiler resources within each inspection lifecycle and include both compiler and SDK versions in cache identity. Declaration formatting and namespace export order follow the native compiler.
+
+### Patch Changes
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Give authenticated cache reads, deferred writes, and removal one filesystem owner. Preserve per-operation authority checks and authenticate stored payloads before parsing them.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Batch native symbol, signature, and Member type queries with bounded requests. Scope cached results to their checker so separate compiler snapshots retain their own authority.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Consolidate CLI argument normalization, bounded diagnostics, exit classification, and completion behind one runner.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Keep unresolved references, computed names, and inference traversal state within each declaration-authority scan.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Follow explicit ES2026 library references when inspecting inferred types, including Uint8Array.fromHex and Map.getOrInsertComputed.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Use explicit named SDK imports and enforce the namespace-import rule across source, tests, and benchmark tooling.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Give declaration rendering and Supporting Type expansion one owner for provenance, traversal state, and shared Inspection Plan budgets.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Preserve Public Interface types selected by import attributes, including distinct text and byte ambient-module declarations for the same Specifier.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Transfer newly loaded declaration contents as incremental filesystem layers while retaining earlier snapshots for active checker handles.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Give declaration graph validation ownership of its traversal queues, visited declarations, and aggregate budget shared with Node authority selection.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Separate authorized declaration resolution and evidence receipts from native filesystem snapshot construction.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Cache native alias targets per checker and allow 30 seconds for cold inspections of large declaration graphs. This prevents valid AWS SDK export pages, name searches, and Inspection Plans from exhausting the former 10-second deadline.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Keep parsed-manifest caching, shared byte accounting, and evidence observations inside the compiler work session. Package lookup requests observed manifest reads through a smaller interface.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Separate public declaration selection, inferred-type validation, and Member type-query projection into focused modules with shared rules.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Centralize public signature selection, source ordering, and count and byte limits. Keep detailed rendering behind its own operation and preserve the distinct text-only and structured limits.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Separate Public Subpath Discovery from declaration entrypoint selection. Keep wildcard file traversal, search-root caching, and directory receipts behind one bounded operation.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Inspect types inferred from source-phase imports using the native compiler's module-source declarations.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Run project type checking and Effect diagnostics through TSRS, and configure editor tooling to use the pinned native SDK.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Correct the Windows consumer test guard's native compiler pipe allowance, including write permission for the SDK's named pipe. Cover accepted and rejected launches and pipe permissions with portable regression tests.
+
+  Keep compiler pipe paths literal during guard checks. Windows canonicalization opens the pipe and consumes its single client connection before the SDK connects. Verify real native compiler connections on every consumer CI platform.
+
+- [#75](https://github.com/ueberBrot/typepeek/pull/75) [`70c2eb3`](https://github.com/ueberBrot/typepeek/commit/70c2eb3af0fda59b3da972c0c31748eb337ad660) - Encapsulate static workspace configuration, bounded directory discovery, and consuming-workspace filtering while keeping CLI selection decisions together.
+
 ## 0.4.2
 
 ### Patch Changes
