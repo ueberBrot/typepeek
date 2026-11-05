@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 
-import ts from "@typescript/typescript6";
 import { describe, expect, it } from "vite-plus/test";
 
 import { requireDefined } from "#typepeek/defined-value";
 import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
+import { COMPILER_VERSION } from "#typepeek/inspection/compiler-metadata";
 import type { InspectionCacheSelection } from "#typepeek/inspection/inspection-cache";
 import {
   createInspectionCacheIdentity,
@@ -96,7 +96,7 @@ describe("inspection-cache-codec", () => {
       budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
       cacheSemantics:
         "installed-evidence-proof-file-presence-and-signature-constraints",
-      compilerVersion: ts.version,
+      compilerVersion: COMPILER_VERSION,
       evidence: {
         declarationPath: "/repository/node_modules/example/index.d.ts",
         declarationRoot: "/repository/node_modules/example",

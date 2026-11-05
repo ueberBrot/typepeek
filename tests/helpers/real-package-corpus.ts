@@ -9,16 +9,49 @@ import {
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
-import ts from "@typescript/typescript6";
 import { Predicate, Schema } from "effect";
+import {
+  isExportDeclaration,
+  isExternalModuleReference,
+  isImportDeclaration,
+  isImportEqualsDeclaration,
+  isStringLiteralLikeNode,
+  ScriptTarget,
+} from "tsrs/ast";
+import type {
+  Declaration,
+  Node,
+  SourceFile,
+  StringLiteralLikeNode,
+} from "tsrs/ast";
+import {
+  ModuleKind,
+  ModuleResolutionKind,
+  SignatureKind,
+  SymbolFlags,
+} from "tsrs/sync";
+import type {
+  Checker,
+  Program,
+  RawCompilerOptions,
+  Signature,
+  Symbol as CompilerSymbol,
+  Type,
+} from "tsrs/sync";
 
-import { bitwiseAnd, bitwiseOr } from "#typepeek/integer-bits";
+import {
+  declarationsOf,
+  valueDeclarationOf,
+  signatureText,
+} from "#typepeek/inspection/compiler-session";
+import { bitwiseAnd } from "#typepeek/integer-bits";
 import {
   decodeJson,
   isJsonObject,
   mutableJsonObjectSchema,
 } from "#typepeek/json-data";
 
+import { createFixtureProgram } from "./native-compiler.ts";
 import { installLockedPackagesWithNpm } from "./package-toolchain.ts";
 
 const PACKAGE_MANIFEST_FILE = "package.json";
@@ -93,37 +126,37 @@ const corpusDependencyNames = async function corpusDependencyNames(): Promise<
 };
 
 const moduleSpecifierLiteral = function moduleSpecifierLiteral(
-  node: ts.Node
-): ts.StringLiteralLike | undefined {
+  node: Node
+): StringLiteralLikeNode | undefined {
   if (
-    (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+    (isImportDeclaration(node) || isExportDeclaration(node)) &&
     node.moduleSpecifier !== undefined &&
-    ts.isStringLiteralLike(node.moduleSpecifier)
+    isStringLiteralLikeNode(node.moduleSpecifier)
   ) {
     return node.moduleSpecifier;
   }
 
   if (
-    !ts.isImportEqualsDeclaration(node) ||
-    !ts.isExternalModuleReference(node.moduleReference)
+    !isImportEqualsDeclaration(node) ||
+    !isExternalModuleReference(node.moduleReference)
   ) {
     return undefined;
   }
 
   const { expression } = node.moduleReference;
 
-  return expression !== undefined && ts.isStringLiteralLike(expression)
+  return expression !== undefined && isStringLiteralLikeNode(expression)
     ? expression
     : undefined;
 };
 
 const findModuleSpecifier = function findModuleSpecifier(
-  sourceFile: ts.SourceFile,
+  sourceFile: SourceFile,
   specifier: string
-): ts.StringLiteralLike | undefined {
-  let match: ts.StringLiteralLike | undefined;
+): StringLiteralLikeNode | undefined {
+  let match: StringLiteralLikeNode | undefined;
 
-  const visit = (node: ts.Node): void => {
+  const visit = (node: Node): void => {
     const candidate = moduleSpecifierLiteral(node);
 
     if (candidate?.text === specifier) {
@@ -133,7 +166,7 @@ const findModuleSpecifier = function findModuleSpecifier(
     }
 
     if (match === undefined) {
-      ts.forEachChild(node, visit);
+      node.forEachChild(visit);
     }
   };
 
@@ -143,10 +176,10 @@ const findModuleSpecifier = function findModuleSpecifier(
 };
 
 const probeExportSymbol = function probeExportSymbol(
-  checker: ts.TypeChecker,
-  moduleSpecifier: ts.StringLiteralLike | undefined,
+  checker: Checker,
+  moduleSpecifier: StringLiteralLikeNode | undefined,
   exportName: string
-): ts.Symbol | undefined {
+): CompilerSymbol | undefined {
   const moduleSymbol =
     moduleSpecifier === undefined
       ? undefined
@@ -162,7 +195,7 @@ const probeExportSymbol = function probeExportSymbol(
     return undefined;
   }
 
-  if (bitwiseAnd(exportedSymbol.flags, ts.SymbolFlags.Alias)) {
+  if (bitwiseAnd(exportedSymbol.flags, SymbolFlags.Alias)) {
     return checker.getAliasedSymbol(exportedSymbol);
   }
 
@@ -170,21 +203,21 @@ const probeExportSymbol = function probeExportSymbol(
 };
 
 const probeSignatureEvidence = function probeSignatureEvidence(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol
+  checker: Checker,
+  symbol: CompilerSymbol
 ):
   | {
-      readonly declaration: ts.Declaration;
-      readonly type: ts.Type;
+      readonly declaration: Declaration;
+      readonly type: Type;
     }
   | undefined {
-  const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
+  const declaration = valueDeclarationOf(symbol) ?? declarationsOf(symbol)[0];
 
   if (declaration === undefined) {
     return undefined;
   }
 
-  const type = bitwiseAnd(symbol.flags, ts.SymbolFlags.Value)
+  const type = bitwiseAnd(symbol.flags, SymbolFlags.Value)
     ? checker.getTypeOfSymbolAtLocation(symbol, declaration)
     : checker.getDeclaredTypeOfSymbol(symbol);
 
@@ -192,62 +225,53 @@ const probeSignatureEvidence = function probeSignatureEvidence(
 };
 
 const probeSignatureText = function probeSignatureText(
-  checker: ts.TypeChecker,
-  signature: ts.Signature,
-  declaration: ts.Declaration,
-  kind: ts.SignatureKind
+  checker: Checker,
+  signature: Signature,
+  declaration: Declaration,
+  kind: SignatureKind
 ): string {
-  return checker.signatureToString(
+  return signatureText(
+    checker,
     signature,
-    signature.getDeclaration() ?? declaration,
-    bitwiseOr(
-      bitwiseOr(
-        bitwiseOr(
-          ts.TypeFormatFlags.NoTruncation,
-          ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope
-        ),
-        ts.TypeFormatFlags.NoTypeReduction
-      ),
-      ts.TypeFormatFlags.UseSingleQuotesForStringLiteralType
-    ),
+    signature.declaration?.resolve() ?? declaration,
     kind
   );
 };
 
 const probeTypeSignatures = function probeTypeSignatures(
-  checker: ts.TypeChecker,
-  type: ts.Type,
-  declaration: ts.Declaration
+  checker: Checker,
+  type: Type,
+  declaration: Declaration
 ): readonly ProbeSignature[] {
   return [
     ...checker
-      .getSignaturesOfType(type, ts.SignatureKind.Call)
+      .getSignaturesOfType(type, SignatureKind.Call)
       .map((signature) => ({
         kind: "call" as const,
         text: probeSignatureText(
           checker,
           signature,
           declaration,
-          ts.SignatureKind.Call
+          SignatureKind.Call
         ),
       })),
     ...checker
-      .getSignaturesOfType(type, ts.SignatureKind.Construct)
+      .getSignaturesOfType(type, SignatureKind.Construct)
       .map((signature) => ({
         kind: "construct" as const,
         text: probeSignatureText(
           checker,
           signature,
           declaration,
-          ts.SignatureKind.Construct
+          SignatureKind.Construct
         ),
       })),
   ];
 };
 
 const probeExportSignatures = function probeExportSignatures(
-  program: ts.Program,
-  checker: ts.TypeChecker,
+  program: Program,
+  checker: Checker,
   probePath: string,
   specifier: string,
   exportName: string
@@ -419,15 +443,13 @@ export const materializeRealPackageCorpus =
         probeIndex += 1;
         await writeFile(probePath, source);
 
-        const options: ts.CompilerOptions = {
-          allowSyntheticDefaultImports: true,
-          esModuleInterop: true,
-          module: ts.ModuleKind.NodeNext,
-          moduleResolution: ts.ModuleResolutionKind.NodeNext,
+        const options: RawCompilerOptions = {
+          module: ModuleKind.NodeNext,
+          moduleResolution: ModuleResolutionKind.NodeNext,
           noEmit: true,
           skipLibCheck: true,
           strict: true,
-          target: ts.ScriptTarget.ES2024,
+          target: ScriptTarget.ES2024,
           typeRoots: [
             ...new Set([
               nodePath.join(probeContext, "node_modules", "@types"),
@@ -437,27 +459,21 @@ export const materializeRealPackageCorpus =
           types: ["node"],
         };
 
-        const program = ts.createProgram([probePath], options);
-        const checker = program.getTypeChecker();
+        const program = createFixtureProgram([probePath], options);
+        const { checker } = program.getProject();
 
-        const resolution = ts.resolveModuleName(
-          specifier,
+        const resolution = program.getResolvedModule(
           probePath,
-          options,
-          ts.sys,
-          undefined,
-          undefined,
-          accessStyle === "require"
-            ? ts.ModuleKind.CommonJS
-            : ts.ModuleKind.ESNext
-        ).resolvedModule;
+          specifier,
+          accessStyle === "require" ? ModuleKind.CommonJS : ModuleKind.ESNext
+        );
 
         return {
-          diagnostics: ts
-            .getPreEmitDiagnostics(program)
-            .map((diagnostic) =>
-              ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
-            ),
+          diagnostics: [
+            ...program.getProgramDiagnostics(),
+            ...program.getSyntacticDiagnostics(),
+            ...program.getSemanticDiagnostics(),
+          ].map((diagnostic) => diagnostic.text),
           packageIdentity:
             resolution?.packageId === undefined
               ? undefined

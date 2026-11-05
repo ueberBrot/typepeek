@@ -7,6 +7,7 @@ import {
   MAX_EXPORT_SEARCH_MATCHES,
   MAX_MODULE_EXPORTS,
 } from "#typepeek/inspection/budget-policy";
+import { closeCompilerSessions } from "#typepeek/inspection/compiler-session";
 import {
   InspectionLimitError,
   StaticBoundaryInspectionError,
@@ -50,11 +51,9 @@ import type {
   InspectionOutcome,
   InspectionPlanQuery,
 } from "#typepeek/inspection/protocol";
+import { inspectResolvedExportSignatures } from "#typepeek/inspection/public-signatures";
 import { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
-import {
-  inspectModuleExportSignatures,
-  inspectResolvedExportSignatures,
-} from "#typepeek/inspection/signature-inspection";
+import { inspectModuleExportSignatures } from "#typepeek/inspection/signature-inspection";
 import { unreachableCase } from "#typepeek/unreachable-case";
 
 interface ModuleExportSearchResult {
@@ -139,7 +138,7 @@ const inspectModuleExports = function inspectModuleExports(
   }
 
   return exportedSymbols
-    .map((symbol) => ({ name: symbol.getName() }))
+    .map((symbol) => ({ name: symbol.name }))
     .toSorted(compareModuleExports);
 };
 
@@ -290,7 +289,7 @@ const searchModuleExports = function searchModuleExports(
   };
 
   for (const symbol of exportedSymbols) {
-    const name = symbol.getName();
+    const { name } = symbol;
 
     if (scope === undefined) {
       if (name.toLowerCase().includes(normalizedQuery)) {
@@ -600,6 +599,8 @@ export const analyzeInspection = function analyzeInspection(
     return prepareAnalyzedCacheWrite(identity, recorder.snapshot(), outcome);
   } catch (error) {
     return { outcome: errorOutcome(error) };
+  } finally {
+    closeCompilerSessions();
   }
 };
 

@@ -4,6 +4,7 @@ Typepeek applies these limits to every inspection:
 
 | Area | Bound |
 | --- | --- |
+| Analysis process | 30 seconds elapsed; 384 MiB JavaScript heap |
 | Request / result construction / stdout / stderr | 16 / 60 / 64 / 64 KiB |
 | Inspection Plan | 1 through 16 ordered queries; all-or-nothing result |
 | Public Interface Comparison | exactly 2 bounded Interface Overviews; all-or-nothing delta |
@@ -38,5 +39,7 @@ Member Discovery counts candidates in each declaration space and namespace re-ex
 A public name that cannot form a bounded exact Member Path, including a symbol-keyed member, produces `unsupported-evidence` instead of an unusable selector. Discovery also fails explicitly for synthetic public members without declaration evidence. At the maximum path depth, discovery can return an empty leaf but cannot return children that require a longer path. Member queries load the trusted standard library to resolve inherited types; inspecting a library-only declaration still requires Installed Evidence provenance and can return `unsupported-evidence`.
 
 Adversarial fixtures and supported package tests determine these thresholds. They provide no latency, capacity, or compatibility guarantee. Work and output limits should produce the same result or explicit limit failure for unchanged Installed Evidence; the process deadline separately limits elapsed time. Thresholds may change to support additional installations.
+
+The elapsed deadline allows cold native compiler queries over large declaration graphs. Alias targets are cached within each checker to avoid repeated native calls. The deadline includes startup and analysis; cancellation still terminates the worker and its native compiler process.
 
 Change `INSPECTION_BUDGET_POLICY.identity` whenever a threshold or accounting rule changes. Change the storage-schema and cache-semantics versions only when their respective formats or reuse rules change.

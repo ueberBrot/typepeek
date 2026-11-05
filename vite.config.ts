@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { recommended as effectRecommended } from "@effect/tsgo/oxlint-presets";
-import ts from "@typescript/typescript6";
 import { Predicate, Schema } from "effect";
 import ultraciteFormat from "ultracite/oxfmt";
 import antiSlop from "ultracite/oxlint/anti-slop";
@@ -11,6 +10,7 @@ import { selectJsPlugins } from "ultracite/oxlint/js-plugins";
 import ultraciteVitest from "ultracite/oxlint/vitest";
 import { defineConfig } from "vite-plus";
 
+import { COMPILER_VERSION } from "./src/inspection/compiler-distribution.ts";
 import { readStandardGlobalCatalog } from "./src/inspection/standard-global-catalog.ts";
 import { decodeJson } from "./src/json-data.ts";
 
@@ -30,7 +30,7 @@ const packageManifest = decodeJson(
 );
 
 const packageVersionDefine = {
-  "globalThis.__TYPEPEEK_COMPILER_VERSION__": JSON.stringify(ts.version),
+  "globalThis.__TYPEPEEK_COMPILER_VERSION__": JSON.stringify(COMPILER_VERSION),
   "globalThis.__TYPEPEEK_STANDARD_GLOBALS__": JSON.stringify(
     readStandardGlobalCatalog()
   ),
@@ -39,10 +39,6 @@ const packageVersionDefine = {
 
 const releaseProfileAdapter = fileURLToPath(
   new URL("src/inspection/performance-profile-disabled.ts", import.meta.url)
-);
-
-const compilerRuntimeAdapter = fileURLToPath(
-  new URL("src/inspection/compiler-runtime.ts", import.meta.url)
 );
 
 // Explicit inputs avoid tracing conflicts with the native checker subprocesses.
@@ -84,7 +80,14 @@ export default defineConfig({
     },
     outDir: ".vite-plus/build",
     rolldownOptions: {
-      external: [/^node:/u, "@stricli/core", /^effect(?:\/|$)/u, "execa"],
+      external: [
+        /^node:/u,
+        "@stricli/core",
+        /^effect(?:\/|$)/u,
+        /^tsrs(?:\/|$)/u,
+        "execa",
+        "semver",
+      ],
       output: {
         // analysis-process.ts resolves the worker relative to a shared chunk,
         // so shared chunks must stay at the output root.
@@ -133,7 +136,7 @@ export default defineConfig({
     options: {
       denyWarnings: true,
       typeAware: true,
-      typeCheck: true,
+      typeCheck: false,
     },
     // Register the Effect adapters as test blocks so assertion rules also cover them.
     overrides: [
@@ -165,16 +168,17 @@ export default defineConfig({
         },
       },
     ],
+    rules: {
+      "import/no-namespace": "error",
+    },
   },
   pack: {
     alias: {
       "#typepeek/inspection/performance-profile": releaseProfileAdapter,
-      "@typescript/typescript6": compilerRuntimeAdapter,
     },
     define: packageVersionDefine,
-    // Apply the local compiler loader alias before dependency externalization.
+    // Keep SDK subpath imports external and resolvable in installed consumers.
     deps: {
-      alwaysBundle: ["@typescript/typescript6"],
       resolveDepSubpath: true,
     },
     // This package exposes CLI binaries; validation checks types separately.
@@ -194,7 +198,7 @@ export default defineConfig({
     sourcemap: true,
     unused: {
       ignore: {
-        dependencies: ["@typescript/typescript6", "execa"],
+        dependencies: ["execa"],
       },
       level: "error",
     },
@@ -203,7 +207,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "#typepeek/inspection/performance-profile": releaseProfileAdapter,
-      "@typescript/typescript6": compilerRuntimeAdapter,
     },
   },
   run: {
@@ -230,7 +233,7 @@ export default defineConfig({
       },
       check: {
         cache: { input: validationInputs, output: [] },
-        command: "vp check",
+        command: ["tsrs --noEmit -p tsconfig.json", "vp check"],
       },
       dependencies: {
         cache: false,
@@ -242,7 +245,7 @@ export default defineConfig({
       },
       "effect-check": {
         cache: { input: validationInputs, output: [] },
-        command: "effect-tsgo diagnostics --project tsconfig.json --strict",
+        command: "node tests/effect-diagnostics.ts",
       },
       fallow: {
         cache: false,
@@ -285,6 +288,7 @@ export default defineConfig({
   },
   test: {
     include: ["tests/**/*.test.ts"],
+    setupFiles: ["tests/native-compiler-cleanup.ts"],
     testTimeout: 30_000,
   },
 });

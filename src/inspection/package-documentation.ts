@@ -1,4 +1,16 @@
-import ts from "@typescript/typescript6";
+import {
+  getJSDocCommentsAndTags,
+  getTextOfJSDocComment,
+  isExportSpecifier,
+  isJSDoc,
+  isNamespaceExport,
+} from "tsrs/ast";
+import type { JSDoc, JSDocTag } from "tsrs/ast";
+import type {
+  Checker,
+  JSDocTagInfo,
+  Symbol as CompilerSymbol,
+} from "tsrs/sync";
 
 import {
   splitCodePoints,
@@ -88,10 +100,8 @@ const sanitizePackageDocumentation = function sanitizePackageDocumentation(
   ).trim();
 };
 
-const renderJsDocNodeTag = function renderJsDocNodeTag(
-  tag: ts.JSDocTag
-): string {
-  const comment = ts.getTextOfJSDocComment(tag.comment);
+const renderJsDocNodeTag = function renderJsDocNodeTag(tag: JSDocTag): string {
+  const comment = getTextOfJSDocComment(tag.comment);
 
   const generatedText1 = comment === undefined ? "" : ` ${comment}`;
 
@@ -99,11 +109,11 @@ const renderJsDocNodeTag = function renderJsDocNodeTag(
 };
 
 const jsDocNodeText = function jsDocNodeText(
-  node: ts.JSDoc | ts.JSDocTag
+  node: JSDoc | JSDocTag
 ): readonly string[] {
-  if (ts.isJSDoc(node)) {
+  if (isJSDoc(node)) {
     return [
-      ts.getTextOfJSDocComment(node.comment) ?? "",
+      getTextOfJSDocComment(node.comment) ?? "",
       ...(node.tags?.map((tag) => renderJsDocNodeTag(tag)) ?? []),
     ];
   }
@@ -119,11 +129,11 @@ const aliasDocumentation = function aliasDocumentation(
   }
 
   const readHost = () => {
-    if (ts.isExportSpecifier(aliasDeclaration)) {
+    if (isExportSpecifier(aliasDeclaration)) {
       return aliasDeclaration.parent.parent;
     }
 
-    if (ts.isNamespaceExport(aliasDeclaration)) {
+    if (isNamespaceExport(aliasDeclaration)) {
       return aliasDeclaration.parent;
     }
 
@@ -132,26 +142,24 @@ const aliasDocumentation = function aliasDocumentation(
 
   const host = readHost();
 
-  return ts
-    .getJSDocCommentsAndTags(host)
+  return getJSDocCommentsAndTags(host)
     .flatMap(jsDocNodeText)
     .filter((comment) => comment.length > 0)
     .join("\n");
 };
 
-const renderJsDocTag = function renderJsDocTag(tag: ts.JSDocTagInfo): string {
-  const text =
-    tag.text === undefined ? "" : ` ${ts.displayPartsToString(tag.text)}`;
+const renderJsDocTag = function renderJsDocTag(tag: JSDocTagInfo): string {
+  const text = tag.text === undefined ? "" : ` ${tag.text}`;
 
   return `@${tag.name}${text}`;
 };
 
 const symbolDocumentation = function symbolDocumentation(
-  symbol: ts.Symbol,
-  checker: ts.TypeChecker
+  symbol: CompilerSymbol,
+  checker: Checker
 ): string {
   return [
-    ts.displayPartsToString(symbol.getDocumentationComment(checker)),
+    symbol.getDocumentationComment(checker),
     ...symbol.getJsDocTags(checker).map(renderJsDocTag),
   ]
     .filter((part) => part.length > 0)
@@ -159,9 +167,9 @@ const symbolDocumentation = function symbolDocumentation(
 };
 
 const packageDocumentationText = function packageDocumentationText(
-  checker: ts.TypeChecker,
-  exportedSymbol: ts.Symbol,
-  targetSymbol: ts.Symbol,
+  checker: Checker,
+  exportedSymbol: CompilerSymbol,
+  targetSymbol: CompilerSymbol,
   aliasDeclaration: AliasDeclaration | undefined
 ): string {
   // Prefer the documentation closest to what the caller selected. Combining
@@ -181,9 +189,9 @@ const packageDocumentationText = function packageDocumentationText(
  * the Inspection Core, and rejected when it exceeds the documentation budget.
  */
 export const inspectPackageDocumentation = function inspectPackageDocumentation(
-  checker: ts.TypeChecker,
-  exportedSymbol: ts.Symbol,
-  targetSymbol: ts.Symbol,
+  checker: Checker,
+  exportedSymbol: CompilerSymbol,
+  targetSymbol: CompilerSymbol,
   aliasDeclaration: AliasDeclaration | undefined
 ): PackageDocumentation | undefined {
   const documentation = sanitizePackageDocumentation(

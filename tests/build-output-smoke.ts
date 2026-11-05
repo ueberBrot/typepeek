@@ -11,7 +11,7 @@ import {
   assertArtifactCacheReuse,
   assertCompilerLoadsOnlyInWorker,
   assertRepositoryProfilingExcluded,
-  assertWorkerUsesCommonJsCompiler,
+  assertWorkerUsesPinnedNativeCompiler,
 } from "./artifact-boundary.ts";
 
 const BUILT_CLI_PATH = ".vite-plus/build/cli.js";
@@ -34,7 +34,7 @@ assert.equal(
 
 await assertRepositoryProfilingExcluded(".vite-plus/build");
 
-assertWorkerUsesCommonJsCompiler(BUILT_CLI_PATH);
+assertWorkerUsesPinnedNativeCompiler(BUILT_CLI_PATH);
 
 const packageVersion = decodeJson(
   Schema.Struct({

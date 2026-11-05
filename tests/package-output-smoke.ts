@@ -12,7 +12,7 @@ import {
   assertArtifactCacheReuse,
   assertCompilerLoadsOnlyInWorker,
   assertRepositoryProfilingExcluded,
-  assertWorkerUsesCommonJsCompiler,
+  assertWorkerUsesPinnedNativeCompiler,
 } from "./artifact-boundary.ts";
 
 const PACKAGED_CLI_PATH = "dist/cli.js";
@@ -20,7 +20,7 @@ const PACKAGE_MANIFEST_FILE = "package.json";
 
 await assertRepositoryProfilingExcluded("dist");
 
-assertWorkerUsesCommonJsCompiler(PACKAGED_CLI_PATH);
+assertWorkerUsesPinnedNativeCompiler(PACKAGED_CLI_PATH);
 
 const npmCache = await mkdtemp(nodePath.join(tmpdir(), "typepeek-npm-cache-"));
 

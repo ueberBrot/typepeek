@@ -168,6 +168,7 @@ const writeRepositoryTraps = async function writeRepositoryTraps(
     nodePath.join(context, ".pnp.cjs"),
     nodePath.join(context, "script-trap.cjs"),
     nodePath.join(context, "node_modules", "typescript", "index.js"),
+    nodePath.join(context, "node_modules", "tsrs", "index.js"),
     nodePath.join(
       context,
       "node_modules",
@@ -197,6 +198,10 @@ const writeRepositoryTraps = async function writeRepositoryTraps(
     })
   );
   await Promise.all([
+    writeFile(
+      nodePath.join(context, "node_modules", "tsrs", PACKAGE_MANIFEST_FILE),
+      packageManifest("tsrs", false)
+    ),
     writeFile(
       nodePath.join(
         context,

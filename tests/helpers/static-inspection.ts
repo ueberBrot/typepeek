@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import {
   access,
   mkdir,
@@ -6,6 +7,7 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
+import { createRequire } from "node:module";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -20,9 +22,35 @@ interface GuardedEnvironment {
 const PLUGIN_RUNTIME_SOURCE = "module.exports = true;\n";
 const PACKAGE_MANIFEST_FILE = "package.json";
 
+const compilerExecutableFor = (entrypoint: string): string => {
+  const require = createRequire(
+    createRequire(pathToFileURL(realpathSync.native(entrypoint))).resolve(
+      "tsrs/package.json"
+    )
+  );
+
+  const base = `@tsrs/${process.platform}-${process.arch}`;
+
+  for (const candidate of process.platform === "linux"
+    ? [`${base}-gnu`, `${base}-musl`]
+    : [base]) {
+    try {
+      return nodePath.join(
+        nodePath.dirname(require.resolve(`${candidate}/package.json`)),
+        process.platform === "win32" ? "tsrs.exe" : "tsrs"
+      );
+    } catch {
+      // Only the current platform's optional dependency is installed.
+    }
+  }
+
+  throw new Error("The CLI's pinned native compiler is missing.");
+};
+
 const PROTECTED_TRIPWIRE_ENVIRONMENT_NAMES = [
   "NODE_OPTIONS",
   "TYPEPEEK_ALLOWED_ANALYSIS_PROCESS_ENTRY",
+  "TYPEPEEK_ALLOWED_COMPILER_EXECUTABLE",
   "TYPEPEEK_DENY_WORKERS",
   "TYPEPEEK_EXECUTABLE_PATHS",
   "TYPEPEEK_EXECUTABLE_ROOTS",
@@ -81,12 +109,15 @@ const inspectionTripwireSource = function inspectionTripwireSource(): string {
     "const executableRoots = [...forbiddenPathSet(process.env.TYPEPEEK_EXECUTABLE_ROOTS)];",
     "const forbiddenReads = forbiddenPathSet(process.env.TYPEPEEK_FORBIDDEN_READ_PATHS);",
     "const allowedAnalysisProcessEntries = forbiddenPathSet(process.env.TYPEPEEK_ALLOWED_ANALYSIS_PROCESS_ENTRY ? JSON.stringify([process.env.TYPEPEEK_ALLOWED_ANALYSIS_PROCESS_ENTRY]) : '[]');",
+    "const allowedCompilerExecutables = forbiddenPathSet(process.env.TYPEPEEK_ALLOWED_COMPILER_EXECUTABLE ? JSON.stringify([process.env.TYPEPEEK_ALLOWED_COMPILER_EXECUTABLE]) : '[]');",
     'const denyWorkers = process.env.TYPEPEEK_DENY_WORKERS === "true";',
     "function forbiddenPathSet(serialized) {",
     "  return new Set(JSON.parse(serialized || '[]').flatMap(normalizePaths));",
     "}",
     "function normalizePaths(value) {",
     "  try {",
+    // Windows realpath opens a path, consuming a named pipe's one client connection.
+    "    if (process.platform === 'win32' && typeof value === 'string' && value.startsWith(String.raw`\\\\.\\pipe\\tsgo-sync-`)) return [value];",
     '    const lexical = value instanceof URL || (typeof value === "string" && value.startsWith("file:"))',
     "      ? path.resolve(fileURLToPath(value))",
     '      : typeof value === "string" || Buffer.isBuffer(value) ? path.resolve(String(value)) : undefined;',
@@ -148,8 +179,14 @@ const inspectionTripwireSource = function inspectionTripwireSource(): string {
     "  return isForbiddenPath(allowedAnalysisProcessEntries, args[2]);",
     "}",
     "const originalSpawn = childProcess.spawn;",
+    "function isAllowedCompilerSpawn(command, args) {",
+    "  if (!isForbiddenPath(allowedAnalysisProcessEntries, process.argv[1]) || !isForbiddenPath(allowedCompilerExecutables, command)) return false;",
+    "  if (!Array.isArray(args) || (args.length !== 5 && !(process.platform === 'win32' && args.length === 7 && args[5] === '--pipe' && typeof args[6] === 'string' && args[6].startsWith(String.raw`\\\\.\\pipe\\tsgo-sync-`)))) return false;",
+    "  if (args[0] !== '--api' || args[1] !== '--cwd' || args[2] !== process.cwd() || !/^--useCaseSensitiveFileNames=(true|false)$/.test(args[3])) return false;",
+    "  return args[4].startsWith('--callbacks=') && args[4].slice('--callbacks='.length).split(',').sort().join(',') === 'directoryExists,fileExists,getAccessibleEntries,readFile,realpath,removeFile,stat,writeFile';",
+    "}",
     "childProcess.spawn = function guardedSpawn(command, args, options) {",
-    '  if (!isAllowedAnalysisSpawn(command, args)) trip("process activity");',
+    '  if (!isAllowedAnalysisSpawn(command, args) && !isAllowedCompilerSpawn(command, args)) trip("process activity");',
     "  return Reflect.apply(originalSpawn, this, [command, args, options]);",
     "};",
     "const originalModuleLoad = Module._load;",
@@ -221,28 +258,40 @@ const nodePathOption = function nodePathOption(
   return `${option}=${JSON.stringify(path)}`;
 };
 
+export const staticInspectionNodeOptions = (
+  preloadPath: string,
+  sentinel: string,
+  platform = process.platform
+): readonly string[] => [
+  nodePathOption("--require", preloadPath),
+  "--permission",
+  "--allow-fs-read=*",
+  nodePathOption("--allow-fs-write", sentinel),
+  ...(platform === "win32"
+    ? [nodePathOption("--allow-fs-write", String.raw`\\.\pipe\tsgo-sync-*`)]
+    : []),
+  "--allow-child-process",
+  "--allow-worker",
+];
+
 const guardedEnvironment = function guardedEnvironment(
   preloadPath: string,
   sentinel: string,
   policy: TripwirePolicy,
   processPolicy: {
     readonly allowedAnalysisProcessEntry?: string;
+    readonly allowedCompilerExecutable?: string;
     readonly denyWorkers?: boolean;
   } = {}
 ): GuardedEnvironment {
   // Temp roots can canonicalize differently; executable origin is checked separately.
   return {
-    NODE_OPTIONS: [
-      nodePathOption("--require", preloadPath),
-      "--permission",
-      "--allow-fs-read=*",
-      nodePathOption("--allow-fs-write", sentinel),
-      "--allow-child-process",
-      "--allow-worker",
-    ].join(" "),
+    NODE_OPTIONS: staticInspectionNodeOptions(preloadPath, sentinel).join(" "),
     PATH: process.env["PATH"] ?? "",
     TYPEPEEK_ALLOWED_ANALYSIS_PROCESS_ENTRY:
       processPolicy.allowedAnalysisProcessEntry ?? "",
+    TYPEPEEK_ALLOWED_COMPILER_EXECUTABLE:
+      processPolicy.allowedCompilerExecutable ?? "",
     TYPEPEEK_DENY_WORKERS:
       processPolicy.denyWorkers === true ? "true" : "false",
     TYPEPEEK_EXECUTABLE_PATHS: JSON.stringify(policy.executablePaths ?? []),
@@ -644,6 +693,9 @@ export const materializeStaticInspection =
             cwd: resolutionContext,
             env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
               allowedAnalysisProcessEntry: analysisProcessEntryPath,
+              allowedCompilerExecutable: compilerExecutableFor(
+                analysisProcessEntryPath
+              ),
               denyWorkers: true,
             }),
           });

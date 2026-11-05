@@ -42,8 +42,8 @@ const DISCOVERY_QUESTIONS = new Map<string, string>(
       "Using the installed node:fs declarations, find the public synchronous function that checks whether a path exists and returns a boolean. Identify its export name and report every public call signature.",
     "stricli-routes":
       "Using the installed @stricli/core package, find the public function that groups named commands and nested command groups with documentation, optional aliases, and an optional default command. Identify its export name and report every public call signature, including generic parameters.",
-    "typescript-program":
-      "Using the installed @typescript/typescript6 package, find the public compiler function that constructs a compilation from root source file names and compiler options, with optional host customization and reuse of a previous compilation. Identify its export name and report every public call signature.",
+    "tsrs-filesystem":
+      "Using the installed tsrs/fs module, find the public function that builds a complete compiler filesystem from file entries and optional directory and symlink metadata. Identify its export name and report every public call signature.",
   })
 );
 

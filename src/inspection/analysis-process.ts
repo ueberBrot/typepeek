@@ -1,3 +1,6 @@
+import { spawnSync } from "node:child_process";
+import nodePath from "node:path";
+
 import { Effect, Schema } from "effect";
 import { execaNode } from "execa";
 
@@ -5,9 +8,9 @@ import {
   INSPECTION_BUDGET_POLICY,
   MAX_ANALYSIS_RESULT_BYTES,
 } from "#typepeek/inspection/budget-policy";
+import { removeInspectionCacheEntry } from "#typepeek/inspection/inspection-cache-files";
 import {
   readInspectionCacheHitNotice,
-  removeInspectionCacheEntry,
   writeValidatedInspectionCacheOutcome,
 } from "#typepeek/inspection/inspection-cache-storage";
 import { enforceAnalysisRequestOutcome } from "#typepeek/inspection/inspection-outcome-authority";
@@ -53,7 +56,7 @@ class AnalysisProcessExecutionError extends taggedError<
 >()("AnalysisProcessExecutionError", { cause: Schema.Defect() }) {}
 
 const PRODUCTION_LIMITS: AnalysisProcessLimits = {
-  deadlineMilliseconds: 10_000,
+  deadlineMilliseconds: INSPECTION_BUDGET_POLICY.analysisDeadlineMilliseconds,
   maxDiagnosticBytes: 64 * 1024,
   maxHeapMegabytes: INSPECTION_BUDGET_POLICY.analysisHeapMegabytes,
   maxResultBytes: MAX_ANALYSIS_RESULT_BYTES,
@@ -104,10 +107,12 @@ const executeAnalysisProcess = function executeAnalysisProcess(
   return Effect.callback<AnalysisProcessResult, AnalysisProcessExecutionError>(
     (resume, cancelSignal) => {
       try {
+        let timedOut = false;
+
         const subprocess = execaNode(entryUrl, [], {
           ipcInput: request,
           ...(bypassCache && { env: { TYPEPEEK_CACHE_BYPASS: "1" } }),
-          cancelSignal,
+          detached: process.platform !== "win32",
           encoding: "buffer",
           forceKillAfterDelay: 100,
           maxBuffer: {
@@ -121,16 +126,77 @@ const executeAnalysisProcess = function executeAnalysisProcess(
           ],
           reject: false,
           serialization: "advanced",
-          timeout: limits.deadlineMilliseconds,
         });
+
+        const terminate = (): void => {
+          if (process.platform === "win32" && subprocess.pid !== undefined) {
+            // Kill the tree before the worker disappears: taskkill cannot find
+            // native descendants through a parent that has already exited.
+            spawnSync(
+              nodePath.join(
+                process.env["SystemRoot"] ?? "C:\\Windows",
+                "System32",
+                "taskkill.exe"
+              ),
+              ["/PID", String(subprocess.pid), "/T", "/F"],
+              { stdio: "ignore", timeout: 1000 }
+            );
+          }
+
+          subprocess.kill();
+        };
+
+        const deadline = setTimeout(() => {
+          timedOut = true;
+          terminate();
+        }, limits.deadlineMilliseconds);
+
+        const onCancel = (): void => {
+          terminate();
+        };
+
+        cancelSignal.addEventListener("abort", onCancel, { once: true });
+
+        subprocess.nodeChildProcess.once("exit", () => {
+          clearTimeout(deadline);
+          cancelSignal.removeEventListener("abort", onCancel);
+
+          if (process.platform !== "win32" && subprocess.pid !== undefined) {
+            try {
+              process.kill(-subprocess.pid, "SIGKILL");
+            } catch {
+              // The process group is already empty after ordinary SDK cleanup.
+            }
+          }
+        });
+
+        if (cancelSignal.aborted) {
+          terminate();
+        }
 
         const forwardResult = async (): Promise<void> => {
           try {
-            resume(Effect.succeed(await subprocess));
+            const result = await subprocess;
+            resume(
+              Effect.succeed({
+                ...(result.exitCode !== undefined && {
+                  exitCode: result.exitCode,
+                }),
+                failed: result.failed,
+                ipcOutput: result.ipcOutput,
+                isMaxBuffer: result.isMaxBuffer,
+                stderr: result.stderr,
+                stdout: result.stdout,
+                timedOut,
+              })
+            );
           } catch (error) {
             resume(
               Effect.fail(new AnalysisProcessExecutionError({ cause: error }))
             );
+          } finally {
+            clearTimeout(deadline);
+            cancelSignal.removeEventListener("abort", onCancel);
           }
         };
 

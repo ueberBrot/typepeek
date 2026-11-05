@@ -1,64 +1,87 @@
-import ts from "@typescript/typescript6";
 import { Predicate } from "effect";
+import {
+  factory,
+  isClassDeclaration,
+  isConstructorDeclaration,
+  isDecorator,
+  isEnumDeclaration,
+  isEnumMember,
+  isExportAssignment,
+  isExportDeclaration,
+  isFunctionDeclaration,
+  isGetAccessorDeclaration,
+  isMethodDeclaration,
+  isModuleBlock,
+  isModuleDeclaration,
+  isNamespaceExport,
+  isParameterDeclaration,
+  isPropertyDeclaration,
+  isSetAccessorDeclaration,
+  isUnionTypeNode,
+  isVariableDeclaration,
+  isVariableStatement,
+  SyntaxKind,
+  TokenFlags,
+} from "tsrs/ast";
+import type {
+  ClassElement,
+  Declaration,
+  EnumMember,
+  Expression,
+  FunctionDeclaration,
+  MethodDeclaration,
+  ModifierLike,
+  ModuleBody,
+  Node,
+  ParameterDeclaration,
+  PropertyDeclaration,
+  Statement,
+  TypeNode,
+} from "tsrs/ast";
+import type { Checker, Type } from "tsrs/sync";
 
-import { requireDefined } from "#typepeek/defined-value";
+import { printCompilerNode } from "#typepeek/inspection/compiler-session";
+import { modifiersOf, hasModifier } from "#typepeek/inspection/compiler-syntax";
 import {
   InspectionLimitError,
   UnsupportedInspectionError,
 } from "#typepeek/inspection/errors";
-import { isTypeScriptStandardLibraryDeclaration } from "#typepeek/inspection/typescript-standard-library";
-import { isWellKnownSymbolMemberName } from "#typepeek/inspection/well-known-symbol";
-import { bitwiseAnd, bitwiseOr } from "#typepeek/integer-bits";
-
-const UNREPRESENTABLE_MEMBER_MESSAGE =
-  "A Member type query could not be represented independently.";
-
-const INFERRED_TYPE_FLAGS = ts.NodeBuilderFlags.NoTruncation;
-
-const declarationPrinter = ts.createPrinter({
-  newLine: ts.NewLineKind.LineFeed,
-  removeComments: true,
-});
-
-const MEMBER_TYPE_QUERY_FLAGS = bitwiseOr(
-  bitwiseOr(INFERRED_TYPE_FLAGS, ts.NodeBuilderFlags.UseStructuralFallback),
-  ts.NodeBuilderFlags.WriteClassExpressionAsTypeLiteral
-);
+import {
+  assertRepresentableAsyncInitializer,
+  publicType,
+  publicReturnType,
+} from "#typepeek/inspection/inferred-public-type";
+import type { DeclarationProjectionContext } from "#typepeek/inspection/inferred-public-type";
+import {
+  collectMemberTypeQueryTypes,
+  projectMemberTypeQueries,
+} from "#typepeek/inspection/member-type-query-projection";
+import {
+  isPrivateDeclaration,
+  isParameterPropertyModifier,
+  publicDeclarations,
+  selectPublicClassDeclarations,
+} from "#typepeek/inspection/public-declaration-selection";
+import type { IdentifiedParameter } from "#typepeek/inspection/public-declaration-selection";
 
 const MAX_INFERRED_TYPE_TRAVERSAL_DEPTH = 64;
 const MAX_INFERRED_TYPE_TRAVERSAL_NODES = 4096;
 
-const MEMBER_CONTAINER_KINDS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.ClassDeclaration,
-  ts.SyntaxKind.ClassExpression,
-  ts.SyntaxKind.EnumDeclaration,
-  ts.SyntaxKind.InterfaceDeclaration,
-  ts.SyntaxKind.ObjectLiteralExpression,
-  ts.SyntaxKind.TypeLiteral,
-]);
-
-const NAMESPACE_DECLARATION_KINDS = new Set<ts.SyntaxKind>([
-  ts.SyntaxKind.ClassDeclaration,
-  ts.SyntaxKind.EnumDeclaration,
-  ts.SyntaxKind.ExportAssignment,
-  ts.SyntaxKind.ExportDeclaration,
-  ts.SyntaxKind.FunctionDeclaration,
-  ts.SyntaxKind.ImportEqualsDeclaration,
-  ts.SyntaxKind.InterfaceDeclaration,
-  ts.SyntaxKind.ModuleDeclaration,
-  ts.SyntaxKind.TypeAliasDeclaration,
+const NAMESPACE_DECLARATION_KINDS = new Set<SyntaxKind>([
+  SyntaxKind.ClassDeclaration,
+  SyntaxKind.EnumDeclaration,
+  SyntaxKind.ExportAssignment,
+  SyntaxKind.ExportDeclaration,
+  SyntaxKind.FunctionDeclaration,
+  SyntaxKind.ImportEqualsDeclaration,
+  SyntaxKind.InterfaceDeclaration,
+  SyntaxKind.ModuleDeclaration,
+  SyntaxKind.TypeAliasDeclaration,
 ]);
 
 export interface DeclarationProjection {
-  readonly inferredTypes: readonly ts.Type[];
-  readonly syntax: ts.Declaration;
-}
-
-export interface DeclarationProjectionContext {
-  readonly moduleSymbol: ts.Symbol;
-  readonly reserveTraversal: (depth: number) => void;
-  readonly reserveTypeTraversal: (depth: number) => void;
-  readonly validatedTypes: Set<ts.Type>;
+  readonly inferredTypes: readonly Type[];
+  readonly syntax: Declaration;
 }
 
 const reserveInferredTypeSyntaxTraversal =
@@ -82,8 +105,8 @@ const reserveInferredTypeSyntaxTraversal =
   };
 
 const standaloneProjectionContext = function standaloneProjectionContext(
-  checker: ts.TypeChecker,
-  declaration: ts.Declaration
+  checker: Checker,
+  declaration: Declaration
 ): DeclarationProjectionContext {
   const moduleSymbol = checker.getSymbolAtLocation(declaration.getSourceFile());
 
@@ -109,14 +132,14 @@ const standaloneProjectionContext = function standaloneProjectionContext(
 };
 
 const collectInferredDeclarationType = function collectInferredDeclarationType(
-  checker: ts.TypeChecker,
-  declaration: ts.Declaration,
-  types: ts.Type[]
+  checker: Checker,
+  declaration: Declaration,
+  types: Type[]
 ): void {
   if (
-    (ts.isVariableDeclaration(declaration) ||
-      ts.isPropertyDeclaration(declaration) ||
-      ts.isParameter(declaration)) &&
+    (isVariableDeclaration(declaration) ||
+      isPropertyDeclaration(declaration) ||
+      isParameterDeclaration(declaration)) &&
     declaration.type === undefined
   ) {
     types.push(checker.getTypeAtLocation(declaration));
@@ -124,15 +147,15 @@ const collectInferredDeclarationType = function collectInferredDeclarationType(
 };
 
 const collectInferredReturnType = function collectInferredReturnType(
-  checker: ts.TypeChecker,
-  declaration: ts.Declaration,
-  types: ts.Type[]
+  checker: Checker,
+  declaration: Declaration,
+  types: Type[]
 ): void {
   if (
     !(
-      ts.isFunctionDeclaration(declaration) ||
-      ts.isMethodDeclaration(declaration) ||
-      ts.isGetAccessorDeclaration(declaration)
+      isFunctionDeclaration(declaration) ||
+      isMethodDeclaration(declaration) ||
+      isGetAccessorDeclaration(declaration)
     ) ||
     declaration.type !== undefined
   ) {
@@ -147,377 +170,36 @@ const collectInferredReturnType = function collectInferredReturnType(
 };
 
 const parameterDeclarations = function parameterDeclarations(
-  node: ts.Node
-): readonly ts.ParameterDeclaration[] {
+  node: Node
+): readonly ParameterDeclaration[] {
   if (
-    ts.isConstructorDeclaration(node) ||
-    ts.isFunctionDeclaration(node) ||
-    ts.isMethodDeclaration(node)
+    isConstructorDeclaration(node) ||
+    isFunctionDeclaration(node) ||
+    isMethodDeclaration(node)
   ) {
     return node.parameters;
   }
 
-  if (ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node)) {
+  if (isGetAccessorDeclaration(node) || isSetAccessorDeclaration(node)) {
     return node.parameters;
   }
 
   return [];
 };
 
-const hasFunctionBody = function hasFunctionBody(
-  declaration: ts.Declaration
-): declaration is
-  | ts.ConstructorDeclaration
-  | ts.FunctionDeclaration
-  | ts.MethodDeclaration {
-  return (
-    (ts.isConstructorDeclaration(declaration) ||
-      ts.isFunctionDeclaration(declaration) ||
-      ts.isMethodDeclaration(declaration)) &&
-    declaration.body !== undefined
-  );
-};
-
-const hasModifier = function hasModifier(
-  node: ts.Node,
-  kind: ts.SyntaxKind
-): boolean {
-  return (
-    ts.canHaveModifiers(node) &&
-    (ts.getModifiers(node) ?? []).some((item) => item.kind === kind)
-  );
-};
-
-const sameComputedPropertyType = function sameComputedPropertyType(
-  checker: ts.TypeChecker,
-  left: ts.Expression,
-  right: ts.Expression
-): boolean {
-  const leftType = checker.getTypeAtLocation(left);
-  const rightType = checker.getTypeAtLocation(right);
-
-  if (bitwiseAnd(leftType.flags, ts.TypeFlags.UniqueESSymbol) !== 0) {
-    return leftType === rightType || leftType.symbol === rightType.symbol;
-  }
-
-  if (leftType.isStringLiteral() && rightType.isStringLiteral()) {
-    return leftType.value === rightType.value;
-  }
-
-  return leftType.isNumberLiteral() && rightType.isNumberLiteral()
-    ? leftType.value === rightType.value
-    : false;
-};
-
-const sameMethodOverloadGroup = function sameMethodOverloadGroup(
-  checker: ts.TypeChecker,
-  left: ts.Declaration,
-  right: ts.Declaration
-): boolean | undefined {
-  if (!ts.isMethodDeclaration(left) || !ts.isMethodDeclaration(right)) {
-    return undefined;
-  }
-
-  if (
-    hasModifier(left, ts.SyntaxKind.StaticKeyword) !==
-    hasModifier(right, ts.SyntaxKind.StaticKeyword)
-  ) {
-    return false;
-  }
-
-  const leftSymbol = checker.getSymbolAtLocation(left.name);
-  const rightSymbol = checker.getSymbolAtLocation(right.name);
-
-  if (leftSymbol !== undefined && leftSymbol === rightSymbol) {
-    return true;
-  }
-
-  return ts.isComputedPropertyName(left.name) &&
-    ts.isComputedPropertyName(right.name)
-    ? sameComputedPropertyType(
-        checker,
-        left.name.expression,
-        right.name.expression
-      ) || undefined
-    : undefined;
-};
-
-const unwrapTransparentExpression = function unwrapTransparentExpression(
-  expression: ts.Expression
-): ts.Expression {
-  let value = expression;
-
-  while (
-    ts.isParenthesizedExpression(value) ||
-    ts.isAssertionExpression(value) ||
-    ts.isSatisfiesExpression(value) ||
-    ts.isNonNullExpression(value)
-  ) {
-    value = value.expression;
-  }
-
-  return value;
-};
-
-const overloadExpressionName = function overloadExpressionName(
-  expression: ts.Expression
-): string {
-  const value = unwrapTransparentExpression(expression);
-
-  if (ts.isIdentifier(value)) {
-    return `identifier:${value.text}`;
-  }
-
-  if (ts.isPropertyAccessExpression(value)) {
-    return `access:${overloadExpressionName(value.expression)}:${value.name.text}`;
-  }
-
-  if (ts.isElementAccessExpression(value)) {
-    const argument =
-      value.argumentExpression === undefined
-        ? undefined
-        : unwrapTransparentExpression(value.argumentExpression);
-
-    if (
-      argument !== undefined &&
-      (ts.isStringLiteralLike(argument) || ts.isNumericLiteral(argument))
-    ) {
-      return `access:${overloadExpressionName(value.expression)}:${argument.text}`;
-    }
-  }
-
-  return `syntax:${value.getText()}`;
-};
-
-const overloadPropertyName = function overloadPropertyName(
-  name: ts.PropertyName
-): string {
-  if (ts.isPrivateIdentifier(name)) {
-    return `private:${name.text}`;
-  }
-
-  if (
-    ts.isIdentifier(name) ||
-    ts.isStringLiteralLike(name) ||
-    ts.isNumericLiteral(name)
-  ) {
-    return `property:${name.text}`;
-  }
-
-  if (!ts.isComputedPropertyName(name)) {
-    return `syntax:${name.getText()}`;
-  }
-
-  const expression = unwrapTransparentExpression(name.expression);
-
-  return ts.isStringLiteralLike(expression) || ts.isNumericLiteral(expression)
-    ? `property:${expression.text}`
-    : `computed:${overloadExpressionName(expression)}`;
-};
-
-const overloadGroup = function overloadGroup(
-  declaration: ts.Declaration
-): string | undefined {
-  if (ts.isConstructorDeclaration(declaration)) {
-    return "constructor";
-  }
-
-  if (ts.isFunctionDeclaration(declaration)) {
-    return `function:${declaration.name?.getText() ?? "default"}`;
-  }
-
-  if (ts.isMethodDeclaration(declaration)) {
-    const placement = hasModifier(declaration, ts.SyntaxKind.StaticKeyword)
-      ? "static"
-      : "instance";
-
-    return `method:${placement}:${overloadPropertyName(declaration.name)}`;
-  }
-
-  return undefined;
-};
-
-const sameOverloadGroup = function sameOverloadGroup(
-  checker: ts.TypeChecker,
-  left: ts.Declaration,
-  right: ts.Declaration
-): boolean {
-  const sameMethod = sameMethodOverloadGroup(checker, left, right);
-
-  if (sameMethod !== undefined) {
-    return sameMethod;
-  }
-
-  const leftGroup = overloadGroup(left);
-
-  return leftGroup !== undefined && leftGroup === overloadGroup(right);
-};
-
-const isOverloadImplementation = function isOverloadImplementation(
-  checker: ts.TypeChecker,
-  declaration: ts.Declaration,
-  declarations: readonly ts.Declaration[]
-): boolean {
-  if (!hasFunctionBody(declaration)) {
-    return false;
-  }
-
-  return declarations.some(
-    (candidate) =>
-      candidate !== declaration &&
-      !hasFunctionBody(candidate) &&
-      sameOverloadGroup(checker, declaration, candidate)
-  );
-};
-
-/** Removes source overload implementations from the declarations visible to callers. */
-export const publicDeclarations = function publicDeclarations<
-  Declaration extends ts.Declaration,
->(
-  checker: ts.TypeChecker,
-  declarations: readonly Declaration[]
-): readonly Declaration[] {
-  return declarations.filter(
-    (declaration) =>
-      !isOverloadImplementation(checker, declaration, declarations)
-  );
-};
-
-const hasPrivateIdentifier = function hasPrivateIdentifier(
-  node: ts.Node
-): boolean {
-  if (
-    !(
-      ts.isPropertyDeclaration(node) ||
-      ts.isMethodDeclaration(node) ||
-      ts.isGetAccessorDeclaration(node) ||
-      ts.isSetAccessorDeclaration(node)
-    )
-  ) {
-    return false;
-  }
-
-  return ts.isPrivateIdentifier(node.name);
-};
-
-const hasPrivateModifier = function hasPrivateModifier(node: ts.Node): boolean {
-  if (!ts.canHaveModifiers(node)) {
-    return false;
-  }
-
-  return (ts.getModifiers(node) ?? []).some(
-    ({ kind }) => kind === ts.SyntaxKind.PrivateKeyword
-  );
-};
-
-const isConstructorParameterProperty = function isConstructorParameterProperty(
-  node: ts.Node
-): node is ts.ParameterDeclaration {
-  return ts.isParameter(node) && ts.isConstructorDeclaration(node.parent);
-};
-
-export const isPrivateDeclaration = function isPrivateDeclaration(
-  node: ts.Node
-): boolean {
-  return (
-    hasPrivateIdentifier(node) ||
-    (hasPrivateModifier(node) && !isConstructorParameterProperty(node))
-  );
-};
-
-const publicClassMembers = function publicClassMembers(
-  checker: ts.TypeChecker,
-  members: readonly ts.ClassElement[]
-): readonly ts.ClassElement[] {
-  const membersWithoutImplementations = publicDeclarations(
-    checker,
-    members.filter(
-      (member) =>
-        (!isPrivateDeclaration(member) ||
-          ts.isConstructorDeclaration(member)) &&
-        !ts.isClassStaticBlockDeclaration(member)
-    )
-  );
-
-  let retainedPrivateConstructor = false;
-
-  return membersWithoutImplementations.filter((member) => {
-    if (!ts.isConstructorDeclaration(member) || !hasPrivateModifier(member)) {
-      return true;
-    }
-
-    if (retainedPrivateConstructor) {
-      return false;
-    }
-
-    retainedPrivateConstructor = true;
-
-    return true;
-  });
-};
-
-const isParameterPropertyModifier = function isParameterPropertyModifier(
-  kind: ts.SyntaxKind
-): boolean {
-  return [
-    ts.SyntaxKind.PrivateKeyword,
-    ts.SyntaxKind.ProtectedKeyword,
-    ts.SyntaxKind.PublicKeyword,
-    ts.SyntaxKind.ReadonlyKeyword,
-    ts.SyntaxKind.OverrideKeyword,
-  ].includes(kind);
-};
-
-const isVisibleConstructorParameterProperty =
-  function isVisibleConstructorParameterProperty(
-    parameter: ts.ParameterDeclaration
-  ): parameter is IdentifiedParameter {
-    return (
-      ts.isIdentifier(parameter.name) &&
-      !hasPrivateModifier(parameter) &&
-      (parameter.modifiers ?? []).some(({ kind }) =>
-        isParameterPropertyModifier(kind)
-      )
-    );
-  };
-
-const visibleConstructorParameterProperties =
-  function visibleConstructorParameterProperties(
-    constructorDeclaration: ts.ConstructorDeclaration
-  ): readonly IdentifiedParameter[] {
-    return constructorDeclaration.parameters.filter(
-      isVisibleConstructorParameterProperty
-    );
-  };
-
-const unrenderedConstructorParameterProperties =
-  function unrenderedConstructorParameterProperties(
-    members: readonly ts.ClassElement[],
-    retainedMembers: ReadonlySet<ts.ClassElement>
-  ): readonly IdentifiedParameter[] {
-    return members.flatMap((member) =>
-      ts.isConstructorDeclaration(member) &&
-      (hasPrivateModifier(member) || !retainedMembers.has(member))
-        ? visibleConstructorParameterProperties(member)
-        : []
-    );
-  };
-
 const inferredPublicClassDeclarations =
   function inferredPublicClassDeclarations(
-    checker: ts.TypeChecker,
-    declaration: ts.Declaration
-  ): readonly ts.Declaration[] {
-    if (!ts.isClassDeclaration(declaration)) {
+    checker: Checker,
+    declaration: Declaration
+  ): readonly Declaration[] {
+    if (!isClassDeclaration(declaration)) {
       return [];
     }
 
-    const retainedMembers = publicClassMembers(checker, declaration.members);
-
-    const visibleParameterProperties = unrenderedConstructorParameterProperties(
-      declaration.members,
-      new Set(retainedMembers)
-    );
+    const {
+      members: retainedMembers,
+      parameterProperties: visibleParameterProperties,
+    } = selectPublicClassDeclarations(checker, declaration.members);
 
     const visibleMembers = retainedMembers.filter(
       (member) => !isPrivateDeclaration(member)
@@ -527,9 +209,9 @@ const inferredPublicClassDeclarations =
   };
 
 const collectInferredPublicTypes = function collectInferredPublicTypes(
-  checker: ts.TypeChecker,
-  declaration: ts.Declaration,
-  types: ts.Type[]
+  checker: Checker,
+  declaration: Declaration,
+  types: Type[]
 ): void {
   collectInferredDeclarationType(checker, declaration, types);
   collectInferredReturnType(checker, declaration, types);
@@ -543,205 +225,14 @@ const collectInferredPublicTypes = function collectInferredPublicTypes(
   }
 };
 
-const resolvedSymbolAtLocation = function resolvedSymbolAtLocation(
-  checker: ts.TypeChecker,
-  node: ts.Node
-): ts.Symbol | undefined {
-  const symbol = checker.getSymbolAtLocation(node);
-
-  return symbol !== undefined &&
-    bitwiseAnd(symbol.flags, ts.SymbolFlags.Alias) !== 0
-    ? checker.getAliasedSymbol(symbol)
-    : symbol;
-};
-
-const declarationsAreStandardLibrary = function declarationsAreStandardLibrary(
-  declarations: readonly ts.Declaration[]
-): boolean {
-  return (
-    declarations.length > 0 &&
-    declarations.every((declaration) =>
-      isTypeScriptStandardLibraryDeclaration(
-        declaration.getSourceFile().fileName
-      )
-    )
-  );
-};
-
-const isWellKnownSymbolTypeQuery = function isWellKnownSymbolTypeQuery(
-  checker: ts.TypeChecker,
-  node: ts.TypeQueryNode
-): boolean {
-  if (
-    !ts.isQualifiedName(node.exprName) ||
-    !ts.isIdentifier(node.exprName.left) ||
-    node.exprName.left.text !== "Symbol" ||
-    !isWellKnownSymbolMemberName(node.exprName.right.text)
-  ) {
-    return false;
-  }
-
-  const rootSymbol = resolvedSymbolAtLocation(checker, node.exprName.left);
-
-  return (
-    rootSymbol === undefined ||
-    declarationsAreStandardLibrary(rootSymbol.declarations ?? [])
-  );
-};
-
-/** Identifies declarations owned by a Member rather than the selected Inspectable Module. */
-export const declarationOwnerIsMember = function declarationOwnerIsMember(
-  checker: ts.TypeChecker,
-  moduleSymbol: ts.Symbol,
-  declaration: ts.Declaration,
-  reserveTraversal: (depth: number) => void
-): boolean {
-  let ancestor = declaration.parent;
-
-  for (
-    let depth = 0;
-    ancestor !== undefined;
-    depth += 1, ancestor = ancestor.parent
-  ) {
-    reserveTraversal(depth);
-
-    if (ts.isSourceFile(ancestor)) {
-      return false;
-    }
-
-    if (ts.isModuleBlock(ancestor)) {
-      return checker.getSymbolAtLocation(ancestor.parent.name) !== moduleSymbol;
-    }
-
-    if (MEMBER_CONTAINER_KINDS.has(ancestor.kind)) {
-      return true;
-    }
-  }
-
-  return false;
-};
-
-const isMemberTypeQuery = function isMemberTypeQuery(
-  checker: ts.TypeChecker,
-  node: ts.Node,
-  context: DeclarationProjectionContext
-): node is ts.TypeQueryNode {
-  if (!ts.isTypeQueryNode(node)) {
-    return false;
-  }
-
-  if (isWellKnownSymbolTypeQuery(checker, node)) {
-    return false;
-  }
-
-  const symbol = resolvedSymbolAtLocation(checker, node.exprName);
-  const declarations = symbol?.declarations ?? [];
-
-  if (
-    declarations.some(
-      (declaration) =>
-        !isTypeScriptStandardLibraryDeclaration(
-          declaration.getSourceFile().fileName
-        ) &&
-        declarationOwnerIsMember(
-          checker,
-          context.moduleSymbol,
-          declaration,
-          context.reserveTraversal
-        )
-    )
-  ) {
-    return true;
-  }
-
-  return (
-    ts.isQualifiedName(node.exprName) &&
-    !declarationsAreStandardLibrary(declarations)
-  );
-};
-
-const explicitDeclarationType = function explicitDeclarationType(
-  declaration: ts.Declaration
-): ts.TypeNode | undefined {
-  if (
-    ts.isFunctionLike(declaration) ||
-    ts.isVariableDeclaration(declaration) ||
-    ts.isPropertyDeclaration(declaration)
-  ) {
-    return declaration.type;
-  }
-
-  if (
-    ts.isPropertySignature(declaration) ||
-    ts.isParameter(declaration) ||
-    ts.isTypeAliasDeclaration(declaration)
-  ) {
-    return declaration.type;
-  }
-
-  return undefined;
-};
-
-const standardLibraryTypeQueryIsAuthoritative =
-  function standardLibraryTypeQueryIsAuthoritative(
-    checker: ts.TypeChecker,
-    typeQuery: ts.TypeQueryNode
-  ): boolean {
-    const typeSymbol = resolvedSymbolAtLocation(checker, typeQuery.exprName);
-
-    return (
-      declarationsAreStandardLibrary(typeSymbol?.declarations ?? []) ||
-      isWellKnownSymbolTypeQuery(checker, typeQuery)
-    );
-  };
-
-const exactStandardLibraryMemberTypeQuery =
-  function exactStandardLibraryMemberTypeQuery(
-    checker: ts.TypeChecker,
-    query: ts.TypeQueryNode
-  ): ts.TypeQueryNode | undefined {
-    const symbol = resolvedSymbolAtLocation(checker, query.exprName);
-
-    return symbol?.declarations
-      ?.map(explicitDeclarationType)
-      .find(
-        (typeNode): typeNode is ts.TypeQueryNode =>
-          typeNode !== undefined &&
-          ts.isTypeQueryNode(typeNode) &&
-          standardLibraryTypeQueryIsAuthoritative(checker, typeNode)
-      );
-  };
-
-const collectMemberTypeQueryTypes = function collectMemberTypeQueryTypes(
-  checker: ts.TypeChecker,
-  node: ts.Node,
-  types: ts.Type[],
-  context: DeclarationProjectionContext,
-  depth: number
-): void {
-  context.reserveTraversal(depth);
-
-  if (isMemberTypeQuery(checker, node, context)) {
-    if (exactStandardLibraryMemberTypeQuery(checker, node) === undefined) {
-      types.push(checker.getTypeAtLocation(node.exprName));
-    }
-
-    return;
-  }
-
-  ts.forEachChild(node, (child) => {
-    collectMemberTypeQueryTypes(checker, child, types, context, depth + 1);
-  });
-};
-
 const assertRepresentableAsyncDeclaration =
   function assertRepresentableAsyncDeclaration(
-    declaration: ts.FunctionDeclaration | ts.MethodDeclaration
+    declaration: FunctionDeclaration | MethodDeclaration
   ): void {
     if (
       declaration.type === undefined &&
       !declaration.getSourceFile().isDeclarationFile &&
-      hasModifier(declaration, ts.SyntaxKind.AsyncKeyword)
+      hasModifier(declaration, SyntaxKind.AsyncKeyword)
     ) {
       throw new UnsupportedInspectionError(
         "An inferred async Public Interface cannot be represented statically."
@@ -750,313 +241,16 @@ const assertRepresentableAsyncDeclaration =
   };
 
 const publicModifiers = function publicModifiers(
-  modifiers: readonly ts.ModifierLike[] | undefined
-): readonly ts.ModifierLike[] | undefined {
+  modifiers: readonly ModifierLike[] | undefined
+): readonly ModifierLike[] | undefined {
   return modifiers?.filter(
     (modifier) =>
-      !ts.isDecorator(modifier) && modifier.kind !== ts.SyntaxKind.AsyncKeyword
+      !isDecorator(modifier) && modifier.kind !== SyntaxKind.AsyncKeyword
   );
-};
-
-const isImplementationLocalDeclaration =
-  function isImplementationLocalDeclaration(
-    declaration: ts.Declaration,
-    reserveTraversal: (depth: number) => void
-  ): boolean {
-    let depth = 0;
-
-    for (
-      let ancestor = declaration.parent;
-      ancestor !== undefined;
-      ancestor = ancestor.parent
-    ) {
-      reserveTraversal(depth);
-      depth += 1;
-
-      if (ts.isSourceFile(ancestor) || ts.isModuleBlock(ancestor)) {
-        return false;
-      }
-
-      if (ts.isBlock(ancestor)) {
-        return true;
-      }
-    }
-
-    return false;
-  };
-
-const compositeTypeChildren = function compositeTypeChildren(
-  type: ts.Type
-): readonly ts.Type[] {
-  return type.isUnionOrIntersection() ? type.types : [];
-};
-
-const typeParameterTypeChildren = function typeParameterTypeChildren(
-  type: ts.Type
-): readonly ts.Type[] {
-  if (!type.isTypeParameter()) {
-    return [];
-  }
-
-  const children: ts.Type[] = [];
-  const constraint = type.getConstraint();
-  const defaultType = type.getDefault();
-
-  if (constraint !== undefined) {
-    children.push(constraint);
-  }
-
-  if (defaultType !== undefined) {
-    children.push(defaultType);
-  }
-
-  return children;
-};
-
-const isTypeReference = function isTypeReference(
-  type: ts.Type
-): type is ts.TypeReference {
-  return (
-    bitwiseAnd(type.flags, ts.TypeFlags.Object) !== 0 &&
-    "objectFlags" in type &&
-    Predicate.isNumber(type.objectFlags) &&
-    bitwiseAnd(type.objectFlags, ts.ObjectFlags.Reference) !== 0
-  );
-};
-
-const genericTypeChildren = function genericTypeChildren(
-  checker: ts.TypeChecker,
-  type: ts.Type
-): readonly ts.Type[] {
-  const children = [
-    ...(type.aliasTypeArguments ?? []),
-    ...typeParameterTypeChildren(type),
-  ];
-
-  if (isTypeReference(type)) {
-    children.push(...checker.getTypeArguments(type));
-  }
-
-  return children;
-};
-
-export type NamedTypeDeclarationSyntax =
-  | ts.ClassDeclaration
-  | ts.EnumDeclaration
-  | ts.InterfaceDeclaration
-  | ts.TypeAliasDeclaration;
-
-export const isNamedTypeDeclarationSyntax =
-  function isNamedTypeDeclarationSyntax(
-    declaration: ts.Declaration
-  ): declaration is NamedTypeDeclarationSyntax {
-    return (
-      ts.isClassDeclaration(declaration) ||
-      ts.isEnumDeclaration(declaration) ||
-      ts.isInterfaceDeclaration(declaration) ||
-      ts.isTypeAliasDeclaration(declaration)
-    );
-  };
-
-const hasNamedTypeSurface = function hasNamedTypeSurface(
-  type: ts.Type
-): boolean {
-  const symbol = type.aliasSymbol ?? type.getSymbol();
-
-  return symbol?.declarations?.some(isNamedTypeDeclarationSyntax) === true;
-};
-
-const symbolType = function symbolType(
-  checker: ts.TypeChecker,
-  symbol: ts.Symbol
-): readonly ts.Type[] {
-  const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
-
-  return declaration === undefined
-    ? []
-    : [checker.getTypeOfSymbolAtLocation(symbol, declaration)];
-};
-
-const signatureTypeChildren = function signatureTypeChildren(
-  checker: ts.TypeChecker,
-  type: ts.Type
-): readonly ts.Type[] {
-  return [ts.SignatureKind.Call, ts.SignatureKind.Construct].flatMap((kind) =>
-    checker
-      .getSignaturesOfType(type, kind)
-      .flatMap((signature) => [
-        checker.getReturnTypeOfSignature(signature),
-        ...signature
-          .getParameters()
-          .flatMap((parameter) => symbolType(checker, parameter)),
-        ...(signature.getTypeParameters() ?? []).flatMap(
-          typeParameterTypeChildren
-        ),
-        ...(signature.thisParameter === undefined
-          ? []
-          : symbolType(checker, signature.thisParameter)),
-      ])
-  );
-};
-
-const propertyTypeChildren = function propertyTypeChildren(
-  checker: ts.TypeChecker,
-  type: ts.Type
-): readonly ts.Type[] {
-  return type
-    .getProperties()
-    .filter(
-      (property) =>
-        property.declarations?.some((declaration) =>
-          isPrivateDeclaration(declaration)
-        ) !== true
-    )
-    .flatMap((property) => symbolType(checker, property));
-};
-
-const indexTypeChildren = function indexTypeChildren(
-  checker: ts.TypeChecker,
-  type: ts.Type
-): readonly ts.Type[] {
-  return checker
-    .getIndexInfosOfType(type)
-    .flatMap((index) => [index.keyType, index.type]);
-};
-
-/** Returns only type edges that can contribute to a nameable Public Interface. */
-export const inferredPublicTypeChildren = function inferredPublicTypeChildren(
-  checker: ts.TypeChecker,
-  type: ts.Type
-): readonly ts.Type[] {
-  const publicChildren = [
-    ...compositeTypeChildren(type),
-    ...genericTypeChildren(checker, type),
-  ];
-
-  return hasNamedTypeSurface(type)
-    ? publicChildren
-    : [
-        ...publicChildren,
-        ...signatureTypeChildren(checker, type),
-        ...propertyTypeChildren(checker, type),
-        ...indexTypeChildren(checker, type),
-      ];
-};
-
-const assertNoImplementationLocalType =
-  function assertNoImplementationLocalType(
-    checker: ts.TypeChecker,
-    rootType: ts.Type,
-    context: DeclarationProjectionContext
-  ): void {
-    const pending: {
-      readonly depth: number;
-      readonly type: ts.Type;
-    }[] = [{ depth: 0, type: rootType }];
-
-    const visited = context.validatedTypes;
-
-    for (const { depth, type } of pending) {
-      if (visited.has(type)) {
-        continue;
-      }
-
-      visited.add(type);
-      context.reserveTypeTraversal(depth);
-      const symbol = type.aliasSymbol ?? type.getSymbol();
-
-      if (
-        symbol?.declarations?.some((declaration) =>
-          isImplementationLocalDeclaration(
-            declaration,
-            context.reserveTypeTraversal
-          )
-        ) === true
-      ) {
-        throw new UnsupportedInspectionError(
-          "An inferred Public Interface references an implementation-local type."
-        );
-      }
-
-      pending.push(
-        ...inferredPublicTypeChildren(checker, type).map((childType) => ({
-          depth: depth + 1,
-          type: childType,
-        }))
-      );
-    }
-  };
-
-const containsDegradedInferredType = function containsDegradedInferredType(
-  node: ts.Node,
-  reserveTraversal: (depth: number) => void,
-  depth: number
-): boolean {
-  reserveTraversal(depth);
-
-  if (
-    node.kind === ts.SyntaxKind.AnyKeyword ||
-    node.kind === ts.SyntaxKind.UnknownKeyword ||
-    (ts.isTypeLiteralNode(node) && node.members.length === 0)
-  ) {
-    return true;
-  }
-
-  let degraded = false;
-  ts.forEachChild(node, (child) => {
-    degraded ||= containsDegradedInferredType(
-      child,
-      reserveTraversal,
-      depth + 1
-    );
-  });
-
-  return degraded;
-};
-
-const assertReliableInferredType = function assertReliableInferredType(
-  typeNode: ts.TypeNode,
-  context: DeclarationProjectionContext
-): void {
-  if (containsDegradedInferredType(typeNode, context.reserveTraversal, 0)) {
-    throw new UnsupportedInspectionError(
-      "An inferred Public Interface type cannot be represented statically without standard libraries."
-    );
-  }
-};
-
-const publicType = function publicType(
-  checker: ts.TypeChecker,
-  declaration: ts.Declaration,
-  explicitType: ts.TypeNode | undefined,
-  context: DeclarationProjectionContext
-): ts.TypeNode {
-  if (explicitType !== undefined) {
-    return explicitType;
-  }
-
-  const inferredType = checker.getTypeAtLocation(declaration);
-  assertNoImplementationLocalType(checker, inferredType, context);
-
-  const typeNode = checker.typeToTypeNode(
-    inferredType,
-    declaration,
-    INFERRED_TYPE_FLAGS
-  );
-
-  if (typeNode === undefined) {
-    throw new UnsupportedInspectionError(
-      "A source-backed declaration type could not be represented statically."
-    );
-  }
-
-  assertReliableInferredType(typeNode, context);
-
-  return typeNode;
 };
 
 const hasRequiredParameterAfter = function hasRequiredParameterAfter(
-  parameter: ts.ParameterDeclaration
+  parameter: ParameterDeclaration
 ): boolean {
   const parameters = parameterDeclarations(parameter.parent);
   const parameterIndex = parameters.indexOf(parameter);
@@ -1072,30 +266,30 @@ const hasRequiredParameterAfter = function hasRequiredParameterAfter(
 };
 
 const typeIncludingUndefined = function typeIncludingUndefined(
-  type: ts.TypeNode
-): ts.TypeNode {
+  type: TypeNode
+): TypeNode {
   if (
-    ts.isUnionTypeNode(type) &&
-    type.types.some((member) => member.kind === ts.SyntaxKind.UndefinedKeyword)
+    isUnionTypeNode(type) &&
+    type.types.some((member) => member.kind === SyntaxKind.UndefinedKeyword)
   ) {
     return type;
   }
 
-  return ts.factory.createUnionTypeNode([
+  return factory.createUnionTypeNode([
     type,
-    ts.factory.createKeywordTypeNode(ts.SyntaxKind.UndefinedKeyword),
+    factory.createKeywordTypeNode(SyntaxKind.UndefinedKeyword),
   ]);
 };
 
 const publicParameter = function publicParameter(
-  checker: ts.TypeChecker,
-  parameter: ts.ParameterDeclaration,
+  checker: Checker,
+  parameter: ParameterDeclaration,
   context: DeclarationProjectionContext
-): ts.ParameterDeclaration {
+): ParameterDeclaration {
   const type = publicType(checker, parameter, parameter.type, context);
   const hasRequiredFollowingParameter = hasRequiredParameterAfter(parameter);
 
-  return ts.factory.updateParameterDeclaration(
+  return factory.updateParameterDeclaration(
     parameter,
     publicModifiers(parameter.modifiers),
     parameter.dotDotDotToken,
@@ -1103,7 +297,7 @@ const publicParameter = function publicParameter(
     parameter.questionToken ??
       (parameter.initializer === undefined || hasRequiredFollowingParameter
         ? undefined
-        : ts.factory.createToken(ts.SyntaxKind.QuestionToken)),
+        : factory.createToken(SyntaxKind.QuestionToken)),
     parameter.initializer !== undefined && hasRequiredFollowingParameter
       ? typeIncludingUndefined(type)
       : type,
@@ -1111,100 +305,14 @@ const publicParameter = function publicParameter(
   );
 };
 
-const publicReturnType = function publicReturnType(
-  checker: ts.TypeChecker,
-  declaration: ts.SignatureDeclaration,
-  explicitType: ts.TypeNode | undefined,
-  context: DeclarationProjectionContext
-): ts.TypeNode {
-  if (explicitType !== undefined) {
-    return explicitType;
-  }
-
-  const signature = checker.getSignatureFromDeclaration(declaration);
-
-  const returnType =
-    signature === undefined
-      ? undefined
-      : checker.getReturnTypeOfSignature(signature);
-
-  if (returnType !== undefined) {
-    assertNoImplementationLocalType(checker, returnType, context);
-  }
-
-  const typeNode =
-    returnType === undefined
-      ? undefined
-      : checker.typeToTypeNode(returnType, declaration, INFERRED_TYPE_FLAGS);
-
-  if (typeNode === undefined) {
-    throw new UnsupportedInspectionError(
-      "A source-backed declaration return type could not be represented statically."
-    );
-  }
-
-  assertReliableInferredType(typeNode, context);
-
-  return typeNode;
-};
-
-const containsPublicAsyncValue = function containsPublicAsyncValue(
-  expression: ts.Expression
-): boolean {
-  const value = unwrapTransparentExpression(expression);
-
-  if (ts.isArrowFunction(value) || ts.isFunctionExpression(value)) {
-    return hasModifier(value, ts.SyntaxKind.AsyncKeyword);
-  }
-
-  if (ts.isConditionalExpression(value)) {
-    return (
-      containsPublicAsyncValue(value.whenTrue) ||
-      containsPublicAsyncValue(value.whenFalse)
-    );
-  }
-
-  if (!ts.isObjectLiteralExpression(value)) {
-    return false;
-  }
-
-  return value.properties.some((property) => {
-    if (ts.isMethodDeclaration(property)) {
-      return hasModifier(property, ts.SyntaxKind.AsyncKeyword);
-    }
-
-    return (
-      ts.isPropertyAssignment(property) &&
-      containsPublicAsyncValue(property.initializer)
-    );
-  });
-};
-
-const assertRepresentableAsyncInitializer =
-  function assertRepresentableAsyncInitializer(
-    declaration: ts.VariableDeclaration | ts.PropertyDeclaration
-  ): void {
-    const { initializer } = declaration;
-
-    if (
-      declaration.type === undefined &&
-      initializer !== undefined &&
-      containsPublicAsyncValue(initializer)
-    ) {
-      throw new UnsupportedInspectionError(
-        "An inferred async Public Interface cannot be represented statically."
-      );
-    }
-  };
-
 const constantExpression = function constantExpression(
-  checker: ts.TypeChecker,
-  member: ts.EnumMember
-): ts.Expression | undefined {
+  checker: Checker,
+  member: EnumMember
+): Expression | undefined {
   const value = checker.getConstantValue(member);
 
   if (Predicate.isString(value)) {
-    return ts.factory.createStringLiteral(value);
+    return factory.createStringLiteral(value, TokenFlags.None);
   }
 
   if (!Predicate.isNumber(value) || !Number.isFinite(value)) {
@@ -1212,17 +320,17 @@ const constantExpression = function constantExpression(
   }
 
   return value < 0 || Object.is(value, -0)
-    ? ts.factory.createPrefixUnaryExpression(
-        ts.SyntaxKind.MinusToken,
-        ts.factory.createNumericLiteral(Math.abs(value))
+    ? factory.createPrefixUnaryExpression(
+        SyntaxKind.MinusToken,
+        factory.createNumericLiteral(String(Math.abs(value)), TokenFlags.None)
       )
-    : ts.factory.createNumericLiteral(value);
+    : factory.createNumericLiteral(String(value), TokenFlags.None);
 };
 
 const publicEnumMember = function publicEnumMember(
-  checker: ts.TypeChecker,
-  member: ts.EnumMember
-): ts.EnumMember {
+  checker: Checker,
+  member: EnumMember
+): EnumMember {
   if (
     member.getSourceFile().isDeclarationFile ||
     member.initializer === undefined
@@ -1230,7 +338,7 @@ const publicEnumMember = function publicEnumMember(
     return member;
   }
 
-  return ts.factory.updateEnumMember(
+  return factory.updateEnumMember(
     member,
     member.name,
     constantExpression(checker, member)
@@ -1238,21 +346,21 @@ const publicEnumMember = function publicEnumMember(
 };
 
 const publicConstructorParameter = function publicConstructorParameter(
-  checker: ts.TypeChecker,
-  parameter: ts.ParameterDeclaration,
+  checker: Checker,
+  parameter: ParameterDeclaration,
   context: DeclarationProjectionContext
-): ts.ParameterDeclaration {
+): ParameterDeclaration {
   const publicParameterDeclaration = publicParameter(
     checker,
     parameter,
     context
   );
 
-  if (!hasPrivateModifier(parameter)) {
+  if (!hasModifier(parameter, SyntaxKind.PrivateKeyword)) {
     return publicParameterDeclaration;
   }
 
-  return ts.factory.updateParameterDeclaration(
+  return factory.updateParameterDeclaration(
     publicParameterDeclaration,
     publicParameterDeclaration.modifiers?.filter(
       ({ kind }) => !isParameterPropertyModifier(kind)
@@ -1266,15 +374,16 @@ const publicConstructorParameter = function publicConstructorParameter(
 };
 
 const publicClassElement = function publicClassElement(
-  checker: ts.TypeChecker,
-  member: ts.ClassElement,
+  checker: Checker,
+  member: ClassElement,
   context: DeclarationProjectionContext
-): ts.ClassElement {
-  if (ts.isConstructorDeclaration(member)) {
-    return ts.factory.updateConstructorDeclaration(
+): ClassElement {
+  if (isConstructorDeclaration(member)) {
+    return factory.updateConstructorDeclaration(
       member,
       publicModifiers(member.modifiers),
-      hasPrivateModifier(member)
+      member.typeParameters,
+      hasModifier(member, SyntaxKind.PrivateKeyword)
         ? []
         : member.parameters.map((parameter) =>
             publicConstructorParameter(checker, parameter, context)
@@ -1283,15 +392,15 @@ const publicClassElement = function publicClassElement(
     );
   }
 
-  if (ts.isMethodDeclaration(member)) {
+  if (isMethodDeclaration(member)) {
     assertRepresentableAsyncDeclaration(member);
 
-    return ts.factory.updateMethodDeclaration(
+    return factory.updateMethodDeclaration(
       member,
       publicModifiers(member.modifiers),
       member.asteriskToken,
       member.name,
-      member.questionToken,
+      member.postfixToken,
       member.typeParameters,
       member.parameters.map((parameter) =>
         publicParameter(checker, parameter, context)
@@ -1301,11 +410,12 @@ const publicClassElement = function publicClassElement(
     );
   }
 
-  if (ts.isGetAccessorDeclaration(member)) {
-    return ts.factory.updateGetAccessorDeclaration(
+  if (isGetAccessorDeclaration(member)) {
+    return factory.updateGetAccessorDeclaration(
       member,
       publicModifiers(member.modifiers),
       member.name,
+      member.typeParameters,
       member.parameters.map((parameter) =>
         publicParameter(checker, parameter, context)
       ),
@@ -1314,11 +424,12 @@ const publicClassElement = function publicClassElement(
     );
   }
 
-  if (ts.isSetAccessorDeclaration(member)) {
-    return ts.factory.updateSetAccessorDeclaration(
+  if (isSetAccessorDeclaration(member)) {
+    return factory.updateSetAccessorDeclaration(
       member,
       publicModifiers(member.modifiers),
       member.name,
+      member.typeParameters,
       member.parameters.map((parameter) =>
         publicParameter(checker, parameter, context)
       ),
@@ -1326,14 +437,14 @@ const publicClassElement = function publicClassElement(
     );
   }
 
-  if (ts.isPropertyDeclaration(member)) {
+  if (isPropertyDeclaration(member)) {
     assertRepresentableAsyncInitializer(member);
 
-    return ts.factory.updatePropertyDeclaration(
+    return factory.updatePropertyDeclaration(
       member,
       publicModifiers(member.modifiers),
       member.name,
-      member.questionToken ?? member.exclamationToken,
+      member.postfixToken,
       publicType(checker, member, member.type, context),
       undefined
     );
@@ -1343,15 +454,15 @@ const publicClassElement = function publicClassElement(
 };
 
 const publicParameterProperty = function publicParameterProperty(
-  checker: ts.TypeChecker,
+  checker: Checker,
   parameter: IdentifiedParameter,
   context: DeclarationProjectionContext
-): ts.PropertyDeclaration {
+): PropertyDeclaration {
   const modifiers = publicModifiers(parameter.modifiers)?.filter(
-    ({ kind }) => kind !== ts.SyntaxKind.PublicKeyword
+    ({ kind }) => kind !== SyntaxKind.PublicKeyword
   );
 
-  return ts.factory.createPropertyDeclaration(
+  return factory.createPropertyDeclaration(
     modifiers,
     parameter.name,
     parameter.questionToken,
@@ -1361,25 +472,24 @@ const publicParameterProperty = function publicParameterProperty(
 };
 
 const publicClassSyntaxElements = function publicClassSyntaxElements(
-  checker: ts.TypeChecker,
-  members: readonly ts.ClassElement[],
+  checker: Checker,
+  members: readonly ClassElement[],
   context: DeclarationProjectionContext
-): readonly ts.ClassElement[] {
-  const retainedMembers = publicClassMembers(checker, members);
-  const retainedMemberSet = new Set(retainedMembers);
+): readonly ClassElement[] {
+  const {
+    members: retainedMembers,
+    parameterProperties: selectedParameterProperties,
+  } = selectPublicClassDeclarations(checker, members);
 
-  const parameterProperties = unrenderedConstructorParameterProperties(
-    members,
-    retainedMemberSet
-  ).map((parameter) => publicParameterProperty(checker, parameter, context));
+  const parameterProperties = selectedParameterProperties.map((parameter) =>
+    publicParameterProperty(checker, parameter, context)
+  );
 
   const projectedMembers = retainedMembers.map((member) =>
     publicClassElement(checker, member, context)
   );
 
-  const constructorIndex = projectedMembers.findIndex(
-    ts.isConstructorDeclaration
-  );
+  const constructorIndex = projectedMembers.findIndex(isConstructorDeclaration);
 
   const propertyIndex = constructorIndex === -1 ? 0 : constructorIndex;
 
@@ -1391,24 +501,23 @@ const publicClassSyntaxElements = function publicClassSyntaxElements(
 };
 
 const isExportedNamespaceStatement = function isExportedNamespaceStatement(
-  statement: ts.Statement
+  statement: Statement
 ): boolean {
-  if (ts.isExportAssignment(statement) || ts.isExportDeclaration(statement)) {
+  if (isExportAssignment(statement) || isExportDeclaration(statement)) {
     return true;
   }
 
   return (
-    ts.canHaveModifiers(statement) &&
-    (ts.getModifiers(statement) ?? []).some(
-      ({ kind }) => kind === ts.SyntaxKind.ExportKeyword
+    modifiersOf(statement) !== undefined &&
+    (modifiersOf(statement) ?? []).some(
+      ({ kind }) => kind === SyntaxKind.ExportKeyword
     )
   );
 };
 
-const preserveSyntaxKind = function preserveSyntaxKind<Node extends ts.Node>(
-  original: Node,
-  projected: ts.Node
-): Node {
+const preserveSyntaxKind = function preserveSyntaxKind<
+  ProjectedNode extends Node,
+>(original: ProjectedNode, projected: Node): ProjectedNode {
   if (projected.kind !== original.kind) {
     throw new UnsupportedInspectionError(
       "Declaration projection changed the syntax kind."
@@ -1416,20 +525,20 @@ const preserveSyntaxKind = function preserveSyntaxKind<Node extends ts.Node>(
   }
 
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SAFETY: These compiler factory updates preserve syntax kind and names; only implementation bodies, modifiers, and types change.
-  return projected as Node;
+  return projected as ProjectedNode;
 };
 
 const declarationProjection = {
   projectDeclaration(
-    checker: ts.TypeChecker,
-    declaration: ts.Node,
+    checker: Checker,
+    declaration: Node,
     context: DeclarationProjectionContext,
     depth: number
-  ): ts.Node {
+  ): Node {
     context.reserveTraversal(depth);
 
     if (
-      ts.isExportAssignment(declaration) &&
+      isExportAssignment(declaration) &&
       !declaration.getSourceFile().isDeclarationFile
     ) {
       throw new UnsupportedInspectionError(
@@ -1437,10 +546,10 @@ const declarationProjection = {
       );
     }
 
-    if (ts.isFunctionDeclaration(declaration)) {
+    if (isFunctionDeclaration(declaration)) {
       assertRepresentableAsyncDeclaration(declaration);
 
-      return ts.factory.updateFunctionDeclaration(
+      return factory.updateFunctionDeclaration(
         declaration,
         publicModifiers(declaration.modifiers),
         declaration.asteriskToken,
@@ -1454,10 +563,10 @@ const declarationProjection = {
       );
     }
 
-    if (ts.isVariableDeclaration(declaration)) {
+    if (isVariableDeclaration(declaration)) {
       assertRepresentableAsyncInitializer(declaration);
 
-      return ts.factory.updateVariableDeclaration(
+      return factory.updateVariableDeclaration(
         declaration,
         declaration.name,
         declaration.exclamationToken,
@@ -1466,8 +575,8 @@ const declarationProjection = {
       );
     }
 
-    if (ts.isEnumDeclaration(declaration)) {
-      return ts.factory.updateEnumDeclaration(
+    if (isEnumDeclaration(declaration)) {
+      return factory.updateEnumDeclaration(
         declaration,
         publicModifiers(declaration.modifiers),
         declaration.name,
@@ -1475,27 +584,27 @@ const declarationProjection = {
       );
     }
 
-    if (ts.isEnumMember(declaration)) {
+    if (isEnumMember(declaration)) {
       return publicEnumMember(checker, declaration);
     }
 
     if (
-      ts.isConstructorDeclaration(declaration) ||
-      ts.isMethodDeclaration(declaration) ||
-      ts.isPropertyDeclaration(declaration)
+      isConstructorDeclaration(declaration) ||
+      isMethodDeclaration(declaration) ||
+      isPropertyDeclaration(declaration)
     ) {
       return publicClassElement(checker, declaration, context);
     }
 
     if (
-      ts.isGetAccessorDeclaration(declaration) ||
-      ts.isSetAccessorDeclaration(declaration)
+      isGetAccessorDeclaration(declaration) ||
+      isSetAccessorDeclaration(declaration)
     ) {
       return publicClassElement(checker, declaration, context);
     }
 
-    if (ts.isClassDeclaration(declaration)) {
-      return ts.factory.updateClassDeclaration(
+    if (isClassDeclaration(declaration)) {
+      return factory.updateClassDeclaration(
         declaration,
         publicModifiers(declaration.modifiers),
         declaration.name,
@@ -1505,11 +614,12 @@ const declarationProjection = {
       );
     }
 
-    if (ts.isModuleDeclaration(declaration)) {
-      return ts.factory.updateModuleDeclaration(
+    if (isModuleDeclaration(declaration)) {
+      return factory.updateModuleDeclaration(
         declaration,
         publicModifiers(declaration.modifiers),
         declaration.name,
+        declaration.attributes,
         declarationProjection.publicModuleBody(
           checker,
           declaration.body,
@@ -1521,12 +631,12 @@ const declarationProjection = {
 
     return declaration;
   },
-  publicDeclaration<Node extends ts.Node>(
-    checker: ts.TypeChecker,
-    declaration: Node,
+  publicDeclaration<ProjectedNode extends Node>(
+    checker: Checker,
+    declaration: ProjectedNode,
     context: DeclarationProjectionContext,
     depth: number
-  ): Node {
+  ): ProjectedNode {
     return preserveSyntaxKind(
       declaration,
       declarationProjection.projectDeclaration(
@@ -1538,16 +648,16 @@ const declarationProjection = {
     );
   },
   publicModuleBody(
-    checker: ts.TypeChecker,
-    body: ts.ModuleBody | undefined,
+    checker: Checker,
+    body: ModuleBody | undefined,
     context: DeclarationProjectionContext,
     depth: number
-  ): ts.ModuleBody | undefined {
+  ): ModuleBody | undefined {
     if (body === undefined) {
       return undefined;
     }
 
-    if (ts.isModuleDeclaration(body)) {
+    if (isModuleDeclaration(body)) {
       return declarationProjection.publicDeclaration(
         checker,
         body,
@@ -1556,7 +666,7 @@ const declarationProjection = {
       );
     }
 
-    if (!ts.isModuleBlock(body)) {
+    if (!isModuleBlock(body)) {
       return body;
     }
 
@@ -1564,9 +674,7 @@ const declarationProjection = {
       isExportedNamespaceStatement
     );
 
-    const exportedFunctions = exportedStatements.filter(
-      ts.isFunctionDeclaration
-    );
+    const exportedFunctions = exportedStatements.filter(isFunctionDeclaration);
 
     const publicFunctions = new Set(
       publicDeclarations(checker, exportedFunctions)
@@ -1574,10 +682,10 @@ const declarationProjection = {
 
     const publicStatements = exportedStatements.filter(
       (statement) =>
-        !ts.isFunctionDeclaration(statement) || publicFunctions.has(statement)
+        !isFunctionDeclaration(statement) || publicFunctions.has(statement)
     );
 
-    return ts.factory.updateModuleBlock(
+    return factory.updateModuleBlock(
       body,
       publicStatements.flatMap((statement) =>
         declarationProjection.publicNamespaceStatement(
@@ -1590,17 +698,17 @@ const declarationProjection = {
     );
   },
   publicNamespaceStatement(
-    checker: ts.TypeChecker,
-    statement: ts.Statement,
+    checker: Checker,
+    statement: Statement,
     context: DeclarationProjectionContext,
     depth: number
-  ): readonly ts.Statement[] {
-    if (ts.isVariableStatement(statement)) {
+  ): readonly Statement[] {
+    if (isVariableStatement(statement)) {
       return [
-        ts.factory.updateVariableStatement(
+        factory.updateVariableStatement(
           statement,
           publicModifiers(statement.modifiers),
-          ts.factory.updateVariableDeclarationList(
+          factory.updateVariableDeclarationList(
             statement.declarationList,
             statement.declarationList.declarations.map((declaration) =>
               declarationProjection.publicDeclaration(
@@ -1632,13 +740,14 @@ const declarationProjection = {
 
 const publicDeclarationSyntaxBeforeMemberTypeQueries =
   function publicDeclarationSyntaxBeforeMemberTypeQueries(
-    checker: ts.TypeChecker,
-    declaration: ts.Declaration,
+    checker: Checker,
+    declaration: Declaration,
     context: DeclarationProjectionContext
-  ): ts.Declaration {
-    const printableDeclaration = ts.isNamespaceExport(declaration)
-      ? declaration.parent
-      : declaration;
+  ): Declaration {
+    const printableDeclaration =
+      isNamespaceExport(declaration) && isExportDeclaration(declaration.parent)
+        ? declaration.parent
+        : declaration;
 
     return declarationProjection.publicDeclaration(
       checker,
@@ -1650,11 +759,11 @@ const publicDeclarationSyntaxBeforeMemberTypeQueries =
 
 /** Returns checker types synthesized into a source-backed Public Interface. */
 const inferredPublicTypes = function inferredPublicTypes(
-  checker: ts.TypeChecker,
-  declaration: ts.Declaration,
+  checker: Checker,
+  declaration: Declaration,
   context: DeclarationProjectionContext
-): readonly ts.Type[] {
-  const types: ts.Type[] = [];
+): readonly Type[] {
+  const types: Type[] = [];
   collectInferredPublicTypes(checker, declaration, types);
   collectMemberTypeQueryTypes(
     checker,
@@ -1671,153 +780,11 @@ const inferredPublicTypes = function inferredPublicTypes(
   return types;
 };
 
-const assertMemberTypeSymbolIsRepresentable =
-  function assertMemberTypeSymbolIsRepresentable(
-    checker: ts.TypeChecker,
-    type: ts.Type,
-    context: DeclarationProjectionContext
-  ): void {
-    const symbol = type.aliasSymbol ?? type.getSymbol();
-
-    if (
-      symbol !== undefined &&
-      symbol.declarations?.some(
-        (declaration) =>
-          (isNamedTypeDeclarationSyntax(declaration) ||
-            ts.isEnumMember(declaration)) &&
-          declarationOwnerIsMember(
-            checker,
-            context.moduleSymbol,
-            declaration,
-            context.reserveTraversal
-          )
-      ) === true
-    ) {
-      throw new UnsupportedInspectionError(UNREPRESENTABLE_MEMBER_MESSAGE);
-    }
-  };
-
-const declarationHasExplicitType = function declarationHasExplicitType(
-  declaration: ts.Declaration
-): boolean {
-  return (
-    explicitDeclarationType(declaration) !== undefined ||
-    ts.isEnumMember(declaration)
-  );
-};
-
-const memberTypeHasExplicitDeclaration =
-  function memberTypeHasExplicitDeclaration(
-    checker: ts.TypeChecker,
-    query: ts.TypeQueryNode
-  ): boolean {
-    const symbol = resolvedSymbolAtLocation(checker, query.exprName);
-
-    return symbol?.declarations?.some(declarationHasExplicitType) === true;
-  };
-
-const containsTypeQuery = function containsTypeQuery(
-  node: ts.Node,
-  context: DeclarationProjectionContext,
-  allowsStandardLibraryTypeQuery: boolean,
-  depth: number
-): boolean {
-  context.reserveTraversal(depth);
-
-  if (ts.isTypeQueryNode(node)) {
-    return !allowsStandardLibraryTypeQuery;
-  }
-
-  let found = false;
-  ts.forEachChild(node, (child) => {
-    found ||= containsTypeQuery(
-      child,
-      context,
-      allowsStandardLibraryTypeQuery,
-      depth + 1
-    );
-  });
-
-  return found;
-};
-
-const resolvedMemberTypeNode = function resolvedMemberTypeNode(
-  checker: ts.TypeChecker,
-  query: ts.TypeQueryNode,
-  context: DeclarationProjectionContext
-): ts.TypeNode {
-  const exactStandardLibraryQuery = exactStandardLibraryMemberTypeQuery(
-    checker,
-    query
-  );
-
-  if (exactStandardLibraryQuery !== undefined) {
-    return exactStandardLibraryQuery;
-  }
-
-  const type = checker.getTypeAtLocation(query.exprName);
-  assertNoImplementationLocalType(checker, type, context);
-  assertMemberTypeSymbolIsRepresentable(checker, type, context);
-  const typeNode = checker.typeToTypeNode(type, query, MEMBER_TYPE_QUERY_FLAGS);
-
-  if (typeNode === undefined) {
-    throw new UnsupportedInspectionError(UNREPRESENTABLE_MEMBER_MESSAGE);
-  }
-
-  if (!memberTypeHasExplicitDeclaration(checker, query)) {
-    assertReliableInferredType(typeNode, context);
-  }
-
-  const allowsStandardLibraryTypeQuery = declarationsAreStandardLibrary(
-    (type.aliasSymbol ?? type.getSymbol())?.declarations ?? []
-  );
-
-  if (containsTypeQuery(typeNode, context, allowsStandardLibraryTypeQuery, 0)) {
-    throw new UnsupportedInspectionError(UNREPRESENTABLE_MEMBER_MESSAGE);
-  }
-
-  return typeNode;
-};
-
-const projectMemberTypeQueries = function projectMemberTypeQueries(
-  checker: ts.TypeChecker,
-  declaration: ts.Declaration,
-  projectionContext: DeclarationProjectionContext
-): ts.Declaration {
-  const transformation = ts.transform<ts.Declaration>(declaration, [
-    (context) => {
-      const visit = (node: ts.Node, depth: number): ts.VisitResult<ts.Node> => {
-        projectionContext.reserveTraversal(depth);
-
-        return isMemberTypeQuery(checker, node, projectionContext)
-          ? resolvedMemberTypeNode(checker, node, projectionContext)
-          : ts.visitEachChild(
-              node,
-              (child) => visit(child, depth + 1),
-              context
-            );
-      };
-
-      return (root) =>
-        preserveSyntaxKind(
-          root,
-          requireDefined(ts.visitNode(root, (node) => visit(node, 0)))
-        );
-    },
-  ]);
-
-  try {
-    return transformation.transformed[0] ?? declaration;
-  } finally {
-    transformation.dispose();
-  }
-};
-
 const publicDeclarationSyntax = function publicDeclarationSyntax(
-  checker: ts.TypeChecker,
-  declaration: ts.Declaration,
+  checker: Checker,
+  declaration: Declaration,
   context: DeclarationProjectionContext
-): ts.Declaration {
+): Declaration {
   return projectMemberTypeQueries(
     checker,
     publicDeclarationSyntaxBeforeMemberTypeQueries(
@@ -1831,8 +798,8 @@ const publicDeclarationSyntax = function publicDeclarationSyntax(
 
 /** Removes implementation details while preserving the declaration's Public Interface. */
 export const projectPublicDeclaration = function projectPublicDeclaration(
-  checker: ts.TypeChecker,
-  declaration: ts.Declaration,
+  checker: Checker,
+  declaration: Declaration,
   context: DeclarationProjectionContext = standaloneProjectionContext(
     checker,
     declaration
@@ -1849,141 +816,14 @@ export const projectPublicDeclaration = function projectPublicDeclaration(
 };
 
 export const renderPublicDeclaration = function renderPublicDeclaration(
-  checker: ts.TypeChecker,
-  declaration: ts.Declaration,
+  checker: Checker,
+  declaration: Declaration,
   context?: DeclarationProjectionContext
 ): string {
-  const sourceFile = declaration.getSourceFile();
-
-  return declarationPrinter
-    .printNode(
-      ts.EmitHint.Unspecified,
-      projectPublicDeclaration(checker, declaration, context).syntax,
-      sourceFile
-    )
+  return printCompilerNode(
+    checker,
+    projectPublicDeclaration(checker, declaration, context).syntax
+  )
     .trim()
     .replace(/^(?:export\s+)?(?:declare\s+)?/u, "");
-};
-
-const isDiscardedProjectionSyntax = function isDiscardedProjectionSyntax(
-  child: ts.Node
-): boolean {
-  return (
-    ts.isModuleBlock(child) ||
-    ts.isClassStaticBlockDeclaration(child) ||
-    ts.isDecorator(child)
-  );
-};
-
-const constructorProjectsOnlyProperties =
-  function constructorProjectsOnlyProperties(
-    checker: ts.TypeChecker,
-    constructorDeclaration: ts.ConstructorDeclaration
-  ): boolean {
-    if (hasPrivateModifier(constructorDeclaration)) {
-      return true;
-    }
-
-    const { parent } = constructorDeclaration;
-
-    return (
-      ts.isClassLike(parent) &&
-      !publicClassMembers(checker, parent.members).includes(
-        constructorDeclaration
-      )
-    );
-  };
-
-const isUnprojectedConstructorChild = function isUnprojectedConstructorChild(
-  checker: ts.TypeChecker,
-  parent: ts.Node,
-  child: ts.Node
-): boolean {
-  if (
-    !ts.isConstructorDeclaration(parent) ||
-    !constructorProjectsOnlyProperties(checker, parent)
-  ) {
-    return false;
-  }
-
-  return (
-    !ts.isParameter(child) || !isVisibleConstructorParameterProperty(child)
-  );
-};
-
-const isNonPublicClassProjectionChild =
-  function isNonPublicClassProjectionChild(
-    checker: ts.TypeChecker,
-    parent: ts.Node,
-    child: ts.Node
-  ): boolean {
-    if (!ts.isClassLike(parent)) {
-      return false;
-    }
-
-    if (ts.isConstructorDeclaration(child)) {
-      const retained = publicClassMembers(checker, parent.members).includes(
-        child
-      );
-
-      return retained
-        ? hasPrivateModifier(child) &&
-            visibleConstructorParameterProperties(child).length === 0
-        : visibleConstructorParameterProperties(child).length === 0;
-    }
-
-    if (ts.isClassElement(child)) {
-      return !publicClassMembers(checker, parent.members).includes(child);
-    }
-
-    return hasPrivateIdentifier(child) || hasPrivateModifier(child);
-  };
-
-const isProjectionFunctionBody = function isProjectionFunctionBody(
-  parent: ts.Node,
-  child: ts.Node
-): boolean {
-  return ts.isFunctionLike(parent) && "body" in parent && parent.body === child;
-};
-
-const isProjectionInitializer = function isProjectionInitializer(
-  parent: ts.Node,
-  child: ts.Node
-): boolean {
-  if (
-    !(
-      ts.isVariableDeclaration(parent) ||
-      ts.isPropertyDeclaration(parent) ||
-      ts.isParameter(parent) ||
-      ts.isBindingElement(parent)
-    )
-  ) {
-    return false;
-  }
-
-  return parent.initializer === child;
-};
-
-/** Selects exactly the source children that can contribute to the projected Public Interface. */
-export const isPublicProjectionChild = function isPublicProjectionChild(
-  checker: ts.TypeChecker,
-  parent: ts.Node,
-  child: ts.Node
-): boolean {
-  if (
-    isDiscardedProjectionSyntax(child) ||
-    isUnprojectedConstructorChild(checker, parent, child) ||
-    isNonPublicClassProjectionChild(checker, parent, child)
-  ) {
-    return false;
-  }
-
-  return (
-    !isProjectionFunctionBody(parent, child) &&
-    !isProjectionInitializer(parent, child)
-  );
-};
-
-type IdentifiedParameter = ts.ParameterDeclaration & {
-  readonly name: ts.Identifier;
 };

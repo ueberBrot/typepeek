@@ -7,7 +7,7 @@ export default defineConfig({
   packageMode: {
     "/.*/": "major",
     "@types/node": "minor",
-    "@typescript/typescript6": "minor",
     node: "minor",
+    tsrs: "patch",
   },
 });

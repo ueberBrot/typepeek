@@ -3,11 +3,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
-import ts from "@typescript/typescript6";
 import { Effect } from "effect";
+import { ModuleKind, ModuleResolutionKind } from "tsrs/sync";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { invokeInspectionCore } from "#typepeek/inspection/core";
+
+import { createFixtureProgram } from "./helpers/native-compiler.ts";
 
 let resolutionContext: string;
 const specifier = "signature-rest-fixture";
@@ -96,9 +98,9 @@ describe("signature-rest-parameters", () => {
       `import { ${REST_CASES.map(([name]) => name).join(", ")} } from "${specifier}";\n${generatedText1}`
     );
 
-    const program = ts.createProgram([consumerPath], {
-      module: ts.ModuleKind.NodeNext,
-      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    const program = createFixtureProgram([consumerPath], {
+      module: ModuleKind.NodeNext,
+      moduleResolution: ModuleResolutionKind.NodeNext,
       noEmit: true,
       strict: true,
       types: [],
@@ -109,7 +111,9 @@ describe("signature-rest-parameters", () => {
 
     const diagnostics = program.getSemanticDiagnostics();
     assert.deepEqual(
-      diagnostics.filter((diagnostic) => diagnostic.file !== consumer),
+      diagnostics.filter(
+        (diagnostic) => diagnostic.fileName !== consumer.fileName
+      ),
       []
     );
 
@@ -121,9 +125,9 @@ describe("signature-rest-parameters", () => {
         name,
         !diagnostics.some(
           (diagnostic) =>
-            diagnostic.start !== undefined &&
-            diagnostic.start >= call.pos &&
-            diagnostic.start < call.end
+            diagnostic.pos !== undefined &&
+            diagnostic.pos >= call.pos &&
+            diagnostic.pos < call.end
         )
       );
     }

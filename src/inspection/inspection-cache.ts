@@ -1,6 +1,5 @@
-import ts from "@typescript/typescript6";
-
 import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
+import { COMPILER_VERSION } from "#typepeek/inspection/compiler-metadata";
 import {
   INSPECTION_CACHE_SEMANTICS,
   encodeInspectionCacheIdentityValue,
@@ -45,7 +44,7 @@ export const createInspectionCacheIdentity =
     const candidate = {
       budgetPolicy: INSPECTION_BUDGET_POLICY.identity,
       cacheSemantics: INSPECTION_CACHE_SEMANTICS,
-      compilerVersion: ts.version,
+      compilerVersion: COMPILER_VERSION,
       evidence: {
         declarationPath: selection.declarationAuthority.declarationPath,
         declarationRoot: selection.declarationAuthority.root.canonical,

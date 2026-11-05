@@ -1,7 +1,8 @@
 import { realpathSync, statSync } from "node:fs";
 import nodePath from "node:path";
 
-import { Predicate, Result, Schema } from "effect";
+import { Predicate } from "effect";
+import type { Schema } from "effect";
 
 import {
   InspectionLimitError,
@@ -10,15 +11,10 @@ import {
 import {
   isEvidenceFile,
   isPathWithin,
-  readBoundedUtf8File,
 } from "#typepeek/inspection/evidence-boundary";
-import type {
-  ObserveInstalledEvidenceFile,
-  ObserveInstalledEvidenceFilePresence,
-} from "#typepeek/inspection/installed-evidence-fingerprint";
+import type { ObserveInstalledEvidenceFilePresence } from "#typepeek/inspection/installed-evidence-fingerprint";
 import type { PackageIdentity } from "#typepeek/inspection/package-identity";
 import { readJsonPackageIdentity } from "#typepeek/inspection/package-identity";
-import { decodeJson } from "#typepeek/json-data";
 
 export interface DeclarationProvenance {
   readonly packageIdentity: PackageIdentity;
@@ -31,8 +27,6 @@ const PACKAGE_RESOLUTION_LIMIT_MESSAGE =
   "Inspection exceeded its package resolution traversal limit.";
 
 const MAX_PACKAGE_SEARCH_DEPTH = 64;
-const MAX_MANIFEST_BYTES = 256 * 1024;
-const decodeManifest = Schema.decodeUnknownResult(Schema.JsonObject);
 
 export interface VisiblePackageLocation {
   readonly contextDirectory: string;
@@ -51,11 +45,8 @@ interface AncestorManifest {
 }
 
 export interface PackageBoundaryObserver {
-  readonly manifestCache: Map<string, Schema.JsonObject>;
-  readonly observeEvidenceFile: ObserveInstalledEvidenceFile;
   readonly observeEvidenceFilePresence: ObserveInstalledEvidenceFilePresence;
-  readonly remainingBytes: () => number;
-  readonly reserveBytes: (count: number) => void;
+  readonly readManifest: (packageRoot: string) => Schema.JsonObject | undefined;
   readonly reserveOperation: () => void;
 }
 
@@ -196,18 +187,6 @@ export const assertNoNestedDeclarationOwner =
     }
   };
 
-const parseManifest = function parseManifest(
-  manifestText: string
-): Schema.JsonObject | undefined {
-  try {
-    return Result.getOrUndefined(
-      decodeManifest(decodeJson(Schema.Unknown, manifestText))
-    );
-  } catch {
-    return undefined;
-  }
-};
-
 const invalidPackageIdentity = function invalidPackageIdentity(): never {
   throw new UnsupportedInspectionError(
     "The installed package has no valid Package Identity."
@@ -218,38 +197,7 @@ const readManifestRecord = function readManifestRecord(
   packageRoot: string,
   observer: PackageBoundaryObserver
 ): Schema.JsonObject {
-  const manifestPath = nodePath.join(packageRoot, "package.json");
-  const cachedManifest = observer.manifestCache.get(manifestPath);
-
-  if (cachedManifest !== undefined) {
-    return cachedManifest;
-  }
-
-  observer.reserveOperation();
-  const remainingBytes = observer.remainingBytes();
-
-  const manifestText = readBoundedUtf8File(
-    manifestPath,
-    Math.min(MAX_MANIFEST_BYTES, remainingBytes),
-    remainingBytes < MAX_MANIFEST_BYTES
-      ? "compiler-host-bytes"
-      : "package-manifest-bytes",
-    remainingBytes < MAX_MANIFEST_BYTES
-      ? "Inspection exceeded its compiler host byte limit."
-      : "Inspection exceeded its package manifest size limit."
-  );
-
-  observer.reserveBytes(Buffer.byteLength(manifestText));
-  observer.observeEvidenceFile(manifestPath, manifestText, "manifest");
-  const manifest = parseManifest(manifestText);
-
-  if (manifest === undefined) {
-    return invalidPackageIdentity();
-  }
-
-  observer.manifestCache.set(manifestPath, manifest);
-
-  return manifest;
+  return observer.readManifest(packageRoot) ?? invalidPackageIdentity();
 };
 
 export const canonicalPackageBoundary = function canonicalPackageBoundary(

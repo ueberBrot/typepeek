@@ -1,9 +1,38 @@
 import { createRequire } from "node:module";
 import nodePath from "node:path";
 
-import ts from "@typescript/typescript6";
+import {
+  isExportDeclaration,
+  isFunctionTypeNode,
+  isImportDeclaration,
+  isVariableDeclaration,
+  ScriptTarget,
+} from "tsrs/ast";
+import { createFileSystemLayer } from "tsrs/fs";
+import {
+  API,
+  ModuleKind,
+  ModuleResolutionKind,
+  SignatureKind,
+  SymbolFlags,
+} from "tsrs/sync";
+import type {
+  Checker,
+  RawCompilerOptions,
+  Symbol as CompilerSymbol,
+} from "tsrs/sync";
 
-import { bitwiseAnd, bitwiseOr } from "#typepeek/integer-bits";
+import {
+  COMPILER_EXECUTABLE,
+  COMPILER_VERSION,
+} from "#typepeek/inspection/compiler-distribution";
+import {
+  bindCompilerProgram,
+  declarationsOf,
+  valueDeclarationOf,
+  signatureText,
+} from "#typepeek/inspection/compiler-session";
+import { bitwiseAnd } from "#typepeek/integer-bits";
 
 import { signatureFact } from "./signature.ts";
 import type { DiscoveryWorkload } from "./workloads.ts";
@@ -20,8 +49,8 @@ export interface CompilerAnswer {
 }
 
 const publicSignatures = function publicSignatures(
-  checker: ts.TypeChecker,
-  exports: readonly ts.Symbol[],
+  checker: Checker,
+  exports: readonly CompilerSymbol[],
   name: string
 ): readonly {
   readonly fact: string;
@@ -33,11 +62,11 @@ const publicSignatures = function publicSignatures(
     throw new Error(`No public export ${name}.`);
   }
 
-  const symbol = bitwiseAnd(exported.flags, ts.SymbolFlags.Alias)
+  const symbol = bitwiseAnd(exported.flags, SymbolFlags.Alias)
     ? checker.getAliasedSymbol(exported)
     : exported;
 
-  const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
+  const declaration = valueDeclarationOf(symbol) ?? declarationsOf(symbol)[0];
 
   if (declaration === undefined) {
     throw new Error(`No declaration for ${name}.`);
@@ -45,29 +74,26 @@ const publicSignatures = function publicSignatures(
 
   const type = checker.getTypeOfSymbolAtLocation(symbol, declaration);
 
-  return [ts.SignatureKind.Call, ts.SignatureKind.Construct].flatMap((kind) =>
+  return [SignatureKind.Call, SignatureKind.Construct].flatMap((kind) =>
     checker.getSignaturesOfType(type, kind).map((signature) => {
-      const source = signature.getDeclaration();
+      const source = signature.declaration?.resolve();
 
       if (source === undefined) {
         throw new Error(`No source declaration for ${name}.`);
       }
 
       const witness =
-        ts.isFunctionTypeNode(source) && ts.isVariableDeclaration(source.parent)
+        isFunctionTypeNode(source) && isVariableDeclaration(source.parent)
           ? source.parent
           : source;
 
       return {
         fact: signatureFact(
-          kind === ts.SignatureKind.Call ? "call" : "construct",
-          checker.signatureToString(
+          kind === SignatureKind.Call ? "call" : "construct",
+          signatureText(
+            checker,
             signature,
-            signature.getDeclaration(),
-            bitwiseOr(
-              ts.TypeFormatFlags.NoTruncation,
-              ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope
-            ),
+            signature.declaration?.resolve(),
             kind
           )
         ),
@@ -78,24 +104,24 @@ const publicSignatures = function publicSignatures(
 };
 
 const exportIndex = function exportIndex(
-  checker: ts.TypeChecker,
-  moduleSymbol: ts.Symbol
+  checker: Checker,
+  moduleSymbol: CompilerSymbol
 ): readonly string[] {
-  const seen = new Set<ts.Symbol>();
+  const seen = new Set<CompilerSymbol>();
   const texts = new Set<string>();
 
-  const visit = (symbol: ts.Symbol): void => {
+  const visit = (symbol: CompilerSymbol): void => {
     if (seen.has(symbol)) {
       return;
     }
 
     seen.add(symbol);
 
-    for (const declaration of symbol.declarations ?? []) {
+    for (const declaration of declarationsOf(symbol) ?? []) {
       texts.add(declaration.getText());
-      ts.forEachChild(declaration, (node) => {
+      declaration.forEachChild((node) => {
         if (
-          ts.isExportDeclaration(node) &&
+          isExportDeclaration(node) &&
           node.exportClause === undefined &&
           node.moduleSpecifier !== undefined
         ) {
@@ -127,26 +153,19 @@ export const inspectWithCompiler = function inspectWithCompiler(
 
   const probeText = `import * as target from ${JSON.stringify(workload.specifier)}; void target;`;
 
-  const options: ts.CompilerOptions = {
-    module: ts.ModuleKind.NodeNext,
-    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+  const options: RawCompilerOptions = {
+    module: ModuleKind.NodeNext,
+    moduleResolution: ModuleResolutionKind.NodeNext,
     noEmit: true,
     skipLibCheck: true,
     strict: true,
-    target: ts.ScriptTarget.ES2024,
+    target: ScriptTarget.ES2024,
     typeRoots: [
       nodePath.join(nodePath.resolve(workspace), "node_modules", "@types"),
     ],
     types: [],
   };
 
-  const host = ts.createCompilerHost(options);
-  host.getCurrentDirectory = () => nodePath.resolve(workspace);
-  const defaultGetSourceFile = host.getSourceFile.bind(host);
-  host.getSourceFile = (path, languageVersion, onError, shouldCreate) =>
-    path === probePath
-      ? ts.createSourceFile(path, probeText, languageVersion, true)
-      : defaultGetSourceFile(path, languageVersion, onError, shouldCreate);
   const roots = [probePath];
 
   if (workload.specifier.startsWith("node:")) {
@@ -162,33 +181,46 @@ export const inspectWithCompiler = function inspectWithCompiler(
     );
   }
 
-  const program = ts.createProgram(roots, options, host);
+  using api = new API({
+    cwd: nodePath.resolve(workspace),
+    runExternalCode: false,
+    tsserverPath: COMPILER_EXECUTABLE,
+  });
+
+  const snapshot = api.createSnapshot({
+    createPrograms: [{ compilerOptions: options, rootFiles: roots }],
+    fileSystem: createFileSystemLayer([[probePath, probeText]]),
+  });
+
+  const created = snapshot.operation?.createdPrograms?.[0];
+
+  if (created === undefined) {
+    throw new Error("The native benchmark program is missing.");
+  }
+
+  const program = bindCompilerProgram(created, api);
   const probe = program.getSourceFile(probePath);
 
   if (probe === undefined) {
     throw new Error("Compiler probe was not materialized.");
   }
 
-  const diagnostics = program.getSemanticDiagnostics(probe);
+  const diagnostics = program.getSemanticDiagnostics(probe.fileName);
 
   if (diagnostics.length > 0) {
-    throw new Error(
-      diagnostics
-        .map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\n"))
-        .join("\n")
-    );
+    throw new Error(diagnostics.map((item) => item.text).join("\n"));
   }
 
   const [importDeclaration] = probe.statements;
 
   if (
     importDeclaration === undefined ||
-    !ts.isImportDeclaration(importDeclaration)
+    !isImportDeclaration(importDeclaration)
   ) {
     throw new Error("Compiler probe has no import.");
   }
 
-  const checker = program.getTypeChecker();
+  const { checker } = program.getProject();
 
   const moduleSymbol = checker.getSymbolAtLocation(
     importDeclaration.moduleSpecifier
@@ -225,14 +257,13 @@ export const inspectWithCompiler = function inspectWithCompiler(
   }
 
   return {
-    compilerVersion: ts.version,
+    compilerVersion: COMPILER_VERSION,
     declarations,
     exportDeclarations:
       workload.kind === "search" ? exportIndex(checker, moduleSymbol) : [],
     facts,
     files: program
-      .getSourceFiles()
-      .map((file) => file.fileName)
+      .getSourceFileNames()
       .filter((path) => path !== probePath)
       .toSorted(),
   };

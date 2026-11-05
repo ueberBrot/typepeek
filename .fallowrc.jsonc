@@ -4,12 +4,12 @@
   // Package exports and bins are discovered automatically. These additional
   // roots cover build adapters and repository-only executables.
   "entry": [
+    "tests/effect-diagnostics.ts",
     "tests/benchmark-package-smoke.ts",
     "tests/fixtures/codex-app-server.ts",
     "benchmarks/codex-discovery/run.ts",
     "benchmarks/codex-discovery/capture.ts",
     "benchmarks/codex-discovery/replay.ts",
-    "src/inspection/compiler-runtime.ts",
     "src/inspection/performance-profile-disabled.ts",
     "taze.config.ts",
     "tests/build-output-smoke.ts",

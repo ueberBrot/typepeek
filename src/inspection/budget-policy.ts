@@ -1,11 +1,12 @@
 /** Change the identity whenever a threshold or accounting rule changes. */
 export const INSPECTION_BUDGET_POLICY = {
+  analysisDeadlineMilliseconds: 30_000,
   analysisHeapMegabytes: 384,
   compilerHostOperations: 150_000,
   declarationGraphNodes: 500_000,
   declarationSourceBytes: 16 * 1024 * 1024,
   declarationSourceFiles: 2048,
-  identity: "large-declaration-graphs-scoped-resolution-cache-v6",
+  identity: "tsrs-batched-queries-v9",
 } as const;
 
 /** Maximum serialized stdout bytes accepted from the isolated analysis process. */

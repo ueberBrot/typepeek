@@ -1,18 +1,28 @@
-import ts from "@typescript/typescript6";
+import { ScriptTarget } from "tsrs/ast";
+import type { Declaration } from "tsrs/ast";
+import { ModuleKind, ModuleResolutionKind } from "tsrs/sync";
+import type {
+  Checker,
+  RawCompilerOptions,
+  Symbol as CompilerSymbol,
+} from "tsrs/sync";
 import { describe, expect, it } from "vite-plus/test";
 
+import { declarationsOf } from "#typepeek/inspection/compiler-session";
 import {
   projectPublicDeclaration,
-  publicDeclarations,
   renderPublicDeclaration,
 } from "#typepeek/inspection/declaration-projection";
 import { createModuleExportInspection } from "#typepeek/inspection/export-inspection";
+import { publicDeclarations } from "#typepeek/inspection/public-declaration-selection";
 import { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
 
+import { createFixtureProgram } from "./helpers/native-compiler.ts";
+
 interface ExportedDeclarations {
-  readonly checker: ts.TypeChecker;
-  readonly declarations: readonly ts.Declaration[];
-  readonly moduleSymbol: ts.Symbol;
+  readonly checker: Checker;
+  readonly declarations: readonly Declaration[];
+  readonly moduleSymbol: CompilerSymbol;
 }
 
 const exportedDeclarations = function exportedDeclarations(
@@ -21,38 +31,25 @@ const exportedDeclarations = function exportedDeclarations(
 ): ExportedDeclarations {
   const fileName = "/typepeek-public-interface.ts";
 
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    sourceText,
-    ts.ScriptTarget.ES2024,
-    true,
-    ts.ScriptKind.TS
-  );
-
-  const options: ts.CompilerOptions = {
-    module: ts.ModuleKind.NodeNext,
-    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+  const options: RawCompilerOptions = {
+    module: ModuleKind.NodeNext,
+    moduleResolution: ModuleResolutionKind.NodeNext,
     noEmit: true,
     noLib: true,
-    target: ts.ScriptTarget.ES2024,
+    target: ScriptTarget.ES2024,
   };
 
-  const defaultHost = ts.createCompilerHost(options, true);
+  const program = createFixtureProgram([fileName], options, [
+    [fileName, sourceText],
+  ]);
 
-  const program = ts.createProgram({
-    host: {
-      ...defaultHost,
-      fileExists: (candidate) => candidate === fileName,
-      getSourceFile: (candidate) =>
-        candidate === fileName ? sourceFile : undefined,
-      readFile: (candidate) =>
-        candidate === fileName ? sourceText : undefined,
-    },
-    options,
-    rootNames: [fileName],
-  });
+  const sourceFile = program.getSourceFile(fileName);
 
-  const checker = program.getTypeChecker();
+  if (sourceFile === undefined) {
+    throw new Error("The native fixture source is missing.");
+  }
+
+  const { checker } = program.getProject();
   const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
 
   if (moduleSymbol === undefined) {
@@ -61,11 +58,11 @@ const exportedDeclarations = function exportedDeclarations(
 
   const exportedSymbol = checker
     .getExportsOfModule(moduleSymbol)
-    .find((symbol) => symbol.getName() === exportName);
+    .find((symbol) => symbol.name === exportName);
 
   const declarations = publicDeclarations(
     checker,
-    exportedSymbol?.declarations ?? []
+    declarationsOf(exportedSymbol) ?? []
   );
 
   if (declarations.length === 0) {
@@ -141,7 +138,7 @@ describe("public-declaration-rendering", () => {
         renderExport(source, "MixedOverloads"),
         renderExport(source, "defaultBeforeRequired"),
       ]).toStrictEqual([
-        'inferred: { mode: "source"; }',
+        'inferred: {\n    mode: "source";\n}',
         "function createLabel(prefix?: string): string;",
         "namespace Tools {\n    export function run(): string;\n}",
         [
@@ -315,7 +312,7 @@ describe("public-declaration-rendering", () => {
       const inferredNames = new Set(
         declarations.flatMap((declaration) =>
           projectPublicDeclaration(checker, declaration).inferredTypes.map(
-            (type) => type.symbol?.getName()
+            (type) => type.getSymbol()?.name
           )
         )
       );
