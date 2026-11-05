@@ -18,6 +18,7 @@ import type {
 import { SymbolFlags } from "tsrs/sync";
 import type { Checker, Symbol as CompilerSymbol } from "tsrs/sync";
 
+import { aliasedSymbol } from "#typepeek/inspection/compiler-queries";
 import {
   declarationsOf,
   valueDeclarationOf,
@@ -59,7 +60,7 @@ export const resolveFocusedExportTarget = function resolveFocusedExportTarget(
     return symbol;
   }
 
-  const targetSymbol = checker.getAliasedSymbol(symbol);
+  const targetSymbol = aliasedSymbol(checker, symbol);
 
   if (
     declarationsOf(targetSymbol) === undefined ||

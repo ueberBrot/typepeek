@@ -256,6 +256,22 @@ const nodePathOption = function nodePathOption(
   return `${option}=${JSON.stringify(path)}`;
 };
 
+export const staticInspectionNodeOptions = (
+  preloadPath: string,
+  sentinel: string,
+  platform = process.platform
+): readonly string[] => [
+  nodePathOption("--require", preloadPath),
+  "--permission",
+  "--allow-fs-read=*",
+  nodePathOption("--allow-fs-write", sentinel),
+  ...(platform === "win32"
+    ? [nodePathOption("--allow-fs-write", String.raw`\\.\pipe\tsgo-sync-*`)]
+    : []),
+  "--allow-child-process",
+  "--allow-worker",
+];
+
 const guardedEnvironment = function guardedEnvironment(
   preloadPath: string,
   sentinel: string,
@@ -268,14 +284,7 @@ const guardedEnvironment = function guardedEnvironment(
 ): GuardedEnvironment {
   // Temp roots can canonicalize differently; executable origin is checked separately.
   return {
-    NODE_OPTIONS: [
-      nodePathOption("--require", preloadPath),
-      "--permission",
-      "--allow-fs-read=*",
-      nodePathOption("--allow-fs-write", sentinel),
-      "--allow-child-process",
-      "--allow-worker",
-    ].join(" "),
+    NODE_OPTIONS: staticInspectionNodeOptions(preloadPath, sentinel).join(" "),
     PATH: process.env["PATH"] ?? "",
     TYPEPEEK_ALLOWED_ANALYSIS_PROCESS_ENTRY:
       processPolicy.allowedAnalysisProcessEntry ?? "",

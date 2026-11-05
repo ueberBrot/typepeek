@@ -10,6 +10,7 @@ import { SymbolFlags } from "tsrs/sync";
 import type { Checker, Symbol as CompilerSymbol, Type } from "tsrs/sync";
 
 import { MAX_MEMBER_MATCHES } from "#typepeek/inspection/budget-policy";
+import { aliasedSymbol } from "#typepeek/inspection/compiler-queries";
 import {
   declarationsOf,
   valueDeclarationOf,
@@ -88,7 +89,7 @@ const resolveAliasTarget = function resolveAliasTarget(
 ): CompilerSymbol {
   return bitwiseAnd(symbol.flags, SymbolFlags.Alias) === 0
     ? symbol
-    : checker.getAliasedSymbol(symbol);
+    : aliasedSymbol(checker, symbol);
 };
 
 /** Bounds raw export tables and star edges before either value or namespace expansion. */

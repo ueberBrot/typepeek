@@ -19,6 +19,7 @@ import type { Declaration, Node, TypeNode, TypeQueryNode } from "tsrs/ast";
 import { NodeBuilderFlags, SymbolFlags } from "tsrs/sync";
 import type { Checker, Symbol as CompilerSymbol, Type } from "tsrs/sync";
 
+import { aliasedSymbol } from "#typepeek/inspection/compiler-queries";
 import {
   declarationsOf,
   isSourceBackedNode,
@@ -66,7 +67,7 @@ const resolvedSymbolAtLocation = function resolvedSymbolAtLocation(
 
   return symbol !== undefined &&
     bitwiseAnd(symbol.flags, SymbolFlags.Alias) !== 0
-    ? checker.getAliasedSymbol(symbol)
+    ? aliasedSymbol(checker, symbol)
     : symbol;
 };
 

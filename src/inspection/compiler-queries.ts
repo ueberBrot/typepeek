@@ -3,6 +3,33 @@ import type { Checker, Symbol as CompilerSymbol } from "tsrs/sync";
 
 const QUERY_BATCH_SIZE = 128;
 
+const aliasCaches = new WeakMap<
+  Checker,
+  WeakMap<CompilerSymbol, CompilerSymbol>
+>();
+
+/** Alias targets remain stable only within their originating checker. */
+export const aliasedSymbol = (
+  checker: Checker,
+  symbol: CompilerSymbol
+): CompilerSymbol => {
+  let cache = aliasCaches.get(checker);
+
+  if (cache === undefined) {
+    cache = new WeakMap();
+    aliasCaches.set(checker, cache);
+  }
+
+  let target = cache.get(symbol);
+
+  if (target === undefined) {
+    target = checker.getAliasedSymbol(symbol);
+    cache.set(symbol, target);
+  }
+
+  return target;
+};
+
 interface SymbolLookup {
   readonly symbol: CompilerSymbol | undefined;
 }

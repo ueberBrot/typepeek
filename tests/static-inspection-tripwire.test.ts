@@ -6,7 +6,10 @@ import nodePath from "node:path";
 import { execa } from "execa";
 import { describe, expect, it } from "vite-plus/test";
 
-import { materializeStaticInspection } from "./helpers/static-inspection.ts";
+import {
+  materializeStaticInspection,
+  staticInspectionNodeOptions,
+} from "./helpers/static-inspection.ts";
 
 const channelUrl = new URL(
   "../syncChannel.js",
@@ -14,6 +17,44 @@ const channelUrl = new URL(
 ).href;
 
 describe("Static Inspection compiler launch tripwire", () => {
+  it("permits Windows compiler pipe writes while denying unrelated paths", async () => {
+    const fixtureRoot = await mkdtemp(
+      nodePath.join(tmpdir(), "typepeek-compiler-permissions-")
+    );
+
+    try {
+      await materializeStaticInspection(fixtureRoot);
+      const preload = nodePath.join(fixtureRoot, "inspection-tripwire.cjs");
+      const sentinel = nodePath.join(fixtureRoot, "INSPECTION_IO_ATTEMPTED");
+      const probe = nodePath.join(fixtureRoot, "pipe-permissions.mjs");
+      await writeFile(
+        probe,
+        [
+          "const canWrite = (path) => process.permission.has('fs.write', path);",
+          "process.stdout.write(JSON.stringify([",
+          "  canWrite(String.raw`\\\\.\\pipe\\tsgo-sync-123-abcd`),",
+          "  canWrite(String.raw`\\\\.\\pipe\\other-123-abcd`),",
+          `  canWrite(${JSON.stringify(nodePath.join(fixtureRoot, "unrelated"))}),`,
+          "]));",
+        ].join("\n")
+      );
+
+      const result = await execa(process.execPath, [probe], {
+        env: {
+          NODE_OPTIONS: staticInspectionNodeOptions(
+            preload,
+            sentinel,
+            "win32"
+          ).join(" "),
+        },
+      });
+
+      expect(result.stdout).toBe("[true,false,false]");
+    } finally {
+      await rm(fixtureRoot, { force: true, recursive: true });
+    }
+  });
+
   it.each([
     ["accepts the pinned SDK Windows pipe transport", "native", 0],
     ["rejects another pipe namespace", "other-pipe", 1],

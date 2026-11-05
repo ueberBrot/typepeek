@@ -26,6 +26,7 @@ import { SymbolFlags } from "tsrs/sync";
 import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/sync";
 
 import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
+import { aliasedSymbol } from "#typepeek/inspection/compiler-queries";
 import { declarationsOf } from "#typepeek/inspection/compiler-session";
 import {
   InspectionLimitError,
@@ -232,7 +233,7 @@ const reExportedStatementDeclarations =
 
         const resolved =
           symbol !== undefined && bitwiseAnd(symbol.flags, SymbolFlags.Alias)
-            ? checker.getAliasedSymbol(symbol)
+            ? aliasedSymbol(checker, symbol)
             : symbol;
 
         const declarations = declarationsOf(resolved) ?? [];

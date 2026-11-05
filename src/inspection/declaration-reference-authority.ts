@@ -37,6 +37,7 @@ import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/sync";
 
 import { COMPILER_VERSION } from "#typepeek/inspection/compiler-distribution";
 import {
+  aliasedSymbol,
   symbolAtLocation,
   symbolsAtLocations,
 } from "#typepeek/inspection/compiler-queries";
@@ -249,7 +250,7 @@ const resolvedSymbolDeclarations = function resolvedSymbolDeclarations(
   }
 
   const resolved = bitwiseAnd(symbol.flags, SymbolFlags.Alias)
-    ? checker.getAliasedSymbol(symbol)
+    ? aliasedSymbol(checker, symbol)
     : symbol;
 
   return publicDeclarations(checker, declarationsOf(resolved) ?? []);

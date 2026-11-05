@@ -9,6 +9,7 @@ import type { ClassDeclaration, SourceFile } from "tsrs/ast";
 import { SymbolFlags } from "tsrs/sync";
 import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/sync";
 
+import { aliasedSymbol } from "#typepeek/inspection/compiler-queries";
 import {
   declarationsOf,
   valueDeclarationOf,
@@ -243,7 +244,7 @@ const inheritedConstructorNeedsStandardLibrary =
         }
 
         const target = bitwiseAnd(symbol.flags, SymbolFlags.Alias)
-          ? checker.getAliasedSymbol(symbol)
+          ? aliasedSymbol(checker, symbol)
           : symbol;
 
         return (declarationsOf(target) ?? []).some(
@@ -275,7 +276,7 @@ const selectedExportNeedsStandardLibrary =
     }
 
     const symbol = bitwiseAnd(exportedSymbol.flags, SymbolFlags.Alias)
-      ? checker.getAliasedSymbol(exportedSymbol)
+      ? aliasedSymbol(checker, exportedSymbol)
       : exportedSymbol;
 
     return (

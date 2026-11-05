@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { requireDefined } from "#typepeek/defined-value";
 import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler-distribution";
 import {
+  aliasedSymbol,
   symbolAtLocation,
   symbolsAtLocations,
 } from "#typepeek/inspection/compiler-queries";
@@ -26,6 +27,58 @@ const referenceNodes = (file: SourceFile): readonly Node[] =>
   );
 
 describe("native compiler queries", () => {
+  it("reuses alias targets only within the checker that resolved them", () => {
+    const fileName = "/query-aliases.d.ts";
+
+    const createProgram = (target: string) =>
+      createFixtureProgram([fileName], { noEmit: true, noLib: true }, [
+        [fileName, `interface ${target} {} export { ${target} as Selected };`],
+      ]);
+
+    const firstProgram = createProgram("Before");
+    const secondProgram = createProgram("After");
+    const firstChecker = firstProgram.getProject().checker;
+    const secondChecker = secondProgram.getProject().checker;
+    expect(firstChecker.getAliasedSymbol).toBeTypeOf("function");
+    expect(secondChecker.getAliasedSymbol).toBeTypeOf("function");
+    const nativeRead = vi.spyOn(firstChecker, "getAliasedSymbol");
+    const secondRead = vi.spyOn(secondChecker, "getAliasedSymbol");
+
+    try {
+      const firstAlias = requireDefined(
+        firstChecker.getSymbolAtLocation(
+          requireDefined(firstProgram.getSourceFile(fileName))
+        )
+      );
+
+      const secondAlias = requireDefined(
+        secondChecker.getSymbolAtLocation(
+          requireDefined(secondProgram.getSourceFile(fileName))
+        )
+      );
+
+      const before = requireDefined(
+        firstChecker.getExportsOfModule(firstAlias)[0]
+      );
+
+      const after = requireDefined(
+        secondChecker.getExportsOfModule(secondAlias)[0]
+      );
+
+      expect([
+        aliasedSymbol(firstChecker, before).name,
+        aliasedSymbol(firstChecker, before).name,
+        aliasedSymbol(secondChecker, after).name,
+        aliasedSymbol(secondChecker, after).name,
+      ]).toStrictEqual(["Before", "Before", "After", "After"]);
+      expect(nativeRead).toHaveBeenCalledOnce();
+      expect(secondRead).toHaveBeenCalledOnce();
+    } finally {
+      nativeRead.mockRestore();
+      secondRead.mockRestore();
+    }
+  });
+
   it("preserves order and cached misses across bounded native batches", () => {
     const fileName = "/query-batches.d.ts";
 

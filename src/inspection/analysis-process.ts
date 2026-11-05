@@ -56,7 +56,7 @@ class AnalysisProcessExecutionError extends taggedError<
 >()("AnalysisProcessExecutionError", { cause: Schema.Defect() }) {}
 
 const PRODUCTION_LIMITS: AnalysisProcessLimits = {
-  deadlineMilliseconds: 10_000,
+  deadlineMilliseconds: INSPECTION_BUDGET_POLICY.analysisDeadlineMilliseconds,
   maxDiagnosticBytes: 64 * 1024,
   maxHeapMegabytes: INSPECTION_BUDGET_POLICY.analysisHeapMegabytes,
   maxResultBytes: MAX_ANALYSIS_RESULT_BYTES,
