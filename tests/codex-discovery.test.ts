@@ -12,11 +12,11 @@ import { runCommand } from "#typepeek/process-command";
 import { readCodexOptions } from "../benchmarks/codex-discovery/options.ts";
 import {
   codexPrompt,
-  codexTelemetry,
   gradeCodexAnswer,
   gradeCodexExecution,
   selectCodexScenarios,
 } from "../benchmarks/codex-discovery/scenarios.ts";
+import { codexTelemetry } from "../benchmarks/codex-discovery/telemetry.ts";
 import { signatureFact } from "../benchmarks/support/signature.ts";
 import { match } from "./helpers/matchers.ts";
 

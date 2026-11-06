@@ -5,10 +5,8 @@ import { requireDefined } from "#typepeek/defined-value";
 import type { CodexOptions } from "../benchmarks/codex-discovery/options.ts";
 import type { CodexAttempt } from "../benchmarks/codex-discovery/report.ts";
 import { summarizeCodexStudy } from "../benchmarks/codex-discovery/report.ts";
-import {
-  codexTelemetry,
-  selectCodexScenarios,
-} from "../benchmarks/codex-discovery/scenarios.ts";
+import { selectCodexScenarios } from "../benchmarks/codex-discovery/scenarios.ts";
+import { codexTelemetry } from "../benchmarks/codex-discovery/telemetry.ts";
 import { match } from "./helpers/matchers.ts";
 
 const options: CodexOptions = {

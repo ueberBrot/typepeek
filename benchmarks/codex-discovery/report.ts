@@ -9,11 +9,8 @@ import {
 } from "../support/statistics.ts";
 import type { measureAcquisition } from "./acquisition.ts";
 import type { CodexOptions } from "./options.ts";
-import type {
-  CodexCondition,
-  CodexScenario,
-  codexTelemetry,
-} from "./scenarios.ts";
+import type { CodexCondition, CodexScenario } from "./scenarios.ts";
+import type { codexTelemetry } from "./telemetry.ts";
 
 export interface CodexAttempt {
   readonly classification: "task" | "infrastructure";

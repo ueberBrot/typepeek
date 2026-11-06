@@ -27,11 +27,11 @@ import { summarizeCodexStudy } from "./report.ts";
 import {
   ANSWER_JSON_SCHEMA,
   codexPrompt,
-  codexTelemetry,
   gradeCodexAnswer,
   gradeCodexExecution,
   selectCodexScenarios,
 } from "./scenarios.ts";
+import { codexTelemetry } from "./telemetry.ts";
 
 const options = readCodexOptions();
 const scenarios = selectCodexScenarios(options.cases);
@@ -75,6 +75,7 @@ const harnessFiles = await Promise.all(
     "run.ts",
     "fixture.ts",
     "scenarios.ts",
+    "telemetry.ts",
     "options.ts",
     "report.ts",
     "acquisition.ts",
