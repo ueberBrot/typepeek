@@ -5,12 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { decodeJson } from "#typepeek/json-data";
 
-import type { PackagedCliMatrix } from "./helpers/index.ts";
-import {
-  PACKAGE_MANAGER_PINS,
-  materializePackagedCliMatrix,
-} from "./helpers/index.ts";
 import { match } from "./helpers/matchers.ts";
+import { PACKAGE_MANAGER_PINS } from "./helpers/package-toolchain.ts";
+import type { PackagedCliMatrix } from "./helpers/packaged-cli-matrix.ts";
+import { materializePackagedCliMatrix } from "./helpers/packaged-cli-matrix.ts";
 
 interface JsonSignatureSemantics {
   readonly intent: string;

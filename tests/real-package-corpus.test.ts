@@ -20,9 +20,9 @@ import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { decodeJson } from "#typepeek/json-data";
 import { runCommand } from "#typepeek/process-command";
 
-import type { RealPackageCorpus } from "./helpers/index.ts";
-import { materializeRealPackageCorpus } from "./helpers/index.ts";
 import { match } from "./helpers/matchers.ts";
+import type { RealPackageCorpus } from "./helpers/real-package-corpus.ts";
+import { materializeRealPackageCorpus } from "./helpers/real-package-corpus.ts";
 import { materializeStaticInspection } from "./helpers/static-inspection.ts";
 
 interface CorpusQuestion {

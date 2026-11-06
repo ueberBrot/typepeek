@@ -7,8 +7,8 @@ import {
 } from "#typepeek/inspection";
 import { inspectionProtocolResponseSchema } from "#typepeek/inspection/inspection-protocol-schema";
 
-import type { CompiledPackageFixture } from "./helpers/index.ts";
-import { materializeCompiledPackageFixture } from "./helpers/index.ts";
+import type { CompiledPackageFixture } from "./helpers/compiled-package-fixture.ts";
+import { materializeCompiledPackageFixture } from "./helpers/compiled-package-fixture.ts";
 import { match } from "./helpers/matchers.ts";
 import { registerCapabilityCatalogTests } from "./inspection-protocol-adapter/capability-catalog.test.suite.ts";
 import { registerDocumentationSearchTests } from "./inspection-protocol-adapter/documentation-search.test.suite.ts";
