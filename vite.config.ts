@@ -264,6 +264,10 @@ export default defineConfig({
         command: "node tests/package-output-smoke.ts",
         dependsOn: ["pack"],
       },
+      sandbox: {
+        cache: false,
+        command: "node benchmarks/harness/run.ts",
+      },
       test: {
         cache: { input: validationInputs, output: [] },
         command: "vp test --maxWorkers=2",

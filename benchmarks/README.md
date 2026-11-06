@@ -67,3 +67,21 @@ To continue an interrupted campaign, use `--start-at N` with a new output direct
 ## Correctness checks
 
 `vp run benchmark:smoke` checks all ten available workloads against the independent oracle with the packaged CLI's cache bypassed and enabled. CI runs this after packing, without model calls or timing thresholds. Shared oracle, workload, fingerprint, and statistics code lives in `benchmarks/support/`.
+
+## Docker sandbox runs
+
+`vp run sandbox --help` lists the TanStack harness tasks. Install Docker's `sbx` CLI, run `sbx login`, and configure Codex with `sbx secret set openai --oauth`. Initialize a new Docker policy with `sbx policy init deny-all`; the runner adds per-sandbox access for inference and setup.
+
+Stage new source files before running. Each run clones tracked working-tree contents into a disposable VM, installs the checksum-verified pinned Node runtime, and uses the frozen lockfile and existing release-age policy.
+
+```bash
+vp run sandbox --check
+vp run sandbox -- test
+vp run sandbox -- benchmark-smoke
+vp run sandbox -- benchmark --prepare-only
+vp run sandbox --timeout-seconds 3600 -- benchmark --models gpt-6.1-sol --efforts low --repeats 1
+```
+
+Run artifacts include TanStack session and provider logs, events, operation reports, traces, command output, and resource ownership. Measured campaigns retain the raw app-server capture and export their artifacts as an archive. Compare Linux VM campaigns separately from earlier host campaigns.
+
+Completion, errors, cancellation, and deadlines remove owned VMs. After a host crash or failed removal, use `vp run sandbox --cleanup RUN_DIRECTORY` to retry cleanup from its resource records.
