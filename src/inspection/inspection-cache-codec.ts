@@ -31,7 +31,8 @@ export const CACHE_SCHEMA_VERSION = 2;
 export const INSPECTION_CACHE_SEMANTICS =
   "installed-evidence-proof-file-presence-and-signature-constraints";
 
-const MAX_CACHE_RECEIPT_BYTES = MAX_INSTALLED_EVIDENCE_PROOF_BYTES + 32 * 1024;
+export const MAX_CACHE_RECEIPT_BYTES =
+  MAX_INSTALLED_EVIDENCE_PROOF_BYTES + 32 * 1024;
 
 export const MAX_CACHE_ENTRY_BYTES =
   MAX_CACHE_RECEIPT_BYTES + MAX_ANALYSIS_RESULT_BYTES + 8 * 1024;

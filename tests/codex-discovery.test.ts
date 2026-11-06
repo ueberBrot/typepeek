@@ -3,20 +3,20 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { Schema } from "effect";
-import { execa } from "execa";
 import { describe, expect, it } from "vite-plus/test";
 
 import { requireDefined } from "#typepeek/defined-value";
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 import { readCodexOptions } from "../benchmarks/codex-discovery/options.ts";
 import {
   codexPrompt,
-  codexTelemetry,
   gradeCodexAnswer,
   gradeCodexExecution,
   selectCodexScenarios,
 } from "../benchmarks/codex-discovery/scenarios.ts";
+import { codexTelemetry } from "../benchmarks/codex-discovery/telemetry.ts";
 import { signatureFact } from "../benchmarks/support/signature.ts";
 import { match } from "./helpers/matchers.ts";
 
@@ -26,10 +26,14 @@ const telemetry = (query: string) =>
       JSON.stringify({
         item: {
           aggregated_output: JSON.stringify({
-            result: { intent: "export-search", query, specifier: "execa" },
+            result: {
+              intent: "export-search",
+              query,
+              specifier: "effect/Cause",
+            },
             status: "success",
           }),
-          command: `typepeek search execa ${query} --json`,
+          command: `typepeek search effect/Cause ${query} --json`,
           exit_code: 0,
           type: "command_execution",
         },
@@ -77,8 +81,8 @@ describe("codex-discovery", () => {
         nodePath.join(directory, "unused"),
       ];
 
-      const first = await execa(process.execPath, args);
-      const second = await execa(process.execPath, args);
+      const first = await runCommand(process.execPath, args);
+      const second = await runCommand(process.execPath, args);
       expect(second.stdout).toBe(first.stdout);
 
       const plan = decodeJson(
@@ -100,7 +104,7 @@ describe("codex-discovery", () => {
 
       expect(plan.trials).toHaveLength(240);
 
-      const continuation = await execa(process.execPath, [
+      const continuation = await runCommand(process.execPath, [
         ...args,
         "--start-at",
         "155",
@@ -138,13 +142,13 @@ describe("codex-discovery", () => {
   });
 
   it("rejects a matrix that combines all workloads with individual workloads", async () => {
-    const result = await execa(
+    const result = await runCommand(
       process.execPath,
       [
         "benchmarks/codex-discovery/run.ts",
         "--dry-run",
         "--cases",
-        "all,execa-command",
+        "all,semver-clean",
       ],
       { reject: false }
     );
@@ -168,7 +172,7 @@ describe("codex-discovery", () => {
       await writeFile(nodePath.join(directory, "package.json"), "{}");
       await writeFile(nodePath.join(directory, "pnpm-lock.yaml"), "");
 
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "--input-type=module",
@@ -204,10 +208,10 @@ describe("codex-discovery", () => {
   });
 
   it.each([
-    "execa-command",
+    "semver-clean",
     "node-exists",
     "effect-option",
-    "stricli-routes",
+    "effect-map",
     "tsrs-filesystem",
   ])("keeps the %s discovery answer out of every condition's prompt", (id) => {
     const scenario = requireDefined(selectCodexScenarios([id])[0]);
@@ -229,7 +233,7 @@ describe("codex-discovery", () => {
   });
 
   it("lets both Codex conditions choose their strategy without giving away discovery answers", () => {
-    const scenario = requireDefined(selectCodexScenarios(["execa-command"])[0]);
+    const scenario = requireDefined(selectCodexScenarios(["semver-clean"])[0]);
     const baseline = codexPrompt(scenario, "files", "");
     const treatment = codexPrompt(scenario, "typepeek", "");
 
@@ -238,8 +242,8 @@ describe("codex-discovery", () => {
         prompt.includes(
           "Choose the fastest reliable local inspection strategy yourself"
         ),
-        prompt.includes("parseCommandString"),
-        prompt.includes("types/methods/command.d.ts"),
+        prompt.includes("clean"),
+        prompt.includes("functions/clean.d.ts"),
       ]).toStrictEqual([true, false, false]);
     }
 
@@ -270,7 +274,7 @@ describe("codex-discovery", () => {
       {
         item: {
           aggregated_output: "abc",
-          command: "typepeek signatures execa parseCommandString --json",
+          command: "typepeek signatures semver clean --json",
           type: "command_execution",
         },
         type: "item.completed",
@@ -345,14 +349,19 @@ describe("codex-discovery", () => {
   });
 
   it("accepts a verified discovered export and rejects invented or incomplete signatures", () => {
-    const scenario = requireDefined(selectCodexScenarios(["execa-command"])[0]);
-    const expected = ["call:( command : string ) : string [ ]"];
+    const scenario = requireDefined(selectCodexScenarios(["semver-clean"])[0]);
+
+    const expected = [
+      "call:( version : string , optionsOrLoose ? : boolean | semver . Options ) : string | null",
+    ];
 
     const answer = {
-      exportName: "parseCommandString",
+      exportName: "clean",
       matches: [],
-      signatures: ["(command:string):string[]"],
-      specifier: "execa",
+      signatures: [
+        "(version:string, optionsOrLoose?:boolean|semver.Options):string|null",
+      ],
+      specifier: "semver",
       status: "answered",
     };
 
@@ -361,7 +370,7 @@ describe("codex-discovery", () => {
       gradeCodexAnswer(
         scenario,
         expected,
-        JSON.stringify({ ...answer, signatures: ["(command: string): {}"] })
+        JSON.stringify({ ...answer, signatures: ["(version: string): {}"] })
       ).passed,
       gradeCodexAnswer(
         scenario,
@@ -378,7 +387,7 @@ describe("codex-discovery", () => {
   });
 
   it("requires task evidence in the required-use condition and keeps availability optional", () => {
-    const scenario = requireDefined(selectCodexScenarios(["execa-command"])[0]);
+    const scenario = requireDefined(selectCodexScenarios(["semver-clean"])[0]);
 
     const completion = JSON.stringify({
       type: "turn.completed",
@@ -391,7 +400,7 @@ describe("codex-discovery", () => {
           JSON.stringify({
             item: {
               aggregated_output: output,
-              command: "typepeek signatures execa parseCommandString --json",
+              command: "typepeek signatures semver clean --json",
               exit_code: exitCode,
               type: "command_execution",
             },
@@ -404,8 +413,8 @@ describe("codex-discovery", () => {
     const evidence = JSON.stringify({
       result: {
         intent: "signature-inspection",
-        moduleExport: { name: "parseCommandString" },
-        specifier: "execa",
+        moduleExport: { name: "clean" },
+        specifier: "semver",
       },
       status: "success",
     });
@@ -432,7 +441,7 @@ describe("codex-discovery", () => {
         gradeCodexExecution(
           scenario,
           "typepeek-required",
-          command(evidence.replace("execa", "other"))
+          command(evidence.replace("semver", "other"))
         )
       ).includes("inspection"),
       gradeCodexExecution(scenario, "typepeek-required", command(evidence)) ===
@@ -465,12 +474,12 @@ describe("codex-discovery", () => {
       prompt.includes("must inspect"),
       prompt.includes("SKILL CONTENT"),
       prompt.includes("you are not required"),
-      prompt.includes("parseCommandString"),
+      prompt.includes("clean"),
     ]).toStrictEqual([true, true, false, false]);
   });
 
   it("requires the requested name search rather than an unrelated query in the same module", () => {
-    const scenario = requireDefined(selectCodexScenarios(["execa-errors"])[0]);
+    const scenario = requireDefined(selectCodexScenarios(["effect-errors"])[0]);
 
     expect([
       requireDefined(

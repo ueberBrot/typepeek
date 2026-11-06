@@ -11,12 +11,10 @@ import {
   isJsonInputObject,
 } from "#typepeek/json-data";
 
-import type { PackageManagerMatrix } from "./helpers/index.ts";
-import {
-  PACKAGE_MANAGER_PINS,
-  materializePackageManagerMatrix,
-} from "./helpers/index.ts";
 import { match } from "./helpers/matchers.ts";
+import type { PackageManagerMatrix } from "./helpers/package-manager-matrix.ts";
+import { materializePackageManagerMatrix } from "./helpers/package-manager-matrix.ts";
+import { PACKAGE_MANAGER_PINS } from "./helpers/package-toolchain.ts";
 
 // File paths vary by layout; all other provenance must match.
 const withoutDeclarationPaths = function withoutDeclarationPaths(

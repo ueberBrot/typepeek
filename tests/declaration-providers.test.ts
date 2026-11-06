@@ -2,13 +2,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { inspectExport, inspectInterfaceOverview } from "#typepeek/inspection";
 
-import type { DeclarationProviderFixture } from "./helpers/index.ts";
+import type { DeclarationProviderFixture } from "./helpers/declaration-provider-fixture.ts";
 import {
   materializeAliasedTypeReferenceFixture,
   materializeDeclarationProviderFixture,
   materializeNodeProviderFixture,
   materializeWorkspaceTypeReferenceFixture,
-} from "./helpers/index.ts";
+} from "./helpers/declaration-provider-fixture.ts";
 import { match } from "./helpers/matchers.ts";
 
 describe("declaration-providers", () => {

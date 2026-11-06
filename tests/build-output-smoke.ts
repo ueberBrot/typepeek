@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { lstat, readFile } from "node:fs/promises";
 import nodePath from "node:path";
 
 import { Schema } from "effect";
 
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 import {
   assertArtifactCacheReuse,
+  assertArtifactVersion,
   assertCompilerLoadsOnlyInWorker,
   assertRepositoryProfilingExcluded,
   assertWorkerUsesPinnedNativeCompiler,
@@ -34,7 +35,7 @@ assert.equal(
 
 await assertRepositoryProfilingExcluded(".vite-plus/build");
 
-assertWorkerUsesPinnedNativeCompiler(BUILT_CLI_PATH);
+await assertWorkerUsesPinnedNativeCompiler(BUILT_CLI_PATH);
 
 const packageVersion = decodeJson(
   Schema.Struct({
@@ -43,29 +44,23 @@ const packageVersion = decodeJson(
   await readFile("package.json", "utf-8")
 ).version;
 
-const versionCli = spawnSync(process.execPath, [BUILT_CLI_PATH, "--version"], {
-  encoding: "utf-8",
-});
+await assertArtifactVersion(BUILT_CLI_PATH, packageVersion);
 
-assert.equal(versionCli.status, 0, versionCli.stderr);
-
-assert.equal(versionCli.stdout, `${packageVersion}\n`);
-
-const cli = spawnSync(
+const cli = await runCommand(
   process.execPath,
   [
     BUILT_CLI_PATH,
     "signatures",
-    "execa",
-    "execa",
+    "semver",
+    "parse",
     "--workspace",
     ".",
     "--json",
   ],
-  { encoding: "utf-8" }
+  { reject: false, trimFinalNewline: false }
 );
 
-assert.equal(cli.status, 0, cli.stderr || cli.stdout);
+assert.equal(cli.exitCode, 0, cli.stderr || cli.stdout);
 
 assert.equal(cli.stderr, "");
 
@@ -100,29 +95,34 @@ assert.equal(cliOutcome.status, "success");
 
 assert.equal(cliOutcome.result.intent, "signature-inspection");
 
-assert.equal(cliOutcome.result.moduleExport.name, "execa");
+assert.equal(cliOutcome.result.moduleExport.name, "parse");
 
-assert.equal(cliOutcome.result.moduleExport.signatures.length, 4);
+assert.equal(cliOutcome.result.moduleExport.signatures.length, 3);
 
 assert.match(
   cliOutcome.result.moduleExport.signatures[0]?.text ?? "",
-  /^<NewOptionsType/u
+  /^\(version\?: string \| SemVer \| null\)/u
 );
 
-const protocolCli = spawnSync(process.execPath, [BUILT_CLI_PATH, "protocol"], {
-  encoding: "utf-8",
-  input: JSON.stringify({
-    intent: "signature-inspection",
-    protocolVersion: "1",
-    request: {
-      exportName: "execa",
-      resolutionContext: nodePath.resolve("."),
-      specifier: "execa",
-    },
-  }),
-});
+const protocolCli = await runCommand(
+  process.execPath,
+  [BUILT_CLI_PATH, "protocol"],
+  {
+    input: JSON.stringify({
+      intent: "signature-inspection",
+      protocolVersion: "1",
+      request: {
+        exportName: "parse",
+        resolutionContext: nodePath.resolve("."),
+        specifier: "semver",
+      },
+    }),
+    reject: false,
+    trimFinalNewline: false,
+  }
+);
 
-assert.equal(protocolCli.status, 0, protocolCli.stderr || protocolCli.stdout);
+assert.equal(protocolCli.exitCode, 0, protocolCli.stderr || protocolCli.stdout);
 
 assert.equal(protocolCli.stderr, "");
 
@@ -155,4 +155,4 @@ assert.equal(protocolResponse.outcome.status, "success");
 
 await assertArtifactCacheReuse(BUILT_CLI_PATH);
 
-assertCompilerLoadsOnlyInWorker(BUILT_CLI_PATH);
+await assertCompilerLoadsOnlyInWorker(BUILT_CLI_PATH);

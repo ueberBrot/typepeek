@@ -7,22 +7,22 @@ For installation and first commands, see the [README](../README.md).
 Run once without adding Typepeek to the project:
 
 ```bash
-npx --yes typepeek@latest overview execa
+npx --yes typepeek@latest overview semver
 ```
 
 Or install globally:
 
 ```bash
 npm install --global typepeek
-typepeek overview execa
+typepeek overview semver
 ```
 
 ## Select a project and package
 
-Read the main `execa` export's signatures from the installed declarations:
+Read every public signature of `semver`'s `parse` export from the installed declarations:
 
 ```bash
-npx typepeek signatures execa execa
+npx typepeek signatures semver parse
 ```
 
 Results include every public call and construct signature in declaration order.
@@ -30,7 +30,7 @@ Results include every public call and construct signature in declaration order.
 Typepeek first identifies the consumer from the current directory. From a monorepo root, it selects the only declared workspace that depends on the requested package. If several workspaces depend on it, select the consumer explicitly:
 
 ```bash
-npx typepeek execa --workspace packages/api
+npx typepeek semver --workspace packages/api
 ```
 
 Within a workspace, Typepeek stays scoped to that workspace. The `--workspace` option selects another consumer; pass its workspace directory, not a path into `node_modules`.
@@ -38,13 +38,13 @@ Within a workspace, Typepeek stays scoped to that workspace. The `--workspace` o
 Inspect an installed package from the current project or workspace:
 
 ```bash
-npx typepeek overview execa
+npx typepeek overview semver
 ```
 
 `overview` is the default command. The shorthand is:
 
 ```bash
-npx typepeek execa
+npx typepeek semver
 ```
 
 Run `npx typepeek --help` for all commands and options. With a global installation, use `typepeek` directly.
@@ -70,18 +70,18 @@ Start with the narrowest inspection that answers your question.
 For example, discover an export before inspecting it:
 
 ```bash
-npx typepeek search execa error
-npx typepeek declarations execa ExecaError
+npx typepeek search semver parse
+npx typepeek declarations semver SemVer
 ```
 
-When you know the behaviour but not the export name, use `npx typepeek discover execa split --json`. It searches export names and attached documentation, returning matching signatures with all overloads and documentation excerpts in the same call. Excerpts are marked as untrusted; results omit supporting types.
+When you know the behaviour but not the export name, use `npx typepeek discover semver version --json`. It searches export names and attached documentation, returning matching signatures with all overloads and documentation excerpts in the same call. Excerpts are marked as untrusted; results omit supporting types.
 
 `discover` matches a case-insensitive substring. It does not perform semantic search. An empty result means the phrase did not match, not that the behaviour is unavailable. Try a shorter phrase or use `overview` to browse export names.
 
 Add `--json` for structured output. Add `--pretty` with `--json` when a person needs to read that output:
 
 ```bash
-npx typepeek signatures execa execa --json --pretty
+npx typepeek signatures semver parse --json --pretty
 ```
 
 Commands use the `import` access style by default. Pass `--access require` when you need the interface selected for CommonJS resolution conditions.

@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 import { Schema } from "effect";
 
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 import {
   assertArtifactCacheReuse,
+  assertArtifactVersion,
   assertCompilerLoadsOnlyInWorker,
   assertRepositoryProfilingExcluded,
   assertWorkerUsesPinnedNativeCompiler,
@@ -17,26 +19,28 @@ import {
 
 const PACKAGED_CLI_PATH = "dist/cli.js";
 const PACKAGE_MANIFEST_FILE = "package.json";
+const SIGNATURE_PACKAGE = "array-signatures";
 
 await assertRepositoryProfilingExcluded("dist");
 
-assertWorkerUsesPinnedNativeCompiler(PACKAGED_CLI_PATH);
+await assertWorkerUsesPinnedNativeCompiler(PACKAGED_CLI_PATH);
 
 const npmCache = await mkdtemp(nodePath.join(tmpdir(), "typepeek-npm-cache-"));
 
 try {
   const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
-  const packageDryRun = spawnSync(
+  const packageDryRun = await runCommand(
     npmCommand,
     ["pack", "--dry-run", "--json", "--ignore-scripts"],
     {
-      encoding: "utf-8",
       env: { ...process.env, NPM_CONFIG_CACHE: npmCache },
+      reject: false,
+      trimFinalNewline: false,
     }
   );
 
-  assert.equal(packageDryRun.status, 0, packageDryRun.stderr);
+  assert.equal(packageDryRun.exitCode, 0, packageDryRun.stderr);
 
   const [packageManifest] = decodeJson(
     Schema.Tuple([
@@ -97,23 +101,14 @@ const packageVersion = decodeJson(
   await readFile(PACKAGE_MANIFEST_FILE, "utf-8")
 ).version;
 
-const versionCli = spawnSync(
-  process.execPath,
-  [PACKAGED_CLI_PATH, "--version"],
-  {
-    encoding: "utf-8",
-  }
-);
+await assertArtifactVersion(PACKAGED_CLI_PATH, packageVersion);
 
-assert.equal(versionCli.status, 0, versionCli.stderr);
-
-assert.equal(versionCli.stdout, `${packageVersion}\n`);
-
-const cli = spawnSync(process.execPath, [PACKAGED_CLI_PATH, "--help"], {
-  encoding: "utf-8",
+const cli = await runCommand(process.execPath, [PACKAGED_CLI_PATH, "--help"], {
+  reject: false,
+  trimFinalNewline: false,
 });
 
-assert.equal(cli.status, 0, cli.stderr);
+assert.equal(cli.exitCode, 0, cli.stderr);
 
 for (const expected of [
   /typepeek/u,
@@ -126,28 +121,29 @@ for (const expected of [
   /capabilities\s+List supported protocol requests and limits as JSON/u,
   /protocol\s+Invoke the Inspection Protocol/u,
 ]) {
-  assert.match(cli.stdout, expected);
+  assert.match(stripVTControlCharacters(cli.stdout), expected);
 }
 
-const protocolCli = spawnSync(
+const protocolCli = await runCommand(
   process.execPath,
   [PACKAGED_CLI_PATH, "protocol"],
   {
-    encoding: "utf-8",
     input: JSON.stringify({
       intent: "signature-inspection",
       protocolVersion: "1",
       request: {
-        exportName: "execa",
+        exportName: "parse",
         resolutionContext: process.cwd(),
-        specifier: "execa",
+        specifier: "semver",
       },
       response: { signatureEvidence: "both" },
     }),
+    reject: false,
+    trimFinalNewline: false,
   }
 );
 
-assert.equal(protocolCli.status, 0, protocolCli.stderr || protocolCli.stdout);
+assert.equal(protocolCli.exitCode, 0, protocolCli.stderr || protocolCli.stdout);
 
 assert.equal(protocolCli.stderr, "");
 
@@ -161,34 +157,39 @@ assert.equal(
   "1"
 );
 
-const execaSignatures = decodeJson(
-  Schema.Struct({
-    outcome: Schema.Struct({
-      result: Schema.Struct({
-        moduleExport: Schema.Struct({
-          signatures: Schema.Array(
-            Schema.Struct({
-              parameters: Schema.Array(Schema.Struct({ type: Schema.String })),
-              text: Schema.String,
-            })
-          ),
-        }),
+const signatureResponseSchema = Schema.Struct({
+  outcome: Schema.Struct({
+    result: Schema.Struct({
+      moduleExport: Schema.Struct({
+        signatures: Schema.Array(
+          Schema.Struct({
+            parameters: Schema.Array(Schema.Struct({ type: Schema.String })),
+            text: Schema.String,
+          })
+        ),
       }),
     }),
   }),
-  protocolCli.stdout
-).outcome.result.moduleExport.signatures;
+});
 
-assert.equal(execaSignatures[2]?.parameters[0]?.type, "string | URL");
+const parseSignatures = decodeJson(signatureResponseSchema, protocolCli.stdout)
+  .outcome.result.moduleExport.signatures;
+
+assert.equal(parseSignatures.length, 3);
 
 assert.equal(
-  execaSignatures[1]?.parameters[0]?.type,
-  "readonly [TemplateStringsArray, ...TemplateExpression[]]"
+  parseSignatures[0]?.parameters[0]?.type,
+  "string | SemVer | null | undefined"
 );
 
 assert.equal(
-  execaSignatures[1]?.text,
-  "(templateString_0: TemplateStringsArray, ...templateString: TemplateExpression[]): ResultPromise<{}>"
+  parseSignatures[1]?.parameters[1]?.type,
+  "boolean | semver.Options"
+);
+
+assert.equal(
+  parseSignatures[1]?.text,
+  "(version: string | SemVer | null | undefined, optionsOrLoose: boolean | semver.Options, throwErrors: true): SemVer"
 );
 
 await assertArtifactCacheReuse(PACKAGED_CLI_PATH);
@@ -201,7 +202,7 @@ try {
   const installedPackage = nodePath.join(
     signatureConsumer,
     "node_modules",
-    "array-signatures"
+    SIGNATURE_PACKAGE
   );
 
   await mkdir(installedPackage, { recursive: true });
@@ -211,28 +212,41 @@ try {
   );
   await writeFile(
     nodePath.join(installedPackage, PACKAGE_MANIFEST_FILE),
-    '{"name":"array-signatures","version":"1.0.0","types":"index.d.ts"}'
+    JSON.stringify({
+      name: SIGNATURE_PACKAGE,
+      types: "index.d.ts",
+      version: "1.0.0",
+    })
   );
   await writeFile(
     nodePath.join(installedPackage, "index.d.ts"),
-    "export declare function split(command: string): string[];\n"
+    [
+      "export declare function split(command: string): string[];",
+      "type TemplateExpression = string | number;",
+      "type TemplateString = readonly [TemplateStringsArray, ...readonly TemplateExpression[]];",
+      "export declare const tag: (...templateString: TemplateString) => Promise<string>;",
+    ].join("\n")
   );
 
-  const signatures = spawnSync(
+  const signatures = await runCommand(
     process.execPath,
     [
       nodePath.resolve(PACKAGED_CLI_PATH),
       "signatures",
-      "array-signatures",
+      SIGNATURE_PACKAGE,
       "split",
       "--workspace",
       signatureConsumer,
       "--json",
     ],
-    { encoding: "utf-8", env: { ...process.env, TYPEPEEK_CACHE_BYPASS: "1" } }
+    {
+      env: { ...process.env, TYPEPEEK_CACHE_BYPASS: "1" },
+      reject: false,
+      trimFinalNewline: false,
+    }
   );
 
-  assert.equal(signatures.status, 0, signatures.stderr || signatures.stdout);
+  assert.equal(signatures.exitCode, 0, signatures.stderr || signatures.stdout);
 
   const outcome = decodeJson(
     Schema.Struct({
@@ -265,8 +279,37 @@ try {
     outcome.result.moduleExport.signatures[0]?.returns.type,
     "string[]"
   );
+
+  const template = await runCommand(
+    process.execPath,
+    [nodePath.resolve(PACKAGED_CLI_PATH), "protocol"],
+    {
+      input: JSON.stringify({
+        intent: "signature-inspection",
+        protocolVersion: "1",
+        request: {
+          exportName: "tag",
+          resolutionContext: signatureConsumer,
+          specifier: SIGNATURE_PACKAGE,
+        },
+        response: { signatureEvidence: "both" },
+      }),
+    }
+  );
+
+  const [signature] = decodeJson(signatureResponseSchema, template.stdout)
+    .outcome.result.moduleExport.signatures;
+
+  assert.equal(
+    signature?.parameters[0]?.type,
+    "readonly [TemplateStringsArray, ...TemplateExpression[]]"
+  );
+  assert.equal(
+    signature?.text,
+    "(templateString_0: TemplateStringsArray, ...templateString: TemplateExpression[]): Promise<string>"
+  );
 } finally {
   await rm(signatureConsumer, { force: true, recursive: true });
 }
 
-assertCompilerLoadsOnlyInWorker(PACKAGED_CLI_PATH);
+await assertCompilerLoadsOnlyInWorker(PACKAGED_CLI_PATH);

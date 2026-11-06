@@ -9,8 +9,8 @@ import {
   inspectPlan,
 } from "#typepeek/inspection";
 
-import type { InstalledProgramAuthorityFixture } from "./helpers/index.ts";
-import { materializeInstalledProgramAuthorityFixture } from "./helpers/index.ts";
+import type { InstalledProgramAuthorityFixture } from "./helpers/installed-program-authority-fixture.ts";
+import { materializeInstalledProgramAuthorityFixture } from "./helpers/installed-program-authority-fixture.ts";
 import { match } from "./helpers/matchers.ts";
 
 let fixture: InstalledProgramAuthorityFixture;

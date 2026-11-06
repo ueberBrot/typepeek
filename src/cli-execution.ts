@@ -1,22 +1,14 @@
-import { buildApplication, help, run, version } from "@stricli/core";
-import type {
-  ApplicationContext,
-  RouteMap,
-  StricliProcess,
-} from "@stricli/core";
-import { Predicate } from "effect";
+import { Cause, Effect, Option } from "effect";
+import { CliError, CliOutput, Command } from "effect/cli";
 
 import { InspectionFailureError } from "#typepeek/inspection-failure-error";
 import { InvalidInvocationError } from "#typepeek/invalid-invocation-error";
+import { nodeCliLayer } from "#typepeek/node-process";
 import {
   serializeTerminalSafeJson,
   terminalSafeLine,
 } from "#typepeek/output-safety";
 import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
-
-interface CliExitState {
-  value: number | string | null;
-}
 
 const MAX_CLI_DIAGNOSTIC_BYTES = 128 * 1024;
 export const INSPECTION_FAILURE_EXIT_CODE = 1;
@@ -44,8 +36,6 @@ const INSPECTION_COMMANDS = new Set([
   "compare",
 ]);
 
-const INVALID_INVOCATION_EXIT_CODES = new Set([-5, -4]);
-
 interface CliDiagnostic {
   readonly status: "internal-error" | "invalid-invocation";
   readonly message: string;
@@ -58,44 +48,6 @@ interface CliDiagnosticSnapshot {
   readonly stderr: string;
   readonly exceeded: boolean;
 }
-
-const readableEnvironment = function readableEnvironment(): Readonly<
-  Record<string, string>
-> {
-  return Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] => entry[1] !== undefined
-    )
-  );
-};
-
-const normalizeNonNumberExitCode = function normalizeNonNumberExitCode(
-  exitCode: string | null
-): string | undefined {
-  return exitCode ?? undefined;
-};
-
-const normalizedNegativeExitCode = function normalizedNegativeExitCode(
-  exitCode: number
-): number {
-  return INVALID_INVOCATION_EXIT_CODES.has(exitCode)
-    ? INVALID_INVOCATION_EXIT_CODE
-    : INTERNAL_ERROR_EXIT_CODE;
-};
-
-const normalizeExitCode = function normalizeExitCode(
-  exitCode: number | string | null
-): number | string | undefined {
-  if (!Predicate.isNumber(exitCode)) {
-    return normalizeNonNumberExitCode(exitCode);
-  }
-
-  if (exitCode >= 0) {
-    return exitCode;
-  }
-
-  return normalizedNegativeExitCode(exitCode);
-};
 
 const requestsFlag = function requestsFlag(
   inputs: readonly string[],
@@ -189,61 +141,6 @@ const writeCapturedDiagnostic = function writeCapturedDiagnostic(
   process.stderr.write(renderHumanCliDiagnostic(diagnostic));
 };
 
-class CliProcessSession {
-  #capturedStderr = "";
-  #capturedStderrBytes = 0;
-  readonly #exitState: CliExitState = { value: null };
-  readonly process: StricliProcess;
-  constructor() {
-    const exitState = this.#exitState;
-    this.process = {
-      env: readableEnvironment(),
-      get exitCode() {
-        return exitState.value;
-      },
-      set exitCode(value) {
-        exitState.value = value;
-      },
-      stderr: {
-        getColorDepth: () => 0,
-        write: (value) => {
-          this.#captureStderr(value);
-        },
-      },
-      stdout: process.stdout,
-    };
-  }
-  complete(rawInputs: readonly string[]): void {
-    const normalizedExitCode = normalizeExitCode(this.#exitState.value);
-
-    if (this.#capturedStderr !== "" || this.#captureExceeded) {
-      writeCapturedDiagnostic(rawInputs, {
-        exceeded: this.#captureExceeded,
-        exitCode: normalizedExitCode,
-        stderr: this.#capturedStderr,
-      });
-    }
-
-    process.exitCode = normalizedExitCode;
-  }
-  #captureStderr(value: string): void {
-    const valueBytes = Buffer.byteLength(value);
-
-    if (this.#capturedStderrBytes + valueBytes > MAX_CLI_DIAGNOSTIC_BYTES) {
-      this.#capturedStderr = "";
-      this.#capturedStderrBytes = MAX_CLI_DIAGNOSTIC_BYTES + 1;
-
-      return;
-    }
-
-    this.#capturedStderr += value;
-    this.#capturedStderrBytes += valueBytes;
-  }
-  get #captureExceeded(): boolean {
-    return this.#capturedStderrBytes > MAX_CLI_DIAGNOSTIC_BYTES;
-  }
-}
-
 const leadingCommonOptionsEnd = function leadingCommonOptionsEnd(
   inputs: readonly string[]
 ): number {
@@ -283,76 +180,130 @@ const normalizeCommonOptionPlacement = function normalizeCommonOptionPlacement(
     : inputs;
 };
 
-/** Owns option normalization, bounded diagnostics, exit classification and CLI execution. */
-export const createCliRunner = function createCliRunner(
-  rootRoute: RouteMap<ApplicationContext>
-) {
-  const app = buildApplication(
-    rootRoute,
-    {
-      determineExitCode(error) {
-        if (error instanceof InvalidInvocationError) {
-          return INVALID_INVOCATION_EXIT_CODE;
-        }
-
-        return error instanceof InspectionFailureError
-          ? INSPECTION_FAILURE_EXIT_CODE
-          : INTERNAL_ERROR_EXIT_CODE;
-      },
-      name: "typepeek",
-      scanner: {
-        allowArgumentEscapeSequence: true,
-        caseStyle: "allow-kebab-for-camel",
-      },
-    },
-    {
-      help: help({
-        alias: "h",
-        brief: "Print help information and exit",
-        defaultForRouteMap: true,
-        formatting: {
-          caseStyle: "convert-camel-to-kebab",
-          onlyRequiredInUsageLine: false,
-          useAliasInUsageLine: false,
-        },
-        includeHidden: false,
-      }),
-      helpAll: help({
-        alias: "H",
-        brief:
-          "Print help information (including hidden commands/flags) and exit",
-        formatting: {
-          caseStyle: "convert-camel-to-kebab",
-          onlyRequiredInUsageLine: false,
-          useAliasInUsageLine: false,
-        },
-        hidden: true,
-        includeHidden: true,
-      }),
-      version: version({
-        brief: "Print version information and exit",
-        info: { currentVersion: TYPEPEEK_VERSION },
-      }),
-    }
-  );
-
-  return async function runCli(rawInputs: readonly string[]): Promise<void> {
-    const session = new CliProcessSession();
-
-    if (requestsPretty(rawInputs) && !requestsJson(rawInputs)) {
-      session.process.stderr.write("--pretty requires --json.\n");
-      session.process.exitCode = INVALID_INVOCATION_EXIT_CODE;
-      session.complete(rawInputs);
-
-      return;
-    }
-
-    const inputs =
-      rawInputs.length === 0
-        ? ["--help"]
-        : normalizeCommonOptionPlacement(rawInputs);
-
-    await run(app, inputs, { process: session.process });
-    session.complete(rawInputs);
-  };
+const diagnostic = (
+  rawInputs: readonly string[],
+  error: Error,
+  exitCode: number
+): void => {
+  const stderr = error.message;
+  writeCapturedDiagnostic(rawInputs, {
+    exceeded: Buffer.byteLength(stderr) > MAX_CLI_DIAGNOSTIC_BYTES,
+    exitCode,
+    stderr,
+  });
+  process.exitCode = exitCode;
 };
+
+const cliInputs = (rawInputs: readonly string[]): readonly string[] => {
+  if (rawInputs.length === 0) {
+    return ["--help"];
+  }
+
+  const normalized = normalizeCommonOptionPlacement(rawInputs);
+  const [first] = normalized;
+
+  if (first === undefined || INSPECTION_COMMANDS.has(first)) {
+    return normalized;
+  }
+
+  const actions = new Set([
+    "protocol",
+    "capabilities",
+    "--help",
+    "-h",
+    "--version",
+    "-v",
+    "--completions",
+    "--wizard",
+  ]);
+
+  return actions.has(first) ? normalized : ["overview", ...normalized];
+};
+
+const cliPresenter: CliOutput.Presenter = {
+  present: (event) => {
+    if (event._tag === "Version") {
+      return Effect.sync(() => {
+        process.stdout.write(`${event.version}\n`);
+      });
+    }
+
+    if (
+      event._tag === "InvalidInvocation" ||
+      (event._tag === "Help" && event.reason === "Implicit")
+    ) {
+      return Effect.void;
+    }
+
+    return CliOutput.defaultPresenter.present(event);
+  },
+};
+
+const failureExitCode = (error: Error): number => {
+  if (error instanceof InvalidInvocationError) {
+    return INVALID_INVOCATION_EXIT_CODE;
+  }
+
+  return error instanceof InspectionFailureError
+    ? INSPECTION_FAILURE_EXIT_CODE
+    : INTERNAL_ERROR_EXIT_CODE;
+};
+
+const reportCliCause = <E>(
+  rawInputs: readonly string[],
+  cause: Cause.Cause<E>
+) => {
+  if (Cause.hasInterruptsOnly(cause)) {
+    return Effect.failCause(cause);
+  }
+
+  const failure = Option.getOrUndefined(Cause.findErrorOption(cause));
+
+  const error =
+    failure instanceof Error ? failure : new Error(String(Cause.squash(cause)));
+
+  if (CliError.isCliError(error)) {
+    const message =
+      error._tag === "ShowHelp"
+        ? error.errors.map((entry) => entry.message).join("\n")
+        : error.message;
+
+    return Effect.sync(() => {
+      diagnostic(
+        rawInputs,
+        new Error(message || "Invalid invocation."),
+        INVALID_INVOCATION_EXIT_CODE
+      );
+    });
+  }
+
+  return Effect.sync(() => {
+    diagnostic(rawInputs, error, failureExitCode(error));
+  });
+};
+
+/** Owns option normalization, bounded diagnostics, exit classification and CLI execution. */
+export const createCliRunner =
+  <Name extends string, Input, ContextInput, E>(
+    command: Command.Command<Name, Input, ContextInput, E>
+  ) =>
+  (rawInputs: readonly string[]) =>
+    Effect.suspend(() => {
+      if (requestsPretty(rawInputs) && !requestsJson(rawInputs)) {
+        return Effect.sync(() => {
+          diagnostic(
+            rawInputs,
+            new InvalidInvocationError("--pretty requires --json."),
+            INVALID_INVOCATION_EXIT_CODE
+          );
+        });
+      }
+
+      return Command.runWith(command, { version: TYPEPEEK_VERSION })(
+        cliInputs(rawInputs)
+      ).pipe(
+        Effect.provideService(CliOutput.Presenter, cliPresenter),
+        Effect.catchCause((cause) => reportCliCause(rawInputs, cause)),
+        Effect.provide(nodeCliLayer)
+      );
+    });

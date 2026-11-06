@@ -7,12 +7,10 @@ import {
   inspectInterfaceOverview,
 } from "#typepeek/inspection";
 
-import type { WorkspacePackageMatrix } from "./helpers/index.ts";
-import {
-  materializeWorkspacePackageMatrix,
-  PACKAGE_MANAGER_PINS,
-} from "./helpers/index.ts";
 import { match } from "./helpers/matchers.ts";
+import { PACKAGE_MANAGER_PINS } from "./helpers/package-toolchain.ts";
+import type { WorkspacePackageMatrix } from "./helpers/workspace-package-matrix.ts";
+import { materializeWorkspacePackageMatrix } from "./helpers/workspace-package-matrix.ts";
 
 let matrix: WorkspacePackageMatrix;
 

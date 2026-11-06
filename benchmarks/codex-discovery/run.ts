@@ -1,10 +1,10 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import nodePath from "node:path";
 
-import { execa } from "execa";
 import { countTokens } from "gpt-tokenizer/encoding/o200k_base";
 
 import { requireDefined } from "#typepeek/defined-value";
+import { runCommand } from "#typepeek/process-command";
 
 import { inspectWithCompiler } from "../support/compiler.ts";
 import {
@@ -13,7 +13,7 @@ import {
   hashText,
   requirePackagedArtifact,
 } from "../support/identity.ts";
-import type { AcquisitionOracle } from "./acquisition.ts";
+import type { AcquisitionOracle } from "./acquisition-evidence.ts";
 import { measureAcquisition } from "./acquisition.ts";
 import { captureCodex } from "./capture.ts";
 import {
@@ -27,11 +27,11 @@ import { summarizeCodexStudy } from "./report.ts";
 import {
   ANSWER_JSON_SCHEMA,
   codexPrompt,
-  codexTelemetry,
   gradeCodexAnswer,
   gradeCodexExecution,
   selectCodexScenarios,
 } from "./scenarios.ts";
+import { codexTelemetry } from "./telemetry.ts";
 
 const options = readCodexOptions();
 const scenarios = selectCodexScenarios(options.cases);
@@ -61,7 +61,7 @@ if (options.dryRun) {
 
 requirePackagedArtifact();
 
-const codexVersionResult = await execa("codex", ["--version"]);
+const codexVersionResult = await runCommand("codex", ["--version"]);
 const version = codexVersionResult.stdout.trim();
 const skill = await readFile("skills/typepeek/SKILL.md", "utf-8");
 
@@ -75,10 +75,13 @@ const harnessFiles = await Promise.all(
     "run.ts",
     "fixture.ts",
     "scenarios.ts",
+    "telemetry.ts",
     "options.ts",
     "report.ts",
     "acquisition.ts",
+    "acquisition-evidence.ts",
     "capture.ts",
+    "exchange.ts",
     "replay.ts",
   ].map(
     async (file) =>

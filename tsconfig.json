@@ -22,16 +22,20 @@
     "plugins": [
       {
         "name": "@effect/language-service",
-        "overrides": [
-          {
-            "include": ["tests/**/*.test.ts"],
-            "options": {
-              "allowedUnstableApis": [
-                "@effect/vitest#effect",
-                "@effect/vitest#live"
-              ]
-            }
-          }
+        "allowedUnstableApis": [
+          "@effect/platform-node-shared/NodeChildProcessSpawner#layer",
+          "@effect/platform-node-shared/NodeFileSystem#layer",
+          "@effect/platform-node-shared/NodePath#layer",
+          "@effect/platform-node-shared/NodeRuntime#runMain",
+          "@effect/platform-node-shared/NodeSink#fromWritable",
+          "@effect/platform-node-shared/NodeStdio#layer",
+          "@effect/platform-node-shared/NodeTerminal#layer",
+          "@effect/vitest#effect",
+          "@effect/vitest#live",
+          "effect/PlatformError",
+          "effect/Stdio",
+          "effect/cli",
+          "effect/process"
         ]
       }
     ]

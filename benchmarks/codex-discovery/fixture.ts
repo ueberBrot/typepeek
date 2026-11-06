@@ -15,9 +15,9 @@ import { homedir, tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { Predicate, Schema } from "effect";
-import { execa } from "execa";
 
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 import type { CodexCondition } from "./scenarios.ts";
 
@@ -35,6 +35,7 @@ interface FilesystemPermissions {
 const PACKAGE_MANIFEST_FILE = "package.json";
 
 export interface CodexFixture {
+  readonly codexExecutable: string;
   readonly root: string;
   readonly modules: string;
   readonly toolRoot: string;
@@ -46,11 +47,43 @@ export interface CodexFixture {
 
 export const createCodexFixture =
   async function createCodexFixture(): Promise<CodexFixture> {
+    const dockerManaged = process.env["TYPEPEEK_DOCKER_CODEX"] === "true";
+    const managedCodexHome = process.env["CODEX_HOME"];
+    let fixtureDirectory = tmpdir();
+
+    if (dockerManaged) {
+      if (
+        process.platform !== "linux" ||
+        managedCodexHome === undefined ||
+        !nodePath.isAbsolute(managedCodexHome)
+      ) {
+        throw new Error(
+          "Docker Codex routing requires the managed Linux Codex home."
+        );
+      }
+
+      fixtureDirectory = nodePath.join(
+        homedir(),
+        ".local",
+        "state",
+        "typepeek-benchmarks"
+      );
+      await mkdir(fixtureDirectory, { mode: 0o700, recursive: true });
+    }
+
     const root = await realpath(
-      await mkdtemp(nodePath.join(tmpdir(), "typepeek-codex-benchmark-"))
+      await mkdtemp(
+        nodePath.join(fixtureDirectory, "typepeek-codex-benchmark-")
+      )
     );
 
     try {
+      const executable = await runCommand("/bin/sh", [
+        "-c",
+        "command -v codex",
+      ]);
+
+      const codexExecutable = await realpath(executable.stdout.trim());
       const modules = nodePath.join(root, "consumer", "node_modules");
       await cp(nodePath.resolve("node_modules"), modules, {
         mode: constants.COPYFILE_FICLONE,
@@ -87,6 +120,17 @@ export const createCodexFixture =
       const codexHome = nodePath.join(root, "codex");
       await mkdir(codexHome);
 
+      if (dockerManaged) {
+        if (managedCodexHome === undefined) {
+          throw new Error("Docker must provide its managed Codex home.");
+        }
+
+        await symlink(
+          nodePath.join(managedCodexHome, "config.toml"),
+          nodePath.join(codexHome, "config.toml")
+        );
+      }
+
       const authentication = nodePath.join(
         process.env["CODEX_HOME"] ?? nodePath.join(homedir(), ".codex"),
         "auth.json"
@@ -120,6 +164,7 @@ export const createCodexFixture =
         cleanup: async () => {
           await rm(root, { force: true, recursive: true });
         },
+        codexExecutable,
         codexHome,
         manifest,
         modules,
@@ -171,7 +216,7 @@ export const createCodexTrial = async function createCodexTrial(
     ":minimal": "read",
     ":root": "deny",
     ":slash_tmp": "deny",
-    ":tmpdir": "deny",
+    [tmpdir()]: "deny",
     [fixture.modules]: "read",
     [nodePath.join(workspace, "node_modules")]: "read",
     [nodePath.join(workspace, PACKAGE_MANIFEST_FILE)]: "read",
@@ -179,6 +224,7 @@ export const createCodexTrial = async function createCodexTrial(
   };
 
   for (const runtime of [
+    fixture.codexExecutable,
     "/System",
     "/usr",
     "/bin",
@@ -237,7 +283,7 @@ export const createCodexTrial = async function createCodexTrial(
 
 const repositoryEvidencePaths =
   async function repositoryEvidencePaths(): Promise<readonly string[]> {
-    const listing = await execa("git", [
+    const listing = await runCommand("git", [
       "worktree",
       "list",
       "--porcelain",
@@ -285,10 +331,10 @@ export const verifyCodexIsolation = async function verifyCodexIsolation(
     if (couldWrite) throw new Error('dependencies writable');
     const found = cp.spawnSync('/bin/sh', ['-c', 'command -v typepeek'], { encoding: 'utf8', env: { PATH: ${JSON.stringify(trial.path)} } });
     if ((found.status === 0) !== ${condition !== "files"}) throw new Error('incorrect executable availability');
-    console.log('isolation verified');
+    fs.writeSync(1, 'isolation verified\\n');
   `;
 
-  const result = await execa(
+  const result = await runCommand(
     "codex",
     [
       "sandbox",

@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { Schema } from "effect";
-import { execa } from "execa";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { requireDefined } from "#typepeek/defined-value";
@@ -19,10 +18,11 @@ import {
 } from "#typepeek/inspection";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
-import type { RealPackageCorpus } from "./helpers/index.ts";
-import { materializeRealPackageCorpus } from "./helpers/index.ts";
 import { match } from "./helpers/matchers.ts";
+import type { RealPackageCorpus } from "./helpers/real-package-corpus.ts";
+import { materializeRealPackageCorpus } from "./helpers/real-package-corpus.ts";
 import { materializeStaticInspection } from "./helpers/static-inspection.ts";
 
 interface CorpusQuestion {
@@ -58,19 +58,19 @@ const QUESTIONS: readonly CorpusQuestion[] = [
     specifier: "ajv",
   },
   {
-    expectedExport: "execa",
-    expectedPackage: "execa",
-    probe: 'import { execa } from "execa"; execa("node", ["--version"]);',
-    specifier: "execa",
+    expectedExport: "Command",
+    expectedPackage: "commander",
+    probe: 'import { Command } from "commander"; new Command("tool");',
+    specifier: "commander",
   },
   {
-    expectedPackage: "execa",
-    expectedSurface: /getCancelSignal/u,
-    exportName: "getCancelSignal",
+    expectedProvider: "@types/node",
+    expectedSurface: /setTimeout/u,
+    exportName: "setTimeout",
     probe:
-      'import { getCancelSignal } from "execa"; const signal: Promise<AbortSignal> = getCancelSignal(); void signal;',
+      'import { setTimeout } from "node:timers/promises"; const result: Promise<string> = setTimeout(1, "ready"); void result;',
     probeSignatures: true,
-    specifier: "execa",
+    specifier: "node:timers/promises",
   },
   {
     expectedPackage: "chalk",
@@ -109,13 +109,13 @@ const QUESTIONS: readonly CorpusQuestion[] = [
     specifier: "date-fns/addDays",
   },
   {
-    expectedPackage: "execa",
-    expectedSurface: /parseCommandString/u,
-    exportName: "parseCommandString",
+    expectedPackage: "date-fns",
+    expectedSurface: /eachDayOfInterval/u,
+    exportName: "eachDayOfInterval",
     probe:
-      'import { parseCommandString } from "execa"; const command: string[] = parseCommandString("node --version"); void command;',
+      'import { eachDayOfInterval } from "date-fns"; const dates: Date[] = eachDayOfInterval({ start: new Date(), end: new Date() }); void dates;',
     probeSignatures: true,
-    specifier: "execa",
+    specifier: "date-fns",
   },
   {
     expectedExport: "publint",
@@ -230,17 +230,17 @@ const QUESTIONS: readonly CorpusQuestion[] = [
 
 const SIGNATURE_QUESTIONS = [
   {
-    expectedParameters: ["command:"],
-    exportName: "parseCommandString",
+    expectedParameters: ["interval:"],
+    exportName: "eachDayOfInterval",
     probe:
-      'import { parseCommandString } from "execa"; parseCommandString("node --version");',
-    specifier: "execa",
+      'import { eachDayOfInterval } from "date-fns"; eachDayOfInterval({ start: new Date(), end: new Date() });',
+    specifier: "date-fns",
   },
   {
-    expectedParameters: ["file:", "templateString_0:"],
-    exportName: "execa",
-    probe: 'import { execa } from "execa"; execa("node", ["--version"]);',
-    specifier: "execa",
+    expectedParameters: ["token:", "secretOrPublicKey:"],
+    exportName: "verify",
+    probe: 'import { verify } from "jsonwebtoken"; verify("token", "secret");',
+    specifier: "jsonwebtoken",
   },
   {
     expectedParameters: ["def:"],
@@ -536,7 +536,7 @@ describe("real-package-corpus", () => {
         (packageName) => !packageName.startsWith("@types/")
       );
 
-      expect(runtimePackages).toHaveLength(14);
+      expect(runtimePackages).toHaveLength(13);
 
       const identities = await Promise.all(
         corpus.packageNames.map(
@@ -709,8 +709,8 @@ describe("real-package-corpus", () => {
           TYPEPEEK_PROFILE: "1",
         };
 
-        const first = await execa(process.execPath, args, { env });
-        const repeated = await execa(process.execPath, args, { env });
+        const first = await runCommand(process.execPath, args, { env });
+        const repeated = await runCommand(process.execPath, args, { env });
         expect([
           decodeJson(Schema.MutableJson, first.stdout),
           repeated.stdout,
@@ -790,45 +790,6 @@ describe("real-package-corpus", () => {
         },
         status: "success",
       });
-    });
-
-    it("uses the effective generic default from ExecaError's selected constructor signature", async () => {
-      const probe = await corpus.compileProbe({
-        exportName: "ExecaError",
-        source:
-          'import { ExecaError } from "execa"; const error = new ExecaError(); void error;',
-        specifier: "execa",
-      });
-
-      expect(probe.diagnostics).toStrictEqual([]);
-
-      const outcome = await inspectExportSignatures({
-        exportName: "ExecaError",
-        resolutionContext: corpus.resolutionContext,
-        specifier: "execa",
-      });
-
-      expect(outcome.status).toBe("success");
-
-      if (outcome.status !== "success") {
-        return;
-      }
-
-      const [signature] = outcome.result.moduleExport.signatures;
-      expect([
-        signature?.text,
-        requireDefined(signature?.text).includes(
-          "<OptionsType extends Options = Options>"
-        ),
-        signature?.typeParameters[0],
-      ]).toStrictEqual([
-        probe.signatures[0]?.text,
-        true,
-        match.objectContaining({
-          constraint: "Options",
-          default: "Options",
-        }),
-      ]);
     });
   });
 });

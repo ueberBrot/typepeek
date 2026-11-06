@@ -12,10 +12,10 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { Predicate, Schema } from "effect";
-import { execa } from "execa";
 
 import { bitwiseAnd, unsignedRightShift } from "#typepeek/integer-bits";
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 import type { PackageManagerPin } from "./package-toolchain.ts";
 import {
@@ -65,7 +65,7 @@ const buildAndPackTypepeek = async function buildAndPackTypepeek(
   await mkdir(tarballsRoot, { recursive: true });
 
   try {
-    await execa("vp", ["pack"], { cwd: sourceCheckout });
+    await runCommand("vp", ["pack"], { cwd: sourceCheckout });
   } catch (error) {
     throw new Error(`Production build in ${sourceCheckout} failed.`, {
       cause: error,
@@ -411,9 +411,13 @@ const materializeConsumer = async function materializeConsumer(
         "}",
       ].join("\n");
 
-      await execa(process.execPath, ["--input-type=module", "--eval", script], {
-        cwd: resolutionContext,
-      });
+      await runCommand(
+        process.execPath,
+        ["--input-type=module", "--eval", script],
+        {
+          cwd: resolutionContext,
+        }
+      );
     },
     version,
   };
@@ -424,7 +428,7 @@ export const materializePackagedCliMatrix =
     const sourceCheckout = await realpath(process.cwd());
 
     const fixtureRoot = await mkdtemp(
-      nodePath.join(tmpdir(), "typepeek-packaged-cli-")
+      nodePath.join(tmpdir(), "typepeek packaged cli-")
     );
 
     try {

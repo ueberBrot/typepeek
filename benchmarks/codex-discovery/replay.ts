@@ -8,11 +8,8 @@ import { decodeJson } from "#typepeek/json-data";
 
 import { inspectWithCompiler } from "../support/compiler.ts";
 import { selectDiscoveryWorkloads } from "../support/workloads.ts";
-import {
-  decodeAcquisitionOracle,
-  decodeTimedCodexEvents,
-  measureAcquisition,
-} from "./acquisition.ts";
+import { decodeAcquisitionOracle } from "./acquisition-evidence.ts";
+import { decodeTimedCodexEvents, measureAcquisition } from "./acquisition.ts";
 
 const { values } = parseArgs({
   options: {

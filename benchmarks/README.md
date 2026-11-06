@@ -42,6 +42,8 @@ Compare **success rates and per-task times together**. Reports retain failures, 
 
 ### Published results
 
+These results use an earlier workload set. Current workloads use existing Semver, Effect, Node, and TSRS dependencies; replay historical trials with their saved oracle.
+
 The README summarizes 240 attempts: 120 per condition, with 15 per model/effort/condition. The grader verified 118 files-only attempts and all 120 CLI attempts. Every CLI attempt used Typepeek. Matched medians include 24 pairs per task, except TypeScript and Effect with 23 each.
 
 One files-only TypeScript attempt failed to retrieve the required signatures. One files-only Effect attempt retrieved the correct signature, but the grader did not recognize it. Both remain unverified under the recorded grading rules.
@@ -60,10 +62,28 @@ Use an empty output directory under gitignored `.benchmarks/`; existing runs are
 node benchmarks/codex-discovery/replay.ts --trace PATH/events.timed.jsonl --oracle PATH/oracle.json --output .benchmarks/replayed-acquisition.json
 ```
 
-The replay output must be new. To rebuild the oracle from installed declarations, replace `--oracle` with `--workspace CONSUMER --case execa-command`. Original artifacts remain unchanged.
+The replay output must be new. To rebuild the oracle from installed declarations, replace `--oracle` with `--workspace CONSUMER --case semver-clean`. Original artifacts remain unchanged.
 
 To continue an interrupted campaign, use `--start-at N` with a new output directory, where `N` is the number of consecutive completed trials. Keep the original matrix and seed. This skips scheduled trials; it does not load or validate earlier results. Before combining segments, verify matching build, skill, evidence, and measurement rules, and check for missing or duplicate trials. Retain failed attempts and disclose interruptions.
 
 ## Correctness checks
 
 `vp run benchmark:smoke` checks all ten available workloads against the independent oracle with the packaged CLI's cache bypassed and enabled. CI runs this after packing, without model calls or timing thresholds. Shared oracle, workload, fingerprint, and statistics code lives in `benchmarks/support/`.
+
+## Docker sandbox runs
+
+`vp run sandbox --help` lists the TanStack harness tasks. Install Docker's `sbx` CLI, run `sbx login`, and configure Codex with `sbx secret set openai --oauth`. Initialize a new Docker policy with `sbx policy init deny-all`; the runner adds per-sandbox access for inference and setup.
+
+Stage new source files before running. Each run clones tracked working-tree contents into a disposable VM, installs the checksum-verified pinned Node runtime, and uses the frozen lockfile and existing release-age policy.
+
+```bash
+vp run sandbox --check
+vp run sandbox -- test
+vp run sandbox -- benchmark-smoke
+vp run sandbox -- benchmark --prepare-only
+vp run sandbox --timeout-seconds 3600 -- benchmark --models gpt-6.1-sol --efforts low --repeats 1
+```
+
+Run artifacts include TanStack session and provider logs, events, operation reports, traces, command output, and resource ownership. Measured campaigns retain the raw app-server capture and export their artifacts as an archive. Compare Linux VM campaigns separately from earlier host campaigns.
+
+Completion, errors, cancellation, and deadlines remove owned VMs. After a host crash or failed removal, use `vp run sandbox --cleanup RUN_DIRECTORY` to retry cleanup from its resource records.

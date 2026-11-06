@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
-import { execa } from "execa";
+import { runCommand } from "#typepeek/process-command";
 
 import { inspectWithCompiler } from "../benchmarks/support/compiler.ts";
 import { typepeekFacts } from "../benchmarks/support/evidence.ts";
@@ -32,14 +32,14 @@ try {
     const oracle = inspectWithCompiler(workspace, workload);
     const before = evidenceFingerprint(workspace, oracle.files);
 
-    if (workload.id === "execa-command") {
+    if (workload.id === "semver-clean") {
       assert.deepEqual(oracle.facts, [
-        "call:( command : string ) : string [ ]",
+        "call:( version : string , optionsOrLoose ? : boolean | semver . Options ) : string | null",
       ]);
     }
 
     await Array.fromAsync(["1", "0", "0"], async (bypass) => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [cli, ...discoveryCliArguments(workload)],
         {

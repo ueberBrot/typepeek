@@ -7,20 +7,25 @@
     "tests/effect-diagnostics.ts",
     "tests/benchmark-package-smoke.ts",
     "tests/fixtures/codex-app-server.ts",
-    "benchmarks/codex-discovery/run.ts",
-    "benchmarks/codex-discovery/capture.ts",
-    "benchmarks/codex-discovery/replay.ts",
+    "tests/fixtures/sandbox-cli.ts",
     "src/inspection/performance-profile-disabled.ts",
     "taze.config.ts",
     "tests/build-output-smoke.ts",
     "tests/package-output-smoke.ts",
   ],
 
-  // Fallow cannot detect these tools in Vite+ tasks. Remove exceptions when
-  // source imports make the dependencies discoverable.
-  "ignoreDependencies": [
-    // Used only by benchmark executables, not the published CLI.
-    "gpt-tokenizer",
+  "framework": [
+    {
+      "name": "typepeek-benchmarks",
+      "enablers": ["@tanstack/ai-harness"],
+      "entryPointRole": "support",
+      "entryPoints": [
+        "benchmarks/harness/run.ts",
+        "benchmarks/codex-discovery/run.ts",
+        "benchmarks/codex-discovery/capture.ts",
+        "benchmarks/codex-discovery/replay.ts",
+      ],
+    },
   ],
 
   // Score runtime health separately; the other checks also cover tests and benchmarks.

@@ -190,9 +190,16 @@ const internalProtocolWireError =
 /** Exchanges ordered, bounded JSON lines and returns the aggregate process exit status. */
 export const runProtocolWireStream = async function runProtocolWireStream(
   input: Readable,
-  output: Writable
+  output: Writable,
+  signal?: AbortSignal
 ): Promise<number> {
   let exitCode = 0;
+
+  const onAbort = () => {
+    input.destroy();
+  };
+
+  signal?.addEventListener("abort", onAbort, { once: true });
 
   const write = async (
     value: ProtocolWireValue,
@@ -218,7 +225,7 @@ export const runProtocolWireStream = async function runProtocolWireStream(
         return exitCode;
       }
 
-      const response = await invokeInspectionProtocol(reading.value);
+      const response = await invokeInspectionProtocol(reading.value, signal);
 
       if (
         !(await write(
@@ -235,6 +242,10 @@ export const runProtocolWireStream = async function runProtocolWireStream(
       }
     }
   } catch (error) {
+    if (signal?.aborted === true) {
+      return exitCode;
+    }
+
     exitCode = INTERNAL_ERROR_EXIT_CODE;
 
     if (!(error instanceof ProtocolOutputError)) {
@@ -242,6 +253,8 @@ export const runProtocolWireStream = async function runProtocolWireStream(
         constVoid
       );
     }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
   }
 
   return exitCode;
