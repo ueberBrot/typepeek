@@ -2,4 +2,4 @@
 "typepeek": patch
 ---
 
-Provision Docker's Codex sandbox for host-managed OAuth and use TanStack's sandbox handles for execution.
+Run tests and benchmarks in disposable Docker sandboxes with host-managed Codex authentication. Save logs, traces, and results, and clean up sandboxes after completion or interruption.

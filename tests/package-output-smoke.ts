@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 import { Schema } from "effect";
 
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 import {
   assertArtifactCacheReuse,
+  assertArtifactVersion,
   assertCompilerLoadsOnlyInWorker,
   assertRepositoryProfilingExcluded,
   assertWorkerUsesPinnedNativeCompiler,
@@ -20,23 +22,24 @@ const PACKAGE_MANIFEST_FILE = "package.json";
 
 await assertRepositoryProfilingExcluded("dist");
 
-assertWorkerUsesPinnedNativeCompiler(PACKAGED_CLI_PATH);
+await assertWorkerUsesPinnedNativeCompiler(PACKAGED_CLI_PATH);
 
 const npmCache = await mkdtemp(nodePath.join(tmpdir(), "typepeek-npm-cache-"));
 
 try {
   const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
-  const packageDryRun = spawnSync(
+  const packageDryRun = await runCommand(
     npmCommand,
     ["pack", "--dry-run", "--json", "--ignore-scripts"],
     {
-      encoding: "utf-8",
       env: { ...process.env, NPM_CONFIG_CACHE: npmCache },
+      reject: false,
+      trimFinalNewline: false,
     }
   );
 
-  assert.equal(packageDryRun.status, 0, packageDryRun.stderr);
+  assert.equal(packageDryRun.exitCode, 0, packageDryRun.stderr);
 
   const [packageManifest] = decodeJson(
     Schema.Tuple([
@@ -97,23 +100,14 @@ const packageVersion = decodeJson(
   await readFile(PACKAGE_MANIFEST_FILE, "utf-8")
 ).version;
 
-const versionCli = spawnSync(
-  process.execPath,
-  [PACKAGED_CLI_PATH, "--version"],
-  {
-    encoding: "utf-8",
-  }
-);
+await assertArtifactVersion(PACKAGED_CLI_PATH, packageVersion);
 
-assert.equal(versionCli.status, 0, versionCli.stderr);
-
-assert.equal(versionCli.stdout, `${packageVersion}\n`);
-
-const cli = spawnSync(process.execPath, [PACKAGED_CLI_PATH, "--help"], {
-  encoding: "utf-8",
+const cli = await runCommand(process.execPath, [PACKAGED_CLI_PATH, "--help"], {
+  reject: false,
+  trimFinalNewline: false,
 });
 
-assert.equal(cli.status, 0, cli.stderr);
+assert.equal(cli.exitCode, 0, cli.stderr);
 
 for (const expected of [
   /typepeek/u,
@@ -126,14 +120,13 @@ for (const expected of [
   /capabilities\s+List supported protocol requests and limits as JSON/u,
   /protocol\s+Invoke the Inspection Protocol/u,
 ]) {
-  assert.match(cli.stdout, expected);
+  assert.match(stripVTControlCharacters(cli.stdout), expected);
 }
 
-const protocolCli = spawnSync(
+const protocolCli = await runCommand(
   process.execPath,
   [PACKAGED_CLI_PATH, "protocol"],
   {
-    encoding: "utf-8",
     input: JSON.stringify({
       intent: "signature-inspection",
       protocolVersion: "1",
@@ -144,10 +137,12 @@ const protocolCli = spawnSync(
       },
       response: { signatureEvidence: "both" },
     }),
+    reject: false,
+    trimFinalNewline: false,
   }
 );
 
-assert.equal(protocolCli.status, 0, protocolCli.stderr || protocolCli.stdout);
+assert.equal(protocolCli.exitCode, 0, protocolCli.stderr || protocolCli.stdout);
 
 assert.equal(protocolCli.stderr, "");
 
@@ -218,7 +213,7 @@ try {
     "export declare function split(command: string): string[];\n"
   );
 
-  const signatures = spawnSync(
+  const signatures = await runCommand(
     process.execPath,
     [
       nodePath.resolve(PACKAGED_CLI_PATH),
@@ -229,10 +224,14 @@ try {
       signatureConsumer,
       "--json",
     ],
-    { encoding: "utf-8", env: { ...process.env, TYPEPEEK_CACHE_BYPASS: "1" } }
+    {
+      env: { ...process.env, TYPEPEEK_CACHE_BYPASS: "1" },
+      reject: false,
+      trimFinalNewline: false,
+    }
   );
 
-  assert.equal(signatures.status, 0, signatures.stderr || signatures.stdout);
+  assert.equal(signatures.exitCode, 0, signatures.stderr || signatures.stdout);
 
   const outcome = decodeJson(
     Schema.Struct({
@@ -269,4 +268,4 @@ try {
   await rm(signatureConsumer, { force: true, recursive: true });
 }
 
-assertCompilerLoadsOnlyInWorker(PACKAGED_CLI_PATH);
+await assertCompilerLoadsOnlyInWorker(PACKAGED_CLI_PATH);

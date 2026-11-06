@@ -1,8 +1,9 @@
 import { createRequire } from "node:module";
 import nodePath from "node:path";
 
-import { execaNode } from "execa";
 import { version } from "tsrs";
+
+import { runCommand } from "#typepeek/process-command";
 
 const launcher = nodePath.join(
   nodePath.dirname(
@@ -13,9 +14,10 @@ const launcher = nodePath.join(
 
 // The public diagnostics command requires a standalone TypeScript package;
 // the pinned TSRS build accepts the same diagnostics protocol directly.
-const result = await execaNode(
-  launcher,
+const result = await runCommand(
+  process.execPath,
   [
+    launcher,
     `tsrs@${version}`,
     "--effect-cli-diagnostics",
     JSON.stringify({
@@ -25,7 +27,7 @@ const result = await execaNode(
       strict: true,
     }),
   ],
-  { reject: false, stdio: "inherit" }
+  { reject: false, stderr: "inherit", stdin: "inherit", stdout: "inherit" }
 );
 
 process.exitCode = result.exitCode ?? 1;

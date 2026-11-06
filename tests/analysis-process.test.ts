@@ -60,7 +60,7 @@ const lifecycleFixtureSource = function lifecycleFixtureSource(
   return `import { writeFileSync } from "node:fs";
 ${terminationHandler}
 writeFileSync(${JSON.stringify(readyPath)}, String(process.pid));
-process.once("message", () => setInterval(() => {}, 1_000));`;
+process.stdin.once("data", () => setInterval(() => {}, 1_000));`;
 };
 
 const waitForFile = async function waitForFile(
@@ -190,9 +190,9 @@ const verifyEffectScenario = function* verifyEffectScenario() {
     async () =>
       await materializeProcessEntry(
         "success",
-        `process.once("message", () => {
+        `process.stdin.once("data", () => {
             process.stdout.write(JSON.stringify({status:"not-found", reason:"specifier-not-found", message:"bounded absence"}));
-            process.disconnect();
+
           });`
       )
   );
@@ -232,7 +232,7 @@ const verifyEffectScenario3 = function* verifyEffectScenario3() {
     async () =>
       await materializeProcessEntry(
         "terminated",
-        `process.once("message", () => process.exit(23));`
+        `process.stdin.once("data", () => process.exit(23));`
       )
   );
 
@@ -279,10 +279,10 @@ const verifyEffectScenario6 = function* verifyEffectScenario6() {
     async () =>
       await materializeProcessEntry(
         "duplicate",
-        `process.once("message", () => {
+        `process.stdin.once("data", () => {
       process.stdout.write(JSON.stringify({status:"not-found", message:"first"}));
       process.stdout.write(JSON.stringify({status:"not-found", message:"second"}));
-      process.disconnect();
+
     });`
       )
   );
@@ -300,9 +300,9 @@ const verifyEffectScenario7 = function* verifyEffectScenario7() {
     async () =>
       await materializeProcessEntry(
         "oversized",
-        `process.once("message", () => {
+        `process.stdin.once("data", () => {
       process.stdout.write(JSON.stringify({status:"not-found", message:"x".repeat(2_000)}));
-      process.disconnect();
+
     });`
       )
   );
@@ -321,11 +321,11 @@ const verifyEffectScenario8 = function* verifyEffectScenario8() {
     async () =>
       await materializeProcessEntry(
         "exact-output-boundary",
-        `process.once("message", () => {
+        `process.stdin.once("data", () => {
       const prefix = '{"status":"not-found","reason":"specifier-not-found","message":"';
       const suffix = '"}';
       process.stdout.write(prefix + "x".repeat(1024 - Buffer.byteLength(prefix + suffix)) + suffix);
-      process.disconnect();
+
     });`
       )
   );
@@ -342,7 +342,7 @@ const verifyEffectScenario9 = function* verifyEffectScenario9() {
     async () =>
       await materializeProcessEntry(
         "diagnostics",
-        `process.once("message", () => { process.stderr.write("x".repeat(2_000)); process.disconnect(); });`
+        `process.stdin.once("data", () => { process.stderr.write("x".repeat(2_000));  });`
       )
   );
 
@@ -360,7 +360,7 @@ const verifyEffectScenario10 = function* verifyEffectScenario10() {
     async () =>
       await materializeProcessEntry(
         "multibyte-diagnostics",
-        `process.once("message", () => { process.stderr.write("€".repeat(400)); process.disconnect(); });`
+        `process.stdin.once("data", () => { process.stderr.write("€".repeat(400));  });`
       )
   );
 
@@ -378,7 +378,7 @@ const verifyEffectScenario11 = function* verifyEffectScenario11() {
     async () =>
       await materializeProcessEntry(
         "memory",
-        `process.once("message", () => {
+        `process.stdin.once("data", () => {
         const retained = [];
         while (true) retained.push({value: "x".repeat(1_024), index: retained.length});
       });`
@@ -410,6 +410,47 @@ describe("analysis-process", () => {
   afterAll(async () => {
     await rm(fixtureRoot, { force: true, recursive: true });
   });
+
+  it.each([512 * 1024, 2 * 1024 * 1024])(
+    "drains and bounds the separate cache channel at %i bytes",
+    (bytes) => {
+      const cacheChannelBudget = function* cacheChannelBudget() {
+        const entry = yield* Effect.promise(
+          async () =>
+            await materializeProcessEntry(
+              `cache-channel-${bytes}`,
+              `
+      import {createWriteStream} from "node:fs";
+      process.stdin.resume();
+      process.stdin.once("end", () => {
+        const metadata = createWriteStream("", {fd: 3});
+        metadata.end(JSON.stringify("x".repeat(${bytes})), () => {
+          process.stdout.write(JSON.stringify({status:"not-found", reason:"specifier-not-found", message:"bounded absence"}));
+        });
+      });
+    `
+            )
+        );
+
+        const outcome = yield* runAnalysisFixtureProcess(
+          request,
+          entry,
+          limits
+        );
+
+        expect(outcome).toMatchObject(
+          bytes > 1024 * 1024
+            ? {
+                exceededBudget: "analysis-output-bytes",
+                status: "limit-exceeded",
+              }
+            : { reason: "specifier-not-found", status: "not-found" }
+        );
+      };
+
+      return Effect.gen(cacheChannelBudget);
+    }
+  );
 
   it("accepts exactly one bounded result from a cleanly exited analysis process", () =>
     Effect.gen(verifyEffectScenario));
@@ -484,7 +525,7 @@ describe("analysis-process", () => {
 import { writeFileSync } from "node:fs";
 const child = spawn(process.execPath, ["--eval", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'], { stdio: ["ignore", "ignore", "inherit"] });
 writeFileSync(${JSON.stringify(readyPath)}, String(child.pid));
-process.once("message", () => setInterval(() => {}, 1000));`
+process.stdin.once("data", () => setInterval(() => {}, 1000));`
             )
         );
 
@@ -533,11 +574,11 @@ process.once("message", () => setInterval(() => {}, 1000));`
   it.each([
     {
       name: "never responds",
-      source: `process.once("message", () => setInterval(() => {}, 1_000));`,
+      source: `process.stdin.once("data", () => setInterval(() => {}, 1_000));`,
     },
     {
       name: "sends a plausible result but never exits",
-      source: `process.once("message", () => {
+      source: `process.stdin.once("data", () => {
       process.stdout.write(JSON.stringify({status:"not-found", message:"partial"}));
       setInterval(() => {}, 1_000);
     });`,
@@ -555,11 +596,11 @@ process.once("message", () => setInterval(() => {}, 1000));`
   it.each([
     {
       name: "no result",
-      source: `process.once("message", () => process.disconnect());`,
+      source: `process.stdin.once("data", () => {});`,
     },
     {
       name: "malformed result",
-      source: `process.once("message", () => { process.stdout.write("{not-json"); process.disconnect(); });`,
+      source: `process.stdin.once("data", () => { process.stdout.write("{not-json");  });`,
     },
   ])("rejects a clean exit with $name", ({ name, source }) =>
     Effect.gen(verifyEffectScenario5.bind(undefined, name, source))

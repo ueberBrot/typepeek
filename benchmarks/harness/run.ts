@@ -4,7 +4,8 @@ import nodePath from "node:path";
 import { parseArgs } from "node:util";
 
 import { defineSandbox, defineWorkspace } from "@tanstack/ai-sandbox";
-import { execa } from "execa";
+
+import { runCommand } from "#typepeek/process-command";
 
 import { createHarnessArtifacts } from "./artifacts.ts";
 import { cleanupSandboxRun } from "./cleanup.ts";
@@ -45,9 +46,9 @@ const { values, positionals } = parseArgs({
   },
 });
 
-const version = await execa("sbx", ["version"]);
+const version = await runCommand("sbx", ["version"]);
 
-const readiness = await execa("sbx", ["--no-input", "ls", "--json"], {
+const readiness = await runCommand("sbx", ["--no-input", "ls", "--json"], {
   reject: false,
 });
 

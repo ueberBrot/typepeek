@@ -2,9 +2,9 @@ import { mkdir } from "node:fs/promises";
 import nodePath from "node:path";
 
 import { Predicate, Schema } from "effect";
-import { execa } from "execa";
 
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 import { unreachableCase } from "#typepeek/unreachable-case";
 
 const IGNORE_SCRIPTS = "--ignore-scripts";
@@ -37,10 +37,10 @@ const runToolchainCommand = async function runToolchainCommand(options: {
   try {
     const result =
       options.env === undefined
-        ? await execa(options.command, options.cliArguments, {
+        ? await runCommand(options.command, options.cliArguments, {
             cwd: options.cwd,
           })
-        : await execa(options.command, options.cliArguments, {
+        : await runCommand(options.command, options.cliArguments, {
             cwd: options.cwd,
             env: options.env,
           });

@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
-import { execa } from "execa";
+import { runCommand } from "#typepeek/process-command";
 
 export const stageHarnessSource = async (repository: string) => {
   const root = await mkdtemp(
@@ -18,7 +18,7 @@ export const stageHarnessSource = async (repository: string) => {
   );
 
   try {
-    const listing = await execa("git", ["ls-files", "-z", "--cached"], {
+    const listing = await runCommand("git", ["ls-files", "-z", "--cached"], {
       cwd: repository,
     });
 
@@ -43,9 +43,9 @@ export const stageHarnessSource = async (repository: string) => {
       await writeFile(target, contents, { mode: metadata.mode % 0o1000 });
     });
 
-    await execa("git", ["init", "--quiet", root]);
-    await execa("git", ["add", "--all"], { cwd: root });
-    await execa(
+    await runCommand("git", ["init", "--quiet", root]);
+    await runCommand("git", ["add", "--all"], { cwd: root });
+    await runCommand(
       "git",
       [
         "-c",

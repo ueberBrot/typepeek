@@ -14,13 +14,13 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { Schema } from "effect";
-import { execa } from "execa";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { splitCodePoints } from "#typepeek/code-point-ranges";
 import { requireDefined } from "#typepeek/defined-value";
 import { bitwiseAnd } from "#typepeek/integer-bits";
 import { decodeJson, mutableJsonObjectSchema } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 import type { CompiledPackageFixture } from "./helpers/index.ts";
 import { materializeCompiledPackageFixture } from "./helpers/index.ts";
@@ -157,8 +157,8 @@ const assertDeterministicFailure = async function assertDeterministicFailure(
   ];
 
   const [first, second] = await Promise.all([
-    execa(process.execPath, cliArguments, { reject: false }),
-    execa(process.execPath, cliArguments, { reject: false }),
+    runCommand(process.execPath, cliArguments, { reject: false }),
+    runCommand(process.execPath, cliArguments, { reject: false }),
   ]);
 
   expect([
@@ -178,6 +178,26 @@ const expectTerminalSafeLine = function expectTerminalSafeLine(
 };
 
 describe("cli", () => {
+  it("resolves relative workspace flags before invoking the protocol", async () => {
+    const result = await runCommand(
+      process.execPath,
+      [
+        "src/cli.ts",
+        "signatures",
+        "node:fs",
+        "existsSync",
+        "--workspace",
+        ".",
+        "--json",
+      ],
+      { reject: false }
+    );
+
+    expect(decodeJson(Schema.MutableJson, result.stdout)).toMatchObject({
+      status: "success",
+    });
+  });
+
   describe("typepeek CLI", () => {
     let fixture: CompiledPackageFixture;
     beforeAll(async () => {
@@ -189,7 +209,11 @@ describe("cli", () => {
     });
 
     it("presents the initial command", async () => {
-      const result = await execa(process.execPath, ["src/cli.ts", "--help"]);
+      const result = await runCommand(process.execPath, [
+        "src/cli.ts",
+        "--help",
+      ]);
+
       expect([
         result.stdout.includes("typepeek"),
         result.stdout.includes("Use overview or search to find exports"),
@@ -229,7 +253,11 @@ describe("cli", () => {
         await readFile(nodePath.join(process.cwd(), "package.json"), "utf-8")
       );
 
-      const result = await execa(process.execPath, ["src/cli.ts", "--version"]);
+      const result = await runCommand(process.execPath, [
+        "src/cli.ts",
+        "--version",
+      ]);
+
       expect(result.stdout).toContain(manifest.version);
     });
 
@@ -288,7 +316,7 @@ describe("cli", () => {
         ]);
 
         try {
-          const result = await execa(
+          const result = await runCommand(
             process.execPath,
             [
               nodePath.join(process.cwd(), "src/cli.ts"),
@@ -401,7 +429,7 @@ describe("cli", () => {
         ]);
 
         try {
-          const result = await execa(
+          const result = await runCommand(
             process.execPath,
             [
               nodePath.join(process.cwd(), "src/cli.ts"),
@@ -474,7 +502,7 @@ describe("cli", () => {
       ]);
 
       try {
-        const result = await execa(
+        const result = await runCommand(
           process.execPath,
           [
             nodePath.join(process.cwd(), "src/cli.ts"),
@@ -512,7 +540,7 @@ describe("cli", () => {
       );
 
       try {
-        const result = await execa(
+        const result = await runCommand(
           process.execPath,
           [
             nodePath.join(process.cwd(), "src/cli.ts"),
@@ -559,7 +587,7 @@ describe("cli", () => {
       ]);
 
       try {
-        const result = await execa(
+        const result = await runCommand(
           process.execPath,
           [
             nodePath.join(process.cwd(), "src/cli.ts"),
@@ -639,7 +667,7 @@ describe("cli", () => {
       ]);
 
       try {
-        const result = await execa(
+        const result = await runCommand(
           process.execPath,
           [
             nodePath.join(process.cwd(), "src/cli.ts"),
@@ -726,7 +754,7 @@ describe("cli", () => {
       ]);
 
       try {
-        const result = await execa(
+        const result = await runCommand(
           process.execPath,
           [
             nodePath.join(process.cwd(), "src/cli.ts"),
@@ -754,7 +782,7 @@ describe("cli", () => {
     it.each([{ flags: [] }, { flags: ["--json"] }])(
       "prints Inspection Core capabilities with optional JSON signaling",
       async ({ flags }) => {
-        const result = await execa(process.execPath, [
+        const result = await runCommand(process.execPath, [
           "src/cli.ts",
           "capabilities",
           ...flags,
@@ -774,8 +802,8 @@ describe("cli", () => {
 
     it("pretty-prints capabilities without changing their JSON value", async () => {
       const [compact, pretty] = await Promise.all([
-        execa(process.execPath, ["src/cli.ts", "capabilities", "--json"]),
-        execa(process.execPath, [
+        runCommand(process.execPath, ["src/cli.ts", "capabilities", "--json"]),
+        runCommand(process.execPath, [
           "src/cli.ts",
           "capabilities",
           "--json",
@@ -795,7 +823,7 @@ describe("cli", () => {
     });
 
     it("rejects --pretty without --json", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         ["src/cli.ts", "capabilities", "--pretty"],
         {
@@ -811,17 +839,21 @@ describe("cli", () => {
     });
 
     it("invokes the Inspection Protocol through bounded stdin and stdout", async () => {
-      const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
-        input: JSON.stringify({
-          intent: "signature-inspection",
-          protocolVersion: "1",
-          request: {
-            exportName: "createWidget",
-            resolutionContext: fixture.resolutionContext,
-            specifier: "@typepeek-fixture/focused",
-          },
-        }),
-      });
+      const result = await runCommand(
+        process.execPath,
+        ["src/cli.ts", "protocol"],
+        {
+          input: JSON.stringify({
+            intent: "signature-inspection",
+            protocolVersion: "1",
+            request: {
+              exportName: "createWidget",
+              resolutionContext: fixture.resolutionContext,
+              specifier: "@typepeek-fixture/focused",
+            },
+          }),
+        }
+      );
 
       expect([
         result.exitCode,
@@ -844,18 +876,22 @@ describe("cli", () => {
     });
 
     it("returns typed protocol failures on stdout with exit status 1", async () => {
-      const result = await execa(process.execPath, ["src/cli.ts", "protocol"], {
-        input: JSON.stringify({
-          intent: "signature-inspection",
-          protocolVersion: "1",
-          request: {
-            exportName: "MissingExport",
-            resolutionContext: fixture.resolutionContext,
-            specifier: "@typepeek-fixture/focused",
-          },
-        }),
-        reject: false,
-      });
+      const result = await runCommand(
+        process.execPath,
+        ["src/cli.ts", "protocol"],
+        {
+          input: JSON.stringify({
+            intent: "signature-inspection",
+            protocolVersion: "1",
+            request: {
+              exportName: "MissingExport",
+              resolutionContext: fixture.resolutionContext,
+              specifier: "@typepeek-fixture/focused",
+            },
+          }),
+          reject: false,
+        }
+      );
 
       expect([
         result.exitCode,
@@ -890,7 +926,7 @@ describe("cli", () => {
     ])(
       "returns one stable wire error for invalid protocol input",
       async (input, reason) => {
-        const result = await execa(
+        const result = await runCommand(
           process.execPath,
           ["src/cli.ts", "protocol"],
           {
@@ -922,7 +958,7 @@ describe("cli", () => {
     ])(
       "rejects unsafe protocol wire bytes before JSON parsing",
       async (input, reason) => {
-        const result = await execa(
+        const result = await runCommand(
           process.execPath,
           ["src/cli.ts", "protocol"],
           {
@@ -948,7 +984,7 @@ describe("cli", () => {
     );
 
     it("compares two Interface Overview indexes through the CLI", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "compare",
         "@typepeek-fixture/conditional",
@@ -974,7 +1010,7 @@ describe("cli", () => {
     });
 
     it("renders declaration-only inspection", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "declarations",
         "@typepeek-fixture/focused",
@@ -992,7 +1028,7 @@ describe("cli", () => {
     });
 
     it("discovers public members with an executable name filter", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "members",
         "@typepeek-fixture/focused",
@@ -1018,7 +1054,7 @@ describe("cli", () => {
     });
 
     it("discovers nested members and renders their selectors", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "members",
         "@typepeek-fixture/focused",
@@ -1037,7 +1073,7 @@ describe("cli", () => {
     });
 
     it("uses a qualified Member path to select an ambiguous instance member", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "member",
         "@typepeek-fixture/focused",
@@ -1058,7 +1094,7 @@ describe("cli", () => {
     });
 
     it("rejects an invalid Member space through machine diagnostics", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "src/cli.ts",
@@ -1087,7 +1123,7 @@ describe("cli", () => {
     });
 
     it("renders one exact public member", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "member",
         "@typepeek-fixture/focused",
@@ -1106,7 +1142,7 @@ describe("cli", () => {
     });
 
     it("preserves a dotted property name as one exact Member path segment", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "member",
         "@typepeek-fixture/focused",
@@ -1128,7 +1164,7 @@ describe("cli", () => {
     });
 
     it("accepts an unambiguous JSON array for a nested Member path", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "member",
         "@typepeek-fixture/focused",
@@ -1150,7 +1186,7 @@ describe("cli", () => {
     });
 
     it("searches Module Export names through a focused discovery command", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "search",
         "@typepeek-fixture/focused",
@@ -1167,7 +1203,7 @@ describe("cli", () => {
     });
 
     it("retrieves signatures from a documentation phrase through discover", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "discover",
         "@typepeek-fixture/focused",
@@ -1197,7 +1233,7 @@ describe("cli", () => {
         "--json",
       ];
 
-      const result = await execa(process.execPath, cliArguments, {
+      const result = await runCommand(process.execPath, cliArguments, {
         env: { TYPEPEEK_PROFILE: "1" },
       });
 
@@ -1233,7 +1269,7 @@ describe("cli", () => {
     });
 
     it("keeps a Public Subpath-only inspection plan manifest-only", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "src/cli.ts",
@@ -1299,9 +1335,9 @@ describe("cli", () => {
         "--json",
       ];
 
-      const result = await execa(process.execPath, cliArguments);
+      const result = await runCommand(process.execPath, cliArguments);
 
-      const profiled = await execa(process.execPath, cliArguments, {
+      const profiled = await runCommand(process.execPath, cliArguments, {
         env: { TYPEPEEK_PROFILE: "1" },
       });
 
@@ -1369,7 +1405,7 @@ describe("cli", () => {
     ] as const)(
       "preserves the Inspection Plan query diagnostic for %#",
       async (queries, message) => {
-        const result = await execa(
+        const result = await runCommand(
           process.execPath,
           ["src/cli.ts", "plan", "example", JSON.stringify(queries), "--json"],
           { reject: false }
@@ -1391,7 +1427,7 @@ describe("cli", () => {
     );
 
     it("presents root help when invoked without arguments", async () => {
-      const result = await execa(process.execPath, ["src/cli.ts"]);
+      const result = await runCommand(process.execPath, ["src/cli.ts"]);
       expect([
         result.stdout.includes("USAGE"),
         result.stdout.includes("typepeek overview"),
@@ -1400,7 +1436,7 @@ describe("cli", () => {
     });
 
     it("documents every supported Inspectable Module and Access Style", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "overview",
         "--help",
@@ -1425,8 +1461,8 @@ describe("cli", () => {
       ];
 
       const [result, repeated] = await Promise.all([
-        execa(process.execPath, cliArguments),
-        execa(process.execPath, cliArguments),
+        runCommand(process.execPath, cliArguments),
+        runCommand(process.execPath, cliArguments),
       ]);
 
       expect([
@@ -1469,9 +1505,9 @@ describe("cli", () => {
       ];
 
       const [first, second, shorthand] = await Promise.all([
-        execa(process.execPath, cliArguments),
-        execa(process.execPath, cliArguments),
-        execa(
+        runCommand(process.execPath, cliArguments),
+        runCommand(process.execPath, cliArguments),
+        runCommand(
           process.execPath,
           cliArguments.filter((argument) => argument !== "overview")
         ),
@@ -1498,9 +1534,9 @@ describe("cli", () => {
         "--json",
       ];
 
-      const ordinary = await execa(process.execPath, cliArguments);
+      const ordinary = await runCommand(process.execPath, cliArguments);
 
-      const profiled = await execa(process.execPath, cliArguments, {
+      const profiled = await runCommand(process.execPath, cliArguments, {
         env: { TYPEPEEK_PROFILE: "1" },
       });
 
@@ -1567,8 +1603,12 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
-        const repeated = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         const firstPhases = profilePhaseNames(first.stderr);
         const repeatedPhases = profilePhaseNames(repeated.stderr);
         expect([
@@ -1604,7 +1644,7 @@ describe("cli", () => {
       };
 
       try {
-        const names = await execa(process.execPath, args, { env });
+        const names = await runCommand(process.execPath, args, { env });
 
         const discoveryArgs = [
           requireDefined(args[0]),
@@ -1612,8 +1652,14 @@ describe("cli", () => {
           ...args.slice(2),
         ];
 
-        const first = await execa(process.execPath, discoveryArgs, { env });
-        const repeated = await execa(process.execPath, discoveryArgs, { env });
+        const first = await runCommand(process.execPath, discoveryArgs, {
+          env,
+        });
+
+        const repeated = await runCommand(process.execPath, discoveryArgs, {
+          env,
+        });
+
         expect([
           decodeJson(
             Schema.Struct({
@@ -1664,7 +1710,7 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
 
         const readdirResult2 = await readdir(cacheDirectory);
 
@@ -1708,7 +1754,11 @@ describe("cli", () => {
             schemaVersion: 2,
           })
         );
-        const repeated = await execa(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           repeated.stdout,
           profilePhaseNames(repeated.stderr).includes("inspection-cache-hit"),
@@ -1745,8 +1795,12 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
-        const repeated = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           repeated.stdout,
           profilePhaseNames(repeated.stderr).includes("inspection-cache-hit"),
@@ -1780,7 +1834,7 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
 
         const readdirResult3 = await readdir(cacheDirectory);
 
@@ -1809,7 +1863,11 @@ describe("cli", () => {
         };
         envelope["payload"] = JSON.stringify(payload);
         await writeFile(entryPath, JSON.stringify(envelope));
-        const repeated = await execa(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           repeated.stdout,
           profilePhaseNames(repeated.stderr).includes("inspection-cache-miss"),
@@ -1843,7 +1901,7 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
         await mutateAuthenticatedCachePayload(cacheDirectory, (payload) => {
           payload.outcome = {
             message: "authenticated stale failure",
@@ -1851,7 +1909,11 @@ describe("cli", () => {
             status: "not-found",
           };
         });
-        const repeated = await execa(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           repeated.stdout,
           profilePhaseNames(repeated.stderr).includes("inspection-cache-miss"),
@@ -1885,13 +1947,17 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
         await mutateAuthenticatedCachePayload(cacheDirectory, (payload) => {
           const result = cachedSuccessResult(payload);
 
           result["specifier"] = "authenticated-wrong-specifier";
         });
-        const repeated = await execa(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           repeated.stdout,
           profilePhaseNames(repeated.stderr).includes(
@@ -1924,7 +1990,7 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
         await mutateAuthenticatedCachePayload(cacheDirectory, (payload) => {
           const result = cachedSuccessResult(payload);
           const identity = result["packageIdentity"];
@@ -1937,7 +2003,11 @@ describe("cli", () => {
 
           identity["name"] = "authenticated-wrong-package";
         });
-        const repeated = await execa(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           repeated.stdout,
           profilePhaseNames(repeated.stderr).includes("inspection-cache-miss"),
@@ -1971,7 +2041,7 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
         await mutateAuthenticatedCachePayload(cacheDirectory, (payload) => {
           const result = cachedSuccessResult(payload);
 
@@ -1981,7 +2051,11 @@ describe("cli", () => {
             trust: "untrusted",
           };
         });
-        const repeated = await execa(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           repeated.stdout,
           profilePhaseNames(repeated.stderr).includes("inspection-cache-miss"),
@@ -2002,7 +2076,7 @@ describe("cli", () => {
       await mkdir(nodePath.join(cacheDirectory, ".write-lock"));
 
       try {
-        const result = await execa(
+        const result = await runCommand(
           process.execPath,
           [
             "src/cli.ts",
@@ -2042,7 +2116,7 @@ describe("cli", () => {
         const modeBefore = bitwiseAnd(statResult.mode, 0o777);
 
         try {
-          const result = await execa(
+          const result = await runCommand(
             process.execPath,
             [
               "src/cli.ts",
@@ -2094,8 +2168,12 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
-        const repeated = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           repeated.stdout,
           profilePhaseNames(repeated.stderr).includes("inspection-cache-hit"),
@@ -2128,8 +2206,12 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
-        const repeated = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           repeated.stdout,
           profilePhaseNames(repeated.stderr).includes("inspection-cache-hit"),
@@ -2185,7 +2267,7 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
         await cp(rootDependency, nestedDependency, { recursive: true });
 
         const nestedDeclarationPath = nodePath.join(
@@ -2202,7 +2284,11 @@ describe("cli", () => {
             "dependencyExport: string"
           )
         );
-        const repeated = await execa(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           Object.is(repeated.stdout, first.stdout),
           profilePhaseNames(repeated.stderr).includes("inspection-cache-miss"),
@@ -2248,12 +2334,16 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
         await writeFile(
           addedDeclaration,
           "export declare const greenPatternExport: string;\n"
         );
-        const repeated = await execa(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           first.stdout.includes("@typepeek-fixture/conditional/patterns/green"),
           repeated.stdout.includes(
@@ -2305,19 +2395,27 @@ describe("cli", () => {
 
       try {
         await rm(patternDirectory, { recursive: true });
-        const first = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
         const readdirResult5 = await readdir(cacheDirectory);
         expect(
           readdirResult5.some((name) => name.endsWith(".json"))
         ).toBeTruthy();
-        const unchanged = await execa(process.execPath, cliArguments, { env });
+
+        const unchanged = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           unchanged.stdout,
           profilePhaseNames(unchanged.stderr).includes("inspection-cache-hit"),
         ]).toStrictEqual([first.stdout, true]);
         await mkdir(patternDirectory, { recursive: true });
         await writeFile(redDeclaration, originalDeclaration);
-        const repeated = await execa(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           first.stdout.includes("@typepeek-fixture/conditional/patterns/red"),
           repeated.stdout.includes(
@@ -2366,7 +2464,7 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
         await writeFile(
           declarationPath,
           originalDeclaration.replace(
@@ -2374,7 +2472,11 @@ describe("cli", () => {
             "createWidget(options?: WidgetOptions): number"
           )
         );
-        const repeated = await execa(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           Object.is(repeated.stdout, first.stdout),
           repeated.stdout.includes(": number"),
@@ -2426,9 +2528,13 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, { env });
+        const first = await runCommand(process.execPath, cliArguments, { env });
         await writeFile(manifestPath, JSON.stringify(changedManifest));
-        const repeated = await execa(process.execPath, cliArguments, { env });
+
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
+
         expect([
           Object.is(repeated.stdout, first.stdout),
           repeated.stdout.includes('"version":"2.0.1"'),
@@ -2463,12 +2569,12 @@ describe("cli", () => {
       };
 
       try {
-        const first = await execa(process.execPath, cliArguments, {
+        const first = await runCommand(process.execPath, cliArguments, {
           env,
           reject: false,
         });
 
-        const repeated = await execa(process.execPath, cliArguments, {
+        const repeated = await runCommand(process.execPath, cliArguments, {
           env,
           reject: false,
         });
@@ -2516,11 +2622,14 @@ describe("cli", () => {
         const concurrent = await Promise.all(
           Array.from(
             { length: 4 },
-            async () => await execa(process.execPath, cliArguments, { env })
+            async () =>
+              await runCommand(process.execPath, cliArguments, { env })
           )
         );
 
-        const repeated = await execa(process.execPath, cliArguments, { env });
+        const repeated = await runCommand(process.execPath, cliArguments, {
+          env,
+        });
 
         const readdirResult7 = await readdir(cacheDirectory);
 
@@ -2549,7 +2658,7 @@ describe("cli", () => {
     });
 
     it("lists Public Subpaths after Module Exports only when requested", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "@typepeek-fixture/conditional",
         "--workspace",
@@ -2566,7 +2675,7 @@ describe("cli", () => {
     });
 
     it("matches Module Exports deterministically without presenting a complete overview", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "overview",
         "@typepeek-fixture/focused",
@@ -2594,7 +2703,7 @@ describe("cli", () => {
     });
 
     it("renders a Signature Inspection without traversing Supporting Types", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "signatures",
         "@typepeek-fixture/deep-supporting-types",
@@ -2611,7 +2720,7 @@ describe("cli", () => {
     });
 
     it("emits invocation-oriented signature structure for agents", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "signatures",
         "@typepeek-fixture/focused",
@@ -2673,7 +2782,7 @@ describe("cli", () => {
     ])(
       "emits a complete $label JSON success with hostile evidence escaped losslessly",
       async ({ flags }) => {
-        const result = await execa(process.execPath, [
+        const result = await runCommand(process.execPath, [
           "src/cli.ts",
           "export",
           "@typepeek-fixture/focused",
@@ -2730,8 +2839,8 @@ describe("cli", () => {
       ];
 
       const [compact, pretty] = await Promise.all([
-        execa(process.execPath, cliArguments),
-        execa(process.execPath, [...cliArguments, "--pretty"]),
+        runCommand(process.execPath, cliArguments),
+        runCommand(process.execPath, [...cliArguments, "--pretty"]),
       ]);
 
       expect([
@@ -2762,8 +2871,8 @@ describe("cli", () => {
         ];
 
         const [first, repeated] = await Promise.all([
-          execa(process.execPath, cliArguments, { reject: false }),
-          execa(process.execPath, cliArguments, { reject: false }),
+          runCommand(process.execPath, cliArguments, { reject: false }),
+          runCommand(process.execPath, cliArguments, { reject: false }),
         ]);
 
         expect([
@@ -2785,7 +2894,7 @@ describe("cli", () => {
       async (flag) => {
         const flagArguments = flag === "--match" ? [flag, "error"] : [flag];
 
-        const result = await execa(
+        const result = await runCommand(
           process.execPath,
           [
             "src/cli.ts",
@@ -2815,8 +2924,8 @@ describe("cli", () => {
 
     it("documents common options on focused commands", async () => {
       const [help, compareHelp] = await Promise.all([
-        execa(process.execPath, ["src/cli.ts", "signatures", "--help"]),
-        execa(process.execPath, ["src/cli.ts", "compare", "--help"]),
+        runCommand(process.execPath, ["src/cli.ts", "signatures", "--help"]),
+        runCommand(process.execPath, ["src/cli.ts", "compare", "--help"]),
       ]);
 
       expect([
@@ -2847,7 +2956,7 @@ describe("cli", () => {
     });
 
     it("rejects the removed --context flag", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "src/cli.ts",
@@ -2867,8 +2976,8 @@ describe("cli", () => {
 
     it("explains the capabilities-to-protocol machine workflow", async () => {
       const [capabilitiesHelp, protocolHelp] = await Promise.all([
-        execa(process.execPath, ["src/cli.ts", "capabilities", "--help"]),
-        execa(process.execPath, ["src/cli.ts", "protocol", "--help"]),
+        runCommand(process.execPath, ["src/cli.ts", "capabilities", "--help"]),
+        runCommand(process.execPath, ["src/cli.ts", "protocol", "--help"]),
       ]);
 
       expect([
@@ -2882,7 +2991,7 @@ describe("cli", () => {
     it.each(["overview", "export", "signatures"])(
       "inspects a package named %s through the explicit overview route",
       async (specifier) => {
-        const result = await execa(
+        const result = await runCommand(
           process.execPath,
           [
             "src/cli.ts",
@@ -2910,7 +3019,7 @@ describe("cli", () => {
     );
 
     it("escapes option parsing for an export name beginning with a hyphen", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "src/cli.ts",
@@ -2961,7 +3070,7 @@ describe("cli", () => {
     );
 
     it("escapes terminal controls in failed inspection diagnostics", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "src/cli.ts",
@@ -2980,7 +3089,7 @@ describe("cli", () => {
     });
 
     it("escapes terminal controls in invalid invocation diagnostics", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "src/cli.ts",
@@ -2993,13 +3102,13 @@ describe("cli", () => {
       );
 
       expect(result.stderr).toContain(
-        'Failed to parse "invalid\\u{1B}[31m\\u{D}FORGED\\u{A}NEXT\\u{9}TAB" for access'
+        'Invalid value for flag --access: "invalid\\u{1B}[31m\\u{D}FORGED\\u{A}NEXT\\u{9}TAB"'
       );
       expectTerminalSafeLine(result.stderr);
     });
 
     it("bounds invalid invocation diagnostics after terminal escaping", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "src/cli.ts",
@@ -3020,7 +3129,7 @@ describe("cli", () => {
     });
 
     it("uses the conventional usage exit status for invalid invocations", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         ["src/cli.ts", "signatures", "example"],
         {
@@ -3030,12 +3139,12 @@ describe("cli", () => {
 
       expect([
         result.exitCode,
-        result.stderr.includes("Expected argument for export-name"),
+        result.stderr.includes("Missing required argument: export-name"),
       ]).toStrictEqual([2, true]);
     });
 
     it("emits invalid invocations as structured diagnostics in machine mode", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         ["src/cli.ts", "signatures", "example", "--json"],
         { reject: false }
@@ -3049,14 +3158,14 @@ describe("cli", () => {
         2,
         "",
         {
-          message: "Expected argument for export-name",
+          message: "Missing required argument: export-name",
           status: "invalid-invocation",
         },
       ]);
     });
 
     it("pretty-prints structured invalid-invocation diagnostics", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         ["src/cli.ts", "signatures", "example", "--json", "--pretty"],
         { reject: false }
@@ -3072,14 +3181,14 @@ describe("cli", () => {
         "",
         true,
         {
-          message: "Expected argument for export-name",
+          message: "Missing required argument: export-name",
           status: "invalid-invocation",
         },
       ]);
     });
 
     it("escapes hostile controls in pretty JSON diagnostics", async () => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "src/cli.ts",
@@ -3105,7 +3214,7 @@ describe("cli", () => {
     });
 
     it("accepts common options before an explicit inspection command", async () => {
-      const result = await execa(process.execPath, [
+      const result = await runCommand(process.execPath, [
         "src/cli.ts",
         "--json",
         "--pretty",

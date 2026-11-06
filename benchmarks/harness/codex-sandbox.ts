@@ -5,8 +5,9 @@ import type {
   SandboxProvider,
 } from "@tanstack/ai-sandbox";
 import { sbxSandbox } from "@tanstack/ai-sandbox-docker";
-import { execa } from "execa";
-import type { Options } from "execa";
+
+import { runCommand } from "#typepeek/process-command";
+import type { CommandCaptureOptions } from "#typepeek/process-command";
 
 import type { SandboxResourceEvent } from "./resources.ts";
 import { removeSandboxResources } from "./resources.ts";
@@ -103,16 +104,16 @@ export const codexSandbox = (
 
     const id = `typepeek-${crypto.randomUUID()}`;
 
-    const processOptions: Options =
+    const processOptions: CommandCaptureOptions =
       input.signal === undefined
         ? { stdin: "ignore" }
-        : { cancelSignal: input.signal, stdin: "ignore" };
+        : { signal: input.signal, stdin: "ignore" };
 
     owned.add(id);
 
     try {
       options.onResource?.({ id, state: "creating" });
-      await execa(
+      await runCommand(
         binary,
         codexSandboxCreateArguments(id, options),
         processOptions
@@ -124,7 +125,7 @@ export const codexSandbox = (
       }
 
       await Array.fromAsync(hosts, async (host) => {
-        await execa(
+        await runCommand(
           binary,
           ["--no-input", "policy", "allow", "network", "--sandbox", id, host],
           processOptions

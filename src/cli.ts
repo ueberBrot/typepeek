@@ -5,4 +5,6 @@ enableCompileCache();
 
 const { runCli } = await import("#typepeek/cli-runtime");
 
-await runCli(process.argv.slice(2));
+const { runMain } = await import("@effect/platform-node-shared/NodeRuntime");
+
+runMain(runCli(process.argv.slice(2)), { disableErrorReporting: true });

@@ -3,7 +3,6 @@ import nodePath from "node:path";
 
 import { live as liveIt, effect as scopedIt } from "@effect/vitest";
 import { Effect } from "effect";
-import { execa } from "execa";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { requireDefined } from "#typepeek/defined-value";
@@ -19,6 +18,7 @@ import {
   inspectPublicSubpaths,
 } from "#typepeek/inspection";
 import { invokeInspectionCore } from "#typepeek/inspection/core";
+import { runCommand } from "#typepeek/process-command";
 
 import type { CompiledPackageFixture } from "./helpers/index.ts";
 import { materializeCompiledPackageFixture } from "./helpers/index.ts";
@@ -853,7 +853,7 @@ describe("inspection-core", () => {
   });
 
   it("renders an Interface Overview through the CLI", async () => {
-    const result = await execa(process.execPath, [
+    const result = await runCommand(process.execPath, [
       "src/cli.ts",
       "@typepeek-fixture/compiled",
       "--workspace",

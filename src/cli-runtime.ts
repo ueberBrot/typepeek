@@ -1,8 +1,7 @@
 import nodePath from "node:path";
 
-import type { ApplicationContext } from "@stricli/core";
-import { buildCommand, buildRouteMap } from "@stricli/core";
-import { Schema } from "effect";
+import { Effect, Exit, Option, Schema, Scope } from "effect";
+import { Argument, Command, Flag } from "effect/cli";
 
 import type {
   InspectionIntent,
@@ -14,13 +13,13 @@ import type {
 import {
   INSPECTION_PROTOCOL_VERSION,
   inspectCapabilities,
-  invokeInspectionProtocol,
 } from "#typepeek/inspection";
 import { InspectionFailureError } from "#typepeek/inspection-failure-error";
 import { InspectionLimitError } from "#typepeek/inspection/errors";
 import { enforceInspectionOutcome } from "#typepeek/inspection/inspection-outcome-authority";
 import type { InspectionPlanQueryIssue } from "#typepeek/inspection/inspection-plan-query";
 import { readInspectionPlanQueries } from "#typepeek/inspection/inspection-plan-query";
+import { invokeInspectionProtocolEffect } from "#typepeek/inspection/inspection-protocol";
 import { readBoundedMemberPath } from "#typepeek/inspection/member-path";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { InvalidInvocationError } from "#typepeek/invalid-invocation-error";
@@ -40,7 +39,13 @@ import {
 } from "./cli-execution.ts";
 import { selectCliWorkspace } from "./cli-workspace.ts";
 
-const ACCESS_STYLE_CHOICES = "import|require";
+const taggedError = Schema.TaggedError;
+
+class ProtocolExchangeError extends taggedError<
+  ProtocolExchangeError,
+  { readonly brand: unique symbol }
+>()("ProtocolExchangeError", { message: Schema.String }) {}
+
 const SIGNATURE_INSPECTION = "signature-inspection";
 
 const MAX_PLAN_QUERY_JSON_BYTES = 16 * 1024;
@@ -52,7 +57,7 @@ interface CliOutputOptions {
 
 interface InspectionTargetOptions extends CliOutputOptions {
   readonly access: "import" | "require";
-  readonly workspace?: string;
+  readonly workspace: string | undefined;
 }
 
 interface CliInspectionTargetRequest {
@@ -61,94 +66,11 @@ interface CliInspectionTargetRequest {
   readonly accessStyle: "import" | "require";
 }
 
-interface ComparisonOptions extends CliOutputOptions {
-  readonly beforeAccess: "import" | "require";
-  readonly afterAccess: "import" | "require";
-  readonly beforeWorkspace?: string;
-  readonly afterWorkspace?: string;
-}
-
 interface OverviewOptions extends InspectionTargetOptions {
-  readonly cursor?: string;
-  readonly match?: string;
+  readonly cursor: string | undefined;
+  readonly match: string | undefined;
   readonly subpaths: boolean;
 }
-
-interface MemberDiscoveryOptions extends InspectionTargetOptions {
-  readonly match?: string;
-}
-
-const parseAccessStyle = function parseAccessStyle(
-  input: string
-): "import" | "require" {
-  if (input === "import" || input === "require") {
-    return input;
-  }
-
-  throw new Error('Access Style must be "import" or "require".');
-};
-
-const inspectionTargetFlags = {
-  access: {
-    brief: "Resolve declarations using import or require conditions.",
-    default: "import",
-    kind: "parsed",
-    parse: parseAccessStyle,
-    placeholder: ACCESS_STYLE_CHOICES,
-  },
-  json: {
-    brief: "Emit structured JSON for agents and pipelines.",
-    default: false,
-    kind: "boolean",
-    withNegated: false,
-  },
-  pretty: {
-    brief: "Indent JSON output; requires --json.",
-    default: false,
-    kind: "boolean",
-    withNegated: false,
-  },
-  workspace: {
-    brief: "Resolve the package from this consuming workspace.",
-    kind: "parsed",
-    optional: true,
-    parse: (input: string) => nodePath.resolve(input),
-    placeholder: "path",
-  },
-} as const;
-
-const specifierParameter = {
-  brief:
-    "Package root, Public Subpath, or Node Platform Module Specifier to inspect.",
-  parse: (input: string) => input,
-  placeholder: "specifier",
-} as const;
-
-const beforeSpecifierParameter = {
-  ...specifierParameter,
-  brief:
-    "Package root, Public Subpath, or Node Platform Module Specifier for the before side.",
-  placeholder: "before-specifier",
-} as const;
-
-const afterSpecifierParameter = {
-  ...specifierParameter,
-  brief:
-    "Package root, Public Subpath, or Node Platform Module Specifier for the after side.",
-  placeholder: "after-specifier",
-} as const;
-
-const exportNameParameter = {
-  brief: "Exact Module Export name to inspect.",
-  parse: (input: string) => input,
-  placeholder: "export-name",
-} as const;
-
-const exportSearchQueryParameter = {
-  brief: "Case-insensitive substring to match against Module Export names.",
-  parse: (input: string) => input,
-  placeholder: "query",
-} as const;
 
 const parseMemberPathJson = function parseMemberPathJson(
   input: string
@@ -179,13 +101,6 @@ const parseMemberPath = function parseMemberPath(
 
   return memberPath;
 };
-
-const memberPathParameter = {
-  brief:
-    "One exact Member name or a JSON array of names and {name, space} selectors.",
-  parse: parseMemberPath,
-  placeholder: "member-path",
-} as const;
 
 const parseInspectionPlanJson = function parseInspectionPlanJson(
   input: string
@@ -235,12 +150,6 @@ const parseInspectionPlanQueries = function parseInspectionPlanQueries(
 
   return reading.queries;
 };
-
-const inspectionPlanQueriesParameter = {
-  brief: "JSON array of inspection queries to run together.",
-  parse: parseInspectionPlanQueries,
-  placeholder: "queries-json",
-} as const;
 
 const overviewJsonOptionError = function overviewJsonOptionError(
   options: OverviewOptions
@@ -316,13 +225,10 @@ const cliRequestUsesSignatureEvidence =
     );
   };
 
-const invokeCliInspection = async function invokeCliInspection<
+const invokeCliInspection = Effect.fnUntraced(function* invokeCliInspection<
   Intent extends InspectionIntent,
->(
-  intent: Intent,
-  request: InspectionRequestByIntent[Intent]
-): Promise<InspectionOutcome> {
-  const response = await invokeInspectionProtocol({
+>(intent: Intent, request: InspectionRequestByIntent[Intent]) {
+  const response = yield* invokeInspectionProtocolEffect({
     intent,
     protocolVersion: INSPECTION_PROTOCOL_VERSION,
     request,
@@ -332,18 +238,17 @@ const invokeCliInspection = async function invokeCliInspection<
   });
 
   return enforceInspectionOutcome(intent, response.outcome);
-};
+});
 
 const writeJsonOutcome = function writeJsonOutcome(
-  context: ApplicationContext,
   outcome: InspectionOutcome,
   pretty: boolean
 ): void {
   const rendering = renderJsonOutcome(outcome, pretty);
-  context.process.stdout.write(`${rendering.text}\n`);
+  process.stdout.write(`${rendering.text}\n`);
 
   if (rendering.failed) {
-    context.process.exitCode = INSPECTION_FAILURE_EXIT_CODE;
+    process.exitCode = INSPECTION_FAILURE_EXIT_CODE;
   }
 };
 
@@ -363,13 +268,12 @@ const renderForCommand = function renderForCommand(
 };
 
 const writeCliOutcome = function writeCliOutcome(
-  context: ApplicationContext,
   options: CliOutputOptions,
   outcome: InspectionOutcome,
   renderingOptions: TerminalRenderingOptions = {}
 ): Error | undefined {
   if (options.json) {
-    writeJsonOutcome(context, outcome, options.pretty);
+    writeJsonOutcome(outcome, options.pretty);
 
     return undefined;
   }
@@ -386,56 +290,136 @@ const writeCliOutcome = function writeCliOutcome(
     return rendering;
   }
 
-  context.process.stdout.write(`${rendering}\n`);
+  process.stdout.write(`${rendering}\n`);
 
   return undefined;
 };
 
-const runCliTargetInspection = async function runCliTargetInspection<
-  Intent extends InspectionIntent,
->(
-  context: ApplicationContext,
-  intent: Intent,
-  options: InspectionTargetOptions,
-  specifier: string,
-  requestForTarget: (
-    target: CliInspectionTargetRequest
-  ) => InspectionRequestByIntent[Intent],
-  renderingOptions: TerminalRenderingOptions = {}
-): Promise<Error | undefined> {
-  const target = inspectionRequest(options, specifier);
+const runCliTargetInspection = Effect.fnUntraced(
+  function* runCliTargetInspection<Intent extends InspectionIntent>(
+    intent: Intent,
+    options: InspectionTargetOptions,
+    specifier: string,
+    requestForTarget: (
+      target: CliInspectionTargetRequest
+    ) => InspectionRequestByIntent[Intent],
+    renderingOptions: TerminalRenderingOptions = {}
+  ) {
+    const target = inspectionRequest(options, specifier);
 
-  if (target instanceof Error) {
-    return target;
-  }
-
-  const outcome = await invokeCliInspection(intent, requestForTarget(target));
-
-  return writeCliOutcome(context, options, outcome, renderingOptions);
-};
-
-const overviewCommand = buildCommand<
-  OverviewOptions,
-  [string],
-  ApplicationContext
->({
-  docs: {
-    brief: "List the module exports and public subpaths.",
-    fullDescription:
-      "Example: typepeek overview zod. Use --json for one structured Inspection Outcome.",
-  },
-  async func(options, specifier) {
-    const optionError = overviewJsonOptionError(options);
-
-    if (optionError !== undefined) {
-      return optionError;
+    if (target instanceof Error) {
+      return yield* Effect.fail(target);
     }
 
-    return await runCliTargetInspection(
-      this,
+    const outcome = yield* invokeCliInspection(
+      intent,
+      requestForTarget(target)
+    );
+
+    const error = writeCliOutcome(options, outcome, renderingOptions);
+
+    if (error !== undefined) {
+      return yield* Effect.fail(error);
+    }
+
+    return yield* Effect.void;
+  }
+);
+
+const optionalFlag = (name: string, description: string) =>
+  Flag.String(name).pipe(
+    Flag.withDescription(description),
+    Flag.withMetavar(name),
+    Flag.optional,
+    Flag.map(Option.getOrUndefined)
+  );
+
+const workspaceFlag = (name: string, description: string) =>
+  Flag.String(name).pipe(
+    Flag.withDescription(description),
+    Flag.withMetavar("path"),
+    Flag.map((input) => nodePath.resolve(input)),
+    Flag.optional,
+    Flag.map(Option.getOrUndefined)
+  );
+
+const outputFlags = {
+  json: Flag.Boolean("json").pipe(
+    Flag.withDescription("Emit structured JSON for agents and pipelines."),
+    Flag.withoutNegation,
+    Flag.withDefault(false)
+  ),
+  pretty: Flag.Boolean("pretty").pipe(
+    Flag.withDescription("Indent JSON output; requires --json."),
+    Flag.withoutNegation,
+    Flag.withDefault(false)
+  ),
+};
+
+const targetFlags = {
+  ...outputFlags,
+  access: Flag.Literals("access", ["import", "require"]).pipe(
+    Flag.withDefault("import"),
+    Flag.withMetavar("import|require"),
+    Flag.withDescription(
+      "Resolve declarations using import or require conditions."
+    )
+  ),
+  workspace: workspaceFlag(
+    "workspace",
+    "Resolve the package from this consuming workspace."
+  ),
+};
+
+const specifier = Argument.String("specifier").pipe(
+  Argument.withDescription(
+    "Package root, Public Subpath, or Node Platform Module Specifier to inspect."
+  )
+);
+
+const exportName = Argument.String("export-name").pipe(
+  Argument.withDescription("Exact Module Export name to inspect.")
+);
+
+const parseMessage: Parameters<typeof Argument.mapTryCatch>[2] = (error) =>
+  error instanceof Error ? error.message : String(error);
+
+const memberPath = Argument.String("member-path").pipe(
+  Argument.mapTryCatch(parseMemberPath, parseMessage)
+);
+
+const overviewCommand = Command.make(
+  "overview",
+  {
+    ...targetFlags,
+    cursor: optionalFlag(
+      "cursor",
+      'Return 100 export names; use "start" for the first page, then the returned cursor.'
+    ),
+    match: optionalFlag(
+      "match",
+      "Match Module Export names case-insensitively in human output."
+    ),
+    specifier,
+    subpaths: Flag.Boolean("subpaths").pipe(
+      Flag.withoutNegation,
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "List every Public Subpath in the human Interface Overview."
+      )
+    ),
+  },
+  Effect.fnUntraced(function* overviewCommand(options) {
+    const error = overviewJsonOptionError(options);
+
+    if (error !== undefined) {
+      return yield* Effect.fail(error);
+    }
+
+    return yield* runCliTargetInspection(
       "interface-overview",
       options,
-      specifier,
+      options.specifier,
       (target) => ({
         ...target,
         ...(options.cursor !== undefined && { cursor: options.cursor }),
@@ -447,485 +431,338 @@ const overviewCommand = buildCommand<
         }),
       }
     );
-  },
-  parameters: {
-    flags: {
-      ...inspectionTargetFlags,
-      cursor: {
-        brief:
-          'Return 100 export names; use "start" for the first page, then the returned cursor.',
-        kind: "parsed",
-        optional: true,
-        parse: (input: string) => input,
-        placeholder: "cursor",
-      },
-      match: {
-        brief: "Match Module Export names case-insensitively in human output.",
-        kind: "parsed",
-        optional: true,
-        parse: (input: string) => input,
-        placeholder: "substring",
-      },
-      subpaths: {
-        brief: "List every Public Subpath in the human Interface Overview.",
-        default: false,
-        kind: "boolean",
-        withNegated: false,
-      },
-    },
-    positional: {
-      kind: "tuple",
-      parameters: [specifierParameter],
-    },
-  },
-});
+  })
+).pipe(
+  Command.withDescription(
+    "List the module exports and public subpaths. Example: typepeek overview zod. Use --json for one structured Inspection Outcome."
+  )
+);
 
-const exportCommand = buildCommand<
-  InspectionTargetOptions,
-  [string, string],
-  ApplicationContext
->({
-  docs: {
-    brief:
-      "Show an export's declarations, signatures, documentation, and supporting types.",
-    fullDescription:
-      "Example: typepeek export zod ZodError. Use it when you need declarations or Supporting Types.",
-  },
-  async func(options, specifier, exportName) {
-    return await runCliTargetInspection(
-      this,
+const optionalMemberPath = Argument.String("member-path").pipe(
+  Argument.mapTryCatch((input) => parseMemberPath(input, true), parseMessage),
+  Argument.optional,
+  Argument.map(Option.getOrUndefined)
+);
+
+const planQueries = Argument.String("queries").pipe(
+  Argument.withDescription("JSON array of inspection queries to run together."),
+  Argument.mapTryCatch(parseInspectionPlanQueries, parseMessage)
+);
+
+const exportCommand = Command.make(
+  "export",
+  { ...targetFlags, args: [specifier, exportName] },
+  (options) =>
+    runCliTargetInspection(
       "export-inspection",
       options,
-      specifier,
-      (target) => ({
-        ...target,
-        exportName,
-      })
-    );
-  },
-  parameters: {
-    flags: inspectionTargetFlags,
-    positional: {
-      kind: "tuple",
-      parameters: [specifierParameter, exportNameParameter],
-    },
-  },
-});
+      options.args[0],
+      (target) => ({ ...target, exportName: options.args[1] })
+    )
+).pipe(
+  Command.withDescription(
+    "Show an export's declarations, signatures, documentation, and supporting types. Example: typepeek export zod ZodError."
+  )
+);
 
-const signaturesCommand = buildCommand<
-  InspectionTargetOptions,
-  [string, string],
-  ApplicationContext
->({
-  docs: {
-    brief: "Show every public call and construct signature of an export.",
-    fullDescription:
-      "Example: typepeek signatures execa execa --json emits structured type parameters, parameters, and return semantics.",
-  },
-  async func(options, specifier, exportName) {
-    return await runCliTargetInspection(
-      this,
+const signaturesCommand = Command.make(
+  "signatures",
+  { ...targetFlags, args: [specifier, exportName] },
+  (options) =>
+    runCliTargetInspection(
       SIGNATURE_INSPECTION,
       options,
-      specifier,
-      (target) => ({
-        ...target,
-        exportName,
-      })
-    );
-  },
-  parameters: {
-    flags: inspectionTargetFlags,
-    positional: {
-      kind: "tuple",
-      parameters: [specifierParameter, exportNameParameter],
-    },
-  },
-});
+      options.args[0],
+      (target) => ({ ...target, exportName: options.args[1] })
+    )
+).pipe(
+  Command.withDescription(
+    "Show every public call and construct signature of an export. Example: typepeek signatures execa execa --json emits structured type parameters, parameters, and return semantics."
+  )
+);
 
-const declarationsCommand = buildCommand<
-  InspectionTargetOptions,
-  [string, string],
-  ApplicationContext
->({
-  docs: {
-    brief: "Show an export's declarations.",
-    fullDescription:
-      "Example: typepeek declarations zod ZodError avoids Signature and Supporting Type traversal.",
-  },
-  async func(options, specifier, exportName) {
-    return await runCliTargetInspection(
-      this,
+const declarationsCommand = Command.make(
+  "declarations",
+  { ...targetFlags, args: [specifier, exportName] },
+  (options) =>
+    runCliTargetInspection(
       "declaration-inspection",
       options,
-      specifier,
-      (target) => ({
-        ...target,
-        exportName,
-      })
-    );
-  },
-  parameters: {
-    flags: inspectionTargetFlags,
-    positional: {
-      kind: "tuple",
-      parameters: [specifierParameter, exportNameParameter],
-    },
-  },
-});
+      options.args[0],
+      (target) => ({ ...target, exportName: options.args[1] })
+    )
+).pipe(
+  Command.withDescription(
+    "Show an export's declarations. Example: typepeek declarations zod ZodError avoids Signature and Supporting Type traversal."
+  )
+);
 
-const memberCommand = buildCommand<
-  InspectionTargetOptions,
-  [string, string, MemberPath],
-  ApplicationContext
->({
-  docs: {
-    brief: "Show the declarations for one public member path.",
-    fullDescription:
-      "Example: typepeek member zod ZodError issues avoids unrelated declaration traversal.",
-  },
-  async func(options, specifier, exportName, memberPath) {
-    return await runCliTargetInspection(
-      this,
+const memberCommand = Command.make(
+  "member",
+  { ...targetFlags, args: [specifier, exportName, memberPath] },
+  (options) =>
+    runCliTargetInspection(
       "member-inspection",
       options,
-      specifier,
+      options.args[0],
       (target) => ({
         ...target,
-        exportName,
-        memberPath,
+        exportName: options.args[1],
+        memberPath: options.args[2],
       })
-    );
-  },
-  parameters: {
-    flags: inspectionTargetFlags,
-    positional: {
-      kind: "tuple",
-      parameters: [
-        specifierParameter,
-        exportNameParameter,
-        memberPathParameter,
-      ],
-    },
-  },
-});
+    )
+).pipe(
+  Command.withDescription(
+    "Show the declarations for one public member path. Example: typepeek member zod ZodError issues avoids unrelated declaration traversal."
+  )
+);
 
-const membersCommand = buildCommand<
-  MemberDiscoveryOptions,
-  [string, string, MemberPath?],
-  ApplicationContext
->({
-  docs: {
-    brief: "List immediate public members and their declaration spaces.",
-    fullDescription:
-      'Example: typepeek members zod ZodError --match issue lists matching names. Omit member-path to inspect the export; pass a JSON path such as \'[{"name":"shared","space":"type"}]\' to select a declaration space at a nested step. Discovery returns a complete count before filtering.',
+const membersCommand = Command.make(
+  "members",
+  {
+    ...targetFlags,
+    args: [specifier, exportName, optionalMemberPath],
+    match: optionalFlag(
+      "match",
+      "Filter public Member names case-insensitively in every output format."
+    ),
   },
-  async func(options, specifier, exportName, memberPath) {
-    return await runCliTargetInspection(
-      this,
+  (options) =>
+    runCliTargetInspection(
       "member-discovery",
       options,
-      specifier,
+      options.args[0],
       (target) => ({
         ...target,
-        exportName,
-        ...(memberPath !== undefined && { memberPath }),
+        exportName: options.args[1],
+        ...(options.args[2] !== undefined && {
+          memberPath: options.args[2],
+        }),
         ...(options.match !== undefined && { query: options.match }),
       })
-    );
-  },
-  parameters: {
-    flags: {
-      ...inspectionTargetFlags,
-      match: {
-        brief:
-          "Filter public Member names case-insensitively in every output format.",
-        kind: "parsed",
-        optional: true,
-        parse: (input: string) => input,
-        placeholder: "substring",
-      },
-    },
-    positional: {
-      kind: "tuple",
-      parameters: [
-        specifierParameter,
-        exportNameParameter,
-        {
-          ...memberPathParameter,
-          optional: true,
-          parse: (input: string) => parseMemberPath(input, true),
-        },
-      ],
-    },
-  },
-});
+    )
+).pipe(
+  Command.withDescription(
+    "List immediate public members and their declaration spaces. Omit member-path to inspect the export; pass a JSON path to select a declaration space. Discovery returns a complete count before filtering."
+  )
+);
 
-const planCommand = buildCommand<
-  InspectionTargetOptions,
-  [string, readonly InspectionPlanQuery[]],
-  ApplicationContext
->({
-  docs: {
-    brief: "Run several queries against the same installed evidence.",
-    fullDescription:
-      'Example: typepeek plan zod \'[{"intent":"interface-overview"}]\' --json returns one atomic outcome.',
+const planCommand = Command.make(
+  "plan",
+  {
+    ...targetFlags,
+    args: [specifier, planQueries],
   },
-  async func(options, specifier, queries) {
-    return await runCliTargetInspection(
-      this,
+  (options) =>
+    runCliTargetInspection(
       "inspection-plan",
       options,
-      specifier,
-      (target) => ({
-        ...target,
-        queries,
-      })
-    );
-  },
-  parameters: {
-    flags: inspectionTargetFlags,
-    positional: {
-      kind: "tuple",
-      parameters: [specifierParameter, inspectionPlanQueriesParameter],
-    },
-  },
-});
+      options.args[0],
+      (target) => ({ ...target, queries: options.args[1] })
+    )
+).pipe(
+  Command.withDescription(
+    "Run several queries against the same installed evidence. Return one atomic outcome."
+  )
+);
 
-const buildExportSearchCommand = function buildExportSearchCommand(
-  scope?: "documentation"
-) {
-  return buildCommand<
-    InspectionTargetOptions,
-    [string, string],
-    ApplicationContext
-  >({
-    docs: {
-      brief:
-        scope === undefined
-          ? "Find export names containing a case-insensitive substring."
-          : "Discover exports by names and attached documentation, with signatures.",
-      fullDescription:
-        scope === undefined
-          ? "Search export names by case-insensitive substring. Use discover when you know a behavior rather than a name."
-          : "Match a case-insensitive substring in export names and attached JSDoc, not documentation files or semantic similarity. Results include complete signatures and marked, untrusted documentation excerpts.",
+const exportSearchCommand = (name: "search" | "discover") =>
+  Command.make(
+    name,
+    {
+      ...targetFlags,
+      args: [specifier, Argument.String("query")],
     },
-    async func(options, specifier, query) {
-      return await runCliTargetInspection(
-        this,
+    (options) =>
+      runCliTargetInspection(
         "export-search",
         options,
-        specifier,
+        options.args[0],
         (target) => ({
           ...target,
-          query,
-          ...(scope !== undefined && { scope }),
+          query: options.args[1],
+          ...(name === "discover" && { scope: "documentation" as const }),
         })
-      );
-    },
-    parameters: {
-      flags: inspectionTargetFlags,
-      positional: {
-        kind: "tuple",
-        parameters: [specifierParameter, exportSearchQueryParameter],
-      },
-    },
-  });
-};
+      )
+  ).pipe(
+    Command.withDescription(
+      name === "search"
+        ? "Find export names containing a case-insensitive substring. Use discover when you know a behavior rather than a name."
+        : "Discover exports by names and attached documentation, with signatures. Match a case-insensitive substring in export names and attached JSDoc, not documentation files or semantic similarity. Results include complete signatures and marked, untrusted documentation excerpts."
+    )
+  );
 
-const searchCommand = buildExportSearchCommand();
-const discoverCommand = buildExportSearchCommand("documentation");
-
-const subpathsCommand = buildCommand<
-  InspectionTargetOptions,
-  [string],
-  ApplicationContext
->({
-  docs: {
-    brief: "List public subpaths exposed by the package manifest.",
-    fullDescription:
-      "Example: typepeek subpaths zod lists only bounded manifest Public Subpaths.",
-  },
-  async func(options, specifier) {
-    return await runCliTargetInspection(
-      this,
+const subpathsCommand = Command.make(
+  "subpaths",
+  { ...targetFlags, specifier },
+  (options) =>
+    runCliTargetInspection(
       "public-subpath-discovery",
       options,
-      specifier,
+      options.specifier,
       (target) => target
-    );
-  },
-  parameters: {
-    flags: inspectionTargetFlags,
-    positional: {
-      kind: "tuple",
-      parameters: [specifierParameter],
-    },
-  },
-});
+    )
+).pipe(
+  Command.withDescription(
+    "List public subpaths exposed by the package manifest."
+  )
+);
 
-const capabilitiesCommand = buildCommand<
-  CliOutputOptions,
-  [],
-  ApplicationContext
->({
-  docs: {
-    brief: "List supported protocol requests and limits as JSON.",
-    fullDescription:
-      "Capability output is always JSON. Pass --json to select machine-mode diagnostics; add --pretty for indented output.",
-  },
-  func(options) {
-    this.process.stdout.write(
-      `${serializeTerminalSafeJson(inspectCapabilities(), options.pretty)}\n`
-    );
-  },
-  parameters: {
-    flags: {
-      json: inspectionTargetFlags.json,
-      pretty: inspectionTargetFlags.pretty,
-    },
-    positional: {
-      kind: "tuple",
-      parameters: [],
-    },
-  },
-});
+const capabilitiesCommand = Command.make(
+  "capabilities",
+  outputFlags,
+  (options) =>
+    Effect.sync(() => {
+      process.stdout.write(
+        `${serializeTerminalSafeJson(inspectCapabilities(), options.pretty)}\n`
+      );
+    })
+).pipe(
+  Command.withDescription(
+    "List supported protocol requests and limits as JSON. Capability output is always JSON. Pass --json to select machine-mode diagnostics; add --pretty for indented output."
+  )
+);
 
-const protocolCommand = buildCommand<
-  Readonly<Record<string, never>>,
-  [],
-  ApplicationContext
->({
-  docs: {
-    brief: "Invoke the Inspection Protocol with JSON request lines on stdin.",
-    fullDescription:
-      "Read compact JSON request lines from stdin and emit one compact JSON response line per request on stdout, in order, until stdin closes. Empty input closes without a response. Each line may contain at most 32 KiB of UTF-8 JSON; the final newline is optional. Invalid wire input ends the stream. Inspection failures allow further requests and leave exit status 1. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits.",
-  },
-  async func() {
-    const exitCode = await runProtocolWireStream(process.stdin, process.stdout);
-    this.process.exitCode = Math.max(
-      Number(this.process.exitCode ?? 0),
-      exitCode
-    );
-  },
-  parameters: {
-    flags: {},
-    positional: {
-      kind: "tuple",
-      parameters: [],
-    },
-  },
-});
+const closeProtocolExchange = (
+  scope: Scope.Closeable,
+  exchange: Promise<number>
+) =>
+  Scope.close(scope, Exit.void).pipe(
+    Effect.andThen(
+      Effect.promise(async () => {
+        try {
+          await exchange;
+        } catch {
+          /* The command reports exchange failures. */
+        }
+      })
+    )
+  );
 
-const compareCommand = buildCommand<
-  ComparisonOptions,
-  [string, string],
-  ApplicationContext
->({
-  docs: {
-    brief: "Compare export names and public subpaths in two complete indexes.",
-    fullDescription:
-      "Example: typepeek compare zod zod --before-workspace old --after-workspace new compares installed versions directionally.",
+const protocolCommand = Command.make("protocol", {}, () =>
+  Effect.scoped(
+    Effect.gen(function* runProtocol() {
+      const scope = yield* Effect.acquireRelease(Scope.make(), Scope.close);
+
+      const signal = yield* Effect.abortSignal.pipe(
+        Effect.provideService(Scope.Scope, scope)
+      );
+
+      const exchange = runProtocolWireStream(
+        process.stdin,
+        process.stdout,
+        signal
+      );
+
+      yield* Effect.addFinalizer(() => closeProtocolExchange(scope, exchange));
+
+      const exitCode = yield* Effect.tryPromise({
+        catch: (error) =>
+          new ProtocolExchangeError({
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        try: async () => await exchange,
+      });
+
+      process.exitCode = Math.max(Number(process.exitCode ?? 0), exitCode);
+    })
+  )
+).pipe(
+  Command.withDescription(
+    "Invoke the Inspection Protocol with JSON request lines on stdin. Emit one compact JSON response line per request, in order, until stdin closes. Each line may contain at most 32 KiB of UTF-8 JSON; the final newline is optional. Empty input closes without a response. Invalid wire input ends the stream; inspection failures allow further requests and leave exit status 1. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits."
+  )
+);
+
+const compareCommand = Command.make(
+  "compare",
+  {
+    ...outputFlags,
+    afterAccess: Flag.Literals("after-access", ["import", "require"]).pipe(
+      Flag.withDefault("import")
+    ),
+    afterWorkspace: workspaceFlag(
+      "after-workspace",
+      "Consuming workspace for the after Interface Overview."
+    ),
+    args: [
+      Argument.String("before-specifier"),
+      Argument.String("after-specifier"),
+    ],
+    beforeAccess: Flag.Literals("before-access", ["import", "require"]).pipe(
+      Flag.withDefault("import")
+    ),
+    beforeWorkspace: workspaceFlag(
+      "before-workspace",
+      "Consuming workspace for the before Interface Overview."
+    ),
   },
-  async func(options, beforeSpecifier, afterSpecifier) {
+  Effect.fnUntraced(function* compareCommand(options) {
     const beforeResolutionContext = resolutionContextForSpecifier(
-      beforeSpecifier,
+      options.args[0],
       options.beforeWorkspace,
       "--before-workspace"
     );
 
     if (beforeResolutionContext instanceof Error) {
-      return beforeResolutionContext;
+      return yield* Effect.fail(beforeResolutionContext);
     }
 
     const afterResolutionContext = resolutionContextForSpecifier(
-      afterSpecifier,
+      options.args[1],
       options.afterWorkspace,
       "--after-workspace"
     );
 
     if (afterResolutionContext instanceof Error) {
-      return afterResolutionContext;
+      return yield* Effect.fail(afterResolutionContext);
     }
 
-    const outcome = await invokeCliInspection("public-interface-comparison", {
+    const outcome = yield* invokeCliInspection("public-interface-comparison", {
       after: {
         accessStyle: options.afterAccess,
         resolutionContext: afterResolutionContext,
-        specifier: afterSpecifier,
+        specifier: options.args[1],
       },
       before: {
         accessStyle: options.beforeAccess,
         resolutionContext: beforeResolutionContext,
-        specifier: beforeSpecifier,
+        specifier: options.args[0],
       },
     });
 
-    return writeCliOutcome(this, options, outcome);
-  },
-  parameters: {
-    flags: {
-      afterAccess: {
-        brief: "Access Style for the after Resolution Variant.",
-        default: "import",
-        kind: "parsed",
-        parse: parseAccessStyle,
-        placeholder: ACCESS_STYLE_CHOICES,
-      },
-      afterWorkspace: {
-        brief: "Consuming workspace for the after Interface Overview.",
-        kind: "parsed",
-        optional: true,
-        parse: (input: string) => nodePath.resolve(input),
-        placeholder: "path",
-      },
-      beforeAccess: {
-        brief: "Access Style for the before Resolution Variant.",
-        default: "import",
-        kind: "parsed",
-        parse: parseAccessStyle,
-        placeholder: ACCESS_STYLE_CHOICES,
-      },
-      beforeWorkspace: {
-        brief: "Consuming workspace for the before Interface Overview.",
-        kind: "parsed",
-        optional: true,
-        parse: (input: string) => nodePath.resolve(input),
-        placeholder: "path",
-      },
-      json: inspectionTargetFlags.json,
-      pretty: inspectionTargetFlags.pretty,
-    },
-    positional: {
-      kind: "tuple",
-      parameters: [beforeSpecifierParameter, afterSpecifierParameter],
-    },
-  },
-});
+    const error = writeCliOutcome(options, outcome);
 
-const rootRoute = buildRouteMap({
-  defaultCommand: "overview",
-  docs: {
-    brief:
-      "Inspect TypeScript interfaces from installed packages and Node platform modules.",
-    fullDescription:
-      "Use overview or search to find exports, discover to match names and attached documentation with signatures, subpaths to find public entrypoints, and members to find public members. Inspect signatures, declarations, or a member for details; use export to include documentation and supporting types. Run known queries together with plan, or compare export names and subpaths with compare. For machine integration, run capabilities before sending requests to protocol. Common flags may precede or follow an explicit inspection command.",
-  },
-  routes: {
-    capabilities: capabilitiesCommand,
-    compare: compareCommand,
-    declarations: declarationsCommand,
-    discover: discoverCommand,
-    export: exportCommand,
-    member: memberCommand,
-    members: membersCommand,
-    overview: overviewCommand,
-    plan: planCommand,
-    protocol: protocolCommand,
-    search: searchCommand,
-    signatures: signaturesCommand,
-    subpaths: subpathsCommand,
-  },
-});
+    if (error !== undefined) {
+      return yield* Effect.fail(error);
+    }
 
-export const runCli = createCliRunner(rootRoute);
+    return yield* Effect.void;
+  })
+).pipe(
+  Command.withDescription(
+    "Compare export names and public subpaths in two complete indexes. Example: typepeek compare zod zod --before-workspace old --after-workspace new."
+  )
+);
+
+const root = Command.make("typepeek").pipe(
+  Command.withDescription(
+    "Inspect TypeScript interfaces from installed packages and Node platform modules. Use overview or search to find exports, discover to match names and attached documentation with signatures, subpaths to find public entrypoints, and members to find public members. Inspect signatures, declarations, or a member for details; use export to include documentation and supporting types. Run known queries together with plan, or compare export names and subpaths with compare. For machine integration, run capabilities before sending requests to protocol. Common flags may precede or follow an explicit inspection command."
+  ),
+  Command.withSubcommands([
+    overviewCommand,
+    exportCommand,
+    signaturesCommand,
+    declarationsCommand,
+    memberCommand,
+    membersCommand,
+    planCommand,
+    exportSearchCommand("search"),
+    exportSearchCommand("discover"),
+    subpathsCommand,
+    capabilitiesCommand,
+    protocolCommand,
+    compareCommand,
+  ])
+);
+
+export const runCli = createCliRunner(root);

@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { Schema } from "effect";
-import { execa } from "execa";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { requireDefined } from "#typepeek/defined-value";
@@ -19,6 +18,7 @@ import {
 } from "#typepeek/inspection";
 import type { InspectionOutcome } from "#typepeek/inspection/protocol";
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 import type { RealPackageCorpus } from "./helpers/index.ts";
 import { materializeRealPackageCorpus } from "./helpers/index.ts";
@@ -709,8 +709,8 @@ describe("real-package-corpus", () => {
           TYPEPEEK_PROFILE: "1",
         };
 
-        const first = await execa(process.execPath, args, { env });
-        const repeated = await execa(process.execPath, args, { env });
+        const first = await runCommand(process.execPath, args, { env });
+        const repeated = await runCommand(process.execPath, args, { env });
         expect([
           decodeJson(Schema.MutableJson, first.stdout),
           repeated.stdout,

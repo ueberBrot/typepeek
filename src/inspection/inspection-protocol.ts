@@ -78,7 +78,7 @@ const INVALID_PROTOCOL_RESULT_RESPONSE = Schema.decodeSync(
   protocolVersion: INSPECTION_PROTOCOL_VERSION,
 });
 
-const readProtocolHeader = function readProtocolHeader(
+const readProtocolHeaderFromData = function readProtocolHeaderFromData(
   value: unknown
 ): ProtocolHeader | undefined {
   const record = snapshotDataProperties(value, PROTOCOL_HEADER_FIELDS);
@@ -141,6 +141,14 @@ const readProtocolResponseOptions = function readProtocolResponseOptions(
     : (Result.getOrUndefined(decodeProtocolResponseOptions(snapshot)) ?? null);
 };
 
+const readProtocolHeader = (value: unknown): ProtocolHeader | undefined => {
+  try {
+    return readProtocolHeaderFromData(value);
+  } catch {
+    return undefined;
+  }
+};
+
 const readProtocolRequest = function readProtocolRequest(
   header: ProtocolHeader
 ): NormalizedInspectionProtocolRequest | undefined {
@@ -176,16 +184,12 @@ const readSignatureEvidenceProjection =
   };
 
 /** Validates and dispatches one Inspection Protocol request through the Inspection Core. */
-export const invokeInspectionProtocol = async function invokeInspectionProtocol(
+export const invokeInspectionProtocolEffect = Effect.fn(
+  "invokeInspectionProtocol"
+)(function* invokeInspectionProtocolEffect(
   value: unknown
-): Promise<InspectionProtocolResponse> {
-  let header: ProtocolHeader | undefined;
-
-  try {
-    header = readProtocolHeader(value);
-  } catch {
-    return protocolResponse(invalidProtocolRequest());
-  }
+): Effect.fn.Return<InspectionProtocolResponse> {
+  const header = readProtocolHeader(value);
 
   if (header === undefined) {
     return protocolResponse(invalidProtocolRequest());
@@ -207,8 +211,9 @@ export const invokeInspectionProtocol = async function invokeInspectionProtocol(
 
   const projection = readSignatureEvidenceProjection(request);
 
-  const invocation = await Effect.runPromise(
-    invokeInspectionCore(request.intent, request.request)
+  const invocation = yield* invokeInspectionCore(
+    request.intent,
+    request.request
   );
 
   const candidate =
@@ -234,4 +239,13 @@ export const invokeInspectionProtocol = async function invokeInspectionProtocol(
   return protocolResponseFrom(
     recovery.length === 0 ? candidate : { ...candidate, recovery }
   );
-};
+});
+
+export const invokeInspectionProtocol = async (
+  value: unknown,
+  signal?: AbortSignal
+): Promise<InspectionProtocolResponse> =>
+  await Effect.runPromise(
+    invokeInspectionProtocolEffect(value),
+    signal === undefined ? {} : { signal }
+  );

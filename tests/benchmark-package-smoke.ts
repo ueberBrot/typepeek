@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
-import { execa } from "execa";
+import { runCommand } from "#typepeek/process-command";
 
 import { inspectWithCompiler } from "../benchmarks/support/compiler.ts";
 import { typepeekFacts } from "../benchmarks/support/evidence.ts";
@@ -39,7 +39,7 @@ try {
     }
 
     await Array.fromAsync(["1", "0", "0"], async (bypass) => {
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [cli, ...discoveryCliArguments(workload)],
         {

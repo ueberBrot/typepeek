@@ -1,3 +1,15 @@
+import type { buildRouteMap } from "@stricli/core";
+import type { execa, getCancelSignal, parseCommandString } from "execa";
+
+interface SignatureSubjects {
+  readonly execa: {
+    readonly execa: typeof execa;
+    readonly getCancelSignal: typeof getCancelSignal;
+    readonly parseCommandString: typeof parseCommandString;
+  };
+  readonly "@stricli/core": { readonly buildRouteMap: typeof buildRouteMap };
+}
+
 export interface DiscoveryWorkload {
   readonly id: string;
   readonly question: string;
@@ -15,7 +27,7 @@ const DISCOVERY_WORKLOADS: readonly DiscoveryWorkload[] = [
     question:
       "Find every public call signature of Execa's parseCommandString export.",
     specifier: "execa",
-    target: "parseCommandString",
+    target: "parseCommandString" satisfies keyof SignatureSubjects["execa"],
   },
   {
     expectedCount: 1,
@@ -24,14 +36,14 @@ const DISCOVERY_WORKLOADS: readonly DiscoveryWorkload[] = [
     question:
       "Find every public call signature of Execa's getCancelSignal export.",
     specifier: "execa",
-    target: "getCancelSignal",
+    target: "getCancelSignal" satisfies keyof SignatureSubjects["execa"],
   },
   {
     id: "execa-invocation",
     kind: "signatures",
     question: "Find every public call signature of the installed execa export.",
     specifier: "execa",
-    target: "execa",
+    target: "execa" satisfies keyof SignatureSubjects["execa"],
   },
   {
     expectedCount: 2,
@@ -81,7 +93,7 @@ const DISCOVERY_WORKLOADS: readonly DiscoveryWorkload[] = [
     question:
       "Find every public call signature of @stricli/core buildRouteMap, including its generic parameters.",
     specifier: "@stricli/core",
-    target: "buildRouteMap",
+    target: "buildRouteMap" satisfies keyof SignatureSubjects["@stricli/core"],
   },
   {
     id: "tsrs-filesystem",

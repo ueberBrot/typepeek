@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { cpus, hostname, release } from "node:os";
 import nodePath from "node:path";
 
-import { execa } from "execa";
+import { runCommand } from "#typepeek/process-command";
 
 export interface DiscoveryIdentity {
   readonly workspace: string;
@@ -105,8 +105,8 @@ export const discoveryIdentity = async function discoveryIdentity(options: {
   readonly evidenceHash: string;
 }): Promise<DiscoveryIdentity> {
   const [git, ripgrep] = await Promise.all([
-    execa("git", ["rev-parse", "HEAD"], { reject: false }),
-    execa("rg", ["--version"], { reject: false }),
+    runCommand("git", ["rev-parse", "HEAD"], { reject: false }),
+    runCommand("rg", ["--version"], { reject: false }),
   ]);
 
   const lockfiles = [

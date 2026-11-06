@@ -82,10 +82,9 @@ export default defineConfig({
     rolldownOptions: {
       external: [
         /^node:/u,
-        "@stricli/core",
         /^effect(?:\/|$)/u,
+        /^@effect\/platform-node-shared(?:\/|$)/u,
         /^tsrs(?:\/|$)/u,
-        "execa",
         "semver",
       ],
       output: {
@@ -197,9 +196,6 @@ export default defineConfig({
     },
     sourcemap: true,
     unused: {
-      ignore: {
-        dependencies: ["execa"],
-      },
       level: "error",
     },
   },

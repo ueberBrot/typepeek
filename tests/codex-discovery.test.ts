@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { Schema } from "effect";
-import { execa } from "execa";
 import { describe, expect, it } from "vite-plus/test";
 
 import { requireDefined } from "#typepeek/defined-value";
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 import { readCodexOptions } from "../benchmarks/codex-discovery/options.ts";
 import {
@@ -77,8 +77,8 @@ describe("codex-discovery", () => {
         nodePath.join(directory, "unused"),
       ];
 
-      const first = await execa(process.execPath, args);
-      const second = await execa(process.execPath, args);
+      const first = await runCommand(process.execPath, args);
+      const second = await runCommand(process.execPath, args);
       expect(second.stdout).toBe(first.stdout);
 
       const plan = decodeJson(
@@ -100,7 +100,7 @@ describe("codex-discovery", () => {
 
       expect(plan.trials).toHaveLength(240);
 
-      const continuation = await execa(process.execPath, [
+      const continuation = await runCommand(process.execPath, [
         ...args,
         "--start-at",
         "155",
@@ -138,7 +138,7 @@ describe("codex-discovery", () => {
   });
 
   it("rejects a matrix that combines all workloads with individual workloads", async () => {
-    const result = await execa(
+    const result = await runCommand(
       process.execPath,
       [
         "benchmarks/codex-discovery/run.ts",
@@ -168,7 +168,7 @@ describe("codex-discovery", () => {
       await writeFile(nodePath.join(directory, "package.json"), "{}");
       await writeFile(nodePath.join(directory, "pnpm-lock.yaml"), "");
 
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "--input-type=module",

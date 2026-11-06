@@ -1,13 +1,13 @@
-import { spawnSync } from "node:child_process";
-import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { Effect, Schema } from "effect";
-import { execaNode } from "execa";
+import { Effect, Exit, Schema, Stream } from "effect";
+import { ChildProcess } from "effect/process";
 
 import {
   INSPECTION_BUDGET_POLICY,
   MAX_ANALYSIS_RESULT_BYTES,
 } from "#typepeek/inspection/budget-policy";
+import { MAX_CACHE_RECEIPT_BYTES } from "#typepeek/inspection/inspection-cache-codec";
 import { removeInspectionCacheEntry } from "#typepeek/inspection/inspection-cache-files";
 import {
   readInspectionCacheHitNotice,
@@ -25,6 +25,11 @@ import type {
   InspectionResultByIntent,
 } from "#typepeek/inspection/protocol";
 import { decodeJson } from "#typepeek/json-data";
+import { nodeProcessLayer, scopedProcess } from "#typepeek/node-process";
+import {
+  ProcessOutputLimitError,
+  collectProcessOutput,
+} from "#typepeek/process-output";
 
 const BUDGET_EXCEEDED = "budget-exceeded";
 const LIMIT_EXCEEDED = "limit-exceeded";
@@ -39,7 +44,7 @@ export interface AnalysisProcessLimits {
 interface AnalysisProcessResult {
   readonly exitCode?: number;
   readonly failed: boolean;
-  readonly ipcOutput: readonly unknown[];
+  readonly cacheOutput: Uint8Array;
   readonly isMaxBuffer: boolean;
   readonly stderr: Uint8Array;
   readonly stdout: Uint8Array;
@@ -98,127 +103,93 @@ const INVALID_PROCESS_RESULT_OUTCOME: InspectionFailure = {
   status: "unsupported",
 };
 
-const executeAnalysisProcess = function executeAnalysisProcess(
-  request: AnalysisRequest,
-  entryUrl: URL,
-  limits: AnalysisProcessLimits,
-  bypassCache: boolean
-): Effect.Effect<AnalysisProcessResult, AnalysisProcessExecutionError> {
-  return Effect.callback<AnalysisProcessResult, AnalysisProcessExecutionError>(
-    (resume, cancelSignal) => {
-      try {
-        let timedOut = false;
+const executeAnalysisProcess = Effect.fn("executeAnalysisProcess")(
+  function* executeAnalysisProcess(
+    request: AnalysisRequest,
+    entryUrl: URL,
+    limits: AnalysisProcessLimits,
+    bypassCache: boolean
+  ): Effect.fn.Return<AnalysisProcessResult, AnalysisProcessExecutionError> {
+    const empty = Buffer.alloc(0);
 
-        const subprocess = execaNode(entryUrl, [], {
-          ipcInput: request,
-          ...(bypassCache && { env: { TYPEPEEK_CACHE_BYPASS: "1" } }),
-          detached: process.platform !== "win32",
-          encoding: "buffer",
-          forceKillAfterDelay: 100,
-          maxBuffer: {
-            ipc: 1,
-            stderr: limits.maxDiagnosticBytes,
-            stdout: limits.maxResultBytes,
-          },
-          nodeOptions: [
-            `--max-old-space-size=${limits.maxHeapMegabytes}`,
-            `--stack-size=${STACK_SIZE_KIBIBYTES}`,
-          ],
-          reject: false,
-          serialization: "advanced",
+    const failed = {
+      cacheOutput: empty,
+      failed: true,
+      isMaxBuffer: false,
+      stderr: empty,
+      stdout: empty,
+      timedOut: false,
+    };
+
+    const execution = Effect.scoped(
+      Effect.gen(function* execution() {
+        const entry = yield* Effect.try({
+          catch: (cause) => new AnalysisProcessExecutionError({ cause }),
+          try: () => fileURLToPath(entryUrl),
         });
 
-        const terminate = (): void => {
-          if (process.platform === "win32" && subprocess.pid !== undefined) {
-            // Kill the tree before the worker disappears: taskkill cannot find
-            // native descendants through a parent that has already exited.
-            spawnSync(
-              nodePath.join(
-                process.env["SystemRoot"] ?? "C:\\Windows",
-                "System32",
-                "taskkill.exe"
-              ),
-              ["/PID", String(subprocess.pid), "/T", "/F"],
-              { stdio: "ignore", timeout: 1000 }
-            );
-          }
-
-          subprocess.kill();
-        };
-
-        const deadline = setTimeout(() => {
-          timedOut = true;
-          terminate();
-        }, limits.deadlineMilliseconds);
-
-        const onCancel = (): void => {
-          terminate();
-        };
-
-        cancelSignal.addEventListener("abort", onCancel, { once: true });
-
-        subprocess.nodeChildProcess.once("exit", () => {
-          clearTimeout(deadline);
-          cancelSignal.removeEventListener("abort", onCancel);
-
-          if (process.platform !== "win32" && subprocess.pid !== undefined) {
-            try {
-              process.kill(-subprocess.pid, "SIGKILL");
-            } catch {
-              // The process group is already empty after ordinary SDK cleanup.
+        const handle = yield* scopedProcess(
+          ChildProcess.make(
+            process.execPath,
+            [
+              `--max-old-space-size=${limits.maxHeapMegabytes}`,
+              `--stack-size=${STACK_SIZE_KIBIBYTES}`,
+              entry,
+            ],
+            {
+              ...(bypassCache && {
+                env: { TYPEPEEK_CACHE_BYPASS: "1" },
+                extendEnv: true,
+              }),
+              additionalFds: { fd3: { type: "output" } },
+              forceKillAfter: 100,
+              stdin: Stream.make(Buffer.from(JSON.stringify(request))),
             }
-          }
-        });
-
-        if (cancelSignal.aborted) {
-          terminate();
-        }
-
-        const forwardResult = async (): Promise<void> => {
-          try {
-            const result = await subprocess;
-            resume(
-              Effect.succeed({
-                ...(result.exitCode !== undefined && {
-                  exitCode: result.exitCode,
-                }),
-                failed: result.failed,
-                ipcOutput: result.ipcOutput,
-                isMaxBuffer: result.isMaxBuffer,
-                stderr: result.stderr,
-                stdout: result.stdout,
-                timedOut,
-              })
-            );
-          } catch (error) {
-            resume(
-              Effect.fail(new AnalysisProcessExecutionError({ cause: error }))
-            );
-          } finally {
-            clearTimeout(deadline);
-            cancelSignal.removeEventListener("abort", onCancel);
-          }
-        };
-
-        void forwardResult();
-
-        return Effect.promise(async () => {
-          try {
-            await subprocess;
-          } catch {
-            // The forwarding task reports the subprocess failure through resume.
-          }
-        });
-      } catch (error) {
-        resume(
-          Effect.fail(new AnalysisProcessExecutionError({ cause: error }))
+          )
         );
 
-        return Effect.void;
-      }
-    }
-  );
-};
+        const { exit, stdout, stderr, cacheOutput } = yield* Effect.all(
+          {
+            cacheOutput: collectProcessOutput(
+              handle.getOutputFd(3),
+              MAX_CACHE_RECEIPT_BYTES
+            ),
+            exit: handle.exitCode,
+            stderr: collectProcessOutput(
+              handle.stderr,
+              limits.maxDiagnosticBytes
+            ),
+            stdout: collectProcessOutput(handle.stdout, limits.maxResultBytes),
+          },
+          { concurrency: "unbounded" }
+        );
+
+        return {
+          ...(Exit.isSuccess(exit) && { exitCode: Number(exit.value) }),
+          cacheOutput,
+          failed:
+            Exit.isFailure(exit) || (Exit.isSuccess(exit) && exit.value !== 0),
+          isMaxBuffer: false,
+          stderr,
+          stdout,
+          timedOut: false,
+        };
+      })
+    );
+
+    return yield* execution.pipe(
+      Effect.timeoutOrElse({
+        duration: limits.deadlineMilliseconds,
+        orElse: () => Effect.succeed({ ...failed, timedOut: true }),
+      }),
+      Effect.catchIf(Schema.is(ProcessOutputLimitError), () =>
+        Effect.succeed({ ...failed, isMaxBuffer: true })
+      ),
+      Effect.mapError((cause) => new AnalysisProcessExecutionError({ cause })),
+      Effect.provide(nodeProcessLayer)
+    );
+  }
+);
 
 const isMemoryFailure = function isMemoryFailure(stderr: Uint8Array): boolean {
   const text = Buffer.from(stderr).toString("utf-8");
@@ -298,7 +269,9 @@ const analysisLifecycle = {
     }: AnalysisProcessCompletion<Request>): Effect.fn.Return<
       InspectionOutcome<InspectionResultByIntent[Request["intent"]]>
     > {
-      const cacheHit = readInspectionCacheHitNotice(result.ipcOutput[0]);
+      const cacheHit = readInspectionCacheHitNotice(
+        parseResult(result.cacheOutput)
+      );
 
       if (
         shouldRetryInvalidCacheOutcome(
@@ -328,7 +301,7 @@ const analysisLifecycle = {
         writeValidatedInspectionCacheOutcome(
           request,
           outcome,
-          result.ipcOutput[0]
+          parseResult(result.cacheOutput)
         );
       }
 

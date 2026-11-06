@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
@@ -8,19 +7,35 @@ import { Schema } from "effect";
 
 import { requireDefined } from "#typepeek/defined-value";
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 const SMOKE_PACKAGE = "@stricli/core";
 
+export const assertArtifactVersion = async (
+  cliPath: string,
+  version: string
+): Promise<void> => {
+  const result = await runCommand(process.execPath, [cliPath, "--version"], {
+    reject: false,
+    trimFinalNewline: false,
+  });
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(result.stdout, `${version}\n`);
+};
+
 /** The parent must run a real inspection without loading the worker's compiler. */
 export const assertCompilerLoadsOnlyInWorker =
-  function assertCompilerLoadsOnlyInWorker(cliPath: string): void {
+  async function assertCompilerLoadsOnlyInWorker(
+    cliPath: string
+  ): Promise<void> {
     const hook = `import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier === 'tsrs/sync' || specifier === 'tsrs/async') throw new Error('Compiler SDK loaded in CLI parent');
   return nextResolve(specifier, context);
 } });`;
 
-    const result = spawnSync(
+    const result = await runCommand(
       process.execPath,
       [
         "--import",
@@ -31,10 +46,14 @@ registerHooks({ resolve(specifier, context, nextResolve) {
         "buildRouteMap",
         "--json",
       ],
-      { encoding: "utf-8", env: { ...process.env, TYPEPEEK_CACHE_BYPASS: "1" } }
+      {
+        env: { ...process.env, TYPEPEEK_CACHE_BYPASS: "1" },
+        reject: false,
+        trimFinalNewline: false,
+      }
     );
 
-    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
     assert.equal(
       decodeJson(
         Schema.Struct({
@@ -48,7 +67,9 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 
 /** The worker must use its pinned native SDK even when an environment override is present. */
 export const assertWorkerUsesPinnedNativeCompiler =
-  function assertWorkerUsesPinnedNativeCompiler(cliPath: string): void {
+  async function assertWorkerUsesPinnedNativeCompiler(
+    cliPath: string
+  ): Promise<void> {
     const hook = `import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier === '@typescript/typescript6' || specifier === 'typescript') {
@@ -57,11 +78,10 @@ registerHooks({ resolve(specifier, context, nextResolve) {
   return nextResolve(specifier, context);
 } });`;
 
-    const result = spawnSync(
+    const result = await runCommand(
       process.execPath,
       [cliPath, "signatures", SMOKE_PACKAGE, "buildRouteMap", "--json"],
       {
-        encoding: "utf-8",
         env: {
           ...process.env,
           NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(hook)}`,
@@ -71,10 +91,12 @@ registerHooks({ resolve(specifier, context, nextResolve) {
           ),
           TYPEPEEK_CACHE_BYPASS: "1",
         },
+        reject: false,
+        trimFinalNewline: false,
       }
     );
 
-    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
     assert.equal(
       decodeJson(
         Schema.Struct({
@@ -125,12 +147,13 @@ const assertInspectionCacheReuse = async function assertInspectionCacheReuse(
   const env = { ...process.env, TYPEPEEK_CACHE_DIRECTORY: cacheDirectory };
 
   try {
-    const first = spawnSync(process.execPath, cliArguments, {
-      encoding: "utf-8",
+    const first = await runCommand(process.execPath, cliArguments, {
       env,
+      reject: false,
+      trimFinalNewline: false,
     });
 
-    assert.equal(first.status, 0, first.stderr || first.stdout);
+    assert.equal(first.exitCode, 0, first.stderr || first.stdout);
 
     const readdirResult = await readdir(cacheDirectory);
 
@@ -149,12 +172,13 @@ const assertInspectionCacheReuse = async function assertInspectionCacheReuse(
 
     const before = await lstat(entryPath, { bigint: true });
 
-    const repeated = spawnSync(process.execPath, cliArguments, {
-      encoding: "utf-8",
+    const repeated = await runCommand(process.execPath, cliArguments, {
       env,
+      reject: false,
+      trimFinalNewline: false,
     });
 
-    assert.equal(repeated.status, 0, repeated.stderr || repeated.stdout);
+    assert.equal(repeated.exitCode, 0, repeated.stderr || repeated.stdout);
     assert.equal(repeated.stdout, first.stdout);
     const after = await lstat(entryPath, { bigint: true });
     assert.equal(

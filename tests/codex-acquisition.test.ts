@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { Schema } from "effect";
-import { execa } from "execa";
 import { beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { requireDefined } from "#typepeek/defined-value";
 import type { JsonInput } from "#typepeek/json-data";
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 import {
   acquisitionMeasurementSchema,
@@ -102,7 +102,7 @@ const replay = async function replay(
     );
     await writeFile(oraclePath, JSON.stringify(answerKey));
 
-    const result = await execa(process.execPath, [
+    const result = await runCommand(process.execPath, [
       "benchmarks/codex-discovery/replay.ts",
       "--trace",
       tracePath,
@@ -130,7 +130,7 @@ const replay = async function replay(
 
 describe("codex-acquisition", () => {
   beforeAll(async () => {
-    await execa("vp", ["pack"]);
+    await runCommand("vp", ["pack"]);
   }, 60_000);
 
   it.each([
@@ -814,7 +814,7 @@ describe("codex-acquisition", () => {
         })
       );
 
-      await execa(
+      await runCommand(
         process.execPath,
         [
           "benchmarks/codex-discovery/capture.ts",
@@ -880,7 +880,7 @@ describe("codex-acquisition", () => {
         })
       );
 
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "benchmarks/codex-discovery/capture.ts",
@@ -926,7 +926,7 @@ describe("codex-acquisition", () => {
       await mkdir(bin);
       await installCodexFixture(bin);
 
-      await execa(
+      await runCommand(
         process.execPath,
         [
           "benchmarks/codex-discovery/run.ts",
@@ -1044,7 +1044,7 @@ describe("codex-acquisition", () => {
         await mkdir(bin);
         await installCodexFixture(bin);
 
-        await execa(
+        await runCommand(
           process.execPath,
           [
             "benchmarks/codex-discovery/run.ts",
@@ -1121,7 +1121,7 @@ describe("codex-acquisition", () => {
       await writeFile(answerKey, JSON.stringify(oracle));
       await writeFile(output, "retained evidence");
 
-      const result = await execa(
+      const result = await runCommand(
         process.execPath,
         [
           "benchmarks/codex-discovery/replay.ts",

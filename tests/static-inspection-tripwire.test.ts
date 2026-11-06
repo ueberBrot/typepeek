@@ -3,10 +3,10 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
-import { execa } from "execa";
 import { describe, expect, it } from "vite-plus/test";
 
 import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler-distribution";
+import { runCommand } from "#typepeek/process-command";
 
 import {
   materializeStaticInspection,
@@ -49,7 +49,7 @@ describe("Static Inspection compiler launch tripwire", () => {
         ].join("\n")
       );
 
-      const result = await execa(process.execPath, [probe], {
+      const result = await runCommand(process.execPath, [probe], {
         cwd: fixtureRoot,
         env: {
           NODE_OPTIONS: staticInspectionNodeOptions(preload, sentinel).join(
@@ -91,7 +91,7 @@ describe("Static Inspection compiler launch tripwire", () => {
         ].join("\n")
       );
 
-      const result = await execa(process.execPath, [probe], {
+      const result = await runCommand(process.execPath, [probe], {
         env: {
           NODE_OPTIONS: staticInspectionNodeOptions(
             preload,
@@ -161,7 +161,7 @@ describe("Static Inspection compiler launch tripwire", () => {
         ].join("\n")
       );
 
-      const result = await execa(process.execPath, [probe], {
+      const result = await runCommand(process.execPath, [probe], {
         cwd: fixtureRoot,
         env: {
           NODE_OPTIONS: [

@@ -15,9 +15,9 @@ import { homedir, tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { Predicate, Schema } from "effect";
-import { execa } from "execa";
 
 import { decodeJson } from "#typepeek/json-data";
+import { runCommand } from "#typepeek/process-command";
 
 import type { CodexCondition } from "./scenarios.ts";
 
@@ -78,7 +78,11 @@ export const createCodexFixture =
     );
 
     try {
-      const executable = await execa("/bin/sh", ["-c", "command -v codex"]);
+      const executable = await runCommand("/bin/sh", [
+        "-c",
+        "command -v codex",
+      ]);
+
       const codexExecutable = await realpath(executable.stdout.trim());
       const modules = nodePath.join(root, "consumer", "node_modules");
       await cp(nodePath.resolve("node_modules"), modules, {
@@ -279,7 +283,7 @@ export const createCodexTrial = async function createCodexTrial(
 
 const repositoryEvidencePaths =
   async function repositoryEvidencePaths(): Promise<readonly string[]> {
-    const listing = await execa("git", [
+    const listing = await runCommand("git", [
       "worktree",
       "list",
       "--porcelain",
@@ -330,7 +334,7 @@ export const verifyCodexIsolation = async function verifyCodexIsolation(
     fs.writeSync(1, 'isolation verified\\n');
   `;
 
-  const result = await execa(
+  const result = await runCommand(
     "codex",
     [
       "sandbox",

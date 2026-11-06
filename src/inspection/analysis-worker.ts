@@ -1,4 +1,9 @@
-import { getOneMessage, sendMessage } from "execa";
+import { createWriteStream } from "node:fs";
+
+import { runMain } from "@effect/platform-node-shared/NodeRuntime";
+import { fromWritable } from "@effect/platform-node-shared/NodeSink";
+import { layer as nodeStdioLayer } from "@effect/platform-node-shared/NodeStdio";
+import { Effect, Schema, Stdio, Stream } from "effect";
 
 import { analyzeInspection } from "#typepeek/inspection/analyze";
 import { encodeInspectionCacheWriteReceipt } from "#typepeek/inspection/inspection-cache-codec";
@@ -8,44 +13,73 @@ import {
   profileInspectionPhase,
 } from "#typepeek/inspection/performance-profile";
 import { readAnalysisRequest } from "#typepeek/inspection/request-definitions";
+import { decodeJson } from "#typepeek/json-data";
+import { collectProcessOutput } from "#typepeek/process-output";
+
+const taggedError = Schema.TaggedError;
+
+class AnalysisWorkerIOError extends taggedError<
+  AnalysisWorkerIOError,
+  { readonly brand: unique symbol }
+>()("AnalysisWorkerIOError", { cause: Schema.Defect() }) {}
 
 // Validate subprocess input even when the caller bypasses Inspection Core.
-beginInspectionProfile();
+const program = Effect.gen(function* program() {
+  beginInspectionProfile();
 
-const message = await getOneMessage();
+  const stdio = yield* Stdio.Stdio;
+  const input = yield* collectProcessOutput(stdio.stdin, 16 * 1024);
 
-const requestReading = profileInspectionPhase("request-validation", () =>
-  readAnalysisRequest(message)
-);
+  const message = decodeJson(
+    Schema.Json,
+    new TextDecoder("utf-8", { fatal: true }).decode(input)
+  );
 
-const execution = requestReading.accepted
-  ? profileInspectionPhase("analysis", () =>
-      analyzeInspection(
-        requestReading.request,
-        process.env["TYPEPEEK_CACHE_BYPASS"] !== "1"
+  const requestReading = profileInspectionPhase("request-validation", () =>
+    readAnalysisRequest(message)
+  );
+
+  const execution = requestReading.accepted
+    ? profileInspectionPhase("analysis", () =>
+        analyzeInspection(
+          requestReading.request,
+          process.env["TYPEPEEK_CACHE_BYPASS"] !== "1"
+        )
       )
-    )
-  : { outcome: requestReading.outcome };
+    : { outcome: requestReading.outcome };
 
-const { cacheMessage } = execution;
+  const { cacheMessage } = execution;
 
-if (cacheMessage !== undefined) {
-  const encoded =
-    cacheMessage.kind === "inspection-cache-write"
-      ? encodeInspectionCacheWriteReceipt(cacheMessage)
-      : cacheMessage;
+  if (cacheMessage !== undefined) {
+    const encoded =
+      cacheMessage.kind === "inspection-cache-write"
+        ? encodeInspectionCacheWriteReceipt(cacheMessage)
+        : cacheMessage;
 
-  if (encoded !== undefined) {
-    await sendMessage(encoded);
+    if (encoded !== undefined) {
+      yield* Stream.make(JSON.stringify(encoded)).pipe(
+        Stream.run(
+          fromWritable({
+            endOnDone: true,
+            evaluate: () => createWriteStream("", { fd: 3 }),
+            onError: (cause) => new AnalysisWorkerIOError({ cause }),
+          })
+        )
+      );
+    }
   }
-}
 
-const { outcome } = execution;
+  const { outcome } = execution;
 
-process.stdout.write(JSON.stringify(outcome));
+  process.stdout.write(JSON.stringify(outcome));
 
-const profile = completeInspectionProfile();
+  const profile = completeInspectionProfile();
 
-if (profile !== undefined) {
-  process.stderr.write(`${JSON.stringify(profile)}\n`);
-}
+  if (profile !== undefined) {
+    process.stderr.write(`${JSON.stringify(profile)}\n`);
+  }
+});
+
+runMain(program.pipe(Effect.provide(nodeStdioLayer)), {
+  disableErrorReporting: true,
+});

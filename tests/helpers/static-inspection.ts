@@ -11,9 +11,8 @@ import { createRequire } from "node:module";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { execa } from "execa";
-
 import { analysisProcessNodeArguments } from "#typepeek/inspection/analysis-process";
+import { runCommand } from "#typepeek/process-command";
 
 interface GuardedEnvironment {
   readonly [key: string]: string | undefined;
@@ -319,7 +318,7 @@ const verifyRejectedAttempt = async function verifyRejectedAttempt(options: {
   let commandFailed = false;
 
   try {
-    await execa(process.execPath, ["-e", options.source], {
+    await runCommand(process.execPath, ["-e", options.source], {
       env: guardedEnvironment(
         options.preloadPath,
         controlSentinel,
@@ -689,7 +688,7 @@ export const materializeStaticInspection =
               ];
 
         try {
-          const result = await execa(command, commandArguments, {
+          const result = await runCommand(command, commandArguments, {
             cwd: resolutionContext,
             env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
               allowedAnalysisProcessEntry: analysisProcessEntryPath,

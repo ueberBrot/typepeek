@@ -1,10 +1,10 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import nodePath from "node:path";
 
-import { execa } from "execa";
 import { countTokens } from "gpt-tokenizer/encoding/o200k_base";
 
 import { requireDefined } from "#typepeek/defined-value";
+import { runCommand } from "#typepeek/process-command";
 
 import { inspectWithCompiler } from "../support/compiler.ts";
 import {
@@ -61,7 +61,7 @@ if (options.dryRun) {
 
 requirePackagedArtifact();
 
-const codexVersionResult = await execa("codex", ["--version"]);
+const codexVersionResult = await runCommand("codex", ["--version"]);
 const version = codexVersionResult.stdout.trim();
 const skill = await readFile("skills/typepeek/SKILL.md", "utf-8");
 
@@ -79,6 +79,7 @@ const harnessFiles = await Promise.all(
     "report.ts",
     "acquisition.ts",
     "capture.ts",
+    "exchange.ts",
     "replay.ts",
   ].map(
     async (file) =>

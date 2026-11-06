@@ -2,7 +2,7 @@ import { existsSync, watch } from "node:fs";
 import { appendFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import nodePath from "node:path";
 
-import { execa } from "execa";
+import { runCommand } from "#typepeek/process-command";
 
 const root = process.env["TYPEPEEK_SBX_FIXTURE_ROOT"];
 
@@ -101,7 +101,7 @@ switch (command) {
       break;
     }
 
-    const result = await execa("sh", ["-c", script], {
+    const result = await runCommand("sh", ["-c", script], {
       cwd: nodePath.join(root, "guests", name),
       reject: false,
       stderr: "inherit",
