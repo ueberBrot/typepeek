@@ -1,5 +1,21 @@
 # typepeek
 
+## 0.5.1
+
+### Patch Changes
+
+- [#77](https://github.com/ueberBrot/typepeek/pull/77) [`3e016e4`](https://github.com/ueberBrot/typepeek/commit/3e016e45d7ad4cdaba7291057c3901d44eafc12b) - Keep benchmark scratch directories writable when TMPDIR points to them.
+
+- [#79](https://github.com/ueberBrot/typepeek/pull/79) [`8301850`](https://github.com/ueberBrot/typepeek/commit/8301850f7e27b897f8a01df2671c7fe5086a42b1) - Reduce CLI startup work by loading selected Effect modules and avoiding repeated declaration and documentation queries.
+
+- [#77](https://github.com/ueberBrot/typepeek/pull/77) [`3e016e4`](https://github.com/ueberBrot/typepeek/commit/3e016e45d7ad4cdaba7291057c3901d44eafc12b) - Run inspections with bounded request, result, diagnostic, and cache channels. Finish worker and compiler-process cleanup before cancellation completes.
+
+- [#77](https://github.com/ueberBrot/typepeek/pull/77) [`3e016e4`](https://github.com/ueberBrot/typepeek/commit/3e016e45d7ad4cdaba7291057c3901d44eafc12b) - Add shell completions and guided command setup, with bounded machine-readable diagnostics and conventional inspection exit codes.
+
+- [#77](https://github.com/ueberBrot/typepeek/pull/77) [`3e016e4`](https://github.com/ueberBrot/typepeek/commit/3e016e45d7ad4cdaba7291057c3901d44eafc12b) - Stop in-flight protocol inspections when the CLI is interrupted, and wait for worker cleanup before exiting.
+
+- [#77](https://github.com/ueberBrot/typepeek/pull/77) [`3e016e4`](https://github.com/ueberBrot/typepeek/commit/3e016e45d7ad4cdaba7291057c3901d44eafc12b) - Run tests and benchmarks in disposable Docker sandboxes with host-managed Codex authentication. Save logs, traces, and results, and clean up sandboxes after completion or interruption.
+
 ## 0.5.0
 
 ### Minor Changes
