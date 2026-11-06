@@ -687,17 +687,28 @@ export const materializeStaticInspection =
                 resolutionContext,
               ];
 
+        const windowsCommandShim =
+          process.platform === "win32" && /\.cmd$/iu.test(command);
+
         try {
-          const result = await runCommand(command, commandArguments, {
-            cwd: resolutionContext,
-            env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
-              allowedAnalysisProcessEntry: analysisProcessEntryPath,
-              allowedCompilerExecutable: compilerExecutableFor(
-                analysisProcessEntryPath
-              ),
-              denyWorkers: true,
-            }),
-          });
+          const result = await runCommand(
+            windowsCommandShim ? `"${command}"` : command,
+            windowsCommandShim
+              ? commandArguments.map((argument) => `"${argument}"`)
+              : commandArguments,
+            {
+              cwd: resolutionContext,
+              env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
+                allowedAnalysisProcessEntry: analysisProcessEntryPath,
+                allowedCompilerExecutable: compilerExecutableFor(
+                  analysisProcessEntryPath
+                ),
+                denyWorkers: true,
+              }),
+              // Windows package-manager shims require Effect's shell option.
+              shell: windowsCommandShim,
+            }
+          );
 
           await verifyNoIo();
 

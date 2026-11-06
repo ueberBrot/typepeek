@@ -428,7 +428,7 @@ export const materializePackagedCliMatrix =
     const sourceCheckout = await realpath(process.cwd());
 
     const fixtureRoot = await mkdtemp(
-      nodePath.join(tmpdir(), "typepeek-packaged-cli-")
+      nodePath.join(tmpdir(), "typepeek packaged cli-")
     );
 
     try {
