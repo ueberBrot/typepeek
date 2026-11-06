@@ -24,10 +24,10 @@ const formatToolOutput = (text: string) =>
       result: {
         intent: "signature-inspection",
         moduleExport: {
-          name: "parseCommandString",
+          name: "clean",
           signatures: [{ kind: "call", text }],
         },
-        specifier: "execa",
+        specifier: "semver",
       },
       status: "success",
     },
@@ -38,18 +38,20 @@ const formatToolOutput = (text: string) =>
 const oracle = {
   declarations: [
     {
-      fact: "call:( command : string ) : string [ ]",
-      text: "export function parseCommandString(command: string): string[];",
+      fact: "call:( version : string , optionsOrLoose ? : boolean | semver . Options ) : string | null",
+      text: "export declare function clean(version: string, optionsOrLoose?: boolean | semver.Options): string | null;",
     },
   ],
   exportDeclarations: [],
-  facts: ["call:( command : string ) : string [ ]"],
+  facts: [
+    "call:( version : string , optionsOrLoose ? : boolean | semver . Options ) : string | null",
+  ],
   schemaVersion: 1,
   workload: {
-    id: "execa-command",
+    id: "semver-clean",
     kind: "signatures",
-    specifier: "execa",
-    target: "parseCommandString",
+    specifier: "semver",
+    target: "clean",
   },
 };
 
@@ -108,7 +110,7 @@ const replay = async function replay(
       tracePath,
       ...(workspace === undefined
         ? ["--oracle", oraclePath]
-        : ["--workspace", workspace, "--case", "execa-command"]),
+        : ["--workspace", workspace, "--case", "semver-clean"]),
       "--output",
       outputPath,
     ]);
@@ -140,13 +142,18 @@ describe("codex-acquisition", () => {
         intent: "export-search",
         matches: [
           {
-            name: "parseCommandString",
-            signatures: [{ kind: "call", text: "(command: string): string[]" }],
+            name: "clean",
+            signatures: [
+              {
+                kind: "call",
+                text: "(version: string, optionsOrLoose?: boolean | semver.Options): string | null",
+              },
+            ],
           },
         ],
         query: "split",
         scope: "documentation",
-        specifier: "execa",
+        specifier: "semver",
       },
       status: "success",
     }),
@@ -155,10 +162,15 @@ describe("codex-acquisition", () => {
         result: {
           intent,
           moduleExport: {
-            name: "parseCommandString",
-            signatures: [{ kind: "call", text: "(command: string): string[]" }],
+            name: "clean",
+            signatures: [
+              {
+                kind: "call",
+                text: "(version: string, optionsOrLoose?: boolean | semver.Options): string | null",
+              },
+            ],
           },
-          specifier: "execa",
+          specifier: "semver",
         },
         status: "success",
       })
@@ -212,7 +224,7 @@ describe("codex-acquisition", () => {
       command(
         3000,
         "read",
-        "export function parseCommandString(command: string): string[];"
+        "export declare function clean(version: string, optionsOrLoose?: boolean | semver.Options): string | null;"
       ),
       command(4000, "extra"),
       command(5000, "extra", "Unnecessary additional reading"),
@@ -227,7 +239,9 @@ describe("codex-acquisition", () => {
 
     expect(result).toMatchObject({
       firstRequestMilliseconds: 1000,
-      matchedFacts: ["call:( command : string ) : string [ ]"],
+      matchedFacts: [
+        "call:( version : string , optionsOrLoose ? : boolean | semver . Options ) : string | null",
+      ],
       missingFacts: [],
       retrievalCalls: 1,
       retrievalSeconds: 2,
@@ -244,7 +258,7 @@ describe("codex-acquisition", () => {
     const workspace = await mkdtemp(nodePath.join(tmpdir(), "codex-oracle-"));
 
     try {
-      const packageRoot = nodePath.join(workspace, "node_modules", "execa");
+      const packageRoot = nodePath.join(workspace, "node_modules", "semver");
       await mkdir(packageRoot, { recursive: true });
       await writeFile(
         nodePath.join(workspace, "package.json"),
@@ -252,11 +266,11 @@ describe("codex-acquisition", () => {
       );
       await writeFile(
         nodePath.join(packageRoot, "package.json"),
-        '{"name":"execa","type":"module","types":"index.d.ts"}'
+        '{"name":"semver","type":"module","types":"index.d.ts"}'
       );
       await writeFile(
         nodePath.join(packageRoot, "index.d.ts"),
-        "export function parseCommandString(command: string): string[];\n"
+        "export declare function clean(version: string, optionsOrLoose?: boolean | semver.Options): string | null;\ndeclare namespace semver { interface Options { readonly loose?: boolean; } }\n"
       );
 
       const result = await replay(
@@ -265,7 +279,7 @@ describe("codex-acquisition", () => {
           command(
             2000,
             "read",
-            "node_modules/execa/index.d.ts:1:export function parseCommandString(command: string): string[];"
+            "node_modules/semver/index.d.ts:1:export declare function clean(version: string, optionsOrLoose?: boolean | semver.Options): string | null;"
           ),
         ],
         undefined,
@@ -290,7 +304,7 @@ describe("codex-acquisition", () => {
         event: {
           item: {
             aggregated_output:
-              "export function parseCommandString(command: string): string[];",
+              "export declare function clean(version: string, optionsOrLoose?: boolean | semver.Options): string | null;",
             exit_code: 0,
             id: "read",
             type: "command_execution",
@@ -304,7 +318,9 @@ describe("codex-acquisition", () => {
 
     expect(result).toMatchObject({
       matchedFacts: [],
-      missingFacts: ["call:( command : string ) : string [ ]"],
+      missingFacts: [
+        "call:( version : string , optionsOrLoose ? : boolean | semver . Options ) : string | null",
+      ],
       retrievalSeconds: null,
       status: "insufficient",
     });
@@ -317,9 +333,9 @@ describe("codex-acquisition", () => {
         2000,
         "read",
         [
-          `node_modules/execa/lib/command.js:4:throw new Error(\`Invalid: \${String(command)}.\`);`,
-          "node_modules/execa/types/command.d.ts:2:Split a `command` string, like `$`.",
-          "node_modules/execa/types/command.d.ts:19:export function parseCommandString(command: string): string[];",
+          `node_modules/semver/lib/command.js:4:throw new Error(\`Invalid: \${String(command)}.\`);`,
+          "node_modules/semver/types/command.d.ts:2:Split a `command` string, like `$`.",
+          "node_modules/semver/types/command.d.ts:19:export declare function clean(version: string, optionsOrLoose?: boolean | semver.Options): string | null;",
         ].join("\n")
       ),
     ]);
@@ -329,13 +345,13 @@ describe("codex-acquisition", () => {
 
   it("preserves contiguous numbered declarations without joining gaps or separate files", async () => {
     await Array.fromAsync(
-      ["", "node_modules/execa/index.d.ts:"],
+      ["", "node_modules/semver/index.d.ts:"],
       async (prefix) => {
         await Array.fromAsync(
           [
             [prefix, 20, "complete"],
             [prefix, 22, "insufficient"],
-            ["node_modules/execa/other.d.ts:", 20, "insufficient"],
+            ["node_modules/semver/other.d.ts:", 20, "insufficient"],
           ] as const,
           async ([lastPrefix, lastLine, status]) => {
             const result = await replay([
@@ -343,7 +359,7 @@ describe("codex-acquisition", () => {
               command(
                 2000,
                 "read",
-                `${prefix}19:export function parseCommandString(\n${lastPrefix}${lastLine}:command: string): string[];`
+                `${prefix}19:export declare function clean(\n${lastPrefix}${lastLine}:version: string, optionsOrLoose?: boolean | semver.Options): string | null;`
               ),
             ]);
 
@@ -384,13 +400,13 @@ describe("codex-acquisition", () => {
           command(
             2000,
             "first",
-            "Output:\nindex.d.ts:19:export function parseCommandString(\n"
+            "Output:\nindex.d.ts:19:export declare function clean(\n"
           ),
           command(3000, "second"),
           command(
             4000,
             "second",
-            `Output:\n${file}:${line}:command: string): string[];\n`
+            `Output:\n${file}:${line}:version: string, optionsOrLoose?: boolean | semver.Options): string | null;\n`
           ),
         ]);
 
@@ -425,7 +441,7 @@ describe("codex-acquisition", () => {
 
   it("rejects missing, duplicated, or cross-turn response provenance instead of crediting its evidence", async () => {
     const evidence =
-      "export function parseCommandString(command: string): string[];";
+      "export declare function clean(version: string, optionsOrLoose?: boolean | semver.Options): string | null;";
 
     await Array.fromAsync(
       [
@@ -486,7 +502,7 @@ describe("codex-acquisition", () => {
 
     expect([result.status, result.evidenceBytes]).toStrictEqual([
       "complete",
-      62,
+      Buffer.byteLength(requireDefined(oracle.declarations[0]).text),
     ]);
 
     const blocks = await replay([
@@ -516,9 +532,7 @@ describe("codex-acquisition", () => {
     const absent = {
       ...oracle,
       declarations: [],
-      exportDeclarations: [
-        "export { parseCommandString } from './command.js';",
-      ],
+      exportDeclarations: ["export { clean } from './command.js';"],
       facts: [],
       workload: { ...oracle.workload, kind: "search", target: "missing" },
     };
@@ -545,9 +559,13 @@ describe("codex-acquisition", () => {
   it("combines declaration and export-index fragments across successive file reads", async () => {
     const declarations = await replay([
       command(1000, "first"),
-      command(2000, "first", "Output:\nexport function parseCommandString("),
+      command(2000, "first", "Output:\nexport declare function clean("),
       command(3000, "second"),
-      command(4000, "second", "Output:\ncommand: string): string[];"),
+      command(
+        4000,
+        "second",
+        "Output:\nversion: string, optionsOrLoose?: boolean | semver.Options): string | null;"
+      ),
     ]);
 
     expect(declarations).toMatchObject({
@@ -629,7 +647,9 @@ describe("codex-acquisition", () => {
     ]);
 
     expect(result).toMatchObject({
-      evidenceBytes: 62,
+      evidenceBytes: Buffer.byteLength(
+        requireDefined(oracle.declarations[0]).text
+      ),
       firstRequestMilliseconds: 3000,
       retrievalCalls: 1,
       retrievalSeconds: 1,
@@ -644,7 +664,7 @@ describe("codex-acquisition", () => {
         ...oracle.declarations,
         {
           fact: "call:( command : readonly string [ ] ) : string [ ]",
-          text: "export function parseCommandString(command: readonly string[]): string[];",
+          text: "export declare function clean(command: readonly string[]): string[];",
         },
       ],
       facts: [
@@ -656,7 +676,13 @@ describe("codex-acquisition", () => {
     const result = await replay(
       [
         command(1000, "first"),
-        command(2000, "first", formatToolOutput("(command: string): string[]")),
+        command(
+          2000,
+          "first",
+          formatToolOutput(
+            "(version: string, optionsOrLoose?: boolean | semver.Options): string | null"
+          )
+        ),
         command(6000, "second"),
         command(
           8000,
@@ -682,7 +708,12 @@ describe("codex-acquisition", () => {
       intent: "signature-inspection",
       moduleExport: {
         name: oracle.workload.target,
-        signatures: [{ kind: "call", text: "(command: string): string[]" }],
+        signatures: [
+          {
+            kind: "call",
+            text: "(version: string, optionsOrLoose?: boolean | semver.Options): string | null",
+          },
+        ],
       },
       specifier: oracle.workload.specifier,
     };
@@ -691,13 +722,13 @@ describe("codex-acquisition", () => {
       ...oracle,
       declarations: [],
       exportDeclarations: [],
-      facts: ["ExecaError"],
+      facts: ["ParseError"],
       workload: { ...oracle.workload, kind: "search", target: "error" },
     };
 
     const search = {
       intent: "export-search",
-      matches: [{ name: "ExecaError" }],
+      matches: [{ name: "ParseError" }],
       query: "error",
       specifier: oracle.workload.specifier,
     };
@@ -750,22 +781,22 @@ describe("codex-acquisition", () => {
       ...oracle,
       declarations: [],
       exportDeclarations: [],
-      facts: ["ExecaError"],
+      facts: ["ParseError"],
       workload: { ...oracle.workload, kind: "search", target: "error" },
     };
 
     await Array.fromAsync([false, true], async (plan) => {
       await Array.fromAsync(
         [
-          ["ERROR", "execa", "complete"],
-          ["Error", "execa", "complete"],
-          ["failure", "execa", "insufficient"],
-          ["error", "EXECA", "insufficient"],
+          ["ERROR", "semver", "complete"],
+          ["Error", "semver", "complete"],
+          ["failure", "semver", "insufficient"],
+          ["error", "SEMVER", "insufficient"],
         ],
         async ([query, specifier, status]) => {
           const inspection = {
             intent: "export-search",
-            matches: [{ name: "ExecaError" }],
+            matches: [{ name: "ParseError" }],
             query,
             specifier,
           };
@@ -931,7 +962,7 @@ describe("codex-acquisition", () => {
         [
           "benchmarks/codex-discovery/run.ts",
           "--cases",
-          "execa-command",
+          "semver-clean",
           "--models",
           "gpt-5.6-luna",
           "--efforts",
@@ -1049,7 +1080,7 @@ describe("codex-acquisition", () => {
           [
             "benchmarks/codex-discovery/run.ts",
             "--cases",
-            "execa-command",
+            "semver-clean",
             "--models",
             "gpt-5.6-luna",
             "--efforts",

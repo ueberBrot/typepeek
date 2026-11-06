@@ -19,6 +19,7 @@ import {
 
 const PACKAGED_CLI_PATH = "dist/cli.js";
 const PACKAGE_MANIFEST_FILE = "package.json";
+const SIGNATURE_PACKAGE = "array-signatures";
 
 await assertRepositoryProfilingExcluded("dist");
 
@@ -131,9 +132,9 @@ const protocolCli = await runCommand(
       intent: "signature-inspection",
       protocolVersion: "1",
       request: {
-        exportName: "execa",
+        exportName: "parse",
         resolutionContext: process.cwd(),
-        specifier: "execa",
+        specifier: "semver",
       },
       response: { signatureEvidence: "both" },
     }),
@@ -156,34 +157,39 @@ assert.equal(
   "1"
 );
 
-const execaSignatures = decodeJson(
-  Schema.Struct({
-    outcome: Schema.Struct({
-      result: Schema.Struct({
-        moduleExport: Schema.Struct({
-          signatures: Schema.Array(
-            Schema.Struct({
-              parameters: Schema.Array(Schema.Struct({ type: Schema.String })),
-              text: Schema.String,
-            })
-          ),
-        }),
+const signatureResponseSchema = Schema.Struct({
+  outcome: Schema.Struct({
+    result: Schema.Struct({
+      moduleExport: Schema.Struct({
+        signatures: Schema.Array(
+          Schema.Struct({
+            parameters: Schema.Array(Schema.Struct({ type: Schema.String })),
+            text: Schema.String,
+          })
+        ),
       }),
     }),
   }),
-  protocolCli.stdout
-).outcome.result.moduleExport.signatures;
+});
 
-assert.equal(execaSignatures[2]?.parameters[0]?.type, "string | URL");
+const parseSignatures = decodeJson(signatureResponseSchema, protocolCli.stdout)
+  .outcome.result.moduleExport.signatures;
+
+assert.equal(parseSignatures.length, 3);
 
 assert.equal(
-  execaSignatures[1]?.parameters[0]?.type,
-  "readonly [TemplateStringsArray, ...TemplateExpression[]]"
+  parseSignatures[0]?.parameters[0]?.type,
+  "string | SemVer | null | undefined"
 );
 
 assert.equal(
-  execaSignatures[1]?.text,
-  "(templateString_0: TemplateStringsArray, ...templateString: TemplateExpression[]): ResultPromise<{}>"
+  parseSignatures[1]?.parameters[1]?.type,
+  "boolean | semver.Options"
+);
+
+assert.equal(
+  parseSignatures[1]?.text,
+  "(version: string | SemVer | null | undefined, optionsOrLoose: boolean | semver.Options, throwErrors: true): SemVer"
 );
 
 await assertArtifactCacheReuse(PACKAGED_CLI_PATH);
@@ -196,7 +202,7 @@ try {
   const installedPackage = nodePath.join(
     signatureConsumer,
     "node_modules",
-    "array-signatures"
+    SIGNATURE_PACKAGE
   );
 
   await mkdir(installedPackage, { recursive: true });
@@ -206,11 +212,20 @@ try {
   );
   await writeFile(
     nodePath.join(installedPackage, PACKAGE_MANIFEST_FILE),
-    '{"name":"array-signatures","version":"1.0.0","types":"index.d.ts"}'
+    JSON.stringify({
+      name: SIGNATURE_PACKAGE,
+      types: "index.d.ts",
+      version: "1.0.0",
+    })
   );
   await writeFile(
     nodePath.join(installedPackage, "index.d.ts"),
-    "export declare function split(command: string): string[];\n"
+    [
+      "export declare function split(command: string): string[];",
+      "type TemplateExpression = string | number;",
+      "type TemplateString = readonly [TemplateStringsArray, ...readonly TemplateExpression[]];",
+      "export declare const tag: (...templateString: TemplateString) => Promise<string>;",
+    ].join("\n")
   );
 
   const signatures = await runCommand(
@@ -218,7 +233,7 @@ try {
     [
       nodePath.resolve(PACKAGED_CLI_PATH),
       "signatures",
-      "array-signatures",
+      SIGNATURE_PACKAGE,
       "split",
       "--workspace",
       signatureConsumer,
@@ -263,6 +278,35 @@ try {
   assert.equal(
     outcome.result.moduleExport.signatures[0]?.returns.type,
     "string[]"
+  );
+
+  const template = await runCommand(
+    process.execPath,
+    [nodePath.resolve(PACKAGED_CLI_PATH), "protocol"],
+    {
+      input: JSON.stringify({
+        intent: "signature-inspection",
+        protocolVersion: "1",
+        request: {
+          exportName: "tag",
+          resolutionContext: signatureConsumer,
+          specifier: SIGNATURE_PACKAGE,
+        },
+        response: { signatureEvidence: "both" },
+      }),
+    }
+  );
+
+  const [signature] = decodeJson(signatureResponseSchema, template.stdout)
+    .outcome.result.moduleExport.signatures;
+
+  assert.equal(
+    signature?.parameters[0]?.type,
+    "readonly [TemplateStringsArray, ...TemplateExpression[]]"
+  );
+  assert.equal(
+    signature?.text,
+    "(templateString_0: TemplateStringsArray, ...templateString: TemplateExpression[]): Promise<string>"
   );
 } finally {
   await rm(signatureConsumer, { force: true, recursive: true });

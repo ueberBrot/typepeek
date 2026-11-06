@@ -32,9 +32,9 @@ try {
     const oracle = inspectWithCompiler(workspace, workload);
     const before = evidenceFingerprint(workspace, oracle.files);
 
-    if (workload.id === "execa-command") {
+    if (workload.id === "semver-clean") {
       assert.deepEqual(oracle.facts, [
-        "call:( command : string ) : string [ ]",
+        "call:( version : string , optionsOrLoose ? : boolean | semver . Options ) : string | null",
       ]);
     }
 

@@ -1,15 +1,3 @@
-import type { buildRouteMap } from "@stricli/core";
-import type { execa, getCancelSignal, parseCommandString } from "execa";
-
-interface SignatureSubjects {
-  readonly execa: {
-    readonly execa: typeof execa;
-    readonly getCancelSignal: typeof getCancelSignal;
-    readonly parseCommandString: typeof parseCommandString;
-  };
-  readonly "@stricli/core": { readonly buildRouteMap: typeof buildRouteMap };
-}
-
 export interface DiscoveryWorkload {
   readonly id: string;
   readonly question: string;
@@ -22,44 +10,42 @@ export interface DiscoveryWorkload {
 const DISCOVERY_WORKLOADS: readonly DiscoveryWorkload[] = [
   {
     expectedCount: 1,
-    id: "execa-command",
+    id: "semver-clean",
     kind: "signatures",
-    question:
-      "Find every public call signature of Execa's parseCommandString export.",
-    specifier: "execa",
-    target: "parseCommandString" satisfies keyof SignatureSubjects["execa"],
+    question: "Find every public call signature of semver's clean export.",
+    specifier: "semver",
+    target: "clean",
   },
   {
     expectedCount: 1,
-    id: "execa-cancellation",
+    id: "node-aborted",
+    kind: "signatures",
+    question: "Find every public call signature of node:util aborted.",
+    specifier: "node:util",
+    target: "aborted",
+  },
+  {
+    id: "semver-parse",
     kind: "signatures",
     question:
-      "Find every public call signature of Execa's getCancelSignal export.",
-    specifier: "execa",
-    target: "getCancelSignal" satisfies keyof SignatureSubjects["execa"],
+      "Find every public call signature of the installed semver parse export.",
+    specifier: "semver",
+    target: "parse",
   },
   {
-    id: "execa-invocation",
-    kind: "signatures",
-    question: "Find every public call signature of the installed execa export.",
-    specifier: "execa",
-    target: "execa" satisfies keyof SignatureSubjects["execa"],
-  },
-  {
-    expectedCount: 2,
-    id: "execa-errors",
+    id: "effect-errors",
     kind: "search",
     question:
-      "Find all public Execa export names containing error, ignoring case.",
-    specifier: "execa",
+      "Find all public effect/Cause export names containing error, ignoring case.",
+    specifier: "effect/Cause",
     target: "error",
   },
   {
     expectedCount: 0,
-    id: "execa-absent",
+    id: "semver-absent",
     kind: "search",
-    question: "Does Execa export a name containing __typepeek_absent__?",
-    specifier: "execa",
+    question: "Does semver export a name containing __typepeek_absent__?",
+    specifier: "semver",
     target: "__typepeek_absent__",
   },
   {
@@ -87,13 +73,13 @@ const DISCOVERY_WORKLOADS: readonly DiscoveryWorkload[] = [
     target: "getOrNull",
   },
   {
-    expectedCount: 1,
-    id: "stricli-routes",
+    expectedCount: 2,
+    id: "effect-map",
     kind: "signatures",
     question:
-      "Find every public call signature of @stricli/core buildRouteMap, including its generic parameters.",
-    specifier: "@stricli/core",
-    target: "buildRouteMap" satisfies keyof SignatureSubjects["@stricli/core"],
+      "Find every public call signature of effect/Option map, including its generic parameters.",
+    specifier: "effect/Option",
+    target: "map",
   },
   {
     id: "tsrs-filesystem",

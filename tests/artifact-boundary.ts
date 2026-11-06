@@ -9,7 +9,7 @@ import { requireDefined } from "#typepeek/defined-value";
 import { decodeJson } from "#typepeek/json-data";
 import { runCommand } from "#typepeek/process-command";
 
-const SMOKE_PACKAGE = "@stricli/core";
+const SMOKE_PACKAGE = "semver";
 
 export const assertArtifactVersion = async (
   cliPath: string,
@@ -43,7 +43,7 @@ registerHooks({ resolve(specifier, context, nextResolve) {
         cliPath,
         "signatures",
         SMOKE_PACKAGE,
-        "buildRouteMap",
+        "parse",
         "--json",
       ],
       {
@@ -80,7 +80,7 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 
     const result = await runCommand(
       process.execPath,
-      [cliPath, "signatures", SMOKE_PACKAGE, "buildRouteMap", "--json"],
+      [cliPath, "signatures", SMOKE_PACKAGE, "parse", "--json"],
       {
         env: {
           ...process.env,
@@ -204,7 +204,7 @@ export const assertArtifactCacheReuse = async function assertArtifactCacheReuse(
     [
       ["overview", SMOKE_PACKAGE],
       ["signatures", "effect/Option", "getOrNull"],
-      ["signatures", "execa", "execa"],
+      ["signatures", "semver", "parse"],
       ["signatures", "node:fs", "readFile"],
     ],
     async (cliArguments) => {

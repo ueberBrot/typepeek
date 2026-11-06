@@ -12,7 +12,7 @@ import {
 import { match } from "./helpers/matchers.ts";
 
 const options: CodexOptions = {
-  cases: ["execa-command"],
+  cases: ["semver-clean"],
   conditions: ["files", "typepeek", "typepeek-skill"],
   deadlineSeconds: 120,
   dryRun: false,
@@ -71,7 +71,7 @@ const attempt = function attempt(
     promptHash: "prompt",
     repeat: 0,
     seconds,
-    task: "execa-command",
+    task: "semver-clean",
     telemetry: codexTelemetry(
       JSON.stringify({
         type: "turn.completed",

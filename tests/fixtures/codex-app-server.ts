@@ -155,7 +155,7 @@ const handleRequest = (request: typeof requestSchema.Type): void => {
       params: {
         item: {
           aggregatedOutput:
-            "export function parseCommandString(command: string): string[];",
+            "export declare function clean(version: string, optionsOrLoose?: boolean | semver.Options): string | null;",
           command: "read declaration",
           durationMs: 10,
           exitCode: 0,
@@ -170,7 +170,7 @@ const handleRequest = (request: typeof requestSchema.Type): void => {
       raw({
         call_id: "read",
         output:
-          "export function parseCommandString(command: string): string[];",
+          "export declare function clean(version: string, optionsOrLoose?: boolean | semver.Options): string | null;",
         type: "function_call_output",
       });
     }, 20);

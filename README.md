@@ -10,14 +10,14 @@ Requires Node.js 24.22.1 or later within the Node.js 24 release line and a `node
 
 ## Quick start
 
-Install Typepeek in a project that already contains the dependency you want to inspect. These examples use `execa`:
+Install Typepeek in a project that already contains the dependency you want to inspect. These examples use `semver`:
 
 ```bash
 npm install --save-dev typepeek
-npx typepeek overview execa
-npx typepeek search execa error
-npx typepeek discover execa split --json
-npx typepeek signatures execa execa --json
+npx typepeek overview semver
+npx typepeek search semver parse
+npx typepeek discover semver version --json
+npx typepeek signatures semver parse --json
 ```
 
 Use `--json` for structured output and `--workspace packages/api` to select a workspace. Run `npx typepeek --help` for all commands, or see the [usage guide](docs/usage.md).

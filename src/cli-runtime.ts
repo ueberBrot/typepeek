@@ -477,7 +477,7 @@ const signaturesCommand = Command.make(
     )
 ).pipe(
   Command.withDescription(
-    "Show every public call and construct signature of an export. Example: typepeek signatures execa execa --json emits structured type parameters, parameters, and return semantics."
+    "Show every public call and construct signature of an export. Example: typepeek signatures semver parse --json emits structured type parameters, parameters, and return semantics."
   )
 );
 

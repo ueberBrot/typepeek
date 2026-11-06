@@ -8,6 +8,7 @@ import {
   comparePublicInterfaces,
   inspectCapabilities,
   inspectExport,
+  inspectExportSignatures,
   inspectionCapabilitiesSchema,
   invokeInspectionProtocol,
 } from "#typepeek/inspection";
@@ -136,8 +137,8 @@ describe("inspection-protocol-adapter", () => {
           { intent: "export-search", query: "split", scope: "documentation" },
           { intent: "export-search", query: "split" },
         ],
-        resolutionContext: process.cwd(),
-        specifier: "execa",
+        resolutionContext: fixture.resolutionContext,
+        specifier: "@typepeek-fixture/command-signatures",
       },
     });
 
@@ -148,7 +149,7 @@ describe("inspection-protocol-adapter", () => {
             {
               matches: match.arrayContaining([
                 {
-                  name: "parseCommandString",
+                  name: "parseCommand",
                   packageDocumentation: match.objectContaining({
                     trust: "untrusted",
                   }),
@@ -194,9 +195,9 @@ describe("inspection-protocol-adapter", () => {
       protocolVersion: "1",
       request: {
         query: "split",
-        resolutionContext: process.cwd(),
+        resolutionContext: fixture.resolutionContext,
         scope: "documentation",
-        specifier: "execa",
+        specifier: "@typepeek-fixture/command-signatures",
       },
     });
 
@@ -205,7 +206,7 @@ describe("inspection-protocol-adapter", () => {
         result: {
           matches: match.arrayContaining([
             match.objectContaining({
-              name: "execa",
+              name: "templateCommand",
               signatures: match.arrayContaining([
                 {
                   kind: "call",
@@ -220,15 +221,44 @@ describe("inspection-protocol-adapter", () => {
     });
   });
 
+  it("preserves the effective generic default of a selected constructor signature", async () => {
+    const outcome = await inspectExportSignatures({
+      exportName: "CommandFailure",
+      resolutionContext: fixture.resolutionContext,
+      specifier: "@typepeek-fixture/command-signatures",
+    });
+
+    expect(outcome).toMatchObject({
+      result: {
+        moduleExport: {
+          signatures: [
+            {
+              kind: "construct",
+              text: "new <OptionsType extends Options = Options>(): CommandFailure<OptionsType>",
+              typeParameters: [
+                {
+                  constraint: "Options",
+                  default: "Options",
+                  name: "OptionsType",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      status: "success",
+    });
+  });
+
   it("returns marked documentation excerpts instead of entire usage guides", async () => {
     const response = await invokeInspectionProtocol({
       intent: "export-search",
       protocolVersion: "1",
       request: {
         query: "split",
-        resolutionContext: process.cwd(),
+        resolutionContext: fixture.resolutionContext,
         scope: "documentation",
-        specifier: "execa",
+        specifier: "@typepeek-fixture/command-signatures",
       },
     });
 
@@ -241,7 +271,7 @@ describe("inspection-protocol-adapter", () => {
           result: match.objectContaining({
             matches: match.arrayContaining([
               match.objectContaining({
-                name: "parseCommandString",
+                name: "parseCommand",
                 packageDocumentation: match.objectContaining({
                   excerpt: true,
                   trust: "untrusted",
@@ -637,8 +667,8 @@ describe("inspection-protocol-adapter", () => {
         intent: "interface-overview",
         protocolVersion: INSPECTION_PROTOCOL_VERSION,
         request: {
-          resolutionContext: process.cwd(),
-          specifier: "execa",
+          resolutionContext: fixture.resolutionContext,
+          specifier: "@typepeek-fixture/command-signatures",
         },
         ...Object.fromEntries([["response", undefined]]),
       })

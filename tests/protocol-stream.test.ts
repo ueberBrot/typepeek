@@ -23,7 +23,7 @@ describe("protocol-stream", () => {
         protocolVersion: "1",
         request: {
           resolutionContext: process.cwd(),
-          specifier: "@stricli/core",
+          specifier: "semver",
         },
       },
     ];

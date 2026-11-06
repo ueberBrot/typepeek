@@ -51,8 +51,8 @@ const cli = await runCommand(
   [
     BUILT_CLI_PATH,
     "signatures",
-    "execa",
-    "execa",
+    "semver",
+    "parse",
     "--workspace",
     ".",
     "--json",
@@ -95,13 +95,13 @@ assert.equal(cliOutcome.status, "success");
 
 assert.equal(cliOutcome.result.intent, "signature-inspection");
 
-assert.equal(cliOutcome.result.moduleExport.name, "execa");
+assert.equal(cliOutcome.result.moduleExport.name, "parse");
 
-assert.equal(cliOutcome.result.moduleExport.signatures.length, 4);
+assert.equal(cliOutcome.result.moduleExport.signatures.length, 3);
 
 assert.match(
   cliOutcome.result.moduleExport.signatures[0]?.text ?? "",
-  /^<NewOptionsType/u
+  /^\(version\?: string \| SemVer \| null\)/u
 );
 
 const protocolCli = await runCommand(
@@ -112,9 +112,9 @@ const protocolCli = await runCommand(
       intent: "signature-inspection",
       protocolVersion: "1",
       request: {
-        exportName: "execa",
+        exportName: "parse",
         resolutionContext: nodePath.resolve("."),
-        specifier: "execa",
+        specifier: "semver",
       },
     }),
     reject: false,

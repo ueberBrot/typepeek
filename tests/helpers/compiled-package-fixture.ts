@@ -91,6 +91,27 @@ const detailedWideSignatureParts6 = Array.from(
 
 const PACKAGE_SOURCES: readonly PackageSource[] = [
   {
+    declaration: [
+      `/** Split a command into words. This documentation deliberately contains a long usage guide so searches return bounded excerpts rather than the entire guide. ${"Use whitespace to separate arguments. ".repeat(
+        100
+      )}*/`,
+      "export declare function parseCommand(command: string): string[];",
+      "type TemplateExpression = string | number;",
+      "type TemplateString = readonly [TemplateStringsArray, ...readonly TemplateExpression[]];",
+      "interface Options { readonly quiet?: boolean; }",
+      "type ResultPromise<O> = Promise<{ readonly options: O }>;",
+      "type TemplateMethod<O extends Options> = (...templateString: TemplateString) => ResultPromise<O>;",
+      "/** Split a template command while preserving its expression types. */",
+      "export declare const templateCommand: TemplateMethod<{}>;",
+      "export declare class CommandFailure<OptionsType extends Options = Options> extends Error { constructor(); }",
+    ].join("\n"),
+    directory: "command-signatures-package",
+    name: "@typepeek-fixture/command-signatures",
+    runtime:
+      'throw new Error("Typepeek executed the command-signature fixture.");',
+    version: "1.0.0",
+  },
+  {
     additionalDeclarations: {
       "patterns/red.d.ts": "export declare const red: string;\n",
     },
