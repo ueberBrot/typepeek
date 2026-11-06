@@ -22,6 +22,16 @@ if (!Predicate.isReadonlyObject(presetImportOrder)) {
 
 const documentationAndQuality = selectJsPlugins(["github", "sonarjs", "tsdoc"]);
 
+const testFileQualityRules = documentationAndQuality.overrides?.[0]?.rules;
+const testFileAssertionRules = ultraciteVitest.overrides?.[0]?.rules;
+
+if (
+  testFileQualityRules === undefined ||
+  testFileAssertionRules === undefined
+) {
+  throw new Error("Ultracite must provide test quality and assertion rules.");
+}
+
 const packageManifest = decodeJson(
   Schema.Struct({
     version: Schema.mutableKey(Schema.String),
@@ -137,10 +147,30 @@ export default defineConfig({
       typeAware: true,
       typeCheck: false,
     },
-    // Register the Effect adapters as test blocks so assertion rules also cover them.
     overrides: [
       {
-        files: ["**/*.{test,spec}.{ts,tsx,js,jsx,mts,cts,mjs,cjs}"],
+        // Imported suites share their owner's fixture and are not discovery roots.
+        files: ["**/*.test.suite.ts"],
+        plugins: ["vitest"],
+        rules: {
+          ...testFileQualityRules,
+          ...testFileAssertionRules,
+          "github/filenames-match-regex": [
+            "error",
+            "^[a-z0-9-]+\\.test\\.suite$",
+          ],
+          "vitest/consistent-test-filename": [
+            "error",
+            { pattern: ".*\\.test(?:\\.suite)?\\.[tj]sx?$" },
+          ],
+        },
+      },
+      {
+        // Register the Effect adapters as test blocks so assertion rules also cover them.
+        files: [
+          "**/*.{test,spec}.{ts,tsx,js,jsx,mts,cts,mjs,cjs}",
+          "**/*.test.suite.ts",
+        ],
         rules: {
           "vitest/expect-expect": [
             "error",
