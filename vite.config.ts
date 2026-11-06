@@ -51,6 +51,31 @@ const releaseProfileAdapter = fileURLToPath(
   new URL("src/inspection/performance-profile-disabled.ts", import.meta.url)
 );
 
+const effectBarrel = fileURLToPath(import.meta.resolve("effect")).replaceAll(
+  "\\",
+  "/"
+);
+
+// Tree-shake the barrel while keeping the selected public modules external.
+const effectSubpathImports = {
+  name: "effect-subpath-imports",
+  resolveId(specifier: string, importer: string | undefined) {
+    if (
+      importer?.replaceAll("\\", "/") === effectBarrel &&
+      specifier.startsWith("./") &&
+      specifier.endsWith(".js")
+    ) {
+      return {
+        external: true,
+        id: `effect/${specifier.slice(2, -3)}`,
+        moduleSideEffects: false,
+      };
+    }
+
+    return null;
+  },
+};
+
 // Explicit inputs avoid tracing conflicts with the native checker subprocesses.
 const validationInputs = [
   "src/**",
@@ -92,7 +117,7 @@ export default defineConfig({
     rolldownOptions: {
       external: [
         /^node:/u,
-        /^effect(?:\/|$)/u,
+        /^effect\//u,
         /^@effect\/platform-node-shared(?:\/|$)/u,
         /^tsrs(?:\/|$)/u,
         "semver",
@@ -208,6 +233,8 @@ export default defineConfig({
     define: packageVersionDefine,
     // Keep SDK subpath imports external and resolvable in installed consumers.
     deps: {
+      alwaysBundle: /^effect$/u,
+      onlyBundle: ["effect"],
       resolveDepSubpath: true,
     },
     // This package exposes CLI binaries; validation checks types separately.
@@ -220,6 +247,7 @@ export default defineConfig({
     }),
     outputOptions: { manualChunks: inspectionCoreChunk },
     platform: "node",
+    plugins: [effectSubpathImports],
     publint: {
       level: "error",
       strict: true,
@@ -229,6 +257,7 @@ export default defineConfig({
       level: "error",
     },
   },
+  plugins: [{ ...effectSubpathImports, enforce: "pre" }],
   // Packaged builds disable phase tracing.
   resolve: {
     alias: {
@@ -240,6 +269,10 @@ export default defineConfig({
       benchmark: {
         cache: false,
         command: "node benchmarks/codex-discovery/run.ts",
+      },
+      "benchmark:matrix": {
+        cache: false,
+        command: "node benchmarks/codex-discovery/matrix.ts",
       },
       "benchmark:smoke": {
         cache: false,

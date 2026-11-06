@@ -31,6 +31,7 @@ import {
   gradeCodexExecution,
   selectCodexScenarios,
 } from "./scenarios.ts";
+import { measureTaskTiming } from "./task-timing.ts";
 import { codexTelemetry } from "./telemetry.ts";
 
 const options = readCodexOptions();
@@ -83,6 +84,8 @@ const harnessFiles = await Promise.all(
     "capture.ts",
     "exchange.ts",
     "replay.ts",
+    "comparison-matrix.ts",
+    "task-timing.ts",
   ].map(
     async (file) =>
       await readFile(nodePath.join("benchmarks/codex-discovery", file), "utf-8")
@@ -340,6 +343,7 @@ const runStudy = async function runStudy(): Promise<void> {
       task: plan.scenario.workload.id,
       telemetry,
       timedOut: result.timedOut,
+      timing: measureTaskTiming(result.events),
       wholeRunError: result.error,
     };
 

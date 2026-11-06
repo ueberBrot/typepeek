@@ -33,7 +33,7 @@ export const registerAcquisitionCampaignTests =
             "--cases",
             "semver-clean",
             "--models",
-            "gpt-5.6-luna",
+            "gpt-6-luna",
             "--efforts",
             "low",
             "--repeats",
@@ -50,7 +50,7 @@ export const registerAcquisitionCampaignTests =
         );
 
         expect([study.schemaVersion, study.attempts.length]).toStrictEqual([
-          4, 2,
+          5, 2,
         ]);
 
         for (const attempt of study.attempts) {
@@ -153,7 +153,7 @@ export const registerAcquisitionCampaignTests =
               "--cases",
               "semver-clean",
               "--models",
-              "gpt-5.6-luna",
+              "gpt-6-luna",
               "--efforts",
               "low",
               "--conditions",

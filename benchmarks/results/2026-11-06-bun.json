@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "kind": "runtime-feasibility-probe",
+  "recordedAt": "2026-11-06",
+  "bunVersion": "1.4.4",
+  "nodeVersion": "v24.22.2",
+  "platform": "linux",
+  "architecture": "x64",
+  "notes": [
+    "Compatibility probes only; these are not performance measurements.",
+    "No production runtime change. The generated executable and raw logs remain local.",
+    "AOT and bytecode builds were not tested."
+  ],
+  "runtime": [
+    {
+      "args": ["--help"],
+      "exitCode": 0
+    },
+    {
+      "args": ["capabilities", "--json"],
+      "exitCode": 0
+    },
+    {
+      "args": ["signatures", "semver", "clean", "--json"],
+      "exitCode": 130,
+      "error": "spawnSync bun ETIMEDOUT"
+    }
+  ],
+  "executable": {
+    "command": "bun build --compile dist/cli.js --outfile typepeek-probe",
+    "buildSucceeded": true,
+    "bytes": 109959344,
+    "results": [
+      {
+        "location": "repository",
+        "exitCode": 0
+      },
+      {
+        "location": "standalone",
+        "exitCode": 1,
+        "stderr": "error: Cannot find module 'tsrs/package.json' from '/$bunfs/root/typepeek-probe'\n\nBun v1.4.4 (Linux x64)\n"
+      }
+    ]
+  },
+  "nodeControl": {
+    "args": ["signatures", "semver", "clean", "--json"],
+    "exitCode": 0,
+    "inspectionStatus": "success"
+  },
+  "sourceHashes": {
+    "runtime-smoke.json": "0237990ba9c3154855538fa4b568189905b771d05fbda6ab73c5fb5735670c1b",
+    "executable-smoke.json": "137bc6d19296bb9c7a6457cff5ac2873efd31bee65373d8f9ab11e12a79a89cf",
+    "node-control.json": "32abb3df0c8d35e8e8c3ca3951a0693e52d7aa7dc756f9e3f2b1e3f56cee5228"
+  }
+}

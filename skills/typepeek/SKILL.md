@@ -9,12 +9,12 @@ Run the repository-local `typepeek` from the consuming workspace. Preserve the e
 
 ## Retrieve the evidence
 
-- **Known export:** run `typepeek signatures <specifier> <export> --json` for call/construct signatures, or `declarations` for its declaration. A remembered name is a lookup candidate; verify it against installed evidence.
-- **Behaviour known, name unknown:** run `typepeek discover <specifier> '<distinctive phrase>' --json`. This matches a case-insensitive substring in names or attached documentation and returns complete signatures with each match. Choose a short phrase likely to appear in package documentation, not the entire question.
+- **Plausible export name:** start with `typepeek signatures <specifier> <export> --json`, even when the name comes from memory. Verify the candidate against installed evidence. Use `declarations` for a declaration question.
+- **Name unknown:** start with `typepeek discover <specifier> '<keyword>' --json` using a distinctive word from the question. Matching uses literal, case-insensitive substrings in names and attached documentation, returning complete signatures. Longer phrases work when you know the installed wording.
 - **Name fragment known:** use `typepeek search <specifier> <fragment> --json`. This mode searches names only. If empty, switch to `discover` or browse `overview`; repeated synonyms are unlikely to help a name-only search.
 - **No useful phrase:** use `typepeek overview <specifier> --json`, then inspect the selected export.
 
-For signature questions, stop once the selected result contains every overload needed. Use `export` only when documentation and supporting types are also needed. Reuse retrieved evidence; request another inspection only for an unanswered part.
+For signature questions, finish after a successful inspection of the selected export, copying every signature's `text` field. Use `export` when documentation and supporting types are also needed. Batch several known queries on one module with `plan`.
 
 ## Interpret the result
 

@@ -32,7 +32,7 @@ export const registerAcquisitionCaptureTests =
           JSON.stringify({
             configArguments: [],
             effort: "low",
-            model: "gpt-5.6-luna",
+            model: "gpt-6-luna",
             prompt: "fixture",
             timeoutMilliseconds: 5000,
             workspace: directory,
@@ -98,7 +98,7 @@ export const registerAcquisitionCaptureTests =
           JSON.stringify({
             configArguments: [],
             effort: "low",
-            model: "gpt-5.6-luna",
+            model: "gpt-6-luna",
             prompt: "fixture",
             timeoutMilliseconds: 5000,
             workspace: directory,

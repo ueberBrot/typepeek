@@ -1,0 +1,504 @@
+{
+  "schemaVersion": 1,
+  "kind": "paired-packaged-cli-runtime",
+  "date": "2026-11-06",
+  "modelCalls": 0,
+  "cliOutputChanged": false,
+  "notes": [
+    "Both versions use the same locked dependencies and run in fresh TanStack Docker sandboxes. Each pair alternates execution order; one warmup pair per case is excluded.",
+    "Bypass disables the inspection result cache. Cached runs reuse separately warmed result caches. Node compile caches are warm in both conditions.",
+    "Times include CLI startup and command completion. Output is byte-identical between versions; these runs do not measure model token usage or complete agent tasks.",
+    "Overview uses means across the five agent benchmark tasks. Confidence intervals use 10,000 paired-repetition bootstrap samples and are exploratory.",
+    "The initial run overlapped the host regression suite. Confirmation repeats the two noisy uncached cases after that suite finished."
+  ],
+  "initial": {
+    "startedAt": "2026-11-06T19:29:56.912Z",
+    "finishedAt": "2026-11-06T19:34:30.374Z",
+    "sourceSnapshotHash": "e59d26deca0aa6796bbc895b939759025cf427883000870bd542f484edd37515",
+    "lockHash": "ad2f8a3d1d8370e66c67ca2316b64d9ab77b7ff12eba42689b571fbb15c496c3",
+    "compileCache": "warmed",
+    "benchmarkHash": "b33363358c3a98568695010fd420d347fe0b5c198f2d5094e5ef42db2b4a8af9",
+    "rawResultHash": "432908b5083902d980061c2ca9fcf4e7e2724745fbd5edc2248235546c3aa1ed",
+    "baselineArtifactHash": "1aacbdce8357596be937af97701b187d05fb119346b024d0faeb9d6ae7b67dc7",
+    "optimizedArtifactHash": "7879539a548ef406ebd5f74a18efcf71e16788b1c1fc2f61b8f847c59e0f31d8",
+    "environment": {
+      "node": "v24.22.2",
+      "platform": "linux",
+      "arch": "x64",
+      "kernel": "7.0.14",
+      "cpu": "AMD Ryzen 7 7800X3D 8-Core Processor",
+      "sandboxCpus": 2,
+      "sandboxMemory": "4g"
+    },
+    "repeats": 7,
+    "cases": [
+      {
+        "id": "startup",
+        "mode": "bypass",
+        "args": ["--help"],
+        "stdout": {
+          "sha256": "33de3dc28756a3190bb065cc05d1568eb8308378694577b1f8dbbcd70eecef30",
+          "bytes": 3734,
+          "tokens": 712
+        },
+        "beforeMeanSeconds": 0.3651790714285702,
+        "afterMeanSeconds": 0.27595485714286044,
+        "timeSavedPercent": 24.43300322131472,
+        "timeSavedPercent95Ci": [17.516198179291166, 31.000799011926063],
+        "beforeMedianSeconds": 0.35403669999999693,
+        "afterMedianSeconds": 0.278912900000003,
+        "pairs": [
+          [0.35103740000000105, 0.278912900000003],
+          [0.3578877999999968, 0.2645410999999949],
+          [0.36272220000000377, 0.2506949000000022],
+          [0.35403669999999693, 0.3],
+          [0.33466710000000605, 0.2867057000000059],
+          [0.27763359999997195, 0.23051680000001215],
+          [0.5182687000000151, 0.3203126000000048]
+        ]
+      },
+      {
+        "id": "semver-clean",
+        "mode": "bypass",
+        "args": ["signatures", "semver", "clean", "--json"],
+        "stdout": {
+          "sha256": "4106d65f65ba6c4aafb8bb4fb34f04c8fd37e7df9a0b091486e6fdc1b17c9c36",
+          "bytes": 747,
+          "tokens": 186
+        },
+        "beforeMeanSeconds": 1.0712357428571444,
+        "afterMeanSeconds": 0.9534583857142834,
+        "timeSavedPercent": 10.994532055916217,
+        "timeSavedPercent95Ci": [5.864815780801846, 15.786806560602606],
+        "beforeMedianSeconds": 1.0466196000000054,
+        "afterMedianSeconds": 0.9766171000000031,
+        "pairs": [
+          [1.039081299999998, 1.0070949999999976],
+          [1.2498591000000014, 0.9766171000000031],
+          [1.0466196000000054, 0.9448898999999946],
+          [1.0983869000000122, 0.929546399999992],
+          [0.9892974000000104, 0.9771183999999921],
+          [0.9370235999999859, 0.8323538000000117],
+          [1.1383822999999975, 1.0065880999999937]
+        ]
+      },
+      {
+        "id": "node-exists",
+        "mode": "bypass",
+        "args": ["signatures", "node:fs", "existsSync", "--json"],
+        "stdout": {
+          "sha256": "a279ebef77b1e53030624d73935fc3e0803a2343d61842b89a1bc3118805086d",
+          "bytes": 491,
+          "tokens": 122
+        },
+        "beforeMeanSeconds": 1.9200466285714268,
+        "afterMeanSeconds": 2.07959762857143,
+        "timeSavedPercent": -8.309746108547067,
+        "timeSavedPercent95Ci": [-30.30764098714609, 8.639050612716337],
+        "beforeMedianSeconds": 1.829363400000002,
+        "afterMedianSeconds": 1.9508843000000016,
+        "pairs": [
+          [1.9663250999999982, 1.9508843000000016],
+          [2.081074200000003, 2.6833689999999986],
+          [1.7508042999999889, 1.6697094999999973],
+          [1.816609700000001, 1.6521924],
+          [2.2264663999999903, 1.9522661999999982],
+          [1.829363400000002, 1.6446236000000207],
+          [1.7696833000000043, 3.004138399999996]
+        ]
+      },
+      {
+        "id": "effect-option",
+        "mode": "bypass",
+        "args": ["signatures", "effect/Option", "getOrNull", "--json"],
+        "stdout": {
+          "sha256": "217b0e24bd609eaa798af5c33d1c667d88024d7f3654865ba137f05df21ea800",
+          "bytes": 537,
+          "tokens": 141
+        },
+        "beforeMeanSeconds": 2.1209793857142873,
+        "afterMeanSeconds": 2.0507170428571437,
+        "timeSavedPercent": 3.3127310586039127,
+        "timeSavedPercent95Ci": [-2.9801970005535416, 9.31438228235788],
+        "beforeMedianSeconds": 1.9374194000000133,
+        "afterMedianSeconds": 1.932935200000007,
+        "pairs": [
+          [2.7582271999999977, 2.525419600000001],
+          [2.022051400000004, 2.226201700000005],
+          [1.8763652000000002, 1.8916437000000006],
+          [1.9190831999999938, 1.8787290999999968],
+          [2.443756799999988, 2.0278393999999973],
+          [1.9374194000000133, 1.8722505999999994],
+          [1.889952500000014, 1.932935200000007]
+        ]
+      },
+      {
+        "id": "effect-map",
+        "mode": "bypass",
+        "args": ["signatures", "effect/Option", "map", "--json"],
+        "stdout": {
+          "sha256": "1c682ef9ab0e383d50a661702b4dd499fb2a51cbc1fd4ddbd0034e26f2200f37",
+          "bytes": 1098,
+          "tokens": 317
+        },
+        "beforeMeanSeconds": 2.2521883714285704,
+        "afterMeanSeconds": 1.9922960571428618,
+        "timeSavedPercent": 11.539546051419226,
+        "timeSavedPercent95Ci": [7.200356824549658, 16.38112867767989],
+        "beforeMedianSeconds": 2.069259300000005,
+        "afterMedianSeconds": 1.8535780000000086,
+        "pairs": [
+          [2.811501200000006, 2.4862537999999987],
+          [2.9664851999999957, 2.288618899999994],
+          [1.9138672999999982, 1.808175099999993],
+          [2.1070951999999963, 1.8915157000000036],
+          [2.013255799999999, 1.8535780000000086],
+          [1.8838545999999914, 1.7943699000000197],
+          [2.069259300000005, 1.823561000000016]
+        ]
+      },
+      {
+        "id": "tsrs-filesystem",
+        "mode": "bypass",
+        "args": ["signatures", "tsrs/fs", "createFileSystem", "--json"],
+        "stdout": {
+          "sha256": "61e9e4fd04872cb32115eba16e6a6095fa71631571057a29ed2456a839418313",
+          "bytes": 718,
+          "tokens": 173
+        },
+        "beforeMeanSeconds": 1.312530700000001,
+        "afterMeanSeconds": 1.2010870000000078,
+        "timeSavedPercent": 8.490749968743073,
+        "timeSavedPercent95Ci": [1.5062897091677518, 14.075276524342472],
+        "beforeMedianSeconds": 1.2916661999999923,
+        "afterMedianSeconds": 1.1307625000000043,
+        "pairs": [
+          [1.3976791000000013, 1.3819965000000012],
+          [1.3188159999999989, 1.1307625000000043],
+          [1.2916661999999923, 1.1068329999999986],
+          [1.2549360000000016, 1.3854693000000116],
+          [1.3772967999999965, 1.1609882000000071],
+          [1.2879612000000198, 1.130227900000027],
+          [1.259359599999996, 1.111331600000005]
+        ]
+      },
+      {
+        "id": "effect-discovery",
+        "mode": "bypass",
+        "args": ["discover", "effect/Option", "transforms", "--json"],
+        "stdout": {
+          "sha256": "6cd788a6b15a8775855835cd0bd59c270c0d45ffe536ead31bea8833b968c608",
+          "bytes": 1164,
+          "tokens": 331
+        },
+        "beforeMeanSeconds": 2.1602644142857055,
+        "afterMeanSeconds": 1.9453730714285744,
+        "timeSavedPercent": 9.94745557238581,
+        "timeSavedPercent95Ci": [4.883265370666523, 14.638363011906375],
+        "beforeMedianSeconds": 2.0608401000000014,
+        "afterMedianSeconds": 2.0011998999999996,
+        "pairs": [
+          [2.0594926999999954, 2.0011998999999996],
+          [2.416604299999992, 2.0202976000000055],
+          [2.0608401000000014, 1.9753660999999993],
+          [2.1348817999999885, 2.1128910000000034],
+          [2.0267685999999956, 1.6638071000000054],
+          [2.371835999999981, 2.0037260999999997],
+          [2.051427399999986, 1.8403237000000081]
+        ]
+      },
+      {
+        "id": "semver-clean",
+        "mode": "cached",
+        "args": ["signatures", "semver", "clean", "--json"],
+        "stdout": {
+          "sha256": "4106d65f65ba6c4aafb8bb4fb34f04c8fd37e7df9a0b091486e6fdc1b17c9c36",
+          "bytes": 747,
+          "tokens": 186
+        },
+        "beforeMeanSeconds": 0.8967978142857153,
+        "afterMeanSeconds": 0.7786722142857119,
+        "timeSavedPercent": 13.17193219232905,
+        "timeSavedPercent95Ci": [9.538463235426208, 16.338198603441555],
+        "beforeMedianSeconds": 0.8567369999999938,
+        "afterMedianSeconds": 0.7662874000000011,
+        "pairs": [
+          [1.043869399999996, 0.8458344000000215],
+          [0.8567369999999938, 0.7108473999999988],
+          [0.8072398000000103, 0.7386489000000002],
+          [0.8215516000000062, 0.7123226999999898],
+          [0.8130135000000009, 0.7662874000000011],
+          [1.000391100000008, 0.8357839000000095],
+          [0.9347822999999916, 0.8409807999999611]
+        ]
+      },
+      {
+        "id": "node-exists",
+        "mode": "cached",
+        "args": ["signatures", "node:fs", "existsSync", "--json"],
+        "stdout": {
+          "sha256": "a279ebef77b1e53030624d73935fc3e0803a2343d61842b89a1bc3118805086d",
+          "bytes": 491,
+          "tokens": 122
+        },
+        "beforeMeanSeconds": 1.1031813000000048,
+        "afterMeanSeconds": 1.0208409285714317,
+        "timeSavedPercent": 7.463902028485503,
+        "timeSavedPercent95Ci": [-0.4522079329584594, 13.709562057924373],
+        "beforeMedianSeconds": 1.0838612000000138,
+        "afterMedianSeconds": 1.0518310000000055,
+        "pairs": [
+          [1.0039351000000025, 0.9717286000000022],
+          [0.9726180999999924, 1.0007956999999879],
+          [0.9428152999999875, 1.0518310000000055],
+          [1.0838612000000138, 0.8663948999999848],
+          [1.2090687000000035, 1.0719271000000008],
+          [1.2321050000000104, 1.099476800000004],
+          [1.277865700000024, 1.0837324000000372]
+        ]
+      },
+      {
+        "id": "effect-option",
+        "mode": "cached",
+        "args": ["signatures", "effect/Option", "getOrNull", "--json"],
+        "stdout": {
+          "sha256": "217b0e24bd609eaa798af5c33d1c667d88024d7f3654865ba137f05df21ea800",
+          "bytes": 537,
+          "tokens": 141
+        },
+        "beforeMeanSeconds": 1.155629842857144,
+        "afterMeanSeconds": 1.0315235571428534,
+        "timeSavedPercent": 10.739276636146233,
+        "timeSavedPercent95Ci": [7.171403835381895, 13.186649066132306],
+        "beforeMedianSeconds": 1.1516353999999993,
+        "afterMedianSeconds": 1.0282556999999797,
+        "pairs": [
+          [1.1300837000000175, 0.9744776999999886],
+          [1.075305800000002, 0.9264663000000001],
+          [1.0432902999999933, 0.9101291000000201],
+          [1.1516353999999993, 1.0282556999999797],
+          [1.1689141999999992, 1.037657899999991],
+          [1.2952274000000035, 1.278298299999995],
+          [1.224952099999995, 1.0653799]
+        ]
+      },
+      {
+        "id": "effect-map",
+        "mode": "cached",
+        "args": ["signatures", "effect/Option", "map", "--json"],
+        "stdout": {
+          "sha256": "1c682ef9ab0e383d50a661702b4dd499fb2a51cbc1fd4ddbd0034e26f2200f37",
+          "bytes": 1098,
+          "tokens": 317
+        },
+        "beforeMeanSeconds": 1.1526348857142854,
+        "afterMeanSeconds": 1.0589605999999914,
+        "timeSavedPercent": 8.126969509190607,
+        "timeSavedPercent95Ci": [3.693084381135303, 12.13629746937509],
+        "beforeMedianSeconds": 1.0929273000000104,
+        "afterMedianSeconds": 1.0363398000000161,
+        "pairs": [
+          [1.0820744000000122, 0.9161213999999746],
+          [1.0812250000000059, 1.0363398000000161],
+          [1.0929273000000104, 0.947612999999983],
+          [1.0562706999999936, 1.006359299999982],
+          [1.1686064999999943, 1.1947011999999813],
+          [1.3314619999999995, 1.2207778999999863],
+          [1.255878299999982, 1.0908116000000154]
+        ]
+      },
+      {
+        "id": "tsrs-filesystem",
+        "mode": "cached",
+        "args": ["signatures", "tsrs/fs", "createFileSystem", "--json"],
+        "stdout": {
+          "sha256": "61e9e4fd04872cb32115eba16e6a6095fa71631571057a29ed2456a839418313",
+          "bytes": 718,
+          "tokens": 173
+        },
+        "beforeMeanSeconds": 1.0798692142857138,
+        "afterMeanSeconds": 0.9415958714285765,
+        "timeSavedPercent": 12.804637916138672,
+        "timeSavedPercent95Ci": [8.020251976993432, 18.67200435651497],
+        "beforeMedianSeconds": 0.9563083000000042,
+        "afterMedianSeconds": 0.8333658000000287,
+        "pairs": [
+          [0.9563083000000042, 0.811657899999991],
+          [0.9788604000000051, 0.9368197999999975],
+          [0.9200593999999983, 0.8285205000000133],
+          [0.9345423000000009, 0.7900703999999968],
+          [1.2662723000000116, 0.931151200000022],
+          [1.6210448000000033, 1.4595854999999864],
+          [0.8819969999999739, 0.8333658000000287]
+        ]
+      },
+      {
+        "id": "effect-discovery",
+        "mode": "cached",
+        "args": ["discover", "effect/Option", "transforms", "--json"],
+        "stdout": {
+          "sha256": "6cd788a6b15a8775855835cd0bd59c270c0d45ffe536ead31bea8833b968c608",
+          "bytes": 1164,
+          "tokens": 331
+        },
+        "beforeMeanSeconds": 1.2020047142857053,
+        "afterMeanSeconds": 1.0350157857142872,
+        "timeSavedPercent": 13.892535244393923,
+        "timeSavedPercent95Ci": [8.708441370646847, 19.138959689472436],
+        "beforeMedianSeconds": 1.0749997999999905,
+        "afterMedianSeconds": 0.9734587999999931,
+        "pairs": [
+          [1.0765851999999723, 0.9667734000000054],
+          [1.0473878000000258, 0.9069122999999963],
+          [1.0211749999999884, 0.921857799999998],
+          [1.0221844999999739, 0.9734587999999931],
+          [1.6832085999999835, 1.2505726999999898],
+          [1.488492100000003, 1.246586500000005],
+          [1.0749997999999905, 0.9789490000000224]
+        ]
+      }
+    ],
+    "overview": {
+      "startup": {
+        "beforeMeanSeconds": 0.3651790714285702,
+        "afterMeanSeconds": 0.27595485714286044,
+        "timeSavedPercent": 24.43300322131472,
+        "timeSavedPercent95Ci": [17.516198179291166, 31.000799011926063],
+        "beforeMedianSeconds": 0.35403669999999693,
+        "afterMedianSeconds": 0.278912900000003,
+        "pairs": [
+          [0.35103740000000105, 0.278912900000003],
+          [0.3578877999999968, 0.2645410999999949],
+          [0.36272220000000377, 0.2506949000000022],
+          [0.35403669999999693, 0.3],
+          [0.33466710000000605, 0.2867057000000059],
+          [0.27763359999997195, 0.23051680000001215],
+          [0.5182687000000151, 0.3203126000000048]
+        ]
+      },
+      "uncachedTasks": {
+        "beforeMeanSeconds": 1.735396165714286,
+        "afterMeanSeconds": 1.6554312228571455,
+        "timeSavedPercent": 4.6078782722345775,
+        "timeSavedPercent95Ci": [-0.3599984957427971, 8.354177750071434],
+        "beforeMedianSeconds": 1.6392222000000012,
+        "afterMedianSeconds": 1.5943580400000008,
+        "pairs": [
+          [1.9945627800000003, 1.8703298400000001],
+          [1.9276571800000006, 1.8611138400000011],
+          [1.5758645199999968, 1.4842502399999968],
+          [1.6392222000000012, 1.547490580000001],
+          [1.8100146399999968, 1.5943580400000008],
+          [1.5751244400000026, 1.4547651600000158],
+          [1.6253274000000033, 1.7757108600000038]
+        ]
+      },
+      "cachedTasks": {
+        "beforeMeanSeconds": 1.0776226114285727,
+        "afterMeanSeconds": 0.9663186342857131,
+        "timeSavedPercent": 10.328660141541313,
+        "timeSavedPercent95Ci": [8.600549290021686, 11.991298511973635],
+        "beforeMedianSeconds": 1.0432541800000066,
+        "afterMedianSeconds": 0.9222538,
+        "pairs": [
+          [1.0432541800000066, 0.9039639999999955],
+          [0.9929492599999998, 0.9222538],
+          [0.96126642, 0.8953485000000045],
+          [1.009572240000003, 0.8806805999999867],
+          [1.1251750400000018, 1.0003449599999992],
+          [1.296046060000005, 1.1787844799999962],
+          [1.1150950799999932, 0.9828541000000085]
+        ]
+      }
+    }
+  },
+  "confirmation": {
+    "startedAt": "2026-11-06T19:36:48.092Z",
+    "finishedAt": "2026-11-06T19:38:29.034Z",
+    "sourceSnapshotHash": "bdb80d8a5eff57471ba56c590979706313fcaaea280adfb6310485ca7ddd9cd3",
+    "lockHash": "ad2f8a3d1d8370e66c67ca2316b64d9ab77b7ff12eba42689b571fbb15c496c3",
+    "compileCache": "warmed",
+    "benchmarkHash": "551d7aaf32d090aa98994b3c080b7873f16f00f57b1184b6fa51fd6d9a169693",
+    "rawResultHash": "4e5e937c5e168b7804269064da2e74334731a9196314e78745159083fb3bd316",
+    "baselineArtifactHash": "1aacbdce8357596be937af97701b187d05fb119346b024d0faeb9d6ae7b67dc7",
+    "optimizedArtifactHash": "7879539a548ef406ebd5f74a18efcf71e16788b1c1fc2f61b8f847c59e0f31d8",
+    "environment": {
+      "node": "v24.22.2",
+      "platform": "linux",
+      "arch": "x64",
+      "kernel": "7.0.14",
+      "cpu": "AMD Ryzen 7 7800X3D 8-Core Processor",
+      "sandboxCpus": 2,
+      "sandboxMemory": "4g"
+    },
+    "repeats": 15,
+    "cases": [
+      {
+        "id": "node-exists",
+        "mode": "bypass",
+        "args": ["signatures", "node:fs", "existsSync", "--json"],
+        "stdout": {
+          "sha256": "a279ebef77b1e53030624d73935fc3e0803a2343d61842b89a1bc3118805086d",
+          "bytes": 491,
+          "tokens": 122
+        },
+        "beforeMeanSeconds": 1.5893520800000003,
+        "afterMeanSeconds": 1.4531105199999999,
+        "timeSavedPercent": 8.572144694333584,
+        "timeSavedPercent95Ci": [5.336352306439962, 11.812422241156796],
+        "beforeMedianSeconds": 1.5578798000000098,
+        "afterMedianSeconds": 1.4373956000000008,
+        "pairs": [
+          [1.5135332, 1.4373956000000008],
+          [1.5429226000000016, 1.4352340999999997],
+          [1.6237151000000012, 1.4044593000000023],
+          [1.5258487999999997, 1.4733276000000006],
+          [1.664041400000002, 1.3639804999999978],
+          [1.4566060999999972, 1.3682414000000063],
+          [1.6136754, 1.459741399999999],
+          [1.5804714000000022, 1.4217446999999956],
+          [1.484058100000002, 1.3501367000000029],
+          [1.6636080000000002, 1.4608259999999937],
+          [1.5803885999999912, 1.4472795000000043],
+          [1.5438401999999916, 1.5606491999999998],
+          [1.5578798000000098, 1.6080016000000033],
+          [1.9909548000000068, 1.5875504999999976],
+          [1.498737699999998, 1.4180896999999968]
+        ]
+      },
+      {
+        "id": "effect-option",
+        "mode": "bypass",
+        "args": ["signatures", "effect/Option", "getOrNull", "--json"],
+        "stdout": {
+          "sha256": "217b0e24bd609eaa798af5c33d1c667d88024d7f3654865ba137f05df21ea800",
+          "bytes": 537,
+          "tokens": 141
+        },
+        "beforeMeanSeconds": 1.6944773666666664,
+        "afterMeanSeconds": 1.5832917133333322,
+        "timeSavedPercent": 6.561648772686524,
+        "timeSavedPercent95Ci": [4.458493585890134, 8.635956314809246],
+        "beforeMedianSeconds": 1.6842506999999969,
+        "afterMedianSeconds": 1.5601024000000034,
+        "pairs": [
+          [1.646812900000001, 1.6072276999999995],
+          [1.6529567000000007, 1.5998431999999994],
+          [1.750548600000002, 1.5295766000000004],
+          [1.6988287000000017, 1.5851906999999992],
+          [1.6842506999999969, 1.509375500000002],
+          [1.6784814000000041, 1.5513859999999986],
+          [1.6131540000000022, 1.5601024000000034],
+          [1.749712599999999, 1.5178090999999987],
+          [1.6918471999999964, 1.6851006999999953],
+          [1.6772592999999978, 1.5320778999999893],
+          [1.6300288999999903, 1.6327589000000007],
+          [1.710400800000003, 1.5348387999999977],
+          [1.873511200000008, 1.7442525000000024],
+          [1.7557344999999913, 1.600090599999996],
+          [1.6036330000000016, 1.5597451]
+        ]
+      }
+    ]
+  }
+}

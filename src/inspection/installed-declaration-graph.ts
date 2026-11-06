@@ -26,7 +26,11 @@ import { SymbolFlags } from "tsrs/sync";
 import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/sync";
 
 import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
-import { aliasedSymbol } from "#typepeek/inspection/compiler-queries";
+import {
+  aliasedSymbol,
+  symbolAtLocation,
+  symbolsAtLocations,
+} from "#typepeek/inspection/compiler-queries";
 import { declarationsOf } from "#typepeek/inspection/compiler-session";
 import {
   InspectionLimitError,
@@ -193,7 +197,7 @@ const resolvedModuleDeclarations = function resolvedModuleDeclarations(
   checker: Checker,
   moduleSpecifier: Expression
 ): readonly Node[] {
-  const referencedModule = checker.getSymbolAtLocation(moduleSpecifier);
+  const referencedModule = symbolAtLocation(checker, moduleSpecifier);
 
   if (referencedModule === undefined) {
     throw new UnsupportedInspectionError(UNRESOLVED_REEXPORT_MESSAGE);
@@ -483,9 +487,12 @@ const assertResolvedAmbientModuleReExports =
       }
 
       visitedDeclarations.add(declaration);
+      const specifiers = ambientReExportSpecifiers(declaration, traversal);
+      symbolsAtLocations(checker, specifiers);
+
       pendingDeclarations.push(
-        ...ambientReExportSpecifiers(declaration, traversal).flatMap(
-          (specifier) => resolvedModuleDeclarations(checker, specifier)
+        ...specifiers.flatMap((specifier) =>
+          resolvedModuleDeclarations(checker, specifier)
         ),
         ...referencedDeclarationSourceFiles(
           program,

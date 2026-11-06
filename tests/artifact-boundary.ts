@@ -24,14 +24,13 @@ export const assertArtifactVersion = async (
   assert.equal(result.stdout, `${version}\n`);
 };
 
-/** The parent must run a real inspection without loading the worker's compiler. */
-export const assertCompilerLoadsOnlyInWorker =
-  async function assertCompilerLoadsOnlyInWorker(
-    cliPath: string
-  ): Promise<void> {
+/** Inspections keep the compiler in its worker and load selected runtime modules. */
+export const assertRuntimeImportBoundaries =
+  async function assertRuntimeImportBoundaries(cliPath: string): Promise<void> {
     const hook = `import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier === 'tsrs/sync' || specifier === 'tsrs/async') throw new Error('Compiler SDK loaded in CLI parent');
+  if (specifier === 'effect') throw new Error('Effect barrel loaded at runtime');
   return nextResolve(specifier, context);
 } });`;
 
@@ -72,6 +71,7 @@ export const assertWorkerUsesPinnedNativeCompiler =
   ): Promise<void> {
     const hook = `import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, nextResolve) {
+  if (specifier === 'effect') throw new Error('Effect barrel loaded at runtime');
   if (specifier === '@typescript/typescript6' || specifier === 'typescript') {
     throw new Error('Legacy compiler loaded by the native worker');
   }
