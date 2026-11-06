@@ -1,3 +1,5 @@
+import { stripVTControlCharacters } from "node:util";
+
 import { Schema } from "effect";
 import { expect, test } from "vite-plus/test";
 
@@ -49,18 +51,21 @@ export const registerInvocationTests = function registerInvocationTests(
       runCommand(process.execPath, ["src/cli.ts", "compare", "--help"]),
     ]);
 
+    const helpText = stripVTControlCharacters(help.stdout);
+    const compareHelpText = stripVTControlCharacters(compareHelp.stdout);
+
     expect([
-      help.stdout.includes("typepeek signatures"),
-      help.stdout.includes("<specifier> <export-name>"),
-      help.stdout.includes("--workspace path"),
-      help.stdout.includes("--context"),
-      help.stdout.includes("--json"),
-      help.stdout.includes("--pretty"),
-      compareHelp.stdout.includes("<before-specifier> <after-specifier>"),
-      compareHelp.stdout.includes("--before-workspace path"),
-      compareHelp.stdout.includes("--after-workspace path"),
-      compareHelp.stdout.includes("--before-context"),
-      compareHelp.stdout.includes("--after-context"),
+      helpText.includes("typepeek signatures"),
+      helpText.includes("<specifier> <export-name>"),
+      helpText.includes("--workspace path"),
+      helpText.includes("--context"),
+      helpText.includes("--json"),
+      helpText.includes("--pretty"),
+      compareHelpText.includes("<before-specifier> <after-specifier>"),
+      compareHelpText.includes("--before-workspace path"),
+      compareHelpText.includes("--after-workspace path"),
+      compareHelpText.includes("--before-context"),
+      compareHelpText.includes("--after-context"),
     ]).toStrictEqual([
       true,
       true,

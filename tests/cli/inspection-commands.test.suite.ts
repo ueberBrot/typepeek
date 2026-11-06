@@ -1,3 +1,5 @@
+import { stripVTControlCharacters } from "node:util";
+
 import { Schema } from "effect";
 import { expect, test } from "vite-plus/test";
 
@@ -470,11 +472,13 @@ export const registerInspectionCommandTests =
         "--help",
       ]);
 
+      const helpText = stripVTControlCharacters(result.stdout);
+
       expect([
-        result.stdout.includes(
+        helpText.includes(
           "Package root, Public Subpath, or Node Platform Module"
         ),
-        result.stdout.includes("--access import|require"),
+        helpText.includes("--access import|require"),
       ]).toStrictEqual([true, true]);
     });
   };
