@@ -255,70 +255,19 @@ const shouldRetryInvalidCacheOutcome = function shouldRetryInvalidCacheOutcome(
   return outcome.reason === "invalid-result";
 };
 
-const analysisLifecycle = {
-  finalizeAnalysisProcessOutcome: Effect.fn("finalizeAnalysisProcessOutcome")(
-    function* finalizeAnalysisProcessOutcome<Request extends AnalysisRequest>({
-      allowCacheWrite,
-      bypassCache,
-      entryUrl,
-      forwardProfile,
-      limits,
-      outcome,
-      request,
-      result,
-    }: AnalysisProcessCompletion<Request>): Effect.fn.Return<
-      InspectionOutcome<InspectionResultByIntent[Request["intent"]]>
-    > {
-      const cacheHit = readInspectionCacheHitNotice(
-        parseResult(result.cacheOutput)
-      );
+const runAnalysisProcess = Effect.fn("runAnalysisProcess")(
+  function* runAnalysisProcess<Request extends AnalysisRequest>(
+    request: Request,
+    entryUrl: URL,
+    limits: AnalysisProcessLimits,
+    forwardProfile: boolean,
+    allowCacheWrite = false
+  ): Effect.fn.Return<
+    InspectionOutcome<InspectionResultByIntent[Request["intent"]]>
+  > {
+    let bypassCache = false;
 
-      if (
-        shouldRetryInvalidCacheOutcome(
-          allowCacheWrite,
-          bypassCache,
-          cacheHit,
-          outcome
-        )
-      ) {
-        removeInspectionCacheEntry(cacheHit.key);
-
-        return yield* analysisLifecycle.runAnalysisProcess(
-          request,
-          entryUrl,
-          limits,
-          forwardProfile,
-          allowCacheWrite,
-          true
-        );
-      }
-
-      if (forwardProfile) {
-        forwardInspectionProfile(result.stderr);
-      }
-
-      if (allowCacheWrite) {
-        writeValidatedInspectionCacheOutcome(
-          request,
-          outcome,
-          parseResult(result.cacheOutput)
-        );
-      }
-
-      return outcome;
-    }
-  ),
-  runAnalysisProcess: Effect.fn("runAnalysisProcess")(
-    function* runAnalysisProcess<Request extends AnalysisRequest>(
-      request: Request,
-      entryUrl: URL,
-      limits: AnalysisProcessLimits,
-      forwardProfile: boolean,
-      allowCacheWrite = false,
-      bypassCache = false
-    ): Effect.fn.Return<
-      InspectionOutcome<InspectionResultByIntent[Request["intent"]]>
-    > {
+    while (true) {
       const result = yield* executeAnalysisProcess(
         request,
         entryUrl,
@@ -346,19 +295,40 @@ const analysisLifecycle = {
 
       const outcome = enforceAnalysisRequestOutcome(request, value);
 
-      return yield* analysisLifecycle.finalizeAnalysisProcessOutcome({
-        allowCacheWrite,
-        bypassCache,
-        entryUrl,
-        forwardProfile,
-        limits,
-        outcome,
-        request,
-        result,
-      });
+      const cacheHit = readInspectionCacheHitNotice(
+        parseResult(result.cacheOutput)
+      );
+
+      if (
+        shouldRetryInvalidCacheOutcome(
+          allowCacheWrite,
+          bypassCache,
+          cacheHit,
+          outcome
+        )
+      ) {
+        removeInspectionCacheEntry(cacheHit.key);
+        bypassCache = true;
+
+        continue;
+      }
+
+      if (forwardProfile) {
+        forwardInspectionProfile(result.stderr);
+      }
+
+      if (allowCacheWrite) {
+        writeValidatedInspectionCacheOutcome(
+          request,
+          outcome,
+          parseResult(result.cacheOutput)
+        );
+      }
+
+      return outcome;
     }
-  ),
-};
+  }
+);
 
 const analysisProcessEntryUrl = function analysisProcessEntryUrl(): URL {
   // Node executes TypeScript directly during development. The packed CLI loads
@@ -385,7 +355,7 @@ export const runBoundedAnalysis = Effect.fn("runBoundedAnalysis")(
       } satisfies InspectionOutcome;
     }
 
-    return yield* analysisLifecycle.runAnalysisProcess(
+    return yield* runAnalysisProcess(
       request,
       analysisProcessEntryUrl(),
       PRODUCTION_LIMITS,
@@ -411,24 +381,6 @@ export const runAnalysisFixtureProcess = Effect.fn("runAnalysisFixtureProcess")(
     entryUrl: URL,
     limits: AnalysisProcessLimits
   ) {
-    return yield* analysisLifecycle.runAnalysisProcess(
-      request,
-      entryUrl,
-      limits,
-      false
-    );
+    return yield* runAnalysisProcess(request, entryUrl, limits, false);
   }
 );
-
-interface AnalysisProcessCompletion<Request extends AnalysisRequest> {
-  readonly allowCacheWrite: boolean;
-  readonly bypassCache: boolean;
-  readonly entryUrl: URL;
-  readonly forwardProfile: boolean;
-  readonly limits: AnalysisProcessLimits;
-  readonly outcome: InspectionOutcome<
-    InspectionResultByIntent[Request["intent"]]
-  >;
-  readonly request: Request;
-  readonly result: AnalysisProcessResult;
-}
