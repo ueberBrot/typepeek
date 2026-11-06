@@ -10,7 +10,7 @@ import { runCommand } from "#typepeek/process-command";
 import {
   assertArtifactCacheReuse,
   assertArtifactVersion,
-  assertCompilerLoadsOnlyInWorker,
+  assertRuntimeImportBoundaries,
   assertRepositoryProfilingExcluded,
   assertWorkerUsesPinnedNativeCompiler,
 } from "./artifact-boundary.ts";
@@ -155,4 +155,4 @@ assert.equal(protocolResponse.outcome.status, "success");
 
 await assertArtifactCacheReuse(BUILT_CLI_PATH);
 
-await assertCompilerLoadsOnlyInWorker(BUILT_CLI_PATH);
+await assertRuntimeImportBoundaries(BUILT_CLI_PATH);

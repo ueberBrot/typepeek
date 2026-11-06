@@ -13,6 +13,14 @@ export const signatureFact = function signatureFact(
     token !== SyntaxKind.EndOfFile;
     token = scanner.scan()
   ) {
+    // tsrs can return an empty token for a bare "#" in tool output.
+    if (scanner.getTokenEnd() === scanner.getTokenStart()) {
+      const position = scanner.getTokenStart();
+      tokens.push(text.slice(position, position + 1));
+      scanner.resetTokenState(position + 1);
+      continue;
+    }
+
     tokens.push(
       token === SyntaxKind.StringLiteral
         ? JSON.stringify(scanner.getTokenValue())

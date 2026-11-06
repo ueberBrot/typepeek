@@ -8,8 +8,13 @@ import {
   summarizeObservations,
 } from "../support/statistics.ts";
 import type { measureAcquisition } from "./acquisition.ts";
+import {
+  renderComparisonMatrix,
+  summarizeComparisonMatrix,
+} from "./comparison-matrix.ts";
 import type { CodexOptions } from "./options.ts";
 import type { CodexCondition, CodexScenario } from "./scenarios.ts";
+import type { TaskTiming } from "./task-timing.ts";
 import type { codexTelemetry } from "./telemetry.ts";
 
 export interface CodexAttempt {
@@ -20,6 +25,7 @@ export interface CodexAttempt {
   readonly condition: CodexCondition;
   readonly repeat: number;
   readonly seconds: number;
+  readonly timing?: TaskTiming;
   readonly instructionTokens?: {
     readonly prompt: number;
     readonly skill: number;
@@ -346,6 +352,8 @@ export const summarizeCodexStudy = function summarizeCodexStudy({
     }))
   );
 
+  const matrix = summarizeComparisonMatrix(attempts, options.cases);
+
   const data = {
     attempts,
     byTask,
@@ -353,13 +361,19 @@ export const summarizeCodexStudy = function summarizeCodexStudy({
     groups,
     identity,
     kind: "codex-discovery-benchmark",
+    matrix,
     options,
     recordedAt: new Date().toISOString(),
-    schemaVersion: 4,
+    schemaVersion: 5,
     status,
   };
 
   const table = [
+    "Typepeek versus files-only: complete task time and reported tokens",
+    renderComparisonMatrix(matrix),
+    "",
+    "Means use identical pairs with verified evidence and correct final answers. Task time includes the final answer; setup and cleanup are excluded. Negative savings mean Typepeek used more.",
+    "",
     "Task-to-evidence time: installed-dependency acquisition by tool-use condition",
     "Model | Effort | Tools | Evidence complete / attempts | Mean task-to-evidence seconds ± 95% CI | Mean evidence tokens",
     "--- | --- | --- | --- | --- | ---",

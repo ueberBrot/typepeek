@@ -31,9 +31,9 @@ const number = (value: string, minimum: number, maximum: number) => {
 };
 
 const CODEX_MODELS = [
-  "gpt-5.6-terra",
-  "gpt-5.6-luna",
-  "gpt-5.6-sol",
+  "gpt-6.1-terra",
+  "gpt-6-luna",
+  "gpt-6.1-sol",
   "gpt-6-astra",
 ] as const;
 
@@ -46,7 +46,7 @@ export const readCodexOptions = function readCodexOptions() {
     process.stdout
       .write(`Usage: node benchmarks/codex-discovery/run.ts [options]
   --cases IDS               Comma-separated workload IDs or all (default: five-package suite)
-  --models IDS              Codex model IDs (default: Terra, Luna, Sol, Astra)
+  --models IDS              Codex model IDs (default: ${CODEX_MODELS.join(",")})
   --efforts LEVELS          low,high (default: both)
   --conditions VALUES       files,typepeek-skill (default); typepeek and typepeek-required are optional diagnostics
   --repeats N               Fresh trials per task/model/effort/condition (default: 3)

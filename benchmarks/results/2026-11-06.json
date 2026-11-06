@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-06",
+  "measurement": "task-completion-v1",
+  "aggregation": "Arithmetic means over identical successful pairs.",
+  "options": {
+    "cases": [
+      "semver-clean",
+      "node-exists",
+      "effect-option",
+      "effect-map",
+      "tsrs-filesystem"
+    ],
+    "conditions": ["files", "typepeek-skill"],
+    "efforts": ["low", "high"],
+    "models": ["gpt-6.1-terra", "gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"],
+    "repeats": 3,
+    "seed": 1729
+  },
+  "environment": {
+    "codexVersion": "codex-cli 0.167.0",
+    "artifactHash": "c60f796156c2b52ba6d6d89bb4b1721715ce8db426a1f9b12b37f6106ef40405",
+    "skillHash": "092c79920b7e5857c4b69cb16ab38aeb2ad3c4e5872cfc6f254e360bae21837c",
+    "lockfileHash": "8bb6de8a9f48ff3318d9786553b5bbcd6a2620b04123136f73aa3b72e28da10c",
+    "compiler": "7.1.0-beta/tsrs-0.20.1-ts7.1.0-beta",
+    "node": "v24.22.2",
+    "platform": "linux",
+    "architecture": "x64"
+  },
+  "attempts": {
+    "files": {
+      "attempts": 120,
+      "correctAnswers": 117,
+      "infrastructureFailures": 0,
+      "reportedTokens": 4804781,
+      "successful": 112,
+      "usageComplete": true,
+      "verifiedEvidence": 112
+    },
+    "typepeek": {
+      "attempts": 120,
+      "correctAnswers": 120,
+      "infrastructureFailures": 0,
+      "reportedTokens": 3162683,
+      "successful": 119,
+      "usageComplete": true,
+      "verifiedEvidence": 119
+    }
+  },
+  "rows": [
+    {
+      "task": "semver-clean",
+      "pairs": 21,
+      "files": {
+        "taskSeconds": 12.299138700000018,
+        "toolSeconds": 0.41873624285715333,
+        "outsideToolsSeconds": 11.880402457142864,
+        "tokens": 36929.333333333336
+      },
+      "typepeek": {
+        "taskSeconds": 8.876965119047577,
+        "toolSeconds": 1.544784161904791,
+        "outsideToolsSeconds": 7.332180957142787,
+        "tokens": 23308.190476190477
+      },
+      "savedPercent": {
+        "time": 27.824497832132224,
+        "tokens": 36.884345390681816
+      }
+    },
+    {
+      "task": "node-exists",
+      "pairs": 21,
+      "files": {
+        "taskSeconds": 10.100249295238111,
+        "toolSeconds": 0.3297432619048389,
+        "outsideToolsSeconds": 9.77050603333327,
+        "tokens": 27569.95238095238
+      },
+      "typepeek": {
+        "taskSeconds": 8.185476523809541,
+        "toolSeconds": 2.025130452380913,
+        "outsideToolsSeconds": 6.160346071428627,
+        "tokens": 21223.47619047619
+      },
+      "savedPercent": {
+        "time": 18.95767832514108,
+        "tokens": 23.019539906281683
+      }
+    },
+    {
+      "task": "effect-option",
+      "pairs": 24,
+      "files": {
+        "taskSeconds": 14.50454500833333,
+        "toolSeconds": 0.5782253833333402,
+        "outsideToolsSeconds": 13.926319624999989,
+        "tokens": 46030.916666666664
+      },
+      "typepeek": {
+        "taskSeconds": 10.036877875000034,
+        "toolSeconds": 2.7531989249999658,
+        "outsideToolsSeconds": 7.283678950000067,
+        "tokens": 26380.958333333332
+      },
+      "savedPercent": {
+        "time": 30.80184266908391,
+        "tokens": 42.688609648225565
+      }
+    },
+    {
+      "task": "effect-map",
+      "pairs": 22,
+      "files": {
+        "taskSeconds": 15.223648636363619,
+        "toolSeconds": 0.635013831818219,
+        "outsideToolsSeconds": 14.588634804545395,
+        "tokens": 45985.27272727273
+      },
+      "typepeek": {
+        "taskSeconds": 10.655328690909103,
+        "toolSeconds": 2.449601718181807,
+        "outsideToolsSeconds": 8.205726972727296,
+        "tokens": 23087.81818181818
+      },
+      "savedPercent": {
+        "time": 30.008049020144245,
+        "tokens": 49.79301673658365
+      }
+    },
+    {
+      "task": "tsrs-filesystem",
+      "pairs": 24,
+      "files": {
+        "taskSeconds": 14.453864554166627,
+        "toolSeconds": 0.5376291375001049,
+        "outsideToolsSeconds": 13.916235416666515,
+        "tokens": 48158.75
+      },
+      "typepeek": {
+        "taskSeconds": 14.677690637500037,
+        "toolSeconds": 3.3141940124999922,
+        "outsideToolsSeconds": 11.36349662500004,
+        "tokens": 34989.5
+      },
+      "savedPercent": {
+        "time": -1.5485552842605443,
+        "tokens": 27.34549796246788
+      }
+    },
+    {
+      "task": "all",
+      "pairs": 112,
+      "files": {
+        "taskSeconds": 13.395618280357139,
+        "toolSeconds": 0.5041864500000476,
+        "outsideToolsSeconds": 12.89143183035709,
+        "tokens": 41309.9375
+      },
+      "typepeek": {
+        "taskSeconds": 10.588197767857155,
+        "toolSeconds": 2.4506863857142727,
+        "outsideToolsSeconds": 8.137511382142883,
+        "tokens": 26035.60714285714
+      },
+      "savedPercent": {
+        "time": 20.957752406372208,
+        "tokens": 36.974953925173224
+      }
+    }
+  ],
+  "notes": [
+    "Recomputed from saved timestamps; no new model calls.",
+    "Two files-only Effect source-overload responses remain unverified because the grader requires declaration semicolons.",
+    "This snapshot predates the updated single-keyword skill guidance."
+  ]
+}

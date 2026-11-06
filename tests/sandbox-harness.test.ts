@@ -6,6 +6,8 @@ import nodePath from "node:path";
 import { defineSandbox, defineWorkspace } from "@tanstack/ai-sandbox";
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import { runCommand } from "#typepeek/process-command";
+
 import { createCodexTrial } from "../benchmarks/codex-discovery/fixture.ts";
 import {
   createHarnessArtifacts,
@@ -16,11 +18,68 @@ import {
   codexSandbox,
   codexSandboxCreateArguments,
 } from "../benchmarks/harness/codex-sandbox.ts";
+import { MIN_SBX_VERSION } from "../benchmarks/harness/sbx-version.ts";
 import { createTestHarness } from "../benchmarks/harness/session.ts";
 import { harnessCommand, shellArgument } from "../benchmarks/harness/tasks.ts";
 import { createSandboxCliFixture } from "./helpers/sandbox-fixture.ts";
 
 describe("sandbox harness", () => {
+  it.each(["v0.50.1", "unrecognized"])(
+    "rejects unsupported Docker versions before connecting or creating resources: %s",
+    async (version) => {
+      const fixture = await createSandboxCliFixture();
+
+      try {
+        await writeFile(nodePath.join(fixture.root, "version"), version);
+
+        const result = await runCommand(
+          process.execPath,
+          ["benchmarks/harness/run.ts", "--check"],
+          {
+            env: {
+              PATH: `${fixture.root}${nodePath.delimiter}${process.env["PATH"] ?? ""}`,
+            },
+            reject: false,
+          }
+        );
+
+        expect(result.failed).toBeTruthy();
+        expect(result.stderr).toContain(`${MIN_SBX_VERSION} or newer`);
+        await expect(
+          readFile(nodePath.join(fixture.root, "commands.jsonl"), "utf-8")
+        ).resolves.toBe('["version"]\n');
+      } finally {
+        await fixture.close();
+      }
+    }
+  );
+
+  it("checks the Docker connection without creating a sandbox or requesting inference", async () => {
+    const fixture = await createSandboxCliFixture();
+
+    try {
+      const result = await runCommand(
+        process.execPath,
+        ["benchmarks/harness/run.ts", "--check"],
+        {
+          env: {
+            PATH: `${fixture.root}${nodePath.delimiter}${process.env["PATH"] ?? ""}`,
+          },
+        }
+      );
+
+      expect(result.stdout).toContain("Docker sandbox connection verified");
+      await expect(
+        readFile(nodePath.join(fixture.root, "commands.jsonl"), "utf-8")
+      ).resolves.toBe('["version"]\n["ls","--json"]\n');
+      await expect(
+        readdir(nodePath.join(fixture.root, "guests"))
+      ).resolves.toStrictEqual([]);
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it("keeps rebased scratch writable while denying the operating-system temp directory", async () => {
     const fixture = await createSandboxCliFixture();
     const modules = nodePath.join(fixture.root, "consumer", "node_modules");

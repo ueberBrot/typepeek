@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import nodePath from "node:path";
 import { parseArgs } from "node:util";
 
@@ -7,12 +7,16 @@ import { defineSandbox, defineWorkspace } from "@tanstack/ai-sandbox";
 
 import { runCommand } from "#typepeek/process-command";
 
+import { prepareOutputDirectory } from "../support/output-directory.ts";
 import { createHarnessArtifacts } from "./artifacts.ts";
 import { cleanupSandboxRun } from "./cleanup.ts";
 import { codexSandbox } from "./codex-sandbox.ts";
+import { MIN_SBX_VERSION, requireSupportedSbxVersion } from "./sbx-version.ts";
 import { createTestHarness } from "./session.ts";
 import { stageHarnessSource } from "./source.ts";
 import { HARNESS_SETUP, harnessCommand } from "./tasks.ts";
+
+const SMOKE_REPLY = "TYPEPEEK_SANDBOX_READY";
 
 if (process.argv.includes("--help")) {
   process.stdout.write(`Usage: vp run sandbox [options] -- TASK [task arguments]
@@ -24,7 +28,7 @@ Tasks: test, quality, benchmark-smoke, benchmark, agent-smoke
   --timeout-seconds N      Bound setup and execution (default: 600)
   --model NAME             Codex model for agent-smoke
 
-Requires sbx login, Docker-managed Codex OAuth, and initialized Docker network policy.
+Requires Docker Sandboxes ${MIN_SBX_VERSION} or newer, sbx login, Docker-managed Codex OAuth, and initialized Docker network policy.
 Runs use a private clone of tracked working-tree files. Stage new source files first.
 Benchmark arguments follow -- benchmark; provisioning is outside measurement.
 Live benchmark and agent-smoke tasks consume subscription usage.
@@ -47,6 +51,10 @@ const { values, positionals } = parseArgs({
 });
 
 const version = await runCommand("sbx", ["version"]);
+
+if (values.cleanup === undefined) {
+  requireSupportedSbxVersion(version.stdout);
+}
 
 const readiness = await runCommand("sbx", ["--no-input", "ls", "--json"], {
   reject: false,
@@ -85,13 +93,7 @@ if (values.cleanup !== undefined) {
     : `export PATH="$HOME/.local/typepeek-node/bin:$PATH"; ${harnessCommand(task, cliArguments)}`;
 
   const output = nodePath.resolve(values.output);
-  await mkdir(output, { recursive: true });
-
-  const entries = await readdir(output);
-
-  if (entries.length > 0) {
-    throw new Error("Use an empty sandbox output directory.");
-  }
+  await prepareOutputDirectory(output, "sandbox");
 
   const staged = await stageHarnessSource(process.cwd());
   const artifacts = createHarnessArtifacts(output);
@@ -137,8 +139,7 @@ if (values.cleanup !== undefined) {
       command === undefined
         ? session.agents.codex.run({
             model: values.model,
-            prompt:
-              "Reply with exactly TYPEPEEK_SANDBOX_READY. Do not use tools.",
+            prompt: `Reply with exactly ${SMOKE_REPLY}. Do not use tools.`,
           })
         : session.agents.command.run({ command });
 
@@ -174,7 +175,7 @@ if (values.cleanup !== undefined) {
 
       if (
         agentSmoke &&
-        (!("answer" in result) || result.answer !== "TYPEPEEK_SANDBOX_READY")
+        (!("answer" in result) || result.answer !== SMOKE_REPLY)
       ) {
         throw new Error("The sandboxed Codex smoke reply did not match.");
       }

@@ -247,7 +247,9 @@ export const createCodexTrial = async function createCodexTrial(
   const settings = [
     'default_permissions="discovery"',
     `permissions.discovery.filesystem=${inlineTable(filesystem)}`,
-    "permissions.discovery.network.enabled=false",
+    "permissions.discovery.network.enabled=true",
+    "permissions.discovery.network.domains={}",
+    "features.network_proxy=true",
     'approval_policy="never"',
     'web_search="disabled"',
     "allow_login_shell=false",
@@ -331,7 +333,37 @@ export const verifyCodexIsolation = async function verifyCodexIsolation(
     if (couldWrite) throw new Error('dependencies writable');
     const found = cp.spawnSync('/bin/sh', ['-c', 'command -v typepeek'], { encoding: 'utf8', env: { PATH: ${JSON.stringify(trial.path)} } });
     if ((found.status === 0) !== ${condition !== "files"}) throw new Error('incorrect executable availability');
-    fs.writeSync(1, 'isolation verified\\n');
+    if (${condition !== "files"}) {
+      const inspection = cp.spawnSync(${JSON.stringify(process.execPath)}, [${JSON.stringify(nodePath.join(fixture.toolRoot, "dist", "cli.js"))}, 'signatures', 'semver', 'clean', '--json'], {
+        encoding: 'utf8',
+        env: { ...process.env, TYPEPEEK_CACHE_BYPASS: '1' },
+        maxBuffer: 262144,
+        timeout: 10000,
+      });
+      if (inspection.status !== 0) throw new Error('Typepeek inspection preflight failed: ' + inspection.stdout + inspection.stderr);
+      const outcome = JSON.parse(inspection.stdout);
+      if (outcome.status !== 'success' || outcome.result.moduleExport.name !== 'clean' || outcome.result.moduleExport.signatures.length !== 1) throw new Error('Typepeek inspection preflight returned incomplete evidence');
+    }
+    if (!process.env.HTTP_PROXY) throw new Error('network-denial proxy unavailable');
+    const request = require('node:http').get('http://example.com/', response => {
+      let body = '';
+      response.on('data', chunk => {
+        body += chunk;
+        if (Buffer.byteLength(body) > 4096) request.destroy(new Error('network-denial response exceeded its limit'));
+      });
+      response.on('end', () => {
+        try {
+          const denial = JSON.parse(body);
+          if (response.statusCode !== 403 || denial.decision !== 'deny' || denial.reason !== 'not_allowed') throw new Error('network destination was not denied by policy');
+          fs.writeSync(1, 'isolation verified\\n');
+        } catch (error) {
+          fs.writeSync(2, String(error));
+          process.exitCode = 1;
+        }
+      });
+    });
+    request.on('error', error => { fs.writeSync(2, String(error)); process.exitCode = 1; });
+    request.setTimeout(3000, () => request.destroy(new Error('network-denial probe timed out')));
   `;
 
   const result = await runCommand(

@@ -125,14 +125,14 @@ describe("codex-discovery", () => {
         plan.trials.slice(155),
         ["files", "typepeek-skill"],
         [
-          "gpt-5.6-luna/high",
-          "gpt-5.6-luna/low",
-          "gpt-5.6-sol/high",
-          "gpt-5.6-sol/low",
-          "gpt-5.6-terra/high",
-          "gpt-5.6-terra/low",
           "gpt-6-astra/high",
           "gpt-6-astra/low",
+          "gpt-6-luna/high",
+          "gpt-6-luna/low",
+          "gpt-6.1-sol/high",
+          "gpt-6.1-sol/low",
+          "gpt-6.1-terra/high",
+          "gpt-6.1-terra/low",
         ],
       ]);
       await expect(readdir(directory)).resolves.toStrictEqual([]);
@@ -204,6 +204,27 @@ describe("codex-discovery", () => {
     ]).toStrictEqual([
       signatureFact("call", "({ routes, aliases }: Routes): Result"),
       false,
+    ]);
+  });
+
+  it("normalizes declarations after Markdown headings without stalling the scanner", async () => {
+    const result = await runCommand(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+          import { signatureFact } from ${JSON.stringify(new URL("../benchmarks/support/signature.ts", import.meta.url).href)};
+          console.log(signatureFact("declaration", "### Clean\\nexport declare function clean(version: string): string | null;"));
+        `,
+      ],
+      { reject: false, timeout: 2000 }
+    );
+
+    expect([result.timedOut, result.failed, result.stdout]).toStrictEqual([
+      false,
+      false,
+      "declaration:# # # Clean export declare function clean ( version : string ) : string | null ;",
     ]);
   });
 

@@ -1,8 +1,17 @@
 import { existsSync, watch } from "node:fs";
-import { appendFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import nodePath from "node:path";
 
 import { runCommand } from "#typepeek/process-command";
+
+import { MIN_SBX_VERSION } from "../../benchmarks/harness/sbx-version.ts";
 
 const root = process.env["TYPEPEEK_SBX_FIXTURE_ROOT"];
 
@@ -26,6 +35,17 @@ if (command === undefined) {
 }
 
 switch (command) {
+  case "version": {
+    const versionFile = nodePath.join(root, "version");
+
+    const version = existsSync(versionFile)
+      ? await readFile(versionFile, "utf-8")
+      : `v${MIN_SBX_VERSION}`;
+
+    process.stdout.write(`sbx version ${version}\n`);
+    break;
+  }
+
   case "create": {
     const name = args[args.indexOf("--name") + 1];
 

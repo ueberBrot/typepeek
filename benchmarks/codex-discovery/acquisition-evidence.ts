@@ -35,6 +35,26 @@ const commandResultSchema = Schema.Struct({
   ),
 });
 
+const jsonContainerSchema = Schema.Union([
+  Schema.Record(Schema.String, Schema.Json),
+  Schema.Array(Schema.Json),
+]);
+
+const commandOutputs = function commandOutputs(value: Schema.Json): string[] {
+  if (Schema.is(commandResultSchema)(value)) {
+    return [value.output];
+  }
+
+  if (
+    !Schema.is(jsonContainerSchema)(value) ||
+    ("status" in value && value["status"] === "rejected")
+  ) {
+    return [];
+  }
+
+  return Object.values(value).flatMap(commandOutputs);
+};
+
 const jsonObjects = function* jsonObjects(text: string): Generator<string> {
   let start = -1;
   let depth = 0;
@@ -79,9 +99,7 @@ const commandOutputText = function commandOutputText(text: string): string[] {
     try {
       const value = decodeJson(Schema.MutableJson, candidate);
 
-      if (Schema.is(commandResultSchema)(value)) {
-        decoded.push(value.output);
-      }
+      decoded.push(...commandOutputs(value));
     } catch {
       continue;
     }
@@ -203,9 +221,12 @@ export class AcquisitionEvidence {
     const outputs = [
       ...sourceFragments(numbered),
       ...sourceFragments(this.sourceBodies.join("\n")),
-    ].map((text) =>
-      signatureFact("declaration", text).slice("declaration:".length)
-    );
+    ].map((text) => {
+      // Context searches can start inside a documentation comment.
+      const source = /^\s*\*/u.test(text) ? `/*\n${text}` : text;
+
+      return signatureFact("declaration", source).slice("declaration:".length);
+    });
 
     const contains = (text: string) =>
       outputs.some((body) => ` ${body} `.includes(` ${text} `));

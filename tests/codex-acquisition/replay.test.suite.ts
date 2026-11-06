@@ -90,6 +90,60 @@ export const registerAcquisitionReplayTests =
       }
     );
 
+    test.each([
+      { exitCode: 0, expected: "complete", status: "fulfilled" },
+      { exitCode: 1, expected: "insufficient", status: "fulfilled" },
+      { exitCode: 0, expected: "insufficient", status: "rejected" },
+    ])(
+      "grades settled command results: $status / exit $exitCode",
+      async ({ status, exitCode, expected }) => {
+        const wrapped = JSON.stringify({
+          status,
+          value: {
+            chunk_id: "test",
+            exit_code: exitCode,
+            output: requireDefined(oracle.declarations[0]).text,
+            wall_time_seconds: 0.01,
+          },
+        });
+
+        const result = await replay([
+          command(1000, "read"),
+          command(2000, "read", wrapped),
+        ]);
+
+        expect([result.status, result.evidenceBytes]).toStrictEqual([
+          expected,
+          Buffer.byteLength(wrapped),
+        ]);
+      }
+    );
+
+    test("recognizes command results beneath indexed orchestration metadata", async () => {
+      const output = JSON.stringify({
+        i: 1,
+        result: {
+          status: "fulfilled",
+          value: {
+            chunk_id: "test",
+            exit_code: 0,
+            output: requireDefined(oracle.declarations[0]).text,
+            wall_time_seconds: 0.01,
+          },
+        },
+      });
+
+      const result = await replay([
+        command(1000, "read"),
+        command(2000, "read", output),
+      ]);
+
+      expect([result.status, result.evidenceBytes]).toStrictEqual([
+        "complete",
+        Buffer.byteLength(output),
+      ]);
+    });
+
     test("does not treat arbitrary JSON output fields as command-result evidence", async () => {
       const result = await replay([
         command(1000, "read"),
@@ -103,6 +157,22 @@ export const registerAcquisitionReplayTests =
       ]);
 
       expect(result.status).toBe("insufficient");
+    });
+
+    test("recognizes a declaration after a clipped documentation comment", async () => {
+      const result = await replay([
+        command(1000, "read"),
+        command(
+          2000,
+          "read",
+          `10- * An unfinished \`documentation example.\n11- */\n12:${requireDefined(oracle.declarations[0]).text}`
+        ),
+      ]);
+
+      expect([
+        result.status,
+        result.sufficientEvidenceMilliseconds,
+      ]).toStrictEqual(["complete", 2000]);
     });
 
     test("stops retrieval measurement when sufficient evidence arrives, before later work and the final answer", async () => {

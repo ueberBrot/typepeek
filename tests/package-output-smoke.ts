@@ -12,7 +12,7 @@ import { runCommand } from "#typepeek/process-command";
 import {
   assertArtifactCacheReuse,
   assertArtifactVersion,
-  assertCompilerLoadsOnlyInWorker,
+  assertRuntimeImportBoundaries,
   assertRepositoryProfilingExcluded,
   assertWorkerUsesPinnedNativeCompiler,
 } from "./artifact-boundary.ts";
@@ -312,4 +312,4 @@ try {
   await rm(signatureConsumer, { force: true, recursive: true });
 }
 
-await assertCompilerLoadsOnlyInWorker(PACKAGED_CLI_PATH);
+await assertRuntimeImportBoundaries(PACKAGED_CLI_PATH);

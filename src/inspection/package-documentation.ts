@@ -174,13 +174,15 @@ const packageDocumentationText = function packageDocumentationText(
 ): string {
   // Prefer the documentation closest to what the caller selected. Combining
   // layers would duplicate tags and blur alias-specific guidance.
-  return (
-    [
-      aliasDocumentation(aliasDeclaration),
-      symbolDocumentation(exportedSymbol, checker),
-      symbolDocumentation(targetSymbol, checker),
-    ].find((documentation) => documentation.length > 0) ?? ""
-  );
+  const documentation =
+    aliasDocumentation(aliasDeclaration) ||
+    symbolDocumentation(exportedSymbol, checker);
+
+  if (documentation.length > 0 || exportedSymbol === targetSymbol) {
+    return documentation;
+  }
+
+  return symbolDocumentation(targetSymbol, checker);
 };
 
 /**
