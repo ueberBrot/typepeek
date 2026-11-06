@@ -124,4 +124,35 @@ describe("Effect command execution", () => {
       await rm(root, { force: true, recursive: true });
     }
   });
+
+  it.each(["pnpm.exe", "pnpm.native.exe"])(
+    "resolves a Windows pnpm shim backed by %s",
+    async (filename) => {
+      const root = await mkdtemp(
+        nodePath.join(tmpdir(), "typepeek-windows-pnpm-")
+      );
+
+      const directory = nodePath.join(root, "path with spaces", "pnpm", "bin");
+      const cli = nodePath.join(directory, filename);
+
+      await mkdir(directory, { recursive: true });
+      await writeFile(cli, "");
+      await writeFile(nodePath.join(directory, "pnpm.cmd"), "");
+
+      try {
+        vi.stubEnv("PATH", directory);
+        vi.stubGlobal("process", { ...process, platform: "win32" });
+        expect(
+          processExecutable("pnpm", ["--version", "path & spaces"])
+        ).toStrictEqual({
+          args: ["--version", "path & spaces"],
+          executable: cli,
+        });
+      } finally {
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+        await rm(root, { force: true, recursive: true });
+      }
+    }
+  );
 });
