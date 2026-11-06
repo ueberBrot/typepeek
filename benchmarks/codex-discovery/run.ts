@@ -13,7 +13,7 @@ import {
   hashText,
   requirePackagedArtifact,
 } from "../support/identity.ts";
-import type { AcquisitionOracle } from "./acquisition.ts";
+import type { AcquisitionOracle } from "./acquisition-evidence.ts";
 import { measureAcquisition } from "./acquisition.ts";
 import { captureCodex } from "./capture.ts";
 import {
@@ -78,6 +78,7 @@ const harnessFiles = await Promise.all(
     "options.ts",
     "report.ts",
     "acquisition.ts",
+    "acquisition-evidence.ts",
     "capture.ts",
     "exchange.ts",
     "replay.ts",
