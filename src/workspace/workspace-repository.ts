@@ -347,52 +347,55 @@ const readJsonRecord = Effect.fnUntraced(function* readJsonRecord(
   return text.pipe(Option.flatMap(decodeWorkspaceManifest));
 });
 
-const readManifestWorkspacePatterns = Effect.fnUntraced(
-  function* readManifestWorkspacePatterns(manifestPath: string) {
-    const manifest = yield* readJsonRecord(manifestPath);
-
-    if (Option.isNone(manifest)) {
-      return [];
-    }
-
-    const { workspaces } = manifest.value;
-
-    if (Array.isArray(workspaces)) {
-      return stringValues(workspaces);
-    }
-
-    const packages = isJsonObject(workspaces)
-      ? workspaces["packages"]
-      : undefined;
-
-    return stringValues(packages);
+const manifestWorkspacePatterns = function manifestWorkspacePatterns(
+  manifest: Option.Option<Schema.JsonObject>
+): readonly string[] {
+  if (Option.isNone(manifest)) {
+    return [];
   }
-);
+
+  const { workspaces } = manifest.value;
+
+  if (Array.isArray(workspaces)) {
+    return stringValues(workspaces);
+  }
+
+  const packages = isJsonObject(workspaces)
+    ? workspaces["packages"]
+    : undefined;
+
+  return stringValues(packages);
+};
 
 const readWorkspacePatterns = Effect.fnUntraced(function* readWorkspacePatterns(
-  directory: string
+  directory: string,
+  manifest: Option.Option<Schema.JsonObject>
 ) {
-  const manifest = yield* readManifestWorkspacePatterns(
-    nodePath.join(directory, PACKAGE_MANIFEST_FILE)
-  );
-
   const pnpm = yield* readBoundedText(
     nodePath.join(directory, "pnpm-workspace.yaml")
   );
 
   return [
-    ...manifest,
+    ...manifestWorkspacePatterns(manifest),
     ...Option.match(pnpm, { onNone: () => [], onSome: pnpmWorkspacePatterns }),
   ];
 });
 
 const findWorkspaceLayout = Effect.fnUntraced(function* findWorkspaceLayout(
-  startingDirectory: string
+  startingDirectory: string,
+  initialManifest: Option.Option<Schema.JsonObject>
 ) {
   let directory = startingDirectory;
 
   for (let depth = 0; depth < MAX_ANCESTOR_DIRECTORIES; depth += 1) {
-    const patterns = yield* readWorkspacePatterns(directory);
+    const manifest =
+      depth === 0
+        ? initialManifest
+        : yield* readJsonRecord(
+            nodePath.join(directory, PACKAGE_MANIFEST_FILE)
+          );
+
+    const patterns = yield* readWorkspacePatterns(directory, manifest);
 
     if (patterns.length > 0) {
       return Option.some({ patterns, root: directory });
@@ -541,39 +544,34 @@ interface WorkspaceTraversal {
 }
 
 /** Owns static workspace configuration and bounded discovery of consuming workspaces. */
-export const findWorkspaceRepository = Effect.fnUntraced(
-  function* findWorkspaceRepository(startingDirectory: string) {
-    const layout = yield* findWorkspaceLayout(startingDirectory);
+export const findConsumingWorkspaces = Effect.fnUntraced(
+  function* findConsumingWorkspaces(
+    resolutionContext: string,
+    packageName: string
+  ) {
+    const manifest = yield* readJsonRecord(
+      nodePath.join(resolutionContext, PACKAGE_MANIFEST_FILE)
+    );
 
-    if (Option.isNone(layout)) {
-      return Option.none<WorkspaceRepository>();
+    if (
+      Option.isSome(manifest) &&
+      hasDeclaredPackage(manifest.value, packageName)
+    ) {
+      return Option.none();
     }
 
-    const repository = layout.value;
+    const layout = yield* findWorkspaceLayout(resolutionContext, manifest);
 
-    return Option.some({
-      consumingWorkspaces: (packageName: string) =>
-        discoverWorkspaceDirectories(repository).pipe(
-          Effect.flatMap((directories) =>
-            filterEffect(directories, (directory) =>
-              workspaceDeclaresPackage(directory, packageName)
-            )
-          )
-        ),
-      declaresPackage: (packageName: string) =>
-        workspaceDeclaresPackage(repository.root, packageName),
-      root: repository.root,
-    });
-  },
-  Effect.map(Option.getOrUndefined)
+    if (Option.isNone(layout) || layout.value.root !== resolutionContext) {
+      return Option.none();
+    }
+
+    const directories = yield* discoverWorkspaceDirectories(layout.value);
+
+    const candidates = yield* filterEffect(directories, (directory) =>
+      workspaceDeclaresPackage(directory, packageName)
+    );
+
+    return Option.some({ candidates, root: layout.value.root });
+  }
 );
-
-export interface WorkspaceRepository {
-  readonly root: string;
-  readonly consumingWorkspaces: (
-    packageName: string
-  ) => Effect.Effect<string[], never, FileSystem.FileSystem>;
-  readonly declaresPackage: (
-    packageName: string
-  ) => Effect.Effect<boolean, never, FileSystem.FileSystem>;
-}

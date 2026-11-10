@@ -1,14 +1,13 @@
-import { Cause, Effect } from "effect";
+import { Cause, Effect, Option } from "effect";
 
 import { parsePackageNameSegments } from "#typepeek/inspection/evidence/installed-package-boundary";
 import { isBuiltin } from "#typepeek/platform/node-module";
 import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 import { requireDefined } from "#typepeek/shared/defined-value";
 
-import type { WorkspaceRepository } from "../workspace/workspace-repository.ts";
 import {
   WorkspaceDiscoveryLimitError,
-  findWorkspaceRepository,
+  findConsumingWorkspaces,
 } from "../workspace/workspace-repository.ts";
 
 type WorkspaceFlag = "--workspace" | "--before-workspace" | "--after-workspace";
@@ -20,19 +19,6 @@ const workspacePackageName = function workspacePackageName(
     ? undefined
     : parsePackageNameSegments(specifier)?.join("/");
 };
-
-const usesCurrentResolutionContext = Effect.fnUntraced(
-  function* usesCurrentResolutionContext(
-    repository: WorkspaceRepository,
-    resolutionContext: string,
-    packageName: string
-  ) {
-    return (
-      repository.root !== resolutionContext ||
-      (yield* repository.declaresPackage(packageName))
-    );
-  }
-);
 
 const displayWorkspaceCandidate = function displayWorkspaceCandidate(
   repositoryRoot: string,
@@ -47,7 +33,7 @@ const displayWorkspaceCandidate = function displayWorkspaceCandidate(
 
 const selectDeclaredWorkspace = function selectDeclaredWorkspace(
   candidates: readonly string[],
-  repository: WorkspaceRepository,
+  repositoryRoot: string,
   resolutionContext: string,
   specifier: string,
   workspaceFlag: WorkspaceFlag
@@ -61,7 +47,7 @@ const selectDeclaredWorkspace = function selectDeclaredWorkspace(
   }
 
   const displayedCandidates = candidates
-    .map((candidate) => displayWorkspaceCandidate(repository.root, candidate))
+    .map((candidate) => displayWorkspaceCandidate(repositoryRoot, candidate))
     .join(", ");
 
   return new Error(
@@ -76,24 +62,18 @@ const selectRepositoryWorkspace = Effect.fnUntraced(
     specifier: string,
     workspaceFlag: WorkspaceFlag
   ) {
-    const repository = yield* findWorkspaceRepository(resolutionContext);
+    const selection = yield* findConsumingWorkspaces(
+      resolutionContext,
+      packageName
+    );
 
-    if (
-      repository === undefined ||
-      (yield* usesCurrentResolutionContext(
-        repository,
-        resolutionContext,
-        packageName
-      ))
-    ) {
+    if (Option.isNone(selection)) {
       return resolutionContext;
     }
 
-    const candidates = yield* repository.consumingWorkspaces(packageName);
-
     return selectDeclaredWorkspace(
-      candidates,
-      repository,
+      selection.value.candidates,
+      selection.value.root,
       resolutionContext,
       specifier,
       workspaceFlag
