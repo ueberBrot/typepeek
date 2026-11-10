@@ -131,9 +131,104 @@ describe("Effect command execution", () => {
     }
   });
 
-  it.each(["pnpm.exe", "pnpm.native.exe"])(
-    "resolves a Windows pnpm shim backed by %s",
-    async (filename) => {
+  it.each([true, false])(
+    "resolves Windows shims using child PATH and cwd with extendEnv=%s",
+    async (extendEnv) => {
+      const root = await mkdtemp(
+        nodePath.join(tmpdir(), "typepeek-command-context-")
+      );
+
+      const inheritedDirectory = nodePath.join(root, "inherited");
+      const cwd = nodePath.join(root, "child");
+      const directory = nodePath.join(cwd, "bin");
+
+      const cli = nodePath.join(
+        directory,
+        "node_modules",
+        "npm",
+        "bin",
+        "npm-cli.js"
+      );
+
+      await mkdir(inheritedDirectory, { recursive: true });
+      await mkdir(nodePath.dirname(cli), { recursive: true });
+      await writeFile(nodePath.join(inheritedDirectory, "npm.exe"), "");
+      await writeFile(cli, "");
+      await writeFile(nodePath.join(directory, "npm.cmd"), "");
+
+      try {
+        vi.stubEnv("PATH", inheritedDirectory);
+        vi.stubGlobal("process", { ...process, platform: "win32" });
+
+        const resolved = await Effect.runPromise(
+          processExecutable("npm", ["--version"], {
+            cwd,
+            env: { Path: "bin", TYPEPEEK_COMMAND_SENTINEL: "child" },
+            extendEnv,
+          }).pipe(Effect.provide(processLayer))
+        );
+
+        expect(resolved).toMatchObject({
+          args: [cli, "--version"],
+          env: { PATH: "bin", TYPEPEEK_COMMAND_SENTINEL: "child" },
+          executable: process.execPath,
+          extendEnv: false,
+        });
+        expect(
+          Object.keys(resolved.env ?? {}).filter(
+            (key) => key.toLowerCase() === "path"
+          )
+        ).toStrictEqual(["PATH"]);
+      } finally {
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+        await rm(root, { force: true, recursive: true });
+      }
+    }
+  );
+
+  it("does not use inherited Windows PATH when command inheritance is disabled", async () => {
+    const root = await mkdtemp(
+      nodePath.join(tmpdir(), "typepeek-command-isolation-")
+    );
+
+    const inheritedDirectory = nodePath.join(root, "inherited");
+    const cwd = nodePath.join(root, "child");
+    await mkdir(inheritedDirectory);
+    await mkdir(cwd);
+    await writeFile(nodePath.join(inheritedDirectory, "npm.exe"), "");
+
+    try {
+      vi.stubEnv("PATH", inheritedDirectory);
+      vi.stubGlobal("process", { ...process, platform: "win32" });
+      await expect(
+        Effect.runPromise(
+          processExecutable("npm", ["--version"], {
+            cwd,
+            env: {},
+            extendEnv: false,
+          }).pipe(Effect.provide(processLayer))
+        )
+      ).resolves.toMatchObject({
+        args: ["--version"],
+        env: {},
+        executable: "npm",
+        extendEnv: false,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it.each([
+    ["pnpm.exe", true],
+    ["pnpm.native.exe", true],
+    ["pnpm.exe", false],
+  ] as const)(
+    "resolves a Windows pnpm shim backed by %s with extendEnv=%s and no replacement environment",
+    async (filename, extendEnv) => {
       const root = await mkdtemp(
         nodePath.join(tmpdir(), "typepeek-windows-pnpm-")
       );
@@ -150,9 +245,9 @@ describe("Effect command execution", () => {
         vi.stubGlobal("process", { ...process, platform: "win32" });
         await expect(
           Effect.runPromise(
-            processExecutable("pnpm", ["--version", "path & spaces"]).pipe(
-              Effect.provide(processLayer)
-            )
+            processExecutable("pnpm", ["--version", "path & spaces"], {
+              extendEnv,
+            }).pipe(Effect.provide(processLayer))
           )
         ).resolves.toMatchObject({
           args: ["--version", "path & spaces"],

@@ -39,11 +39,16 @@ export const runCommandEffect = Effect.fnUntraced(function* runCommandEffect(
     stdin = Stream.make(input);
   }
 
-  const resolved = yield* processExecutable(executable, args);
+  const {
+    executable: commandExecutable,
+    args: commandArguments,
+    ...context
+  } = yield* processExecutable(executable, args, options);
 
-  const command = ChildProcess.make(resolved.executable, resolved.args, {
+  const command = ChildProcess.make(commandExecutable, commandArguments, {
     ...options,
-    extendEnv: options.extendEnv ?? true,
+    ...context,
+    extendEnv: context.extendEnv,
     forceKillAfter: options.forceKillAfter ?? 1000,
     stdin,
   });
