@@ -650,7 +650,7 @@ export const materializeStaticInspection =
         resolutionContext,
       }) => {
         const command =
-          adapter.kind === "installed"
+          adapter.kind === "installed" && process.platform !== "win32"
             ? adapter.executablePath
             : process.execPath;
 
@@ -666,7 +666,20 @@ export const materializeStaticInspection =
 
         const commandArguments =
           adapter.kind === "installed"
-            ? [...cliArguments, "--workspace", resolutionContext]
+            ? [
+                ...(process.platform === "win32"
+                  ? [
+                      nodePath.join(
+                        nodePath.dirname(adapter.analysisProcessEntryPath),
+                        "..",
+                        "cli.js"
+                      ),
+                    ]
+                  : []),
+                ...cliArguments,
+                "--workspace",
+                resolutionContext,
+              ]
             : [
                 nodePath.join(adapter.sourceCheckout, "src", "cli.ts"),
                 ...cliArguments,
@@ -674,28 +687,17 @@ export const materializeStaticInspection =
                 resolutionContext,
               ];
 
-        const windowsCommandShim =
-          process.platform === "win32" && /\.cmd$/iu.test(command);
-
         try {
-          const result = await runCommand(
-            windowsCommandShim ? `"${command}"` : command,
-            windowsCommandShim
-              ? commandArguments.map((argument) => `"${argument}"`)
-              : commandArguments,
-            {
-              cwd: resolutionContext,
-              env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
-                allowedAnalysisProcessEntry: analysisProcessEntryPath,
-                allowedCompilerExecutable: await compilerExecutableFor(
-                  analysisProcessEntryPath
-                ),
-                denyWorkers: true,
-              }),
-              // Windows package-manager shims require Effect's shell option.
-              shell: windowsCommandShim,
-            }
-          );
+          const result = await runCommand(command, commandArguments, {
+            cwd: resolutionContext,
+            env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
+              allowedAnalysisProcessEntry: analysisProcessEntryPath,
+              allowedCompilerExecutable: await compilerExecutableFor(
+                analysisProcessEntryPath
+              ),
+              denyWorkers: true,
+            }),
+          });
 
           await verifyNoIo();
 

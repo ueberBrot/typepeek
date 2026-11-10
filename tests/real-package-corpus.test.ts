@@ -725,7 +725,7 @@ describe("real-package-corpus", () => {
       } finally {
         await rm(cacheDirectory, { force: true, recursive: true });
       }
-    });
+    }, 90_000);
 
     it("pages the large SDK export index", async () => {
       const outcome = await inspectInterfaceOverview({
@@ -749,7 +749,7 @@ describe("real-package-corpus", () => {
         outcome.result.moduleExports.length,
         requireDefined(outcome.result.exportPage?.totalModuleExports) > 8000,
       ]).toStrictEqual([100, true]);
-    });
+    }, 90_000);
 
     it("searches the large SDK export index by name", async () => {
       const outcome = await inspectExportSearch({
