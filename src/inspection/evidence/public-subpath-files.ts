@@ -1,15 +1,14 @@
-import type { Dirent } from "node:fs";
-import { opendirSync } from "node:fs";
-import nodePath from "node:path";
-
 import type { CompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
 import {
+  readEvidenceDirectory,
   canonicalEvidencePath,
   isEvidenceDirectory,
   isEvidenceFile,
   isPathWithin,
 } from "#typepeek/inspection/evidence/evidence-boundary";
 import { InspectionLimitError } from "#typepeek/inspection/model/errors";
+import type { DirectoryEntry } from "#typepeek/platform/node-directory";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 import { requireDefined } from "#typepeek/shared/defined-value";
 
 const MAX_PUBLIC_SUBPATH_FILE_DEPTH = 64;
@@ -59,32 +58,17 @@ const readBoundedDirectoryEntries = function readBoundedDirectoryEntries(
   traversal: {
     entries: number;
   }
-): readonly Dirent[] {
-  const entries: Dirent[] = [];
-  const directoryHandle = opendirSync(directory);
+): readonly DirectoryEntry[] {
+  const entries = readEvidenceDirectory(directory, () => {
+    traversal.entries += 1;
 
-  try {
-    while (true) {
-      const entry = directoryHandle.readSync();
-
-      if (entry === null) {
-        break;
-      }
-
-      traversal.entries += 1;
-
-      if (traversal.entries > MAX_PUBLIC_SUBPATH_FILE_ENTRIES) {
-        throw new InspectionLimitError(
-          "public-subpath-files",
-          "Inspection exceeded its Public Subpath file traversal limit."
-        );
-      }
-
-      entries.push(entry);
+    if (traversal.entries > MAX_PUBLIC_SUBPATH_FILE_ENTRIES) {
+      throw new InspectionLimitError(
+        "public-subpath-files",
+        "Inspection exceeded its Public Subpath file traversal limit."
+      );
     }
-  } finally {
-    directoryHandle.closeSync();
-  }
+  });
 
   return entries.toSorted((left, right) => {
     if (left.name < right.name) {
@@ -148,7 +132,7 @@ const linkedPackageEntryKind = function linkedPackageEntryKind(
 };
 
 const packageEntryKind = function packageEntryKind(
-  entry: Dirent,
+  entry: DirectoryEntry,
   canonicalEntryPath: string
 ): PackageEntry["kind"] | undefined {
   if (entry.isDirectory()) {
@@ -167,7 +151,7 @@ const packageEntryKind = function packageEntryKind(
 const readPackageEntry = function readPackageEntry(
   packageRoot: string,
   logicalDirectory: string,
-  entry: Dirent
+  entry: DirectoryEntry
 ): readonly PackageEntry[] {
   const logicalPath = nodePath.join(logicalDirectory, entry.name);
   const canonicalEntryPath = canonicalEvidencePath(logicalPath);

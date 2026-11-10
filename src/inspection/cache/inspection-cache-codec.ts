@@ -1,6 +1,3 @@
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Cache codecs validate untrusted disk and IPC values after bounded snapshots, including malformed and cyclic inputs. */
-import nodePath from "node:path";
-
 import { Predicate, Result, Schema, SchemaGetter } from "effect";
 
 import { COMPILER_VERSION } from "#typepeek/inspection/compiler/compiler-metadata";
@@ -23,6 +20,8 @@ import {
 import { analysisRequestSchema } from "#typepeek/inspection/model/request-definitions";
 import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/model/untrusted-data";
 import { TYPEPEEK_VERSION } from "#typepeek/platform/package-metadata";
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Cache codecs validate untrusted disk and IPC values after bounded snapshots, including malformed and cyclic inputs. */
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 import { isJsonArray, isJsonObject } from "#typepeek/shared/json-data";
 
 export const CACHE_SCHEMA_VERSION = 2;

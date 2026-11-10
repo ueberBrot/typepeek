@@ -29,7 +29,7 @@ assert.equal(workloads.length, 10);
 
 try {
   await Array.fromAsync(workloads, async (workload) => {
-    const oracle = inspectWithCompiler(workspace, workload);
+    const oracle = await inspectWithCompiler(workspace, workload);
     const before = evidenceFingerprint(workspace, oracle.files);
 
     if (workload.id === "semver-clean") {

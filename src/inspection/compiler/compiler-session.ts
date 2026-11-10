@@ -1,5 +1,4 @@
-import nodePath from "node:path";
-
+import { Effect, Semaphore } from "effect";
 import type { Declaration, Node, SourceFile } from "tsrs/ast";
 import {
   SyntaxKind,
@@ -7,20 +6,25 @@ import {
   isStringLiteralLikeNode,
   isTypeAliasDeclaration,
 } from "tsrs/ast";
-import type { FileSystemCallbacks } from "tsrs/fs";
-import { API, NodeBuilderFlags, SignatureKind, isRemoteNode } from "tsrs/sync";
+import { API, NodeBuilderFlags, SignatureKind, isRemoteNode } from "tsrs/async";
 import type {
   Checker,
   Program,
   Signature,
   Symbol as CompilerSymbol,
-} from "tsrs/sync";
+} from "tsrs/async";
+import type { FileSystemCallbacks } from "tsrs/fs";
 
 import {
   COMPILER_EXECUTABLE,
   COMPILER_INTRINSIC_FILE,
 } from "#typepeek/inspection/compiler/compiler-distribution";
 import { symbolsAtLocations } from "#typepeek/inspection/compiler/compiler-queries";
+import { createCompilerSessionOwner } from "#typepeek/inspection/compiler/compiler-session-owner";
+import type { CompilerSessionOwner } from "#typepeek/inspection/compiler/compiler-session-owner";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
+import { mapAsync } from "#typepeek/shared/async-collection";
+import { runAdapterEffect } from "#typepeek/shared/effect-adapter";
 import { bitwiseOr } from "#typepeek/shared/integer-bits";
 
 export interface ResolutionFileSystem {
@@ -31,7 +35,7 @@ export interface ResolutionFileSystem {
   readonly getDirectories: (path: string) => string[];
 }
 
-const sessions = new Set<API>();
+let fixtureSessions = createCompilerSessionOwner();
 const checkerSessions = new WeakMap<Checker, { readonly api: API }>();
 const checkerPrograms = new WeakMap<Checker, Program>();
 const ambientModuleCache = new WeakMap<Checker, readonly CompilerSymbol[]>();
@@ -52,7 +56,7 @@ export const bindCompilerProgram = (program: Program, api: API): Program => {
 };
 
 export const retainCompilerProgram = (program: Program, api: API): Program => {
-  sessions.add(api);
+  fixtureSessions.retain(api);
 
   return bindCompilerProgram(program, api);
 };
@@ -63,8 +67,16 @@ export class CompilerSession {
   private fileSystem: ResolutionFileSystem | undefined;
   private callbackError: { readonly error: unknown } | null = null;
   private closed = false;
+  private closing: Promise<void> | undefined;
+  private readonly fileSystemGate = Semaphore.makeUnsafe(1);
+  private readonly owner: CompilerSessionOwner;
 
-  constructor(cwd = process.cwd()) {
+  constructor(
+    cwd = process.cwd(),
+    owner: CompilerSessionOwner = fixtureSessions
+  ) {
+    this.owner = owner;
+
     const guarded = <Value>(read: () => Value, fallback: Value): Value => {
       try {
         return read();
@@ -143,55 +155,73 @@ export class CompilerSession {
       }
     }
 
-    sessions.add(this.api);
+    this.owner.retain(this);
   }
 
-  withFileSystem<Value>(
+  async withFileSystem<Value>(
     fileSystem: ResolutionFileSystem,
-    run: () => Value
-  ): Value {
-    const previous = this.fileSystem;
-    this.fileSystem = fileSystem;
+    run: () => Value | Promise<Value>
+  ): Promise<Value> {
+    return await runAdapterEffect(
+      this.fileSystemGate.withPermit(
+        Effect.acquireUseRelease(
+          Effect.sync(() => {
+            if (this.closed) {
+              throw new Error("The compiler session is closed.");
+            }
 
-    try {
-      const result = run();
+            const previous = this.fileSystem;
+            this.fileSystem = fileSystem;
 
-      if (this.callbackError !== null) {
-        throw this.callbackError.error;
-      }
+            return previous;
+          }),
+          () =>
+            Effect.promise(async () => {
+              const result = await run();
 
-      return result;
-    } finally {
-      this.fileSystem = previous;
-      this.callbackError = null;
-    }
+              if (this.callbackError !== null) {
+                throw this.callbackError.error;
+              }
+
+              return result;
+            }),
+          (previous) =>
+            Effect.sync(() => {
+              this.fileSystem = previous;
+              this.callbackError = null;
+            })
+        )
+      )
+    );
   }
 
   retainProgram(program: Program): Program {
-    return retainCompilerProgram(program, this.api);
+    return bindCompilerProgram(program, this.api);
   }
 
-  close(): void {
-    if (this.closed) {
-      return;
-    }
+  async close(): Promise<void> {
+    this.closing ??= runAdapterEffect(
+      this.fileSystemGate.withPermit(
+        Effect.promise(async () => {
+          this.closed = true;
+          this.owner.release(this);
+          await this.api.close();
+        })
+      )
+    );
 
-    this.closed = true;
-    sessions.delete(this.api);
-    this.api.close();
+    await this.closing;
   }
 
-  [Symbol.dispose](): void {
-    this.close();
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.close();
   }
 }
 
-export const closeCompilerSessions = (): void => {
-  for (const api of sessions) {
-    api.close();
-  }
-
-  sessions.clear();
+export const closeCompilerSessions = async (): Promise<void> => {
+  const previous = fixtureSessions;
+  fixtureSessions = createCompilerSessionOwner();
+  await previous.close();
 };
 
 const compilerSessionFor = (checker: Checker): { readonly api: API } => {
@@ -204,9 +234,9 @@ const compilerSessionFor = (checker: Checker): { readonly api: API } => {
   return session;
 };
 
-export const declarationsOf = (
+export const declarationsOf = async (
   symbol: CompilerSymbol | undefined
-): readonly Declaration[] => {
+): Promise<readonly Declaration[]> => {
   if (symbol === undefined) {
     return [];
   }
@@ -214,44 +244,57 @@ export const declarationsOf = (
   let declarations = declarationCache.get(symbol);
 
   if (declarations === undefined) {
-    declarations = symbol.declarations.flatMap((handle) => {
-      const declaration = handle.resolve();
+    const mappedValues = await mapAsync(symbol.declarations, async (handle) => {
+      const declaration = await handle.resolve();
 
       return declaration === undefined ? [] : [declaration];
     });
+
+    declarations = mappedValues.flat();
     declarationCache.set(symbol, declarations);
   }
 
   return declarations;
 };
 
-export const valueDeclarationOf = (
+export const valueDeclarationOf = async (
   symbol: CompilerSymbol
-): Declaration | undefined => symbol.valueDeclaration?.resolve();
+): Promise<Declaration | undefined> => await symbol.valueDeclaration?.resolve();
 
-export const printCompilerNode = (checker: Checker, node: Node): string =>
-  compilerSessionFor(checker).api.printer.printNode(node);
+export const printCompilerNode = async (
+  checker: Checker,
+  node: Node
+): Promise<string> =>
+  await compilerSessionFor(checker).api.printer.printNode(node);
 
 /** These independent metadata queries share one native round trip. */
-export const signatureParts = (checker: Checker, signature: Signature) => {
-  const [parameters, typeParameters, thisParameter] = compilerSessionFor(
-    checker
-  ).api.batch(
-    signature.getParameters.gen(),
-    signature.getTypeParameters.gen(),
-    signature.getThisParameter.gen()
+export const signatureParts = async (
+  checker: Checker,
+  signature: Signature
+) => {
+  compilerSessionFor(checker);
+
+  const [parameters, typeParameters, thisParameter] = await runAdapterEffect(
+    Effect.all(
+      [
+        Effect.promise(async () => await signature.getParameters()),
+        Effect.promise(async () => await signature.getTypeParameters()),
+        Effect.promise(async () => await signature.getThisParameter()),
+      ],
+      { concurrency: "unbounded" }
+    )
   );
 
   return { parameters, thisParameter, typeParameters: typeParameters ?? [] };
 };
 
-export const signatureText = (
+export const signatureText = async (
   checker: Checker,
   signature: Signature,
   location?: Node,
   kind = SignatureKind.Call
-): string => {
-  const node = checker.signatureToSignatureDeclaration(
+): Promise<string> => {
+  const node = await checker.signatureToSignatureDeclaration(
     signature,
     kind === SignatureKind.Construct
       ? SyntaxKind.ConstructSignature
@@ -273,17 +316,27 @@ export const signatureText = (
     throw new Error("The native compiler could not project a signature.");
   }
 
-  return printCompilerNode(checker, node).trim().replace(/;$/u, "");
+  const printCompilerNodeResult = await printCompilerNode(checker, node);
+
+  return printCompilerNodeResult.trim().replace(/;$/u, "");
 };
 
-const sourceFilesOf = (program: Program): readonly SourceFile[] =>
-  program.getSourceFileNames().flatMap((file) => {
-    const source = program.getSourceFile(file);
+const sourceFilesOf = async (
+  program: Program
+): Promise<readonly SourceFile[]> => {
+  const names = await program.getSourceFileNames();
 
-    return source === undefined ? [] : [source];
-  });
+  const sources = await mapAsync(
+    names,
+    async (file) => await program.getSourceFile(file)
+  );
 
-export const ambientModules = (checker: Checker): readonly CompilerSymbol[] => {
+  return sources.filter((source): source is SourceFile => source !== undefined);
+};
+
+export const ambientModules = async (
+  checker: Checker
+): Promise<readonly CompilerSymbol[]> => {
   const cached = ambientModuleCache.get(checker);
 
   if (cached !== undefined) {
@@ -296,7 +349,9 @@ export const ambientModules = (checker: Checker): readonly CompilerSymbol[] => {
     throw new Error("Ambient modules need an active program.");
   }
 
-  const declarations = sourceFilesOf(program).flatMap((file) =>
+  const sourceFilesOfResult = await sourceFilesOf(program);
+
+  const declarations = sourceFilesOfResult.flatMap((file) =>
     file.statements.filter(
       (statement) =>
         isModuleDeclaration(statement) &&
@@ -304,7 +359,7 @@ export const ambientModules = (checker: Checker): readonly CompilerSymbol[] => {
     )
   );
 
-  const symbols = symbolsAtLocations(
+  const symbols = await symbolsAtLocations(
     checker,
     declarations.map((declaration) =>
       isModuleDeclaration(declaration) ? declaration.name : declaration
@@ -322,8 +377,8 @@ export const ambientModules = (checker: Checker): readonly CompilerSymbol[] => {
   return result;
 };
 
-export const emptyArgumentsType = (checker: Checker) => {
-  const source = checkerPrograms
+export const emptyArgumentsType = async (checker: Checker) => {
+  const source = await checkerPrograms
     .get(checker)
     ?.getSourceFile(COMPILER_INTRINSIC_FILE);
 
@@ -333,5 +388,5 @@ export const emptyArgumentsType = (checker: Checker) => {
     throw new Error("The native program is missing its intrinsic tuple.");
   }
 
-  return checker.getTypeFromTypeNode(declaration.type);
+  return await checker.getTypeFromTypeNode(declaration.type);
 };

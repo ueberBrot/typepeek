@@ -1,11 +1,7 @@
-import { createHash } from "node:crypto";
-import type { Dirent } from "node:fs";
-import { opendirSync } from "node:fs";
-import nodePath from "node:path";
-
 import { Result, Schema } from "effect";
 
 import {
+  readEvidenceDirectory,
   canonicalEvidenceCandidatePath,
   canonicalEvidencePath,
 } from "#typepeek/inspection/evidence/evidence-boundary";
@@ -16,6 +12,9 @@ import {
   compactEvidenceProof,
 } from "#typepeek/inspection/evidence/installed-evidence-format";
 import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/model/untrusted-data";
+import type { DirectoryEntry } from "#typepeek/platform/node-directory";
+import { sha256 } from "#typepeek/platform/platform-crypto";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 
 export const MAX_FINGERPRINTED_DIRECTORY_ENTRIES =
   EVIDENCE_PROOF_LIMITS.directoryEntries;
@@ -197,7 +196,7 @@ export type ObserveInstalledEvidenceFilePresence = (
 
 export type ObserveInstalledEvidenceDirectory = (
   directory: string,
-  entries: readonly Dirent[]
+  entries: readonly DirectoryEntry[]
 ) => void;
 
 export interface InstalledEvidenceObserver {
@@ -211,7 +210,9 @@ export interface InstalledEvidenceFingerprintRecorder extends InstalledEvidenceO
   readonly snapshot: () => InstalledEvidenceProof | undefined;
 }
 
-const directoryEntryKind = function directoryEntryKind(entry: Dirent): string {
+const directoryEntryKind = function directoryEntryKind(
+  entry: DirectoryEntry
+): string {
   if (entry.isDirectory()) {
     return "directory";
   }
@@ -239,14 +240,12 @@ const directoryEntryKind = function directoryEntryKind(entry: Dirent): string {
   return entry.isSocket() ? "socket" : "unknown";
 };
 
-export const sha256 = function sha256(contents: string): string {
-  return createHash("sha256").update(contents).digest("hex");
-};
+export { sha256 } from "#typepeek/platform/platform-crypto";
 
 const fingerprintInstalledEvidenceDirectory =
   function fingerprintInstalledEvidenceDirectory(
     directory: string,
-    entries: readonly Dirent[]
+    entries: readonly DirectoryEntry[]
   ): InstalledEvidenceDirectoryFingerprint | undefined {
     const path = canonicalEvidencePath(directory);
 
@@ -589,26 +588,15 @@ export const readInstalledEvidenceDirectoryFingerprint =
     }
 
     try {
-      const entries: Dirent[] = [];
-      const handle = opendirSync(directory);
+      let count = 0;
 
-      try {
-        while (true) {
-          const entry = handle.readSync();
+      const entries = readEvidenceDirectory(directory, () => {
+        count += 1;
 
-          if (entry === null) {
-            break;
-          }
-
-          entries.push(entry);
-
-          if (entries.length > maximumEntries) {
-            return undefined;
-          }
+        if (count > maximumEntries) {
+          throw new RangeError("Evidence directory exceeds its entry limit.");
         }
-      } finally {
-        handle.closeSync();
-      }
+      });
 
       return fingerprintInstalledEvidenceDirectory(directory, entries);
     } catch {

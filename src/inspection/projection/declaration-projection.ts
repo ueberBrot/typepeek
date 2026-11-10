@@ -38,7 +38,7 @@ import type {
   Statement,
   TypeNode,
 } from "tsrs/ast";
-import type { Checker, Type } from "tsrs/sync";
+import type { Checker, Type } from "tsrs/async";
 
 import { printCompilerNode } from "#typepeek/inspection/compiler/compiler-session";
 import {
@@ -66,6 +66,7 @@ import {
   selectPublicClassDeclarations,
 } from "#typepeek/inspection/projection/public-declaration-selection";
 import type { IdentifiedParameter } from "#typepeek/inspection/projection/public-declaration-selection";
+import { mapAsync } from "#typepeek/shared/async-collection";
 
 const MAX_INFERRED_TYPE_TRAVERSAL_DEPTH = 64;
 const MAX_INFERRED_TYPE_TRAVERSAL_NODES = 4096;
@@ -83,8 +84,8 @@ const NAMESPACE_DECLARATION_KINDS = new Set<SyntaxKind>([
 ]);
 
 export interface DeclarationProjection {
-  readonly inferredTypes: readonly Type[];
-  readonly syntax: Declaration;
+  readonly inferredTypes: Promise<readonly Type[]>;
+  readonly syntax: Promise<Declaration>;
 }
 
 const reserveInferredTypeSyntaxTraversal =
@@ -107,11 +108,13 @@ const reserveInferredTypeSyntaxTraversal =
     }
   };
 
-const standaloneProjectionContext = function standaloneProjectionContext(
+const standaloneProjectionContext = async function standaloneProjectionContext(
   checker: Checker,
   declaration: Declaration
-): DeclarationProjectionContext {
-  const moduleSymbol = checker.getSymbolAtLocation(declaration.getSourceFile());
+): Promise<DeclarationProjectionContext> {
+  const moduleSymbol = await checker.getSymbolAtLocation(
+    declaration.getSourceFile()
+  );
 
   if (moduleSymbol === undefined) {
     throw new UnsupportedInspectionError(
@@ -134,26 +137,27 @@ const standaloneProjectionContext = function standaloneProjectionContext(
   };
 };
 
-const collectInferredDeclarationType = function collectInferredDeclarationType(
-  checker: Checker,
-  declaration: Declaration,
-  types: Type[]
-): void {
-  if (
-    (isVariableDeclaration(declaration) ||
-      isPropertyDeclaration(declaration) ||
-      isParameterDeclaration(declaration)) &&
-    declaration.type === undefined
-  ) {
-    types.push(checker.getTypeAtLocation(declaration));
-  }
-};
+const collectInferredDeclarationType =
+  async function collectInferredDeclarationType(
+    checker: Checker,
+    declaration: Declaration,
+    types: Type[]
+  ): Promise<void> {
+    if (
+      (isVariableDeclaration(declaration) ||
+        isPropertyDeclaration(declaration) ||
+        isParameterDeclaration(declaration)) &&
+      declaration.type === undefined
+    ) {
+      types.push(await checker.getTypeAtLocation(declaration));
+    }
+  };
 
-const collectInferredReturnType = function collectInferredReturnType(
+const collectInferredReturnType = async function collectInferredReturnType(
   checker: Checker,
   declaration: Declaration,
   types: Type[]
-): void {
+): Promise<void> {
   if (
     !(
       isFunctionDeclaration(declaration) ||
@@ -165,10 +169,10 @@ const collectInferredReturnType = function collectInferredReturnType(
     return;
   }
 
-  const signature = checker.getSignatureFromDeclaration(declaration);
+  const signature = await checker.getSignatureFromDeclaration(declaration);
 
   if (signature !== undefined) {
-    types.push(checker.getReturnTypeOfSignature(signature));
+    types.push(await checker.getReturnTypeOfSignature(signature));
   }
 };
 
@@ -191,10 +195,10 @@ const parameterDeclarations = function parameterDeclarations(
 };
 
 const inferredPublicClassDeclarations =
-  function inferredPublicClassDeclarations(
+  async function inferredPublicClassDeclarations(
     checker: Checker,
     declaration: Declaration
-  ): readonly Declaration[] {
+  ): Promise<readonly Declaration[]> {
     if (!isClassDeclaration(declaration)) {
       return [];
     }
@@ -202,7 +206,7 @@ const inferredPublicClassDeclarations =
     const {
       members: retainedMembers,
       parameterProperties: visibleParameterProperties,
-    } = selectPublicClassDeclarations(checker, declaration.members);
+    } = await selectPublicClassDeclarations(checker, declaration.members);
 
     const visibleMembers = retainedMembers.filter(
       (member) => !isPrivateDeclaration(member)
@@ -211,21 +215,24 @@ const inferredPublicClassDeclarations =
     return [...visibleParameterProperties, ...visibleMembers];
   };
 
-const collectInferredPublicTypes = function collectInferredPublicTypes(
+const collectInferredPublicTypes = async function collectInferredPublicTypes(
   checker: Checker,
   declaration: Declaration,
   types: Type[]
-): void {
-  collectInferredDeclarationType(checker, declaration, types);
-  collectInferredReturnType(checker, declaration, types);
+): Promise<void> {
+  await collectInferredDeclarationType(checker, declaration, types);
+  await collectInferredReturnType(checker, declaration, types);
 
-  for (const parameter of parameterDeclarations(declaration)) {
-    collectInferredPublicTypes(checker, parameter, types);
-  }
+  await mapAsync(parameterDeclarations(declaration), async (parameter) => {
+    await collectInferredPublicTypes(checker, parameter, types);
+  });
 
-  for (const member of inferredPublicClassDeclarations(checker, declaration)) {
-    collectInferredPublicTypes(checker, member, types);
-  }
+  await mapAsync(
+    await inferredPublicClassDeclarations(checker, declaration),
+    async (member) => {
+      await collectInferredPublicTypes(checker, member, types);
+    }
+  );
 };
 
 const assertRepresentableAsyncDeclaration =
@@ -284,12 +291,12 @@ const typeIncludingUndefined = function typeIncludingUndefined(
   ]);
 };
 
-const publicParameter = function publicParameter(
+const publicParameter = async function publicParameter(
   checker: Checker,
   parameter: ParameterDeclaration,
   context: DeclarationProjectionContext
-): ParameterDeclaration {
-  const type = publicType(checker, parameter, parameter.type, context);
+): Promise<ParameterDeclaration> {
+  const type = await publicType(checker, parameter, parameter.type, context);
   const hasRequiredFollowingParameter = hasRequiredParameterAfter(parameter);
 
   return factory.updateParameterDeclaration(
@@ -308,11 +315,11 @@ const publicParameter = function publicParameter(
   );
 };
 
-const constantExpression = function constantExpression(
+const constantExpression = async function constantExpression(
   checker: Checker,
   member: EnumMember
-): Expression | undefined {
-  const value = checker.getConstantValue(member);
+): Promise<Expression | undefined> {
+  const value = await checker.getConstantValue(member);
 
   if (Predicate.isString(value)) {
     return factory.createStringLiteral(value, TokenFlags.None);
@@ -330,10 +337,10 @@ const constantExpression = function constantExpression(
     : factory.createNumericLiteral(String(value), TokenFlags.None);
 };
 
-const publicEnumMember = function publicEnumMember(
+const publicEnumMember = async function publicEnumMember(
   checker: Checker,
   member: EnumMember
-): EnumMember {
+): Promise<EnumMember> {
   if (
     member.getSourceFile().isDeclarationFile ||
     member.initializer === undefined
@@ -344,16 +351,16 @@ const publicEnumMember = function publicEnumMember(
   return factory.updateEnumMember(
     member,
     member.name,
-    constantExpression(checker, member)
+    await constantExpression(checker, member)
   );
 };
 
-const publicConstructorParameter = function publicConstructorParameter(
+const publicConstructorParameter = async function publicConstructorParameter(
   checker: Checker,
   parameter: ParameterDeclaration,
   context: DeclarationProjectionContext
-): ParameterDeclaration {
-  const publicParameterDeclaration = publicParameter(
+): Promise<ParameterDeclaration> {
+  const publicParameterDeclaration = await publicParameter(
     checker,
     parameter,
     context
@@ -376,11 +383,11 @@ const publicConstructorParameter = function publicConstructorParameter(
   );
 };
 
-const publicClassElement = function publicClassElement(
+const publicClassElement = async function publicClassElement(
   checker: Checker,
   member: ClassElement,
   context: DeclarationProjectionContext
-): ClassElement {
+): Promise<ClassElement> {
   if (isConstructorDeclaration(member)) {
     return factory.updateConstructorDeclaration(
       member,
@@ -388,8 +395,10 @@ const publicClassElement = function publicClassElement(
       member.typeParameters,
       hasModifier(member, SyntaxKind.PrivateKeyword)
         ? []
-        : member.parameters.map((parameter) =>
-            publicConstructorParameter(checker, parameter, context)
+        : await mapAsync(
+            member.parameters,
+            async (parameter) =>
+              await publicConstructorParameter(checker, parameter, context)
           ),
       undefined
     );
@@ -405,10 +414,11 @@ const publicClassElement = function publicClassElement(
       member.name,
       member.postfixToken,
       member.typeParameters,
-      member.parameters.map((parameter) =>
-        publicParameter(checker, parameter, context)
+      await mapAsync(
+        member.parameters,
+        async (parameter) => await publicParameter(checker, parameter, context)
       ),
-      publicReturnType(checker, member, member.type, context),
+      await publicReturnType(checker, member, member.type, context),
       undefined
     );
   }
@@ -419,10 +429,11 @@ const publicClassElement = function publicClassElement(
       publicModifiers(member.modifiers),
       member.name,
       member.typeParameters,
-      member.parameters.map((parameter) =>
-        publicParameter(checker, parameter, context)
+      await mapAsync(
+        member.parameters,
+        async (parameter) => await publicParameter(checker, parameter, context)
       ),
-      publicReturnType(checker, member, member.type, context),
+      await publicReturnType(checker, member, member.type, context),
       undefined
     );
   }
@@ -433,8 +444,9 @@ const publicClassElement = function publicClassElement(
       publicModifiers(member.modifiers),
       member.name,
       member.typeParameters,
-      member.parameters.map((parameter) =>
-        publicParameter(checker, parameter, context)
+      await mapAsync(
+        member.parameters,
+        async (parameter) => await publicParameter(checker, parameter, context)
       ),
       undefined
     );
@@ -448,7 +460,7 @@ const publicClassElement = function publicClassElement(
       publicModifiers(member.modifiers),
       member.name,
       member.postfixToken,
-      publicType(checker, member, member.type, context),
+      await publicType(checker, member, member.type, context),
       undefined
     );
   }
@@ -456,11 +468,11 @@ const publicClassElement = function publicClassElement(
   return member;
 };
 
-const publicParameterProperty = function publicParameterProperty(
+const publicParameterProperty = async function publicParameterProperty(
   checker: Checker,
   parameter: IdentifiedParameter,
   context: DeclarationProjectionContext
-): PropertyDeclaration {
+): Promise<PropertyDeclaration> {
   const modifiers = publicModifiers(parameter.modifiers)?.filter(
     ({ kind }) => kind !== SyntaxKind.PublicKeyword
   );
@@ -469,27 +481,30 @@ const publicParameterProperty = function publicParameterProperty(
     modifiers,
     parameter.name,
     parameter.questionToken,
-    publicType(checker, parameter, parameter.type, context),
+    await publicType(checker, parameter, parameter.type, context),
     undefined
   );
 };
 
-const publicClassSyntaxElements = function publicClassSyntaxElements(
+const publicClassSyntaxElements = async function publicClassSyntaxElements(
   checker: Checker,
   members: readonly ClassElement[],
   context: DeclarationProjectionContext
-): readonly ClassElement[] {
+): Promise<readonly ClassElement[]> {
   const {
     members: retainedMembers,
     parameterProperties: selectedParameterProperties,
-  } = selectPublicClassDeclarations(checker, members);
+  } = await selectPublicClassDeclarations(checker, members);
 
-  const parameterProperties = selectedParameterProperties.map((parameter) =>
-    publicParameterProperty(checker, parameter, context)
+  const parameterProperties = await mapAsync(
+    selectedParameterProperties,
+    async (parameter) =>
+      await publicParameterProperty(checker, parameter, context)
   );
 
-  const projectedMembers = retainedMembers.map((member) =>
-    publicClassElement(checker, member, context)
+  const projectedMembers = await mapAsync(
+    retainedMembers,
+    async (member) => await publicClassElement(checker, member, context)
   );
 
   const constructorIndex = projectedMembers.findIndex(isConstructorDeclaration);
@@ -532,12 +547,12 @@ const preserveSyntaxKind = function preserveSyntaxKind<
 };
 
 const declarationProjection = {
-  projectDeclaration(
+  async projectDeclaration(
     checker: Checker,
     declaration: Node,
     context: DeclarationProjectionContext,
     depth: number
-  ): Node {
+  ): Promise<Node> {
     context.reserveTraversal(depth);
 
     if (
@@ -558,10 +573,12 @@ const declarationProjection = {
         declaration.asteriskToken,
         declaration.name,
         declaration.typeParameters,
-        declaration.parameters.map((parameter) =>
-          publicParameter(checker, parameter, context)
+        await mapAsync(
+          declaration.parameters,
+          async (parameter) =>
+            await publicParameter(checker, parameter, context)
         ),
-        publicReturnType(checker, declaration, declaration.type, context),
+        await publicReturnType(checker, declaration, declaration.type, context),
         undefined
       );
     }
@@ -573,7 +590,7 @@ const declarationProjection = {
         declaration,
         declaration.name,
         declaration.exclamationToken,
-        publicType(checker, declaration, declaration.type, context),
+        await publicType(checker, declaration, declaration.type, context),
         undefined
       );
     }
@@ -583,12 +600,15 @@ const declarationProjection = {
         declaration,
         publicModifiers(declaration.modifiers),
         declaration.name,
-        declaration.members.map((member) => publicEnumMember(checker, member))
+        await mapAsync(
+          declaration.members,
+          async (member) => await publicEnumMember(checker, member)
+        )
       );
     }
 
     if (isEnumMember(declaration)) {
-      return publicEnumMember(checker, declaration);
+      return await publicEnumMember(checker, declaration);
     }
 
     if (
@@ -596,14 +616,14 @@ const declarationProjection = {
       isMethodDeclaration(declaration) ||
       isPropertyDeclaration(declaration)
     ) {
-      return publicClassElement(checker, declaration, context);
+      return await publicClassElement(checker, declaration, context);
     }
 
     if (
       isGetAccessorDeclaration(declaration) ||
       isSetAccessorDeclaration(declaration)
     ) {
-      return publicClassElement(checker, declaration, context);
+      return await publicClassElement(checker, declaration, context);
     }
 
     if (isClassDeclaration(declaration)) {
@@ -613,7 +633,7 @@ const declarationProjection = {
         declaration.name,
         declaration.typeParameters,
         declaration.heritageClauses,
-        publicClassSyntaxElements(checker, declaration.members, context)
+        await publicClassSyntaxElements(checker, declaration.members, context)
       );
     }
 
@@ -623,7 +643,7 @@ const declarationProjection = {
         publicModifiers(declaration.modifiers),
         declaration.name,
         declaration.attributes,
-        declarationProjection.publicModuleBody(
+        await declarationProjection.publicModuleBody(
           checker,
           declaration.body,
           context,
@@ -634,15 +654,15 @@ const declarationProjection = {
 
     return declaration;
   },
-  publicDeclaration<ProjectedNode extends Node>(
+  async publicDeclaration<ProjectedNode extends Node>(
     checker: Checker,
     declaration: ProjectedNode,
     context: DeclarationProjectionContext,
     depth: number
-  ): ProjectedNode {
+  ): Promise<ProjectedNode> {
     return preserveSyntaxKind(
       declaration,
-      declarationProjection.projectDeclaration(
+      await declarationProjection.projectDeclaration(
         checker,
         declaration,
         context,
@@ -650,18 +670,18 @@ const declarationProjection = {
       )
     );
   },
-  publicModuleBody(
+  async publicModuleBody(
     checker: Checker,
     body: ModuleBody | undefined,
     context: DeclarationProjectionContext,
     depth: number
-  ): ModuleBody | undefined {
+  ): Promise<ModuleBody | undefined> {
     if (body === undefined) {
       return undefined;
     }
 
     if (isModuleDeclaration(body)) {
-      return declarationProjection.publicDeclaration(
+      return await declarationProjection.publicDeclaration(
         checker,
         body,
         context,
@@ -680,7 +700,7 @@ const declarationProjection = {
     const exportedFunctions = exportedStatements.filter(isFunctionDeclaration);
 
     const publicFunctions = new Set(
-      publicDeclarations(checker, exportedFunctions)
+      await publicDeclarations(checker, exportedFunctions)
     );
 
     const publicStatements = exportedStatements.filter(
@@ -688,24 +708,25 @@ const declarationProjection = {
         !isFunctionDeclaration(statement) || publicFunctions.has(statement)
     );
 
-    return factory.updateModuleBlock(
-      body,
-      publicStatements.flatMap((statement) =>
-        declarationProjection.publicNamespaceStatement(
+    const mappedValues = await mapAsync(
+      publicStatements,
+      async (statement) =>
+        await declarationProjection.publicNamespaceStatement(
           checker,
           statement,
           context,
           depth + 1
         )
-      )
     );
+
+    return factory.updateModuleBlock(body, mappedValues.flat());
   },
-  publicNamespaceStatement(
+  async publicNamespaceStatement(
     checker: Checker,
     statement: Statement,
     context: DeclarationProjectionContext,
     depth: number
-  ): readonly Statement[] {
+  ): Promise<readonly Statement[]> {
     if (isVariableStatement(statement)) {
       return [
         factory.updateVariableStatement(
@@ -713,13 +734,15 @@ const declarationProjection = {
           publicModifiers(statement.modifiers),
           factory.updateVariableDeclarationList(
             statement.declarationList,
-            statement.declarationList.declarations.map((declaration) =>
-              declarationProjection.publicDeclaration(
-                checker,
-                declaration,
-                context,
-                depth + 1
-              )
+            await mapAsync(
+              statement.declarationList.declarations,
+              async (declaration) =>
+                await declarationProjection.publicDeclaration(
+                  checker,
+                  declaration,
+                  context,
+                  depth + 1
+                )
             )
           )
         ),
@@ -728,7 +751,7 @@ const declarationProjection = {
 
     if (NAMESPACE_DECLARATION_KINDS.has(statement.kind)) {
       return [
-        declarationProjection.publicDeclaration(
+        await declarationProjection.publicDeclaration(
           checker,
           statement,
           context,
@@ -742,17 +765,17 @@ const declarationProjection = {
 };
 
 const publicDeclarationSyntaxBeforeMemberTypeQueries =
-  function publicDeclarationSyntaxBeforeMemberTypeQueries(
+  async function publicDeclarationSyntaxBeforeMemberTypeQueries(
     checker: Checker,
     declaration: Declaration,
     context: DeclarationProjectionContext
-  ): Declaration {
+  ): Promise<Declaration> {
     const printableDeclaration =
       isNamespaceExport(declaration) && isExportDeclaration(declaration.parent)
         ? declaration.parent
         : declaration;
 
-    return declarationProjection.publicDeclaration(
+    return await declarationProjection.publicDeclaration(
       checker,
       printableDeclaration,
       context,
@@ -761,16 +784,16 @@ const publicDeclarationSyntaxBeforeMemberTypeQueries =
   };
 
 /** Returns checker types synthesized into a source-backed Public Interface. */
-const inferredPublicTypes = function inferredPublicTypes(
+const inferredPublicTypes = async function inferredPublicTypes(
   checker: Checker,
   declaration: Declaration,
   context: DeclarationProjectionContext
-): readonly Type[] {
+): Promise<readonly Type[]> {
   const types: Type[] = [];
-  collectInferredPublicTypes(checker, declaration, types);
-  collectMemberTypeQueryTypes(
+  await collectInferredPublicTypes(checker, declaration, types);
+  await collectMemberTypeQueryTypes(
     checker,
-    publicDeclarationSyntaxBeforeMemberTypeQueries(
+    await publicDeclarationSyntaxBeforeMemberTypeQueries(
       checker,
       declaration,
       context
@@ -783,14 +806,14 @@ const inferredPublicTypes = function inferredPublicTypes(
   return types;
 };
 
-const publicDeclarationSyntax = function publicDeclarationSyntax(
+const publicDeclarationSyntax = async function publicDeclarationSyntax(
   checker: Checker,
   declaration: Declaration,
   context: DeclarationProjectionContext
-): Declaration {
-  return projectMemberTypeQueries(
+): Promise<Declaration> {
+  return await projectMemberTypeQueries(
     checker,
-    publicDeclarationSyntaxBeforeMemberTypeQueries(
+    await publicDeclarationSyntaxBeforeMemberTypeQueries(
       checker,
       declaration,
       context
@@ -800,33 +823,41 @@ const publicDeclarationSyntax = function publicDeclarationSyntax(
 };
 
 /** Removes implementation details while preserving the declaration's Public Interface. */
-export const projectPublicDeclaration = function projectPublicDeclaration(
+export const projectPublicDeclaration = async function projectPublicDeclaration(
   checker: Checker,
   declaration: Declaration,
-  context: DeclarationProjectionContext = standaloneProjectionContext(
-    checker,
-    declaration
-  )
-): DeclarationProjection {
+  context?: DeclarationProjectionContext
+): Promise<DeclarationProjection> {
+  const activeContext =
+    context ?? (await standaloneProjectionContext(checker, declaration));
+
   return {
     get inferredTypes() {
-      return inferredPublicTypes(checker, declaration, context);
+      return inferredPublicTypes(checker, declaration, activeContext);
     },
     get syntax() {
-      return publicDeclarationSyntax(checker, declaration, context);
+      return publicDeclarationSyntax(checker, declaration, activeContext);
     },
   };
 };
 
-export const renderPublicDeclaration = function renderPublicDeclaration(
+export const renderPublicDeclaration = async function renderPublicDeclaration(
   checker: Checker,
   declaration: Declaration,
   context?: DeclarationProjectionContext
-): string {
-  return printCompilerNode(
+): Promise<string> {
+  const projectionResult = await projectPublicDeclaration(
     checker,
-    projectPublicDeclaration(checker, declaration, context).syntax
-  )
+    declaration,
+    context
+  );
+
+  const printCompilerNodeResult = await printCompilerNode(
+    checker,
+    await projectionResult.syntax
+  );
+
+  return printCompilerNodeResult
     .trim()
     .replace(/^(?:export\s+)?(?:declare\s+)?/u, "");
 };

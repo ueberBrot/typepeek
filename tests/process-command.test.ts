@@ -2,10 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { runCommand } from "#typepeek/platform/process-command";
 import { processExecutable } from "#typepeek/platform/process-executable";
+import { processLayer } from "#typepeek/platform/process-runtime";
 
 describe("Effect command execution", () => {
   it("preserves argument bytes without interpreting shell syntax", async () => {
@@ -112,9 +114,13 @@ describe("Effect command execution", () => {
     try {
       vi.stubEnv("PATH", directory);
       vi.stubGlobal("process", { ...process, platform: "win32" });
-      expect(
-        processExecutable("npm.cmd", ["pack", "path & spaces"])
-      ).toStrictEqual({
+      await expect(
+        Effect.runPromise(
+          processExecutable("npm.cmd", ["pack", "path & spaces"]).pipe(
+            Effect.provide(processLayer)
+          )
+        )
+      ).resolves.toMatchObject({
         args: [cli, "pack", "path & spaces"],
         executable: process.execPath,
       });
@@ -142,9 +148,13 @@ describe("Effect command execution", () => {
       try {
         vi.stubEnv("PATH", directory);
         vi.stubGlobal("process", { ...process, platform: "win32" });
-        expect(
-          processExecutable("pnpm", ["--version", "path & spaces"])
-        ).toStrictEqual({
+        await expect(
+          Effect.runPromise(
+            processExecutable("pnpm", ["--version", "path & spaces"]).pipe(
+              Effect.provide(processLayer)
+            )
+          )
+        ).resolves.toMatchObject({
           args: ["--version", "path & spaces"],
           executable: cli,
         });

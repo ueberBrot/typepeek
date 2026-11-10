@@ -2,7 +2,7 @@ import type { Schema } from "effect";
 import { Predicate } from "effect";
 import { satisfies } from "semver";
 
-import { COMPILER_TYPESCRIPT_VERSION } from "#typepeek/inspection/compiler/compiler-distribution";
+import { COMPILER_TYPESCRIPT_VERSION } from "#typepeek/inspection/compiler/compiler-metadata";
 import type {
   CompilerWorkSession,
   PackageDeclarationResolver,
@@ -16,6 +16,7 @@ import {
 } from "#typepeek/inspection/model/errors";
 import type { PublicSubpath } from "#typepeek/inspection/model/protocol";
 import { splitCodePoints } from "#typepeek/presentation/code-point-ranges";
+import { mapAsync } from "#typepeek/shared/async-collection";
 import { requireDefined } from "#typepeek/shared/defined-value";
 
 const MAX_EXPORT_TARGET_DEPTH = 32;
@@ -408,12 +409,12 @@ const concretePublicSubpathSpecifier = function concretePublicSubpathSpecifier(
     : [];
 };
 
-const isResolvablePublicSubpath = function isResolvablePublicSubpath(
+const isResolvablePublicSubpath = async function isResolvablePublicSubpath(
   specifier: string,
   declarationRoots: readonly string[],
   resolver: PackageDeclarationResolver
-): boolean {
-  const declarationPath = resolver.resolve(specifier);
+): Promise<boolean> {
+  const declarationPath = await resolver.resolve(specifier);
 
   const canonicalDeclarationPath =
     declarationPath === undefined
@@ -438,14 +439,14 @@ export interface PublicSubpathDiscoveryOptions {
 }
 
 /** Discovers only exact, resolvable Public Subpaths under one set of resolution conditions. */
-export const readPublicSubpaths = function readPublicSubpaths({
+export const readPublicSubpaths = async function readPublicSubpaths({
   packageRootSpecifier,
   exports,
   packageRoot,
   declarationRoots,
   resolver,
   observeEvidenceDirectory,
-}: PublicSubpathDiscoveryOptions): readonly PublicSubpath[] {
+}: PublicSubpathDiscoveryOptions): Promise<readonly PublicSubpath[]> {
   const subpathEntries = publicSubpathEntries(exports);
   assertPublicSubpathCount(subpathEntries.length);
 
@@ -483,11 +484,13 @@ export const readPublicSubpaths = function readPublicSubpaths({
     }
   }
 
-  return [...candidateSpecifiers]
-    .toSorted()
-    .flatMap((specifier) =>
-      isResolvablePublicSubpath(specifier, declarationRoots, resolver)
+  const mappedValues = await mapAsync(
+    [...candidateSpecifiers].toSorted(),
+    async (specifier) =>
+      (await isResolvablePublicSubpath(specifier, declarationRoots, resolver))
         ? [{ specifier }]
         : []
-    );
+  );
+
+  return mappedValues.flat();
 };

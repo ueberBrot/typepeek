@@ -1,5 +1,7 @@
-import { existsSync } from "node:fs";
-import nodePath from "node:path";
+import { Effect, FileSystem, Option } from "effect";
+
+import { pathDelimiter } from "#typepeek/platform/node-path-matching";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 
 const packageManagerScripts = new Map<string, readonly string[]>([
   ["npm", ["npm", "bin", "npm-cli.js"]],
@@ -7,11 +9,10 @@ const packageManagerScripts = new Map<string, readonly string[]>([
   ["pnpm", ["pnpm", "bin", "pnpm.cjs"]],
 ]);
 
-/** Invoke package-manager entrypoints directly on Windows, without shell quoting. */
-export const processExecutable = (
+export const processExecutable = Effect.fnUntraced(function* processExecutable(
   executable: string,
   args: readonly string[]
-) => {
+) {
   const name = executable.replace(/\.cmd$/iu, "");
   const script = packageManagerScripts.get(name);
 
@@ -19,22 +20,27 @@ export const processExecutable = (
     return { args, executable };
   }
 
+  const fs = yield* FileSystem.FileSystem;
+
   const environmentPath =
     Object.entries(process.env).find(
       ([key]) => key.toLowerCase() === "path"
     )?.[1] ?? "";
 
-  for (const directory of environmentPath.split(nodePath.delimiter)) {
-    const native = [
-      nodePath.join(directory, `${name}.exe`),
-      nodePath.join(directory, `${name}.native.exe`),
-    ].find((candidate) => existsSync(candidate));
+  for (const directory of environmentPath.split(pathDelimiter)) {
+    const native = yield* Effect.findFirst(
+      [
+        nodePath.join(directory, `${name}.exe`),
+        nodePath.join(directory, `${name}.native.exe`),
+      ],
+      fs.exists
+    );
 
-    if (native !== undefined) {
-      return { args, executable: native };
+    if (Option.isSome(native)) {
+      return { args, executable: native.value };
     }
 
-    if (!existsSync(nodePath.join(directory, `${name}.cmd`))) {
+    if (!(yield* fs.exists(nodePath.join(directory, `${name}.cmd`)))) {
       continue;
     }
 
@@ -43,10 +49,10 @@ export const processExecutable = (
       nodePath.resolve(directory, "..", ...script),
     ];
 
-    const entry = candidates.find((candidate) => existsSync(candidate));
+    const entry = yield* Effect.findFirst(candidates, fs.exists);
 
-    if (entry !== undefined) {
-      return { args: [entry, ...args], executable: process.execPath };
+    if (Option.isSome(entry)) {
+      return { args: [entry.value, ...args], executable: process.execPath };
     }
 
     throw new Error(
@@ -55,4 +61,4 @@ export const processExecutable = (
   }
 
   return { args, executable };
-};
+});

@@ -2,13 +2,13 @@ import { Effect, Schema, Stream } from "effect";
 
 const taggedError = Schema.TaggedError;
 
-export class ProcessOutputLimitError extends taggedError<
-  ProcessOutputLimitError,
+export class ByteStreamLimitError extends taggedError<
+  ByteStreamLimitError,
   { readonly brand: unique symbol }
->()("ProcessOutputLimitError", { limit: Schema.Finite }) {}
+>()("ByteStreamLimitError", { limit: Schema.Finite }) {}
 
 /** Enforce byte budgets before retaining or decoding process output. */
-export const boundedProcessOutput = <E, R>(
+export const boundedByteStream = <E, R>(
   stream: Stream.Stream<Uint8Array, E, R>,
   limit: number
 ) =>
@@ -23,16 +23,29 @@ export const boundedProcessOutput = <E, R>(
     ),
     Stream.mapEffect(({ bytes, chunk }) =>
       bytes > limit
-        ? Effect.fail(new ProcessOutputLimitError({ limit }))
+        ? Effect.fail(new ByteStreamLimitError({ limit }))
         : Effect.succeed(chunk)
     )
   );
 
-export const collectProcessOutput = <E, R>(
+export const collectByteStream = <E, R>(
   stream: Stream.Stream<Uint8Array, E, R>,
   limit: number
 ) =>
-  boundedProcessOutput(stream, limit).pipe(
+  boundedByteStream(stream, limit).pipe(
     Stream.runCollect,
-    Effect.map((chunks) => Buffer.concat(chunks))
+    Effect.map((chunks) => {
+      const bytes = new Uint8Array(
+        chunks.reduce((length, chunk) => length + chunk.byteLength, 0)
+      );
+
+      let offset = 0;
+
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+
+      return bytes;
+    })
   );

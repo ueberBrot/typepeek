@@ -1,22 +1,22 @@
-import nodePath from "node:path";
-
-import { layer as nodeChildProcessLayer } from "@effect/platform-node-shared/NodeChildProcessSpawner";
-import { layer as nodeFileSystemLayer } from "@effect/platform-node-shared/NodeFileSystem";
-import { layer as nodePathLayer } from "@effect/platform-node-shared/NodePath";
-import { layer as nodeStdioLayer } from "@effect/platform-node-shared/NodeStdio";
-import { layer as nodeTerminalLayer } from "@effect/platform-node-shared/NodeTerminal";
+import { layer as bunChildProcessLayer } from "@effect/platform-bun/BunChildProcessSpawner";
+import { layer as bunFileSystemLayer } from "@effect/platform-bun/BunFileSystem";
+import { layer as bunPathLayer } from "@effect/platform-bun/BunPath";
+import { layer as bunStdioLayer } from "@effect/platform-bun/BunStdio";
+import { layer as bunTerminalLayer } from "@effect/platform-bun/BunTerminal";
 import { Effect, Exit, Layer, Scope } from "effect";
 import { ChildProcess } from "effect/process";
 
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
+
 export const processLayer = Layer.provideMerge(
-  nodeChildProcessLayer,
-  Layer.mergeAll(nodeFileSystemLayer, nodePathLayer)
+  bunChildProcessLayer,
+  Layer.mergeAll(bunFileSystemLayer, bunPathLayer)
 );
 
 export const cliLayer = Layer.mergeAll(
   processLayer,
-  nodeStdioLayer,
-  nodeTerminalLayer
+  bunStdioLayer,
+  bunTerminalLayer
 );
 
 /** Use native scopes for process groups; protect Windows tree termination from PATH lookup. */

@@ -1,17 +1,22 @@
-import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
-import nodePath from "node:path";
-
+import { layer } from "@effect/platform-bun/BunFileSystem";
+import { Effect, FileSystem, Option } from "effect";
 import { typescriptVersion, version } from "tsrs";
+
+import { createRequire } from "#typepeek/platform/node-module";
+import { platformPath as path } from "#typepeek/platform/platform-path";
 
 export const COMPILER_VERSION = `${typescriptVersion}/tsrs-${version}`;
 
-export { typescriptVersion as COMPILER_TYPESCRIPT_VERSION } from "tsrs";
+const platformDirectory = Effect.gen(function* platformDirectory() {
+  const fs = yield* FileSystem.FileSystem;
+  let anchor: string | URL = import.meta.url;
 
-/** Resolve only the native dependency belonging to Typepeek's pinned SDK. */
-const platformDirectory = (): string => {
+  if (globalThis.__TYPEPEEK_COMPILED__ === true) {
+    anchor = yield* path.toFileUrl(yield* fs.realPath(process.execPath));
+  }
+
   const require = createRequire(
-    createRequire(import.meta.url).resolve("tsrs/package.json")
+    createRequire(anchor).resolve("tsrs/package.json")
   );
 
   const base = `@tsrs/${process.platform}-${process.arch}`;
@@ -19,40 +24,41 @@ const platformDirectory = (): string => {
   const candidates =
     process.platform === "linux" ? [`${base}-gnu`, `${base}-musl`] : [base];
 
-  for (const candidate of candidates) {
-    try {
-      const root = nodePath.dirname(
-        require.resolve(`${candidate}/package.json`)
-      );
+  const executable = process.platform === "win32" ? "tsrs.exe" : "tsrs";
 
-      if (
-        existsSync(
-          nodePath.join(
-            root,
-            process.platform === "win32" ? "tsrs.exe" : "tsrs"
-          )
-        )
-      ) {
-        return root;
-      }
-    } catch {
-      // Unsupported optional platform dependencies are absent from this installation.
+  for (const candidate of candidates) {
+    const manifest = yield* Effect.try(() =>
+      require.resolve(`${candidate}/package.json`)
+    ).pipe(Effect.option);
+
+    if (Option.isNone(manifest)) {
+      continue;
+    }
+
+    const directory = path.dirname(manifest.value);
+
+    if (yield* fs.exists(path.join(directory, executable))) {
+      return directory;
     }
   }
 
-  throw new Error(
-    `The pinned TSRS native dependency is missing for ${process.platform}-${process.arch}.`
+  return yield* Effect.die(
+    new Error(
+      `The pinned TSRS native dependency is missing for ${process.platform}-${process.arch}.`
+    )
   );
-};
+});
 
-export const COMPILER_LIBRARY_DIRECTORY = platformDirectory();
+export const COMPILER_LIBRARY_DIRECTORY = await Effect.runPromise(
+  platformDirectory.pipe(Effect.provide(layer))
+);
 
-export const COMPILER_EXECUTABLE = nodePath.join(
+export const COMPILER_EXECUTABLE = path.join(
   COMPILER_LIBRARY_DIRECTORY,
   process.platform === "win32" ? "tsrs.exe" : "tsrs"
 );
 
-export const COMPILER_INTRINSIC_FILE = nodePath.join(
+export const COMPILER_INTRINSIC_FILE = path.join(
   COMPILER_LIBRARY_DIRECTORY,
   "__typepeek_intrinsics__.d.ts"
 );

@@ -8,8 +8,8 @@ import { ChildProcess } from "effect/process";
 import { describe, expect, it } from "vite-plus/test";
 
 import { runCommand } from "#typepeek/platform/process-command";
-import { collectProcessOutput } from "#typepeek/platform/process-output";
 import { processLayer, spawnProcess } from "#typepeek/platform/process-runtime";
+import { collectByteStream } from "#typepeek/shared/byte-stream";
 import { decodeJson } from "#typepeek/shared/json-data";
 
 import { match } from "./helpers/matchers.ts";
@@ -133,14 +133,14 @@ describe("protocol-stream", () => {
             yield* Queue.end(input);
 
             const [exitCode, stderr] = yield* Effect.all(
-              [
-                subprocess.exitCode,
-                collectProcessOutput(subprocess.stderr, 1024),
-              ],
+              [subprocess.exitCode, collectByteStream(subprocess.stderr, 1024)],
               { concurrency: "unbounded" }
             );
 
-            expect([exitCode, stderr.toString()]).toStrictEqual([0, ""]);
+            expect([exitCode, new TextDecoder().decode(stderr)]).toStrictEqual([
+              0,
+              "",
+            ]);
           })
         ).pipe(Effect.timeout(10_000), Effect.provide(processLayer))
       );

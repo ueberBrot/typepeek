@@ -1,34 +1,32 @@
-import { createWriteStream } from "node:fs";
-
-import { runMain } from "@effect/platform-node-shared/NodeRuntime";
-import { fromWritable } from "@effect/platform-node-shared/NodeSink";
-import { layer as nodeStdioLayer } from "@effect/platform-node-shared/NodeStdio";
-import { Effect, Schema, Stdio, Stream } from "effect";
+import { runMain } from "@effect/platform-bun/BunRuntime";
+import { layer as bunStdioLayer } from "@effect/platform-bun/BunStdio";
+import { Effect, Schema, Stdio } from "effect";
 
 import { encodeInspectionCacheWriteReceipt } from "#typepeek/inspection/cache/inspection-cache-codec";
-import { analyzeInspection } from "#typepeek/inspection/execution/analyze";
+import { installAnalysisHeapLimit } from "#typepeek/inspection/execution/analysis-heap";
+import { analyzeInspectionEffect } from "#typepeek/inspection/execution/analyze";
 import {
   beginInspectionProfile,
   completeInspectionProfile,
   profileInspectionPhase,
+  profileInspectionEffect,
 } from "#typepeek/inspection/execution/performance-profile";
 import { readAnalysisRequest } from "#typepeek/inspection/model/request-definitions";
-import { collectProcessOutput } from "#typepeek/platform/process-output";
+import { writeAnalysisMetadata } from "#typepeek/platform/node-analysis-metadata";
+import { writeStdout, writeStderr } from "#typepeek/platform/stdio";
+import { collectByteStream } from "#typepeek/shared/byte-stream";
 import { decodeJson } from "#typepeek/shared/json-data";
-
-const taggedError = Schema.TaggedError;
-
-class AnalysisWorkerIOError extends taggedError<
-  AnalysisWorkerIOError,
-  { readonly brand: unique symbol }
->()("AnalysisWorkerIOError", { cause: Schema.Defect() }) {}
 
 // Validate subprocess input even when the caller bypasses Inspection Core.
 const program = Effect.gen(function* program() {
+  if (process.versions.bun !== undefined) {
+    yield* installAnalysisHeapLimit();
+  }
+
   beginInspectionProfile();
 
   const stdio = yield* Stdio.Stdio;
-  const input = yield* collectProcessOutput(stdio.stdin, 16 * 1024);
+  const input = yield* collectByteStream(stdio.stdin, 16 * 1024);
 
   const message = decodeJson(
     Schema.Json,
@@ -40,8 +38,9 @@ const program = Effect.gen(function* program() {
   );
 
   const execution = requestReading.accepted
-    ? profileInspectionPhase("analysis", () =>
-        analyzeInspection(
+    ? yield* profileInspectionEffect(
+        "analysis",
+        analyzeInspectionEffect(
           requestReading.request,
           process.env["TYPEPEEK_CACHE_BYPASS"] !== "1"
         )
@@ -57,29 +56,21 @@ const program = Effect.gen(function* program() {
         : cacheMessage;
 
     if (encoded !== undefined) {
-      yield* Stream.make(JSON.stringify(encoded)).pipe(
-        Stream.run(
-          fromWritable({
-            endOnDone: true,
-            evaluate: () => createWriteStream("", { fd: 3 }),
-            onError: (cause) => new AnalysisWorkerIOError({ cause }),
-          })
-        )
-      );
+      yield* writeAnalysisMetadata(JSON.stringify(encoded));
     }
   }
 
   const { outcome } = execution;
 
-  process.stdout.write(JSON.stringify(outcome));
+  yield* writeStdout(JSON.stringify(outcome));
 
   const profile = completeInspectionProfile();
 
   if (profile !== undefined) {
-    process.stderr.write(`${JSON.stringify(profile)}\n`);
+    yield* writeStderr(`${JSON.stringify(profile)}\n`);
   }
 });
 
-runMain(program.pipe(Effect.provide(nodeStdioLayer)), {
+runMain(program.pipe(Effect.scoped, Effect.provide(bunStdioLayer)), {
   disableErrorReporting: true,
 });

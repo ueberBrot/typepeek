@@ -1,6 +1,5 @@
-import { fileURLToPath } from "node:url";
-
-import { Effect, Exit, Schema, Stream } from "effect";
+import { layer as nodeStdioLayer } from "@effect/platform-bun/BunStdio";
+import { Effect, Exit, FileSystem, Schema, Stream } from "effect";
 import { ChildProcess } from "effect/process";
 
 import { MAX_CACHE_RECEIPT_BYTES } from "#typepeek/inspection/cache/inspection-cache-codec";
@@ -24,14 +23,15 @@ import type {
   InspectionOutcome,
   InspectionResultByIntent,
 } from "#typepeek/inspection/model/protocol";
-import {
-  ProcessOutputLimitError,
-  collectProcessOutput,
-} from "#typepeek/platform/process-output";
+import { platformPath } from "#typepeek/platform/platform-path";
 import {
   processLayer,
   scopedProcess,
 } from "#typepeek/platform/process-runtime";
+import {
+  ByteStreamLimitError,
+  collectByteStream,
+} from "#typepeek/shared/byte-stream";
 import { decodeJson } from "#typepeek/shared/json-data";
 
 const BUDGET_EXCEEDED = "budget-exceeded";
@@ -126,25 +126,39 @@ const executeAnalysisProcess = Effect.fn("executeAnalysisProcess")(
 
     const execution = Effect.scoped(
       Effect.gen(function* execution() {
-        const entry = yield* Effect.try({
-          catch: (cause) => new AnalysisProcessExecutionError({ cause }),
-          try: () => fileURLToPath(entryUrl),
-        });
+        const entry = yield* platformPath
+          .fromFileUrl(entryUrl)
+          .pipe(
+            Effect.mapError(
+              (cause) => new AnalysisProcessExecutionError({ cause })
+            )
+          );
 
         const handle = yield* scopedProcess(
           ChildProcess.make(
-            process.execPath,
-            [
-              `--max-old-space-size=${limits.maxHeapMegabytes}`,
-              `--stack-size=${STACK_SIZE_KIBIBYTES}`,
-              entry,
-            ],
+            globalThis.__TYPEPEEK_COMPILED__ === true
+              ? entry
+              : process.execPath,
+            globalThis.__TYPEPEEK_COMPILED__ === true
+              ? []
+              : [
+                  ...(process.versions.bun === undefined
+                    ? [
+                        `--max-old-space-size=${limits.maxHeapMegabytes}`,
+                        `--stack-size=${STACK_SIZE_KIBIBYTES}`,
+                      ]
+                    : []),
+                  entry,
+                ],
             {
-              ...(bypassCache && {
-                env: { TYPEPEEK_CACHE_BYPASS: "1" },
-                extendEnv: true,
-              }),
               additionalFds: { fd3: { type: "output" } },
+              env: {
+                TYPEPEEK_ANALYSIS_HEAP_MEGABYTES: String(
+                  limits.maxHeapMegabytes
+                ),
+                ...(bypassCache && { TYPEPEEK_CACHE_BYPASS: "1" }),
+              },
+              extendEnv: true,
               forceKillAfter: 100,
               stdin: Stream.make(Buffer.from(JSON.stringify(request))),
             }
@@ -153,16 +167,13 @@ const executeAnalysisProcess = Effect.fn("executeAnalysisProcess")(
 
         const { exit, stdout, stderr, cacheOutput } = yield* Effect.all(
           {
-            cacheOutput: collectProcessOutput(
+            cacheOutput: collectByteStream(
               handle.getOutputFd(3),
               MAX_CACHE_RECEIPT_BYTES
             ),
             exit: handle.exitCode,
-            stderr: collectProcessOutput(
-              handle.stderr,
-              limits.maxDiagnosticBytes
-            ),
-            stdout: collectProcessOutput(handle.stdout, limits.maxResultBytes),
+            stderr: collectByteStream(handle.stderr, limits.maxDiagnosticBytes),
+            stdout: collectByteStream(handle.stdout, limits.maxResultBytes),
           },
           { concurrency: "unbounded" }
         );
@@ -185,7 +196,7 @@ const executeAnalysisProcess = Effect.fn("executeAnalysisProcess")(
         duration: limits.deadlineMilliseconds,
         orElse: () => Effect.succeed({ ...failed, timedOut: true }),
       }),
-      Effect.catchIf(Schema.is(ProcessOutputLimitError), () =>
+      Effect.catchIf(Schema.is(ByteStreamLimitError), () =>
         Effect.succeed({ ...failed, isMaxBuffer: true })
       ),
       Effect.mapError((cause) => new AnalysisProcessExecutionError({ cause })),
@@ -197,7 +208,9 @@ const executeAnalysisProcess = Effect.fn("executeAnalysisProcess")(
 const isMemoryFailure = function isMemoryFailure(stderr: Uint8Array): boolean {
   const text = Buffer.from(stderr).toString("utf-8");
 
-  return /heap out of memory|allocation failed - javascript heap/iu.test(text);
+  return /heap out of memory|allocation failed - javascript heap|typepeek analysis heap limit exceeded/iu.test(
+    text
+  );
 };
 
 const analysisProcessFailure = function analysisProcessFailure(
@@ -317,7 +330,10 @@ const runAnalysisProcess = Effect.fn("runAnalysisProcess")(
       }
 
       if (forwardProfile) {
-        forwardInspectionProfile(result.stderr);
+        yield* forwardInspectionProfile(result.stderr).pipe(
+          Effect.provide(nodeStdioLayer),
+          Effect.orDie
+        );
       }
 
       if (allowCacheWrite) {
@@ -333,15 +349,28 @@ const runAnalysisProcess = Effect.fn("runAnalysisProcess")(
   }
 );
 
-const analysisProcessEntryUrl = function analysisProcessEntryUrl(): URL {
-  // Node executes TypeScript directly during development. The packed CLI loads
-  // the separately emitted process entry from dist/inspection.
-  const entryPath = import.meta.url.endsWith(".ts")
-    ? "../analysis-process-entry.ts"
-    : "./inspection/analysis-process-entry.js";
+const analysisProcessEntryUrl = Effect.fnUntraced(
+  function* analysisProcessEntryUrl() {
+    if (globalThis.__TYPEPEEK_COMPILED__ === true) {
+      const fs = yield* FileSystem.FileSystem;
+      const executable = yield* fs.realPath(process.execPath);
+      const anchor = yield* platformPath.toFileUrl(executable);
 
-  return new URL(entryPath, import.meta.url);
-};
+      return new URL(
+        process.platform === "win32"
+          ? "./typepeek-analysis.exe"
+          : "./typepeek-analysis",
+        anchor
+      );
+    }
+
+    const entryPath = import.meta.url.endsWith(".ts")
+      ? "../analysis-process-entry.ts"
+      : "./inspection/analysis-process-entry.js";
+
+    return new URL(entryPath, import.meta.url);
+  }
+);
 
 export const runBoundedAnalysis = Effect.fn("runBoundedAnalysis")(
   function* runBoundedAnalysis<Request extends AnalysisRequest>(
@@ -358,9 +387,14 @@ export const runBoundedAnalysis = Effect.fn("runBoundedAnalysis")(
       } satisfies InspectionOutcome;
     }
 
+    const entryUrl = yield* analysisProcessEntryUrl().pipe(
+      Effect.provide(processLayer),
+      Effect.orDie
+    );
+
     return yield* runAnalysisProcess(
       request,
-      analysisProcessEntryUrl(),
+      entryUrl,
       PRODUCTION_LIMITS,
       inspectionProfilingEnabled,
       true

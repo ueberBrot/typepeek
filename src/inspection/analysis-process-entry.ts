@@ -1,4 +1,4 @@
-import { enableCompileCache } from "node:module";
+import { enableCompileCache } from "#typepeek/platform/node-module";
 
 enableCompileCache();
 

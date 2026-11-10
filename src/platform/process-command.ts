@@ -2,11 +2,11 @@ import { Duration, Effect, Exit, Predicate, Schema, Stream } from "effect";
 import { ChildProcess } from "effect/process";
 
 import { processExecutable } from "#typepeek/platform/process-executable";
-import { collectProcessOutput } from "#typepeek/platform/process-output";
 import {
   processLayer,
   scopedProcess,
 } from "#typepeek/platform/process-runtime";
+import { collectByteStream } from "#typepeek/shared/byte-stream";
 
 const taggedError = Schema.TaggedError;
 
@@ -24,7 +24,7 @@ export interface CommandCaptureOptions extends ChildProcess.CommandOptions {
 }
 
 /** Capture a finite tool invocation; long-lived protocols use Effect streams directly. */
-const captureCommand = Effect.fnUntraced(function* captureCommand(
+export const runCommandEffect = Effect.fnUntraced(function* runCommandEffect(
   executable: string,
   args: readonly string[],
   options: CommandCaptureOptions = {}
@@ -39,7 +39,7 @@ const captureCommand = Effect.fnUntraced(function* captureCommand(
     stdin = Stream.make(input);
   }
 
-  const resolved = processExecutable(executable, args);
+  const resolved = yield* processExecutable(executable, args);
 
   const command = ChildProcess.make(resolved.executable, resolved.args, {
     ...options,
@@ -55,8 +55,8 @@ const captureCommand = Effect.fnUntraced(function* captureCommand(
       const { exit, stdout, stderr } = yield* Effect.all(
         {
           exit: handle.exitCode,
-          stderr: collectProcessOutput(handle.stderr, 32 * 1024 * 1024),
-          stdout: collectProcessOutput(handle.stdout, 32 * 1024 * 1024),
+          stderr: collectByteStream(handle.stderr, 32 * 1024 * 1024),
+          stdout: collectByteStream(handle.stdout, 32 * 1024 * 1024),
         },
         { concurrency: "unbounded" }
       );
@@ -67,12 +67,12 @@ const captureCommand = Effect.fnUntraced(function* captureCommand(
           Exit.isFailure(exit) || (Exit.isSuccess(exit) && exit.value !== 0),
         stderr:
           options.trimFinalNewline === false
-            ? stderr.toString("utf-8")
-            : stderr.toString("utf-8").replace(/\r?\n$/u, ""),
+            ? new TextDecoder().decode(stderr)
+            : new TextDecoder().decode(stderr).replace(/\r?\n$/u, ""),
         stdout:
           options.trimFinalNewline === false
-            ? stdout.toString("utf-8")
-            : stdout.toString("utf-8").replace(/\r?\n$/u, ""),
+            ? new TextDecoder().decode(stdout)
+            : new TextDecoder().decode(stdout).replace(/\r?\n$/u, ""),
         timedOut: false,
       };
 
@@ -125,7 +125,7 @@ export const runCommand = async (
   options: CommandCaptureOptions = {}
 ) =>
   await Effect.runPromise(
-    captureCommand(executable, args, options).pipe(
+    runCommandEffect(executable, args, options).pipe(
       Effect.provide(processLayer)
     ),
     options.signal === undefined ? {} : { signal: options.signal }

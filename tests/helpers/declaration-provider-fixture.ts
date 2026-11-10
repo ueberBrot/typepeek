@@ -81,12 +81,10 @@ const writeNodeDeclarationProvider =
 const packFixture = async function packFixture(
   packageRoot: string,
   tarballsRoot: string,
-  npmCacheRoot: string,
   diagnosticContext: string
 ): Promise<string> {
   return await packPackage({
     diagnosticContext,
-    npmCacheRoot,
     packageRoot,
     tarballsRoot,
   });
@@ -111,7 +109,6 @@ const writeHelperPackage = async function writeHelperPackage(
 const materializeOptionalHelper = async function materializeOptionalHelper(
   fixtureRoot: string,
   tarballsRoot: string,
-  npmCacheRoot: string,
   declaration: string | undefined,
   packageName: string,
   installation: "declared" | "nested-undeclared"
@@ -126,7 +123,6 @@ const materializeOptionalHelper = async function materializeOptionalHelper(
   return await packFixture(
     helperRoot,
     tarballsRoot,
-    npmCacheRoot,
     "helper provider dependency"
   );
 };
@@ -196,14 +192,12 @@ export const materializeNodeProviderFixture =
       const providerTarball = await packFixture(
         providerRoot,
         tarballsRoot,
-        npmCacheRoot,
         "single node provider"
       );
 
       const helperTarball = await materializeOptionalHelper(
         fixtureRoot,
         tarballsRoot,
-        npmCacheRoot,
         helperDeclaration,
         helperPackageName,
         helperInstallation
@@ -565,52 +559,28 @@ export const materializeDeclarationProviderFixture =
         ambientProviderTarball,
         exportedImportNodeProviderTarball,
       ] = await Promise.all([
-        packFixture(
-          targetRoot,
-          tarballsRoot,
-          npmCacheRoot,
-          "JavaScript target"
-        ),
-        packFixture(
-          providerOneRoot,
-          tarballsRoot,
-          npmCacheRoot,
-          "provider one"
-        ),
-        packFixture(
-          providerTwoRoot,
-          tarballsRoot,
-          npmCacheRoot,
-          "provider two"
-        ),
+        packFixture(targetRoot, tarballsRoot, "JavaScript target"),
+        packFixture(providerOneRoot, tarballsRoot, "provider one"),
+        packFixture(providerTwoRoot, tarballsRoot, "provider two"),
         packFixture(
           injectedNodeProviderRoot,
           tarballsRoot,
-          npmCacheRoot,
           "injected node provider"
         ),
         packFixture(
           brokenNodeProviderRoot,
           tarballsRoot,
-          npmCacheRoot,
           "broken node provider"
         ),
         packFixture(
           brokenExportEqualsNodeProviderRoot,
           tarballsRoot,
-          npmCacheRoot,
           "broken export equals node provider"
         ),
-        packFixture(
-          ambientProviderRoot,
-          tarballsRoot,
-          npmCacheRoot,
-          "ambient provider"
-        ),
+        packFixture(ambientProviderRoot, tarballsRoot, "ambient provider"),
         packFixture(
           exportedImportNodeProviderRoot,
           tarballsRoot,
-          npmCacheRoot,
           "exported import node provider"
         ),
       ]);

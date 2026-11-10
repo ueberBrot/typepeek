@@ -1,5 +1,3 @@
-import nodePath from "node:path";
-
 import { Predicate, Schema } from "effect";
 
 import type { InstalledEvidenceProof } from "#typepeek/inspection/evidence/installed-evidence-fingerprint";
@@ -7,6 +5,7 @@ import {
   readOwnOptionalProperty,
   snapshotBoundedDataPropertyGraph,
 } from "#typepeek/inspection/model/untrusted-data";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 import { requireDefined } from "#typepeek/shared/defined-value";
 
 export const EVIDENCE_PROOF_LIMITS = {

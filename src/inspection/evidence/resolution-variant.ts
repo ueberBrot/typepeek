@@ -28,7 +28,7 @@ export interface ResolutionVariantSelection {
 
 export interface SelectedResolutionVariant {
   readonly declarationPath: string;
-  readonly readPublicSubpaths: () => readonly PublicSubpath[];
+  readonly readPublicSubpaths: () => Promise<readonly PublicSubpath[]>;
 }
 
 const canonicalDeclaration = function canonicalDeclaration(
@@ -46,13 +46,13 @@ const canonicalDeclaration = function canonicalDeclaration(
   return canonicalDeclarationPath;
 };
 
-const resolveDeclarationPath = function resolveDeclarationPath(
+const resolveDeclarationPath = async function resolveDeclarationPath(
   specifier: string,
   declarationRoots: readonly string[],
   missingDeclarationMessage: string | undefined,
   resolver: PackageDeclarationResolver
-): string {
-  const declarationPath = resolver.resolve(specifier);
+): Promise<string> {
+  const declarationPath = await resolver.resolve(specifier);
 
   if (declarationPath === undefined) {
     throw new UnsupportedInspectionError(
@@ -84,7 +84,7 @@ const resolveDeclarationPath = function resolveDeclarationPath(
  * the same Resolution Context and Access Style. Manifest and filesystem
  * traversal are bounded and package targets never escape the installed package.
  */
-export const selectResolutionVariant = function selectResolutionVariant({
+export const selectResolutionVariant = async function selectResolutionVariant({
   compilerWorkSession,
   request,
   packageRoot,
@@ -93,7 +93,7 @@ export const selectResolutionVariant = function selectResolutionVariant({
   missingDeclarationMessage,
   subpathKey,
   exports,
-}: ResolutionVariantSelection): SelectedResolutionVariant {
+}: ResolutionVariantSelection): Promise<SelectedResolutionVariant> {
   assertPublicSubpath(subpathKey, exports);
 
   const resolver = compilerWorkSession.createPackageResolver(
@@ -103,15 +103,15 @@ export const selectResolutionVariant = function selectResolutionVariant({
   );
 
   return {
-    declarationPath: resolveDeclarationPath(
+    declarationPath: await resolveDeclarationPath(
       request.specifier,
       declarationRoots,
       missingDeclarationMessage,
       resolver
     ),
-    readPublicSubpaths: () =>
+    readPublicSubpaths: async () =>
       subpathKey === undefined
-        ? readPublicSubpaths({
+        ? await readPublicSubpaths({
             declarationRoots,
             exports,
             observeEvidenceDirectory:

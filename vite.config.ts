@@ -12,6 +12,7 @@ import { defineConfig } from "vite-plus";
 
 import { COMPILER_VERSION } from "./src/inspection/compiler/compiler-distribution.ts";
 import { readStandardGlobalCatalog } from "./src/inspection/compiler/standard-global-catalog.ts";
+import { createRequire } from "./src/platform/node-module.ts";
 import { decodeJson } from "./src/shared/json-data.ts";
 
 const presetImportOrder = ultraciteFormat.sortImports;
@@ -42,7 +43,7 @@ const packageManifest = decodeJson(
 const packageVersionDefine = {
   "globalThis.__TYPEPEEK_COMPILER_VERSION__": JSON.stringify(COMPILER_VERSION),
   "globalThis.__TYPEPEEK_STANDARD_GLOBALS__": JSON.stringify(
-    readStandardGlobalCatalog()
+    await readStandardGlobalCatalog()
   ),
   "globalThis.__TYPEPEEK_VERSION__": JSON.stringify(packageManifest.version),
 };
@@ -54,10 +55,9 @@ const releaseProfileAdapter = fileURLToPath(
   )
 );
 
-const effectBarrel = fileURLToPath(import.meta.resolve("effect")).replaceAll(
-  "\\",
-  "/"
-);
+const effectBarrel = createRequire(import.meta.url)
+  .resolve("effect")
+  .replaceAll("\\", "/");
 
 // Tree-shake the barrel while keeping the selected public modules external.
 const effectSubpathImports = {
@@ -123,7 +123,7 @@ export default defineConfig({
       external: [
         /^node:/u,
         /^effect\//u,
-        /^@effect\/platform-node-shared(?:\/|$)/u,
+        /^@effect\/platform-bun(?:\/|$)/u,
         /^tsrs(?:\/|$)/u,
         "semver",
       ],
@@ -311,7 +311,7 @@ export default defineConfig({
       },
       "effect-check": {
         cache: { input: validationInputs, output: [] },
-        command: "node tests/effect-diagnostics.ts",
+        command: "bun tests/effect-diagnostics.ts",
       },
       fallow: {
         cache: false,

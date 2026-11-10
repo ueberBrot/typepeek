@@ -6,8 +6,8 @@ import {
   isVariableDeclaration,
 } from "tsrs/ast";
 import type { ClassDeclaration, SourceFile } from "tsrs/ast";
-import { SymbolFlags } from "tsrs/sync";
-import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/sync";
+import { SymbolFlags } from "tsrs/async";
+import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/async";
 
 import { aliasedSymbol } from "#typepeek/inspection/compiler/compiler-queries";
 import {
@@ -23,6 +23,7 @@ import type { InspectionPlanQuery } from "#typepeek/inspection/model/protocol";
 import type { NodeProviderProgram } from "#typepeek/inspection/projection/declaration-reference-authority";
 import { InstalledDeclarationGraph } from "#typepeek/inspection/projection/installed-declaration-graph";
 import { selectNodeDeclarationProgram } from "#typepeek/inspection/projection/node-declaration-authority";
+import { someAsync } from "#typepeek/shared/async-collection";
 import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 const FOCUSED_EXPORT = "focused-export";
@@ -32,9 +33,9 @@ export type InstalledProgramSelection = {
   readonly compilerWorkSession: CompilerWorkSession;
   readonly declarationAuthority: DeclarationProviderAuthority;
   readonly resolutionContextDirectory: string;
-  readonly readNodeDeclarationProvider: () =>
-    | DeclarationProviderAuthority
-    | undefined;
+  readonly readNodeDeclarationProvider: () => Promise<
+    DeclarationProviderAuthority | undefined
+  >;
 } & (
   | {
       readonly kind: "package";
@@ -138,42 +139,45 @@ const ambientModuleName = function ambientModuleName(
   return name.startsWith('"') && name.endsWith('"') ? name.slice(1, -1) : name;
 };
 
-const packageModuleSymbol = function packageModuleSymbol(
+const packageModuleSymbol = async function packageModuleSymbol(
   checker: Checker,
   sourceFile: SourceFile,
   ambientSpecifier: string | undefined
-): CompilerSymbol | undefined {
-  const sourceFileSymbol = checker.getSymbolAtLocation(sourceFile);
+): Promise<CompilerSymbol | undefined> {
+  const sourceFileSymbol = await checker.getSymbolAtLocation(sourceFile);
 
   if (sourceFileSymbol !== undefined || ambientSpecifier === undefined) {
     return sourceFileSymbol;
   }
 
-  return ambientModules(checker).find(
+  const modules = await ambientModules(checker);
+
+  return modules.find(
     (symbol) => ambientModuleName(symbol) === ambientSpecifier
   );
 };
 
-const initialPackageEvidence = function initialPackageEvidence(
+const initialPackageEvidence = async function initialPackageEvidence(
   program: Program,
   selection: InstalledProgramSelection
-):
+): Promise<
   | {
       readonly moduleSymbol: CompilerSymbol;
     }
-  | undefined {
+  | undefined
+> {
   if (selection.kind !== "package") {
     return undefined;
   }
 
-  const sourceFile = program.getSourceFile(
+  const sourceFile = await program.getSourceFile(
     selection.declarationAuthority.declarationPath
   );
 
   const moduleSymbol =
     sourceFile === undefined
       ? undefined
-      : packageModuleSymbol(
+      : await packageModuleSymbol(
           program.getProject().checker,
           sourceFile,
           selection.ambientSpecifier
@@ -183,11 +187,11 @@ const initialPackageEvidence = function initialPackageEvidence(
 };
 
 const selectedValueNeedsStandardLibrary =
-  function selectedValueNeedsStandardLibrary(
+  async function selectedValueNeedsStandardLibrary(
     checker: Checker,
     symbol: CompilerSymbol
-  ): boolean {
-    const declaration = valueDeclarationOf(symbol);
+  ): Promise<boolean> {
+    const declaration = await valueDeclarationOf(symbol);
 
     if (declaration === undefined || !isVariableDeclaration(declaration)) {
       return false;
@@ -197,7 +201,7 @@ const selectedValueNeedsStandardLibrary =
 
     const typeSymbol =
       type !== undefined && isTypeReferenceNode(type)
-        ? checker.getSymbolAtLocation(type.typeName)
+        ? await checker.getSymbolAtLocation(type.typeName)
         : undefined;
 
     if (type === undefined) {
@@ -210,17 +214,17 @@ const selectedValueNeedsStandardLibrary =
 
     return (
       typeSymbol === undefined ||
-      (declarationsOf(typeSymbol) ?? []).length === 0
+      ((await declarationsOf(typeSymbol)) ?? []).length === 0
     );
   };
 
 const inheritedConstructorNeedsStandardLibrary =
-  function inheritedConstructorNeedsStandardLibrary(
+  async function inheritedConstructorNeedsStandardLibrary(
     checker: Checker,
     declaration: ClassDeclaration,
     visited: Set<ClassDeclaration>,
     depth: number
-  ): boolean {
+  ): Promise<boolean> {
     if (
       declaration.members.some(isConstructorDeclaration) ||
       visited.has(declaration) ||
@@ -231,76 +235,82 @@ const inheritedConstructorNeedsStandardLibrary =
 
     visited.add(declaration);
 
-    return (declaration.heritageClauses ?? []).some((clause) =>
-      clause.types.some((heritage) => {
-        const symbol = checker.getSymbolAtLocation(
-          isExpressionWithTypeArguments(heritage)
-            ? heritage.expression
-            : heritage.typeName
-        );
+    return await someAsync(
+      declaration.heritageClauses ?? [],
+      async (clause) =>
+        await someAsync(clause.types, async (heritage) => {
+          const symbol = await checker.getSymbolAtLocation(
+            isExpressionWithTypeArguments(heritage)
+              ? heritage.expression
+              : heritage.typeName
+          );
 
-        if (symbol === undefined) {
-          return true;
-        }
+          if (symbol === undefined) {
+            return true;
+          }
 
-        const target = bitwiseAnd(symbol.flags, SymbolFlags.Alias)
-          ? aliasedSymbol(checker, symbol)
-          : symbol;
+          const target = bitwiseAnd(symbol.flags, SymbolFlags.Alias)
+            ? await aliasedSymbol(checker, symbol)
+            : symbol;
 
-        return (declarationsOf(target) ?? []).some(
-          (baseDeclaration) =>
-            isClassDeclaration(baseDeclaration) &&
-            inheritedConstructorNeedsStandardLibrary(
-              checker,
-              baseDeclaration,
-              visited,
-              depth + 1
-            )
-        );
-      })
+          return await someAsync(
+            (await declarationsOf(target)) ?? [],
+            async (baseDeclaration) =>
+              isClassDeclaration(baseDeclaration) &&
+              (await inheritedConstructorNeedsStandardLibrary(
+                checker,
+                baseDeclaration,
+                visited,
+                depth + 1
+              ))
+          );
+        })
     );
   };
 
 const selectedExportNeedsStandardLibrary =
-  function selectedExportNeedsStandardLibrary(
+  async function selectedExportNeedsStandardLibrary(
     checker: Checker,
     moduleSymbol: CompilerSymbol,
     exportName: string
-  ): boolean {
-    const exportedSymbol = checker
-      .getExportsOfModule(moduleSymbol)
-      .find((symbol) => symbol.name === exportName);
+  ): Promise<boolean> {
+    const exportsOfModule = await checker.getExportsOfModule(moduleSymbol);
+
+    const exportedSymbol = exportsOfModule.find(
+      (symbol) => symbol.name === exportName
+    );
 
     if (exportedSymbol === undefined) {
       return false;
     }
 
     const symbol = bitwiseAnd(exportedSymbol.flags, SymbolFlags.Alias)
-      ? aliasedSymbol(checker, exportedSymbol)
+      ? await aliasedSymbol(checker, exportedSymbol)
       : exportedSymbol;
 
     return (
-      selectedValueNeedsStandardLibrary(checker, symbol) ||
-      (declarationsOf(symbol) ?? []).some(
-        (declaration) =>
+      (await selectedValueNeedsStandardLibrary(checker, symbol)) ||
+      (await someAsync(
+        (await declarationsOf(symbol)) ?? [],
+        async (declaration) =>
           isClassDeclaration(declaration) &&
-          inheritedConstructorNeedsStandardLibrary(
+          (await inheritedConstructorNeedsStandardLibrary(
             checker,
             declaration,
             new Set(),
             0
-          )
-      )
+          ))
+      ))
     );
   };
 
-const inspectModuleEvidence = function inspectModuleEvidence(
+const inspectModuleEvidence = async function inspectModuleEvidence(
   program: Program,
   declarationPath: string,
   ambientSpecifier: string | undefined,
   graph: InstalledDeclarationGraph
-): InstalledProgramEvidence {
-  const sourceFile = program.getSourceFile(declarationPath);
+): Promise<InstalledProgramEvidence> {
+  const sourceFile = await program.getSourceFile(declarationPath);
 
   if (sourceFile === undefined) {
     throw new UnsupportedInspectionError(
@@ -309,9 +319,9 @@ const inspectModuleEvidence = function inspectModuleEvidence(
   }
 
   const { checker } = program.getProject();
-  graph.assertSourceResolved(program, checker, sourceFile);
+  await graph.assertSourceResolved(program, checker, sourceFile);
 
-  const moduleSymbol = packageModuleSymbol(
+  const moduleSymbol = await packageModuleSymbol(
     checker,
     sourceFile,
     ambientSpecifier
@@ -323,50 +333,53 @@ const inspectModuleEvidence = function inspectModuleEvidence(
     );
   }
 
-  graph.assertAmbientModuleResolved(program, checker, moduleSymbol);
+  await graph.assertAmbientModuleResolved(program, checker, moduleSymbol);
 
   return { checker, moduleSymbol };
 };
 
-const inspectPlatformModuleEvidence = function inspectPlatformModuleEvidence(
-  program: Program,
-  declarationPath: string,
-  specifier: string,
-  graph: InstalledDeclarationGraph
-): InstalledProgramEvidence {
-  const sourceFile = program.getSourceFile(declarationPath);
+const inspectPlatformModuleEvidence =
+  async function inspectPlatformModuleEvidence(
+    program: Program,
+    declarationPath: string,
+    specifier: string,
+    graph: InstalledDeclarationGraph
+  ): Promise<InstalledProgramEvidence> {
+    const sourceFile = await program.getSourceFile(declarationPath);
 
-  if (sourceFile === undefined) {
-    throw new UnsupportedInspectionError(
-      "The visible Declaration Provider has no readable module declarations."
+    if (sourceFile === undefined) {
+      throw new UnsupportedInspectionError(
+        "The visible Declaration Provider has no readable module declarations."
+      );
+    }
+
+    const { checker } = program.getProject();
+    await graph.assertSourceResolved(program, checker, sourceFile);
+
+    const modules = await ambientModules(checker);
+
+    const moduleSymbol = modules.find(
+      (symbol) => ambientModuleName(symbol) === specifier
     );
-  }
 
-  const { checker } = program.getProject();
-  graph.assertSourceResolved(program, checker, sourceFile);
+    if (moduleSymbol === undefined) {
+      throw new UnsupportedInspectionError(
+        `Node Platform Module "${specifier}" is not declared by the visible @types/node provider.`
+      );
+    }
 
-  const moduleSymbol = ambientModules(checker).find(
-    (symbol) => ambientModuleName(symbol) === specifier
-  );
+    await graph.assertAmbientModuleResolved(program, checker, moduleSymbol);
 
-  if (moduleSymbol === undefined) {
-    throw new UnsupportedInspectionError(
-      `Node Platform Module "${specifier}" is not declared by the visible @types/node provider.`
-    );
-  }
+    return { checker, moduleSymbol };
+  };
 
-  graph.assertAmbientModuleResolved(program, checker, moduleSymbol);
-
-  return { checker, moduleSymbol };
-};
-
-const inspectSelectedModule = function inspectSelectedModule(
+const inspectSelectedModule = async function inspectSelectedModule(
   program: Program,
   selection: InstalledProgramSelection,
   graph: InstalledDeclarationGraph
-): InstalledProgramEvidence {
+): Promise<InstalledProgramEvidence> {
   if (selection.kind === "package") {
-    return inspectModuleEvidence(
+    return await inspectModuleEvidence(
       program,
       selection.declarationAuthority.declarationPath,
       selection.ambientSpecifier,
@@ -374,7 +387,7 @@ const inspectSelectedModule = function inspectSelectedModule(
     );
   }
 
-  return inspectPlatformModuleEvidence(
+  return await inspectPlatformModuleEvidence(
     program,
     selection.declarationAuthority.declarationPath,
     selection.specifier,
@@ -382,91 +395,98 @@ const inspectSelectedModule = function inspectSelectedModule(
   );
 };
 
-export const materializeInstalledProgram = function materializeInstalledProgram(
-  selection: InstalledProgramSelection,
-  queries: readonly InspectionPlanQuery[]
-): InstalledProgramEvidence {
-  const { declarationPath, root: declarationRoot } =
-    selection.declarationAuthority;
+export const materializeInstalledProgram =
+  async function materializeInstalledProgram(
+    selection: InstalledProgramSelection,
+    queries: readonly InspectionPlanQuery[]
+  ): Promise<InstalledProgramEvidence> {
+    const { declarationPath, root: declarationRoot } =
+      selection.declarationAuthority;
 
-  const requirements = installedProgramRequirements(queries);
+    const requirements = installedProgramRequirements(queries);
 
-  const host = new InstalledProgramLoader(
-    [declarationRoot.canonical, declarationRoot.logical],
-    selection.compilerWorkSession
-  );
+    const host = new InstalledProgramLoader(
+      [declarationRoot.canonical, declarationRoot.logical],
+      selection.compilerWorkSession
+    );
 
-  const graph = new InstalledDeclarationGraph(host);
+    const graph = new InstalledDeclarationGraph(host);
 
-  const initialProgram = host.createProgram(
-    [declarationPath],
-    requirements.needsStandardLibrary
-  );
+    const initialProgram = await host.createProgram(
+      [declarationPath],
+      requirements.needsStandardLibrary
+    );
 
-  const initialEvidence = initialPackageEvidence(initialProgram, selection);
+    const initialEvidence = await initialPackageEvidence(
+      initialProgram,
+      selection
+    );
 
-  const publicInterfaceProgram =
-    !requirements.needsStandardLibrary &&
-    initialEvidence !== undefined &&
-    requirements.focusedExportNames.some((exportName) =>
-      selectedExportNeedsStandardLibrary(
-        initialProgram.getProject().checker,
-        initialEvidence.moduleSymbol,
-        exportName
-      )
-    )
-      ? host.createProgram([declarationPath], true)
-      : initialProgram;
+    const publicInterfaceProgram =
+      !requirements.needsStandardLibrary &&
+      initialEvidence !== undefined &&
+      (await someAsync(
+        requirements.focusedExportNames,
+        async (exportName) =>
+          await selectedExportNeedsStandardLibrary(
+            initialProgram.getProject().checker,
+            initialEvidence.moduleSymbol,
+            exportName
+          )
+      ))
+        ? await host.createProgram([declarationPath], true)
+        : initialProgram;
 
-  const initialSourceFile =
-    publicInterfaceProgram.getSourceFile(declarationPath);
+    const initialSourceFile =
+      await publicInterfaceProgram.getSourceFile(declarationPath);
 
-  const initialModuleSymbol =
-    selection.kind === "package" && initialSourceFile !== undefined
-      ? packageModuleSymbol(
-          publicInterfaceProgram.getProject().checker,
-          initialSourceFile,
-          selection.ambientSpecifier
-        )
-      : undefined;
+    const initialModuleSymbol =
+      selection.kind === "package" && initialSourceFile !== undefined
+        ? await packageModuleSymbol(
+            publicInterfaceProgram.getProject().checker,
+            initialSourceFile,
+            selection.ambientSpecifier
+          )
+        : undefined;
 
-  const canAugmentNode =
-    selection.kind !== "platform" && requirements.needsNodeAugmentation;
+    const canAugmentNode =
+      selection.kind !== "platform" && requirements.needsNodeAugmentation;
 
-  const nodeProgram =
-    !canAugmentNode ||
-    initialSourceFile === undefined ||
-    initialModuleSymbol === undefined
-      ? undefined
-      : selectNodeDeclarationProgram(
-          publicInterfaceProgram,
-          initialModuleSymbol,
-          initialSourceFile,
-          (): NodeProviderProgram | undefined => {
-            const nodeProvider = selection.readNodeDeclarationProvider();
+    const nodeProgram =
+      !canAugmentNode ||
+      initialSourceFile === undefined ||
+      initialModuleSymbol === undefined
+        ? undefined
+        : await selectNodeDeclarationProgram(
+            publicInterfaceProgram,
+            initialModuleSymbol,
+            initialSourceFile,
+            async (): Promise<NodeProviderProgram | undefined> => {
+              const nodeProvider =
+                await selection.readNodeDeclarationProvider();
 
-            if (nodeProvider === undefined) {
-              return undefined;
-            }
+              if (nodeProvider === undefined) {
+                return undefined;
+              }
 
-            host.allowPackageRoot(nodeProvider.root);
+              host.allowPackageRoot(nodeProvider.root);
 
-            return {
-              program: host.createProgram(
-                [declarationPath, nodeProvider.declarationPath],
-                requirements.needsStandardLibrary ||
-                  publicInterfaceProgram !== initialProgram
-              ),
-              providerRoot: nodeProvider.root.canonical,
-            };
-          },
-          () => {
-            graph.reserveTraversalNode();
-          },
-          requirements.nodeAugmentationExportNames
-        );
+              return {
+                program: await host.createProgram(
+                  [declarationPath, nodeProvider.declarationPath],
+                  requirements.needsStandardLibrary ||
+                    publicInterfaceProgram !== initialProgram
+                ),
+                providerRoot: nodeProvider.root.canonical,
+              };
+            },
+            () => {
+              graph.reserveTraversalNode();
+            },
+            requirements.nodeAugmentationExportNames
+          );
 
-  const program = nodeProgram ?? publicInterfaceProgram;
+    const program = nodeProgram ?? publicInterfaceProgram;
 
-  return inspectSelectedModule(program, selection, graph);
-};
+    return await inspectSelectedModule(program, selection, graph);
+  };

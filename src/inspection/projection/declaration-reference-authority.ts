@@ -1,5 +1,3 @@
-import { builtinModules } from "node:module";
-
 import { Predicate } from "effect";
 import {
   isAsExpression,
@@ -32,10 +30,10 @@ import type {
   Node,
   TypeReferenceNode,
 } from "tsrs/ast";
-import { SymbolFlags, TypeFlags } from "tsrs/sync";
-import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/sync";
+import { SymbolFlags, TypeFlags } from "tsrs/async";
+import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/async";
 
-import { COMPILER_VERSION } from "#typepeek/inspection/compiler/compiler-distribution";
+import { COMPILER_VERSION } from "#typepeek/inspection/compiler/compiler-metadata";
 import {
   aliasedSymbol,
   symbolAtLocation,
@@ -47,6 +45,8 @@ import { isPathWithin } from "#typepeek/inspection/evidence/evidence-boundary";
 import { UnsupportedInspectionError } from "#typepeek/inspection/model/errors";
 import { publicDeclarations } from "#typepeek/inspection/projection/public-declaration-selection";
 import { isWellKnownSymbolMemberName } from "#typepeek/inspection/projection/well-known-symbol";
+import { builtinModules } from "#typepeek/platform/node-module";
+import { everyAsync } from "#typepeek/shared/async-collection";
 import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 const NODE_PLATFORM_SPECIFIERS = new Set([
@@ -241,36 +241,47 @@ const possibleGlobalReference = function possibleGlobalReference(node: Node):
   return undefined;
 };
 
-const resolvedSymbolDeclarations = function resolvedSymbolDeclarations(
+const resolvedSymbolDeclarations = async function resolvedSymbolDeclarations(
   checker: Checker,
   symbol: CompilerSymbol | undefined
-): readonly Declaration[] {
+): Promise<readonly Declaration[]> {
   if (symbol === undefined) {
     return [];
   }
 
   const resolved = bitwiseAnd(symbol.flags, SymbolFlags.Alias)
-    ? aliasedSymbol(checker, symbol)
+    ? await aliasedSymbol(checker, symbol)
     : symbol;
 
-  return publicDeclarations(checker, declarationsOf(resolved) ?? []);
+  return await publicDeclarations(
+    checker,
+    (await declarationsOf(resolved)) ?? []
+  );
 };
 
-const resolvedReferenceSymbol = function resolvedReferenceSymbol(
+const resolvedReferenceSymbol = async function resolvedReferenceSymbol(
   checker: Checker,
   reference: NonNullable<ReturnType<typeof possibleGlobalReference>>
-): CompilerSymbol | undefined {
-  const targetSymbol = symbolAtLocation(checker, reference.target);
+): Promise<CompilerSymbol | undefined> {
+  const targetSymbol = await symbolAtLocation(checker, reference.target);
 
-  if (resolvedSymbolDeclarations(checker, targetSymbol).length > 0) {
+  const targetDeclarations = await resolvedSymbolDeclarations(
+    checker,
+    targetSymbol
+  );
+
+  if (targetDeclarations.length > 0) {
     return targetSymbol;
   }
 
-  const rootSymbol = symbolAtLocation(checker, reference.root);
+  const rootSymbol = await symbolAtLocation(checker, reference.root);
 
-  return resolvedSymbolDeclarations(checker, rootSymbol).length > 0
-    ? rootSymbol
-    : targetSymbol;
+  const rootDeclarations = await resolvedSymbolDeclarations(
+    checker,
+    rootSymbol
+  );
+
+  return rootDeclarations.length > 0 ? rootSymbol : targetSymbol;
 };
 
 const referencePath = function referencePath(node: Node): string[] | undefined {
@@ -324,9 +335,9 @@ const isWellKnownSymbolReference = function isWellKnownSymbolReference(
 
 const embeddedStandardGlobals = globalThis.__TYPEPEEK_STANDARD_GLOBALS__;
 
-const standardGlobals = function standardGlobals(
+const standardGlobals = async function standardGlobals(
   reserveTraversalNode: () => void
-): ReadonlyMap<string, StandardGlobalSpaces> {
+): Promise<ReadonlyMap<string, StandardGlobalSpaces>> {
   if (standardGlobalNames !== undefined) {
     return standardGlobalNames;
   }
@@ -334,7 +345,7 @@ const standardGlobals = function standardGlobals(
   const catalog =
     embeddedStandardGlobals?.compilerVersion === COMPILER_VERSION
       ? embeddedStandardGlobals
-      : readStandardGlobalCatalog();
+      : await readStandardGlobalCatalog();
 
   for (let index = 0; index < catalog.traversalNodes; index += 1) {
     reserveTraversalNode();
@@ -350,10 +361,10 @@ const standardGlobals = function standardGlobals(
   return standardGlobalNames;
 };
 
-const isStandardReference = function isStandardReference(
+const isStandardReference = async function isStandardReference(
   reference: NonNullable<ReturnType<typeof possibleGlobalReference>>,
   reserveTraversalNode: () => void
-): boolean {
+): Promise<boolean> {
   const path = standardReferencePath(reference.target);
 
   if (path === undefined || path.length === 0) {
@@ -364,11 +375,9 @@ const isStandardReference = function isStandardReference(
     return true;
   }
 
-  return (
-    standardGlobals(reserveTraversalNode).get(path.join("."))?.[
-      reference.space
-    ] === true
-  );
+  const globals = await standardGlobals(reserveTraversalNode);
+
+  return globals.get(path.join("."))?.[reference.space] === true;
 };
 
 const isValueReferenceIdentifier = function isValueReferenceIdentifier(
@@ -406,12 +415,14 @@ const valueReferenceTarget = function valueReferenceTarget(
   return current;
 };
 
-const isStandardGlobal = function isStandardGlobal(
+const isStandardGlobal = async function isStandardGlobal(
   name: string,
   space: "type" | "value",
   reserveTraversalNode: () => void
-): boolean {
-  return standardGlobals(reserveTraversalNode).get(name)?.[space] === true;
+): Promise<boolean> {
+  const globals = await standardGlobals(reserveTraversalNode);
+
+  return globals.get(name)?.[space] === true;
 };
 
 const isTrustedStandardValueMember = function isTrustedStandardValueMember(
@@ -434,12 +445,12 @@ const isTrustedStandardValueMember = function isTrustedStandardValueMember(
   );
 };
 
-const isStandardValueReference = function isStandardValueReference(
+const isStandardValueReference = async function isStandardValueReference(
   target: Expression,
   root: Identifier,
   reserveTraversalNode: () => void
-): boolean {
-  if (!isStandardGlobal(root.text, "value", reserveTraversalNode)) {
+): Promise<boolean> {
+  if (!(await isStandardGlobal(root.text, "value", reserveTraversalNode))) {
     return false;
   }
 
@@ -461,10 +472,10 @@ const isStandardSymbolMember = function isStandardSymbolMember(
   );
 };
 
-const isRepresentableComputedName = function isRepresentableComputedName(
+const isRepresentableComputedName = async function isRepresentableComputedName(
   checker: Checker,
   expression: Expression
-): boolean {
+): Promise<boolean> {
   if (
     isStringLiteralLikeNode(expression) ||
     isNumericLiteral(expression) ||
@@ -473,7 +484,7 @@ const isRepresentableComputedName = function isRepresentableComputedName(
     return true;
   }
 
-  const { flags } = checker.getTypeAtLocation(expression);
+  const { flags } = await checker.getTypeAtLocation(expression);
 
   if (
     bitwiseAnd(flags, TypeFlags.UniqueESSymbol) ||
@@ -500,20 +511,24 @@ const unresolvedGlobalReference =
     );
   };
 
-const providerDefinesCandidates = function providerDefinesCandidates(
+const providerDefinesCandidates = async function providerDefinesCandidates(
   provider: NodeProviderProgram,
   candidates: readonly GlobalCandidate[]
-): boolean {
+): Promise<boolean> {
   const { checker } = provider.program.getProject();
 
-  return symbolsAtLocations(
+  const symbols = await symbolsAtLocations(
     checker,
     candidates.map(({ target }) => target)
-  ).every((symbol) =>
-    resolvedSymbolDeclarations(checker, symbol).some((declaration) =>
-      isPathWithin(provider.providerRoot, declaration.getSourceFile().fileName)
-    )
   );
+
+  return await everyAsync(symbols, async (symbol) => {
+    const declarations = await resolvedSymbolDeclarations(checker, symbol);
+
+    return declarations.some((declaration) =>
+      isPathWithin(provider.providerRoot, declaration.getSourceFile().fileName)
+    );
+  });
 };
 
 /** Owns the unresolved references and computed names collected by one Public Interface scan. */
@@ -529,8 +544,8 @@ export class DeclarationReferenceAuthority {
     this.reserveTraversalNode = reserveTraversalNode;
   }
 
-  prefetch(nodes: readonly Node[]): void {
-    symbolsAtLocations(
+  async prefetch(nodes: readonly Node[]): Promise<void> {
+    await symbolsAtLocations(
       this.checker,
       nodes.flatMap((node) => {
         const reference = possibleGlobalReference(node);
@@ -540,33 +555,34 @@ export class DeclarationReferenceAuthority {
     );
   }
 
-  private inspectReference(node: Node):
+  private async inspectReference(node: Node): Promise<
     | {
         readonly symbol: CompilerSymbol;
         readonly declarations: readonly Declaration[];
       }
-    | undefined {
+    | undefined
+  > {
     const reference = possibleGlobalReference(node);
 
     if (reference === undefined) {
       return undefined;
     }
 
-    const symbol = resolvedReferenceSymbol(this.checker, reference);
-    const declarations = resolvedSymbolDeclarations(this.checker, symbol);
+    const symbol = await resolvedReferenceSymbol(this.checker, reference);
+    const declarations = await resolvedSymbolDeclarations(this.checker, symbol);
 
     if (declarations.length > 0 && symbol !== undefined) {
       return { declarations, symbol };
     }
 
-    if (!isStandardReference(reference, this.reserveTraversalNode)) {
+    if (!(await isStandardReference(reference, this.reserveTraversalNode))) {
       this.candidates.push({ target: reference.target });
     }
 
     return undefined;
   }
 
-  inspectNode(node: Node): CompilerSymbol | undefined {
+  async inspectNode(node: Node): Promise<CompilerSymbol | undefined> {
     if (directNodeReference(node)) {
       this.directReference = true;
       const candidate = directNodeReferenceCandidate(node);
@@ -576,48 +592,54 @@ export class DeclarationReferenceAuthority {
       }
     }
 
-    return this.inspectReference(node)?.symbol;
+    const inspectReferenceResult = await this.inspectReference(node);
+
+    return inspectReferenceResult?.symbol;
   }
 
-  inspectTypeNode(node: Node): readonly Declaration[] {
+  async inspectTypeNode(node: Node): Promise<readonly Declaration[]> {
     const candidate = directNodeReferenceCandidate(node);
 
     if (directNodeReference(node) && candidate !== undefined) {
       this.candidates.push({ target: candidate });
     }
 
-    return this.inspectReference(node)?.declarations ?? [];
+    const inspectReferenceResult = await this.inspectReference(node);
+
+    return inspectReferenceResult?.declarations ?? [];
   }
 
-  inspectValueNode(node: Node): readonly Declaration[] {
+  async inspectValueNode(node: Node): Promise<readonly Declaration[]> {
     if (!isIdentifier(node) || !isValueReferenceIdentifier(node)) {
       return [];
     }
 
     const target = valueReferenceTarget(node);
-    const symbol = symbolAtLocation(this.checker, target);
-    const declarations = resolvedSymbolDeclarations(this.checker, symbol);
+    const symbol = await symbolAtLocation(this.checker, target);
+    const declarations = await resolvedSymbolDeclarations(this.checker, symbol);
 
     if (declarations.length > 0) {
       return declarations;
     }
 
-    if (!isStandardValueReference(target, node, this.reserveTraversalNode)) {
+    if (
+      !(await isStandardValueReference(target, node, this.reserveTraversalNode))
+    ) {
       this.candidates.push({ target });
     }
 
     return [];
   }
 
-  recordComputedName(expression: Expression): void {
-    if (!isRepresentableComputedName(this.checker, expression)) {
+  async recordComputedName(expression: Expression): Promise<void> {
+    if (!(await isRepresentableComputedName(this.checker, expression))) {
       this.computedNames.push(expression);
     }
   }
 
-  selectProvider(
-    createProviderProgram: () => NodeProviderProgram | undefined
-  ): Program | undefined {
+  async selectProvider(
+    createProviderProgram: () => Promise<NodeProviderProgram | undefined>
+  ): Promise<Program | undefined> {
     if (
       !this.directReference &&
       this.candidates.length === 0 &&
@@ -626,7 +648,7 @@ export class DeclarationReferenceAuthority {
       return undefined;
     }
 
-    const provider = createProviderProgram();
+    const provider = await createProviderProgram();
 
     if (provider === undefined) {
       throw this.computedNames.length > 0
@@ -634,12 +656,14 @@ export class DeclarationReferenceAuthority {
         : unresolvedGlobalReference();
     }
 
-    if (providerDefinesCandidates(provider, this.candidates)) {
+    if (await providerDefinesCandidates(provider, this.candidates)) {
       const providerChecker = provider.program.getProject().checker;
 
       if (
-        this.computedNames.every((expression) =>
-          isRepresentableComputedName(providerChecker, expression)
+        await everyAsync(
+          this.computedNames,
+          async (expression) =>
+            await isRepresentableComputedName(providerChecker, expression)
         )
       ) {
         return provider.program;

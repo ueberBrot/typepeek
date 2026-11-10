@@ -98,18 +98,18 @@ describe("compiler work session", () => {
         ),
       ]);
 
-      const selection = selectInspectableModule({
+      const selection = await selectInspectableModule({
         accessStyle: "import",
         resolutionContext,
         specifier: "bounded-package",
       });
 
       expect(selection).toBeDefined();
-      expect(() =>
+      await expect(
         materializeInspectableModuleEvidence(requireDefined(selection), [
           { intent: "interface-overview" },
         ])
-      ).toThrow("Inspection exceeded its package manifest size limit.");
+      ).rejects.toThrow("Inspection exceeded its package manifest size limit.");
     } finally {
       await rm(fixtureRoot, { force: true, recursive: true });
     }
@@ -432,7 +432,7 @@ describe("compiler work session", () => {
         packageRoot,
       ]);
 
-      expect(() => resolver.resolve("bounded-package")).toThrow(
+      await expect(resolver.resolve("bounded-package")).rejects.toThrow(
         "Inspection exceeded its compiler host byte limit."
       );
     } finally {
@@ -491,8 +491,8 @@ describe("compiler work session", () => {
       );
 
       expect([
-        resolver.resolve("bounded-package"),
-        createCompilerWorkSession().resolveEvidenceProbe(
+        await resolver.resolve("bounded-package"),
+        await createCompilerWorkSession().resolveEvidenceProbe(
           {
             accessStyle: "import",
             containingFile: nodePath.join(contextRoot, "index.mts"),

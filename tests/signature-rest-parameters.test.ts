@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
 import { Effect } from "effect";
-import { ModuleKind, ModuleResolutionKind } from "tsrs/sync";
+import { ModuleKind, ModuleResolutionKind } from "tsrs/async";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { invokeInspectionCore } from "#typepeek/inspection/core";
@@ -98,7 +98,7 @@ describe("signature-rest-parameters", () => {
       `import { ${REST_CASES.map(([name]) => name).join(", ")} } from "${specifier}";\n${generatedText1}`
     );
 
-    const program = createFixtureProgram([consumerPath], {
+    const program = await createFixtureProgram([consumerPath], {
       module: ModuleKind.NodeNext,
       moduleResolution: ModuleResolutionKind.NodeNext,
       noEmit: true,
@@ -106,10 +106,10 @@ describe("signature-rest-parameters", () => {
       types: [],
     });
 
-    const consumer = program.getSourceFile(consumerPath);
+    const consumer = await program.getSourceFile(consumerPath);
     assert.ok(consumer, "The compiler must load the generated consumer.");
 
-    const diagnostics = program.getSemanticDiagnostics();
+    const diagnostics = await program.getSemanticDiagnostics();
     assert.deepEqual(
       diagnostics.filter(
         (diagnostic) => diagnostic.fileName !== consumer.fileName

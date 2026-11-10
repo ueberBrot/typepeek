@@ -29,7 +29,7 @@ import {
   ModuleResolutionKind,
   SignatureKind,
   SymbolFlags,
-} from "tsrs/sync";
+} from "tsrs/async";
 import type {
   Checker,
   Program,
@@ -37,7 +37,7 @@ import type {
   Signature,
   Symbol as CompilerSymbol,
   Type,
-} from "tsrs/sync";
+} from "tsrs/async";
 
 import {
   declarationsOf,
@@ -175,124 +175,135 @@ const findModuleSpecifier = function findModuleSpecifier(
   return match;
 };
 
-const probeExportSymbol = function probeExportSymbol(
+const probeExportSymbol = async function probeExportSymbol(
   checker: Checker,
   moduleSpecifier: StringLiteralLikeNode | undefined,
   exportName: string
-): CompilerSymbol | undefined {
+): Promise<CompilerSymbol | undefined> {
   const moduleSymbol =
     moduleSpecifier === undefined
       ? undefined
-      : checker.getSymbolAtLocation(moduleSpecifier);
+      : await checker.getSymbolAtLocation(moduleSpecifier);
 
-  const exportedSymbol = moduleSymbol
-    ? checker
-        .getExportsOfModule(moduleSymbol)
-        .find(({ name }) => name === exportName)
-    : undefined;
+  if (moduleSymbol === undefined) {
+    return undefined;
+  }
+
+  const exports = await checker.getExportsOfModule(moduleSymbol);
+  const exportedSymbol = exports.find(({ name }) => name === exportName);
 
   if (exportedSymbol === undefined) {
     return undefined;
   }
 
   if (bitwiseAnd(exportedSymbol.flags, SymbolFlags.Alias)) {
-    return checker.getAliasedSymbol(exportedSymbol);
+    return await checker.getAliasedSymbol(exportedSymbol);
   }
 
   return exportedSymbol;
 };
 
-const probeSignatureEvidence = function probeSignatureEvidence(
+const probeSignatureEvidence = async function probeSignatureEvidence(
   checker: Checker,
   symbol: CompilerSymbol
-):
+): Promise<
   | {
       readonly declaration: Declaration;
       readonly type: Type;
     }
-  | undefined {
-  const declaration = valueDeclarationOf(symbol) ?? declarationsOf(symbol)[0];
+  | undefined
+> {
+  let declaration = await valueDeclarationOf(symbol);
+
+  if (declaration === undefined) {
+    const declarations = await declarationsOf(symbol);
+    [declaration] = declarations;
+  }
 
   if (declaration === undefined) {
     return undefined;
   }
 
   const type = bitwiseAnd(symbol.flags, SymbolFlags.Value)
-    ? checker.getTypeOfSymbolAtLocation(symbol, declaration)
-    : checker.getDeclaredTypeOfSymbol(symbol);
+    ? await checker.getTypeOfSymbolAtLocation(symbol, declaration)
+    : await checker.getDeclaredTypeOfSymbol(symbol);
 
   return { declaration, type };
 };
 
-const probeSignatureText = function probeSignatureText(
+const probeSignatureText = async function probeSignatureText(
   checker: Checker,
   signature: Signature,
   declaration: Declaration,
   kind: SignatureKind
-): string {
-  return signatureText(
+): Promise<string> {
+  return await signatureText(
     checker,
     signature,
-    signature.declaration?.resolve() ?? declaration,
+    (await signature.declaration?.resolve()) ?? declaration,
     kind
   );
 };
 
-const probeTypeSignatures = function probeTypeSignatures(
+const probeTypeSignatures = async function probeTypeSignatures(
   checker: Checker,
   type: Type,
   declaration: Declaration
-): readonly ProbeSignature[] {
+): Promise<readonly ProbeSignature[]> {
   return [
-    ...checker
-      .getSignaturesOfType(type, SignatureKind.Call)
-      .map((signature) => ({
+    ...(await Array.fromAsync(
+      await checker.getSignaturesOfType(type, SignatureKind.Call),
+      async (signature) => ({
         kind: "call" as const,
-        text: probeSignatureText(
+        text: await probeSignatureText(
           checker,
           signature,
           declaration,
           SignatureKind.Call
         ),
-      })),
-    ...checker
-      .getSignaturesOfType(type, SignatureKind.Construct)
-      .map((signature) => ({
+      })
+    )),
+    ...(await Array.fromAsync(
+      await checker.getSignaturesOfType(type, SignatureKind.Construct),
+      async (signature) => ({
         kind: "construct" as const,
-        text: probeSignatureText(
+        text: await probeSignatureText(
           checker,
           signature,
           declaration,
           SignatureKind.Construct
         ),
-      })),
+      })
+    )),
   ];
 };
 
-const probeExportSignatures = function probeExportSignatures(
+const probeExportSignatures = async function probeExportSignatures(
   program: Program,
   checker: Checker,
   probePath: string,
   specifier: string,
   exportName: string
-): readonly ProbeSignature[] {
-  const sourceFile = program.getSourceFile(probePath);
+): Promise<readonly ProbeSignature[]> {
+  const sourceFile = await program.getSourceFile(probePath);
 
   const moduleSpecifier =
     sourceFile === undefined
       ? undefined
       : findModuleSpecifier(sourceFile, specifier);
 
-  const symbol = probeExportSymbol(checker, moduleSpecifier, exportName);
+  const symbol = await probeExportSymbol(checker, moduleSpecifier, exportName);
 
   const signatureEvidence =
-    symbol === undefined ? undefined : probeSignatureEvidence(checker, symbol);
+    symbol === undefined
+      ? undefined
+      : await probeSignatureEvidence(checker, symbol);
 
   if (signatureEvidence === undefined) {
     return [];
   }
 
-  return probeTypeSignatures(
+  return await probeTypeSignatures(
     checker,
     signatureEvidence.type,
     signatureEvidence.declaration
@@ -459,10 +470,10 @@ export const materializeRealPackageCorpus =
           types: ["node"],
         };
 
-        const program = createFixtureProgram([probePath], options);
+        const program = await createFixtureProgram([probePath], options);
         const { checker } = program.getProject();
 
-        const resolution = program.getResolvedModule(
+        const resolution = await program.getResolvedModule(
           probePath,
           specifier,
           accessStyle === "require" ? ModuleKind.CommonJS : ModuleKind.ESNext
@@ -470,9 +481,9 @@ export const materializeRealPackageCorpus =
 
         return {
           diagnostics: [
-            ...program.getProgramDiagnostics(),
-            ...program.getSyntacticDiagnostics(),
-            ...program.getSemanticDiagnostics(),
+            ...(await program.getProgramDiagnostics()),
+            ...(await program.getSyntacticDiagnostics()),
+            ...(await program.getSemanticDiagnostics()),
           ].map((diagnostic) => diagnostic.text),
           packageIdentity:
             resolution?.packageId === undefined
@@ -481,7 +492,7 @@ export const materializeRealPackageCorpus =
           signatures:
             exportName === undefined
               ? []
-              : probeExportSignatures(
+              : await probeExportSignatures(
                   program,
                   checker,
                   probePath,

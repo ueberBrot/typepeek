@@ -1,6 +1,4 @@
-import { isDeepStrictEqual } from "node:util";
-
-import { Predicate, Schema } from "effect";
+import { Equal, Predicate, Schema } from "effect";
 
 import type { InspectionIntent } from "#typepeek/inspection/model/protocol-vocabulary";
 import {
@@ -84,7 +82,7 @@ const requestDescriptorSchema = function requestDescriptorSchema<
 >(intent: Intent, requestSchema: RequestSchema, fieldNames: FieldNames) {
   const expected = requestDescriptorFor(intent);
 
-  if (!isDeepStrictEqual(fieldNames, Object.keys(requestSchema.fields))) {
+  if (!Equal.equals(fieldNames, Object.keys(requestSchema.fields))) {
     throw new Error(
       `Request schema "${intent}" has inconsistent ordered field metadata.`
     );
@@ -93,18 +91,15 @@ const requestDescriptorSchema = function requestDescriptorSchema<
   const descriptorSchema = Schema.Struct({
     example: Schema.toEncoded(requestSchema),
     fields: requestFieldDescriptorTuple(fieldNames).check(
-      Schema.makeFilter(
-        (fields) => isDeepStrictEqual(fields, expected.fields),
-        {
-          expected: `the schema-derived ${intent} field descriptors`,
-        }
-      )
+      Schema.makeFilter((fields) => Equal.equals(fields, expected.fields), {
+        expected: `the schema-derived ${intent} field descriptors`,
+      })
     ),
     intent: Schema.Literal(intent),
   });
 
   return descriptorSchema.check(
-    Schema.makeFilter((descriptor) => isDeepStrictEqual(descriptor, expected), {
+    Schema.makeFilter((descriptor) => Equal.equals(descriptor, expected), {
       expected: `the canonical ${intent} request descriptor`,
     })
   );

@@ -1509,7 +1509,6 @@ export const materializeCompiledPackageFixture =
         async (source) =>
           await packPackage({
             diagnosticContext: `fixture package ${source.name}`,
-            npmCacheRoot,
             packageRoot: nodePath.join(fixtureRoot, source.directory),
             tarballsRoot: tarballRoot,
           })

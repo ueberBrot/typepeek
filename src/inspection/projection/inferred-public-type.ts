@@ -30,13 +30,13 @@ import {
   ObjectFlags,
   SignatureKind,
   TypeFlags,
-} from "tsrs/sync";
+} from "tsrs/async";
 import type {
   Checker,
   Symbol as CompilerSymbol,
   Type,
   TypeReference,
-} from "tsrs/sync";
+} from "tsrs/async";
 
 import {
   declarationsOf,
@@ -48,6 +48,7 @@ import {
 } from "#typepeek/inspection/compiler/compiler-syntax";
 import { UnsupportedInspectionError } from "#typepeek/inspection/model/errors";
 import { isPrivateDeclaration } from "#typepeek/inspection/projection/public-declaration-selection";
+import { mapAsync, filterAsync } from "#typepeek/shared/async-collection";
 import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 const INFERRED_TYPE_FLAGS = NodeBuilderFlags.NoTruncation;
@@ -86,22 +87,24 @@ const isImplementationLocalDeclaration =
     return false;
   };
 
-const compositeTypeChildren = function compositeTypeChildren(
+const compositeTypeChildren = async function compositeTypeChildren(
   type: Type
-): readonly Type[] {
-  return type.isUnionType() || type.isIntersectionType() ? type.getTypes() : [];
+): Promise<readonly Type[]> {
+  return type.isUnionType() || type.isIntersectionType()
+    ? await type.getTypes()
+    : [];
 };
 
-const typeParameterTypeChildren = function typeParameterTypeChildren(
+const typeParameterTypeChildren = async function typeParameterTypeChildren(
   type: Type
-): readonly Type[] {
+): Promise<readonly Type[]> {
   if (!type.isTypeParameter()) {
     return [];
   }
 
   const children: Type[] = [];
-  const constraint = type.getConstraint();
-  const defaultType = type.getDefault();
+  const constraint = await type.getConstraint();
+  const defaultType = await type.getDefault();
 
   if (constraint !== undefined) {
     children.push(constraint);
@@ -125,17 +128,17 @@ const isTypeReference = function isTypeReference(
   );
 };
 
-const genericTypeChildren = function genericTypeChildren(
+const genericTypeChildren = async function genericTypeChildren(
   checker: Checker,
   type: Type
-): readonly Type[] {
+): Promise<readonly Type[]> {
   const children = [
-    ...(type.getAliasTypeArguments() ?? []),
-    ...typeParameterTypeChildren(type),
+    ...((await type.getAliasTypeArguments()) ?? []),
+    ...(await typeParameterTypeChildren(type)),
   ];
 
   if (isTypeReference(type)) {
-    children.push(...checker.getTypeArguments(type));
+    children.push(...(await checker.getTypeArguments(type)));
   }
 
   return children;
@@ -151,97 +154,132 @@ export const isNamedTypeDeclarationSyntax =
     );
   };
 
-const hasNamedTypeSurface = function hasNamedTypeSurface(type: Type): boolean {
-  const symbol = type.getAliasSymbol() ?? type.getSymbol();
+const hasNamedTypeSurface = async function hasNamedTypeSurface(
+  type: Type
+): Promise<boolean> {
+  const symbol = (await type.getAliasSymbol()) ?? (await type.getSymbol());
 
-  return declarationsOf(symbol).some(isNamedTypeDeclarationSyntax);
+  const declarations = await declarationsOf(symbol);
+
+  return declarations.some(isNamedTypeDeclarationSyntax);
 };
 
-const symbolType = function symbolType(
+const symbolType = async function symbolType(
   checker: Checker,
   symbol: CompilerSymbol
-): readonly Type[] {
-  const declaration = valueDeclarationOf(symbol) ?? declarationsOf(symbol)[0];
+): Promise<readonly Type[]> {
+  let declaration = await valueDeclarationOf(symbol);
+
+  if (declaration === undefined) {
+    const declarations = await declarationsOf(symbol);
+    [declaration] = declarations;
+  }
 
   return declaration === undefined
     ? []
-    : [checker.getTypeOfSymbolAtLocation(symbol, declaration)];
+    : [await checker.getTypeOfSymbolAtLocation(symbol, declaration)];
 };
 
-const signatureTypeChildren = function signatureTypeChildren(
+const signatureTypeChildren = async function signatureTypeChildren(
   checker: Checker,
   type: Type
-): readonly Type[] {
-  return [SignatureKind.Call, SignatureKind.Construct].flatMap((kind) =>
-    checker.getSignaturesOfType(type, kind).flatMap((signature) => {
-      const thisParameter = signature.getThisParameter();
+): Promise<readonly Type[]> {
+  const groups = await mapAsync(
+    [SignatureKind.Call, SignatureKind.Construct],
+    async (kind) => {
+      const signatures = await checker.getSignaturesOfType(type, kind);
 
-      return [
-        checker.getReturnTypeOfSignature(signature),
-        ...signature
-          .getParameters()
-          .flatMap((parameter) => symbolType(checker, parameter)),
-        ...(signature.getTypeParameters() ?? []).flatMap(
-          typeParameterTypeChildren
-        ),
-        ...(thisParameter === undefined
-          ? []
-          : symbolType(checker, thisParameter)),
-      ];
-    })
+      const signatureTypes = await mapAsync(signatures, async (signature) => {
+        const thisParameter = await signature.getThisParameter();
+        const parameters = await signature.getParameters();
+
+        const parameterTypes = await mapAsync(
+          parameters,
+          async (parameter) => await symbolType(checker, parameter)
+        );
+
+        const typeParameters = (await signature.getTypeParameters()) ?? [];
+
+        const typeParameterTypes = await mapAsync(
+          typeParameters,
+          async (parameter) => await typeParameterTypeChildren(parameter)
+        );
+
+        return [
+          await checker.getReturnTypeOfSignature(signature),
+          ...parameterTypes.flat(),
+          ...typeParameterTypes.flat(),
+          ...(thisParameter === undefined
+            ? []
+            : await symbolType(checker, thisParameter)),
+        ];
+      });
+
+      return signatureTypes.flat();
+    }
   );
+
+  return groups.flat();
 };
 
-const propertyTypeChildren = function propertyTypeChildren(
+const propertyTypeChildren = async function propertyTypeChildren(
   checker: Checker,
   type: Type
-): readonly Type[] {
-  return type
-    .getProperties()
-    .filter(
-      (property) =>
-        !declarationsOf(property).some((declaration) =>
-          isPrivateDeclaration(declaration)
-        )
-    )
-    .flatMap((property) => symbolType(checker, property));
+): Promise<readonly Type[]> {
+  const properties = await type.getProperties();
+
+  const visible = await filterAsync(properties, async (property) => {
+    const declarations = await declarationsOf(property);
+
+    return !declarations.some((declaration) =>
+      isPrivateDeclaration(declaration)
+    );
+  });
+
+  const types = await mapAsync(
+    visible,
+    async (property) => await symbolType(checker, property)
+  );
+
+  return types.flat();
 };
 
-const indexTypeChildren = function indexTypeChildren(
+const indexTypeChildren = async function indexTypeChildren(
   checker: Checker,
   type: Type
-): readonly Type[] {
-  return checker
-    .getIndexInfosOfType(type)
-    .flatMap((index) => [index.keyType, index.valueType]);
+): Promise<readonly Type[]> {
+  const indexInfosOfType = await checker.getIndexInfosOfType(type);
+
+  return indexInfosOfType.flatMap((index) => [index.keyType, index.valueType]);
 };
 
 /** Returns only type edges that can contribute to a nameable Public Interface. */
-export const inferredPublicTypeChildren = function inferredPublicTypeChildren(
-  checker: Checker,
-  type: Type
-): readonly Type[] {
-  const publicChildren = [
-    ...compositeTypeChildren(type),
-    ...genericTypeChildren(checker, type),
-  ];
+export const inferredPublicTypeChildren =
+  async function inferredPublicTypeChildren(
+    checker: Checker,
+    type: Type
+  ): Promise<readonly Type[]> {
+    const publicChildren = [
+      ...(await compositeTypeChildren(type)),
+      ...(await genericTypeChildren(checker, type)),
+    ];
 
-  return hasNamedTypeSurface(type)
-    ? publicChildren
-    : [
-        ...publicChildren,
-        ...signatureTypeChildren(checker, type),
-        ...propertyTypeChildren(checker, type),
-        ...indexTypeChildren(checker, type),
-      ];
-};
+    return (await hasNamedTypeSurface(type))
+      ? publicChildren
+      : [
+          ...publicChildren,
+          ...(await signatureTypeChildren(checker, type)),
+          ...(await propertyTypeChildren(checker, type)),
+          ...(await indexTypeChildren(checker, type)),
+        ];
+  };
 
 export const assertNoImplementationLocalType =
-  function assertNoImplementationLocalType(
+  async function assertNoImplementationLocalType(
     checker: Checker,
     rootType: Type,
     context: DeclarationProjectionContext
-  ): void {
+  ): Promise<void> {
     const pending: {
       readonly depth: number;
       readonly type: Type;
@@ -249,6 +287,7 @@ export const assertNoImplementationLocalType =
 
     const visited = context.validatedTypes;
 
+    /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
     for (const { depth, type } of pending) {
       if (visited.has(type)) {
         continue;
@@ -256,10 +295,12 @@ export const assertNoImplementationLocalType =
 
       visited.add(type);
       context.reserveTypeTraversal(depth);
-      const symbol = type.getAliasSymbol() ?? type.getSymbol();
+      const symbol = (await type.getAliasSymbol()) ?? (await type.getSymbol());
+
+      const declarations = await declarationsOf(symbol);
 
       if (
-        declarationsOf(symbol).some((declaration) =>
+        declarations.some((declaration) =>
           isImplementationLocalDeclaration(
             declaration,
             context.reserveTypeTraversal
@@ -271,13 +312,19 @@ export const assertNoImplementationLocalType =
         );
       }
 
+      const inferredPublicTypeChildrenResult = await inferredPublicTypeChildren(
+        checker,
+        type
+      );
+
       pending.push(
-        ...inferredPublicTypeChildren(checker, type).map((childType) => ({
+        ...inferredPublicTypeChildrenResult.map((childType) => ({
           depth: depth + 1,
           type: childType,
         }))
       );
     }
+    /* oxlint-enable eslint/no-await-in-loop */
   };
 
 const containsDegradedInferredType = function containsDegradedInferredType(
@@ -318,20 +365,20 @@ export const assertReliableInferredType = function assertReliableInferredType(
   }
 };
 
-export const publicType = function publicType(
+export const publicType = async function publicType(
   checker: Checker,
   declaration: Declaration,
   explicitType: TypeNode | undefined,
   context: DeclarationProjectionContext
-): TypeNode {
+): Promise<TypeNode> {
   if (explicitType !== undefined) {
     return explicitType;
   }
 
-  const inferredType = checker.getTypeAtLocation(declaration);
-  assertNoImplementationLocalType(checker, inferredType, context);
+  const inferredType = await checker.getTypeAtLocation(declaration);
+  await assertNoImplementationLocalType(checker, inferredType, context);
 
-  const typeNode = checker.typeToTypeNode(
+  const typeNode = await checker.typeToTypeNode(
     inferredType,
     declaration,
     INFERRED_TYPE_FLAGS
@@ -348,31 +395,35 @@ export const publicType = function publicType(
   return typeNode;
 };
 
-export const publicReturnType = function publicReturnType(
+export const publicReturnType = async function publicReturnType(
   checker: Checker,
   declaration: SignatureDeclaration,
   explicitType: TypeNode | undefined,
   context: DeclarationProjectionContext
-): TypeNode {
+): Promise<TypeNode> {
   if (explicitType !== undefined) {
     return explicitType;
   }
 
-  const signature = checker.getSignatureFromDeclaration(declaration);
+  const signature = await checker.getSignatureFromDeclaration(declaration);
 
   const returnType =
     signature === undefined
       ? undefined
-      : checker.getReturnTypeOfSignature(signature);
+      : await checker.getReturnTypeOfSignature(signature);
 
   if (returnType !== undefined) {
-    assertNoImplementationLocalType(checker, returnType, context);
+    await assertNoImplementationLocalType(checker, returnType, context);
   }
 
   const typeNode =
     returnType === undefined
       ? undefined
-      : checker.typeToTypeNode(returnType, declaration, INFERRED_TYPE_FLAGS);
+      : await checker.typeToTypeNode(
+          returnType,
+          declaration,
+          INFERRED_TYPE_FLAGS
+        );
 
   if (typeNode === undefined) {
     throw new UnsupportedInspectionError(

@@ -49,7 +49,7 @@ describe("benchmark-support", () => {
         { recursive: true }
       );
 
-      const answer = inspectWithCompiler(
+      const answer = await inspectWithCompiler(
         workspace,
         requireDefined(selectDiscoveryWorkloads("node-exists")[0])
       );

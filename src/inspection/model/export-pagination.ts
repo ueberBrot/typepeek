@@ -1,8 +1,7 @@
-import { createHash } from "node:crypto";
-
 import { Schema } from "effect";
 
 import { MAX_EXPORT_INDEX_CANDIDATES } from "#typepeek/inspection/model/budget-policy";
+import { sha256 } from "#typepeek/platform/platform-crypto";
 
 const EXPORT_PAGE_SIZE = 100;
 export const MAX_EXPORT_CURSOR_BYTES = 80;
@@ -40,9 +39,7 @@ export const paginateExports = function paginateExports(
       readonly page: ExportPage;
     }
   | undefined {
-  const digest = createHash("sha256")
-    .update(JSON.stringify([scope, names]))
-    .digest("hex");
+  const digest = sha256(JSON.stringify([scope, names]));
 
   const offset = cursor === "start" ? 0 : Number(cursor.slice(65));
 

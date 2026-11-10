@@ -15,8 +15,8 @@ import type {
   ImportEqualsDeclaration,
   NamespaceExport,
 } from "tsrs/ast";
-import { SymbolFlags } from "tsrs/sync";
-import type { Checker, Symbol as CompilerSymbol } from "tsrs/sync";
+import { SymbolFlags } from "tsrs/async";
+import type { Checker, Symbol as CompilerSymbol } from "tsrs/async";
 
 import { aliasedSymbol } from "#typepeek/inspection/compiler/compiler-queries";
 import {
@@ -52,80 +52,92 @@ export interface FocusedExportResolution {
 }
 
 /** Resolves an alias target without requiring export-alias presentation evidence. */
-export const resolveFocusedExportTarget = function resolveFocusedExportTarget(
-  checker: Checker,
-  symbol: CompilerSymbol
-): CompilerSymbol {
-  if (bitwiseAnd(symbol.flags, SymbolFlags.Alias) === 0) {
-    return symbol;
-  }
+export const resolveFocusedExportTarget =
+  async function resolveFocusedExportTarget(
+    checker: Checker,
+    symbol: CompilerSymbol
+  ): Promise<CompilerSymbol> {
+    if (bitwiseAnd(symbol.flags, SymbolFlags.Alias) === 0) {
+      return symbol;
+    }
 
-  const targetSymbol = aliasedSymbol(checker, symbol);
+    const targetSymbol = await aliasedSymbol(checker, symbol);
 
-  if (
-    declarationsOf(targetSymbol) === undefined ||
-    declarationsOf(targetSymbol).length === 0
-  ) {
-    throw new UnsupportedInspectionError(
-      "The selected Module Export alias could not be resolved from Installed Evidence."
-    );
-  }
+    const targetDeclarations = await declarationsOf(targetSymbol);
 
-  return targetSymbol;
-};
+    if (targetDeclarations.length === 0) {
+      throw new UnsupportedInspectionError(
+        "The selected Module Export alias could not be resolved from Installed Evidence."
+      );
+    }
+
+    return targetSymbol;
+  };
 
 /** Retains type-only access through reexports and intervening import aliases. */
-const isTypeOnlyExport = function isTypeOnlyExport(
+const isTypeOnlyExport = async function isTypeOnlyExport(
   checker: Checker,
   exportedSymbol: CompilerSymbol
-): boolean {
+): Promise<boolean> {
   const visited = new Set<CompilerSymbol>();
 
+  /* oxlint-disable eslint/no-await-in-loop -- Each alias target determines the next declaration to visit. */
   for (
     let symbol: CompilerSymbol | undefined = exportedSymbol;
     symbol !== undefined &&
     bitwiseAnd(symbol.flags, SymbolFlags.Alias) !== 0 &&
     !visited.has(symbol);
-    symbol = checker.getImmediateAliasedSymbol(symbol)
+    symbol = await checker.getImmediateAliasedSymbol(symbol)
   ) {
     visited.add(symbol);
 
-    if (declarationsOf(symbol).some(isTypeOnlyAlias) ?? false) {
+    const declarationsResult = await declarationsOf(symbol);
+
+    if (declarationsResult.some(isTypeOnlyAlias) ?? false) {
       return true;
     }
   }
+  /* oxlint-enable eslint/no-await-in-loop */
 
   return false;
 };
 
 /** Property lookup retains the compiler's contextual type-only export-star restrictions. */
-const isModuleExportValueAccessible = function isModuleExportValueAccessible(
-  checker: Checker,
-  moduleSymbol: CompilerSymbol,
-  exportedSymbol: CompilerSymbol,
-  targetSymbol: CompilerSymbol
-): boolean {
-  const declaration =
-    valueDeclarationOf(moduleSymbol) ?? declarationsOf(moduleSymbol)[0];
+const isModuleExportValueAccessible =
+  async function isModuleExportValueAccessible(
+    checker: Checker,
+    moduleSymbol: CompilerSymbol,
+    exportedSymbol: CompilerSymbol,
+    targetSymbol: CompilerSymbol
+  ): Promise<boolean> {
+    let declaration = await valueDeclarationOf(moduleSymbol);
 
-  if (declaration === undefined) {
-    throw new UnsupportedInspectionError(
-      "The selected Module Export has no module declaration provenance."
+    if (declaration === undefined) {
+      const declarations = await declarationsOf(moduleSymbol);
+      [declaration] = declarations;
+    }
+
+    if (declaration === undefined) {
+      throw new UnsupportedInspectionError(
+        "The selected Module Export has no module declaration provenance."
+      );
+    }
+
+    const moduleType = await checker.getTypeOfSymbolAtLocation(
+      moduleSymbol,
+      declaration
     );
-  }
 
-  const moduleType = checker.getTypeOfSymbolAtLocation(
-    moduleSymbol,
-    declaration
-  );
+    const property = await checker.getPropertyOfType(
+      moduleType,
+      exportedSymbol.name
+    );
 
-  const property = checker.getPropertyOfType(moduleType, exportedSymbol.name);
-
-  return (
-    property !== undefined &&
-    resolveFocusedExportTarget(checker, property) === targetSymbol
-  );
-};
+    return (
+      property !== undefined &&
+      (await resolveFocusedExportTarget(checker, property)) === targetSymbol
+    );
+  };
 
 const isAliasDeclaration = function isAliasDeclaration(
   declaration: Declaration
@@ -139,14 +151,15 @@ const isAliasDeclaration = function isAliasDeclaration(
 };
 
 const findFocusedExportAliasDeclaration =
-  function findFocusedExportAliasDeclaration(
+  async function findFocusedExportAliasDeclaration(
     exportedSymbol: CompilerSymbol
-  ): AliasDeclaration | undefined {
+  ): Promise<AliasDeclaration | undefined> {
     if (bitwiseAnd(exportedSymbol.flags, SymbolFlags.Alias) === 0) {
       return undefined;
     }
 
-    const declaration = declarationsOf(exportedSymbol).find(isAliasDeclaration);
+    const declarationsResult = await declarationsOf(exportedSymbol);
+    const declaration = declarationsResult.find(isAliasDeclaration);
 
     if (declaration === undefined) {
       throw new UnsupportedInspectionError(
@@ -159,16 +172,19 @@ const findFocusedExportAliasDeclaration =
 
 /** Uses the export-star declaration as provenance when a type-only value has no named type declaration. */
 const findModuleExportStarDeclaration =
-  function findModuleExportStarDeclaration(
+  async function findModuleExportStarDeclaration(
     checker: Checker,
     moduleSymbol: CompilerSymbol,
     exportedSymbol: CompilerSymbol,
     targetSymbol: CompilerSymbol
-  ): ExportDeclaration {
-    const declarations = declarationsOf(
-      moduleSymbol.getExports().get(InternalSymbolName.ExportStar)
+  ): Promise<ExportDeclaration> {
+    const exports = await moduleSymbol.getExports();
+
+    const declarations = await declarationsOf(
+      exports.get(InternalSymbolName.ExportStar)
     );
 
+    /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
     for (const declaration of declarations) {
       if (
         !isExportDeclaration(declaration) ||
@@ -177,21 +193,29 @@ const findModuleExportStarDeclaration =
         continue;
       }
 
-      const source = checker.getSymbolAtLocation(declaration.moduleSpecifier);
+      const source = await checker.getSymbolAtLocation(
+        declaration.moduleSpecifier
+      );
 
       if (source !== undefined) {
-        const sourceExport = checker
-          .getExportsOfModule(resolveFocusedExportTarget(checker, source))
-          .find((symbol) => symbol.name === exportedSymbol.name);
+        const exportsOfModule = await checker.getExportsOfModule(
+          await resolveFocusedExportTarget(checker, source)
+        );
+
+        const sourceExport = exportsOfModule.find(
+          (symbol) => symbol.name === exportedSymbol.name
+        );
 
         if (
           sourceExport !== undefined &&
-          resolveFocusedExportTarget(checker, sourceExport) === targetSymbol
+          (await resolveFocusedExportTarget(checker, sourceExport)) ===
+            targetSymbol
         ) {
           return declaration;
         }
       }
     }
+    /* oxlint-enable eslint/no-await-in-loop */
 
     throw new UnsupportedInspectionError(
       "The selected type-only Module Export has no export declaration provenance."
@@ -226,68 +250,78 @@ const focusedAliasTargetName = function focusedAliasTargetName(
     : "namespace module";
 };
 
-export const resolveFocusedExportSymbol = function resolveFocusedExportSymbol(
-  checker: Checker,
-  exportedSymbol: CompilerSymbol,
-  moduleSymbol: CompilerSymbol
-): FocusedExportResolution {
-  const targetSymbol = resolveFocusedExportTarget(checker, exportedSymbol);
+export const resolveFocusedExportSymbol =
+  async function resolveFocusedExportSymbol(
+    checker: Checker,
+    exportedSymbol: CompilerSymbol,
+    moduleSymbol: CompilerSymbol
+  ): Promise<FocusedExportResolution> {
+    const targetSymbol = await resolveFocusedExportTarget(
+      checker,
+      exportedSymbol
+    );
 
-  const typeOnly =
-    isTypeOnlyExport(checker, exportedSymbol) ||
-    (bitwiseAnd(targetSymbol.flags, SymbolFlags.Value) !== 0 &&
-      !isModuleExportValueAccessible(
-        checker,
-        moduleSymbol,
-        exportedSymbol,
-        targetSymbol
-      ));
-
-  const aliasDeclaration =
-    findFocusedExportAliasDeclaration(exportedSymbol) ??
-    (typeOnly && bitwiseAnd(targetSymbol.flags, SymbolFlags.Type) === 0
-      ? findModuleExportStarDeclaration(
+    const typeOnly =
+      (await isTypeOnlyExport(checker, exportedSymbol)) ||
+      (bitwiseAnd(targetSymbol.flags, SymbolFlags.Value) !== 0 &&
+        !(await isModuleExportValueAccessible(
           checker,
           moduleSymbol,
           exportedSymbol,
           targetSymbol
-        )
-      : undefined);
+        )));
 
-  const aliasTargetName = focusedAliasTargetName(
-    exportedSymbol,
-    targetSymbol,
-    aliasDeclaration
-  );
+    const aliasDeclaration =
+      (await findFocusedExportAliasDeclaration(exportedSymbol)) ??
+      (typeOnly && bitwiseAnd(targetSymbol.flags, SymbolFlags.Type) === 0
+        ? await findModuleExportStarDeclaration(
+            checker,
+            moduleSymbol,
+            exportedSymbol,
+            targetSymbol
+          )
+        : undefined);
 
-  return {
-    aliasDeclaration,
-    exportedSymbol,
-    spaces: typeOnly
-      ? ["type"]
-      : memberDeclarationSpaceSchema.literals.filter(
-          (space) =>
-            bitwiseAnd(targetSymbol.flags, SYMBOL_FLAGS_BY_SPACE[space]) !== 0
-        ),
-    targetSymbol,
-    ...(aliasTargetName !== undefined && { aliasTargetName }),
-    valueAccessible:
-      bitwiseAnd(targetSymbol.flags, SymbolFlags.Value) !== 0 && !typeOnly,
+    const aliasTargetName = focusedAliasTargetName(
+      exportedSymbol,
+      targetSymbol,
+      aliasDeclaration
+    );
+
+    return {
+      aliasDeclaration,
+      exportedSymbol,
+      spaces: typeOnly
+        ? ["type"]
+        : memberDeclarationSpaceSchema.literals.filter(
+            (space) =>
+              bitwiseAnd(targetSymbol.flags, SYMBOL_FLAGS_BY_SPACE[space]) !== 0
+          ),
+      targetSymbol,
+      ...(aliasTargetName !== undefined && { aliasTargetName }),
+      valueAccessible:
+        bitwiseAnd(targetSymbol.flags, SymbolFlags.Value) !== 0 && !typeOnly,
+    };
   };
-};
 
-export const resolveFocusedExport = function resolveFocusedExport(
+export const resolveFocusedExport = async function resolveFocusedExport(
   checker: Checker,
   moduleSymbol: CompilerSymbol,
   exportName: string
-): FocusedExportResolution | undefined {
-  const exportedSymbol = checker
-    .getExportsOfModule(moduleSymbol)
-    .find((symbol) => symbol.name === exportName);
+): Promise<FocusedExportResolution | undefined> {
+  const exportsOfModule = await checker.getExportsOfModule(moduleSymbol);
+
+  const exportedSymbol = exportsOfModule.find(
+    (symbol) => symbol.name === exportName
+  );
 
   if (exportedSymbol === undefined) {
     return undefined;
   }
 
-  return resolveFocusedExportSymbol(checker, exportedSymbol, moduleSymbol);
+  return await resolveFocusedExportSymbol(
+    checker,
+    exportedSymbol,
+    moduleSymbol
+  );
 };

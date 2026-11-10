@@ -1,6 +1,3 @@
-import { existsSync, realpathSync } from "node:fs";
-import nodePath from "node:path";
-
 import {
   isExportDeclaration,
   isExternalModuleReference,
@@ -12,18 +9,20 @@ import {
   isStringLiteralLikeNode,
 } from "tsrs/ast";
 import type { FileReference, Node, SourceFile } from "tsrs/ast";
-import { ModuleKind } from "tsrs/sync";
+import { ModuleKind } from "tsrs/async";
 import type {
   ModuleResolutionEntry,
   RawCompilerOptions,
   ResolvedModule,
   ResolvedTypeReferenceDirective,
-} from "tsrs/sync";
+} from "tsrs/async";
 
 import { COMPILER_LIBRARY_DIRECTORY } from "#typepeek/inspection/compiler/compiler-distribution";
 import type { CompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
 import { isTypeScriptStandardLibraryDeclaration } from "#typepeek/inspection/compiler/typescript-standard-library";
 import {
+  evidencePathExists,
+  resolveEvidencePath,
   canonicalEvidenceCandidatePath,
   isPathWithin,
 } from "#typepeek/inspection/evidence/evidence-boundary";
@@ -40,6 +39,8 @@ import {
 import type { PackageBoundaryObserver } from "#typepeek/inspection/evidence/installed-package-boundary";
 import { StaticBoundaryInspectionError } from "#typepeek/inspection/model/errors";
 import type { AccessStyle } from "#typepeek/inspection/model/protocol";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
+import { mapAsync } from "#typepeek/shared/async-collection";
 
 const OUTSIDE_PACKAGE_MESSAGE =
   "A declaration references source outside its installed package boundary.";
@@ -545,7 +546,7 @@ export class InstalledDeclarationResolution {
       throw new StaticBoundaryInspectionError(OUTSIDE_PACKAGE_MESSAGE);
     }
 
-    const canonical = realpathSync.native(fileName);
+    const canonical = resolveEvidencePath(fileName);
 
     if (
       !isAuthorizedSourceCandidate(this.state.allowedPackageRoots, canonical)
@@ -556,11 +557,11 @@ export class InstalledDeclarationResolution {
     return canonical;
   }
 
-  private resolveImport(
+  private async resolveImport(
     specifier: string,
     containingFile: string,
     accessStyle: AccessStyle
-  ): string | undefined {
+  ): Promise<string | undefined> {
     const roots = moduleResolutionRoots(this.state, specifier, containingFile);
 
     if (!isBarePackageSpecifier(specifier) && !specifier.startsWith("#")) {
@@ -584,14 +585,14 @@ export class InstalledDeclarationResolution {
         const substituted = candidate.replace(/\.[cm]?js$/u, extension);
         this.work.reserveOperations();
 
-        if (existsSync(substituted)) {
+        if (evidencePathExists(substituted)) {
           InstalledDeclarationResolution.assertRelative(roots, substituted);
           break;
         }
       }
     }
 
-    const resolution = this.work.resolveModule(
+    const resolution = await this.work.resolveModule(
       specifier,
       containingFile,
       [...roots],
@@ -659,25 +660,27 @@ export class InstalledDeclarationResolution {
     }
   }
 
-  private resolveReference(
+  private async resolveReference(
     file: SourceFile,
     reference: FileReference,
     accessStyle: AccessStyle
-  ): string | undefined {
+  ): Promise<string | undefined> {
     const name = reference.fileName;
     const roots = typeReferenceResolutionRoots(this.state, name, file.fileName);
     const provider = declarationProviderSegments(name).join("/");
 
-    const resolved = [...new Set([provider, name])]
-      .map((specifier) =>
-        this.work.resolveModule(
+    const mappedValues = await mapAsync(
+      [...new Set([provider, name])],
+      async (specifier) =>
+        await this.work.resolveModule(
           specifier,
           file.fileName,
           [...roots],
           accessStyle
         )
-      )
-      .find((result) => result !== undefined);
+    );
+
+    const resolved = mappedValues.find((result) => result !== undefined);
 
     const resolvedPath =
       resolved !== undefined &&
@@ -704,7 +707,7 @@ export class InstalledDeclarationResolution {
     return resolvedPath;
   }
 
-  scanSource(file: SourceFile) {
+  async scanSource(file: SourceFile) {
     const next: string[] = [];
     this.work.reserveOperations(
       file.referencedFiles.length * 3 + file.typeReferenceDirectives.length
@@ -729,7 +732,7 @@ export class InstalledDeclarationResolution {
       next.push(path);
     }
 
-    for (const reference of file.typeReferenceDirectives) {
+    await mapAsync(file.typeReferenceDirectives, async (reference) => {
       let referenceMode = mode;
 
       if (reference.resolutionMode === 1) {
@@ -738,12 +741,12 @@ export class InstalledDeclarationResolution {
         referenceMode = "import";
       }
 
-      const path = this.resolveReference(file, reference, referenceMode);
+      const path = await this.resolveReference(file, reference, referenceMode);
 
       if (path !== undefined) {
         next.push(path);
       }
-    }
+    });
 
     const libraries = file.libReferenceDirectives.map((reference) =>
       nodePath.join(
@@ -850,24 +853,31 @@ export class InstalledDeclarationResolution {
       }
     }
 
-    for (const { specifier, accessStyle } of requests) {
-      const path = this.resolveImport(specifier, file.fileName, accessStyle);
+    await mapAsync(requests, async ({ specifier, accessStyle }) => {
+      const path = await this.resolveImport(
+        specifier,
+        file.fileName,
+        accessStyle
+      );
 
       if (path !== undefined) {
         next.push(path);
       }
-    }
+    });
 
     return { declarations: next, libraries };
   }
 
-  createProgramResolution(options: RawCompilerOptions) {
-    const moduleResolver = this.work.native.api.createModuleResolver(options, {
-      moduleResolutions: {
-        entries: [...this.moduleResolutions.values()],
-        fallback: "unresolved",
-      },
-    });
+  async createProgramResolution(options: RawCompilerOptions) {
+    const moduleResolver = await this.work.native.api.createModuleResolver(
+      options,
+      {
+        moduleResolutions: {
+          entries: [...this.moduleResolutions.values()],
+          fallback: "unresolved",
+        },
+      }
+    );
 
     return {
       moduleResolver,

@@ -1,7 +1,7 @@
 import { isBindingElement, isNamespaceExport } from "tsrs/ast";
 import type { Declaration } from "tsrs/ast";
-import { SymbolFlags } from "tsrs/sync";
-import type { Checker, Symbol as CompilerSymbol } from "tsrs/sync";
+import { SymbolFlags } from "tsrs/async";
+import type { Checker, Symbol as CompilerSymbol } from "tsrs/async";
 
 import { declarationsOf } from "#typepeek/inspection/compiler/compiler-session";
 import type { InspectableModuleEvidence } from "#typepeek/inspection/evidence/installed-evidence";
@@ -50,6 +50,7 @@ import {
   publicMemberDeclarations,
   resolvePublicMemberPath,
 } from "#typepeek/inspection/queries/member-inspection";
+import { mapAsync } from "#typepeek/shared/async-collection";
 import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 const MAX_NAMESPACE_MEMBERS = 128;
@@ -106,14 +107,14 @@ const selectedDeclarationIsUnsupported =
   };
 
 const assertSupportedSelectedDeclarationKind =
-  function assertSupportedSelectedDeclarationKind(
+  async function assertSupportedSelectedDeclarationKind(
     checker: Checker,
     symbol: CompilerSymbol,
     aliasDeclaration: AliasDeclaration | undefined
-  ): void {
-    const declarations = publicDeclarations(
+  ): Promise<void> {
+    const declarations = await publicDeclarations(
       checker,
-      declarationsOf(symbol) ?? []
+      (await declarationsOf(symbol)) ?? []
     );
 
     if (selectedDeclarationIsUnsupported(declarations, aliasDeclaration)) {
@@ -157,14 +158,18 @@ const reserveNamespaceMembers = function reserveNamespaceMembers(
   }
 };
 
-const inspectableDeclarations = function inspectableDeclarations(
+const inspectableDeclarations = async function inspectableDeclarations(
   checker: Checker,
   symbol: CompilerSymbol
-): readonly Declaration[] {
-  const declarations = publicDeclarations(
+): Promise<readonly Declaration[]> {
+  const publicDeclarationsResult = await publicDeclarations(
     checker,
-    declarationsOf(symbol) ?? []
-  ).filter((declaration) => declarationKind(declaration) !== undefined);
+    (await declarationsOf(symbol)) ?? []
+  );
+
+  const declarations = publicDeclarationsResult.filter(
+    (declaration) => declarationKind(declaration) !== undefined
+  );
 
   assertMergedDeclarationLimit(declarations);
 
@@ -172,12 +177,12 @@ const inspectableDeclarations = function inspectableDeclarations(
 };
 
 const namespaceInspection = {
-  collectNamespaceMembers(
+  async collectNamespaceMembers(
     checker: Checker,
     symbol: CompilerSymbol,
     state: NamespaceTraversalState,
     depth: number
-  ): readonly NamespaceMemberEvidence[] {
+  ): Promise<readonly NamespaceMemberEvidence[]> {
     if (bitwiseAnd(symbol.flags, SymbolFlags.Module) === 0) {
       return [];
     }
@@ -186,31 +191,33 @@ const namespaceInspection = {
     // `visited` tracks the current path rather than all previously seen symbols,
     // allowing shared namespaces in sibling branches while rejecting cycles.
     state.visited.add(symbol);
-    const exportedMembers = checker.getExportsOfModule(symbol);
+    const exportedMembers = await checker.getExportsOfModule(symbol);
     reserveNamespaceMembers(state, exportedMembers.length);
 
-    const members = exportedMembers.map((member) =>
-      namespaceInspection.inspectNamespaceMember(
-        checker,
-        symbol,
-        member,
-        state,
-        depth
-      )
+    const members = await mapAsync(
+      exportedMembers,
+      async (member) =>
+        await namespaceInspection.inspectNamespaceMember(
+          checker,
+          symbol,
+          member,
+          state,
+          depth
+        )
     );
 
     state.visited.delete(symbol);
 
     return members;
   },
-  inspectNamespaceMember(
+  async inspectNamespaceMember(
     checker: Checker,
     moduleSymbol: CompilerSymbol,
     member: CompilerSymbol,
     state: NamespaceTraversalState,
     depth: number
-  ): NamespaceMemberEvidence {
-    const { aliasDeclaration, targetSymbol } = resolveFocusedExportSymbol(
+  ): Promise<NamespaceMemberEvidence> {
+    const { aliasDeclaration, targetSymbol } = await resolveFocusedExportSymbol(
       checker,
       member,
       moduleSymbol
@@ -223,14 +230,14 @@ const namespaceInspection = {
 
     const declarations = [
       ...namespaceAliasDeclaration,
-      ...inspectableDeclarations(checker, targetSymbol),
+      ...(await inspectableDeclarations(checker, targetSymbol)),
     ];
 
     assertMergedDeclarationLimit(declarations);
 
     return {
       declarations,
-      members: namespaceInspection.collectNamespaceMembers(
+      members: await namespaceInspection.collectNamespaceMembers(
         checker,
         targetSymbol,
         state,
@@ -241,29 +248,36 @@ const namespaceInspection = {
   },
 };
 
-const inspectNamespaceMemberEvidence = function inspectNamespaceMemberEvidence(
-  checker: Checker,
-  symbol: CompilerSymbol
-): readonly NamespaceMemberEvidence[] {
-  return namespaceInspection.collectNamespaceMembers(
-    checker,
-    symbol,
-    {
-      memberCount: 0,
-      visited: new Set(),
-    },
-    0
-  );
-};
+const inspectNamespaceMemberEvidence =
+  async function inspectNamespaceMemberEvidence(
+    checker: Checker,
+    symbol: CompilerSymbol
+  ): Promise<readonly NamespaceMemberEvidence[]> {
+    return await namespaceInspection.collectNamespaceMembers(
+      checker,
+      symbol,
+      {
+        memberCount: 0,
+        visited: new Set(),
+      },
+      0
+    );
+  };
 
-const inspectableMemberDeclarations = function inspectableMemberDeclarations(
-  checker: Checker,
-  symbol: CompilerSymbol
-): readonly Declaration[] {
-  return publicMemberDeclarations(checker, symbol).filter(
-    (declaration) => declarationKind(declaration) !== undefined
-  );
-};
+const inspectableMemberDeclarations =
+  async function inspectableMemberDeclarations(
+    checker: Checker,
+    symbol: CompilerSymbol
+  ): Promise<readonly Declaration[]> {
+    const publicMemberDeclarationsResult = await publicMemberDeclarations(
+      checker,
+      symbol
+    );
+
+    return publicMemberDeclarationsResult.filter(
+      (declaration) => declarationKind(declaration) !== undefined
+    );
+  };
 
 const namespaceMemberDeclarations = function namespaceMemberDeclarations(
   members: readonly NamespaceMemberEvidence[]
@@ -274,13 +288,13 @@ const namespaceMemberDeclarations = function namespaceMemberDeclarations(
   ]);
 };
 
-const supportingRootDeclarations = function supportingRootDeclarations(
+const supportingRootDeclarations = async function supportingRootDeclarations(
   checker: Checker,
   selectedSymbol: CompilerSymbol,
   namespaceMembers: readonly NamespaceMemberEvidence[]
-): readonly Declaration[] {
+): Promise<readonly Declaration[]> {
   return [
-    ...inspectableDeclarations(checker, selectedSymbol),
+    ...(await inspectableDeclarations(checker, selectedSymbol)),
     ...namespaceMemberDeclarations(namespaceMembers),
   ];
 };
@@ -293,15 +307,16 @@ export const createModuleExportInspection =
     const { inspectDeclaration, inspectSupportingTypes } =
       createExportDeclarationInspection(evidence);
 
-    const resolveFocusedMember = function resolveFocusedMember(
+    const resolveFocusedMember = async function resolveFocusedMember(
       exportName: string,
       memberPath: MemberPath
-    ):
+    ): Promise<
       | PublicMemberPathResolution
       | {
           readonly status: "export-not-found";
-        } {
-      const resolution = resolveFocusedExport(
+        }
+    > {
+      const resolution = await resolveFocusedExport(
         evidence.checker,
         evidence.moduleSymbol,
         exportName
@@ -309,7 +324,7 @@ export const createModuleExportInspection =
 
       return resolution === undefined
         ? { status: "export-not-found" }
-        : resolvePublicMemberPath(
+        : await resolvePublicMemberPath(
             evidence.checker,
             resolution.targetSymbol,
             memberPath,
@@ -318,11 +333,11 @@ export const createModuleExportInspection =
     };
 
     const discoverFocusedModuleExportMembers =
-      function discoverFocusedModuleExportMembers(
+      async function discoverFocusedModuleExportMembers(
         exportName: string,
         memberPath: MemberPath,
         query: string | undefined
-      ):
+      ): Promise<
         | {
             readonly status: "success";
             readonly result: MemberDiscovery;
@@ -332,14 +347,18 @@ export const createModuleExportInspection =
             {
               readonly status: "success";
             }
-          > {
-        const memberResolution = resolveFocusedMember(exportName, memberPath);
+          >
+      > {
+        const memberResolution = await resolveFocusedMember(
+          exportName,
+          memberPath
+        );
 
         if (memberResolution.status !== "success") {
           return memberResolution;
         }
 
-        const discovery = discoverPublicMembers(
+        const discovery = await discoverPublicMembers(
           evidence.checker,
           memberResolution.symbol,
           query,
@@ -368,10 +387,10 @@ export const createModuleExportInspection =
       };
 
     const readFocusedDeclarationEvidence =
-      function readFocusedDeclarationEvidence(
+      async function readFocusedDeclarationEvidence(
         exportName: string
-      ): FocusedDeclarationEvidence | undefined {
-        const resolution = resolveFocusedExport(
+      ): Promise<FocusedDeclarationEvidence | undefined> {
+        const resolution = await resolveFocusedExport(
           evidence.checker,
           evidence.moduleSymbol,
           exportName
@@ -382,7 +401,7 @@ export const createModuleExportInspection =
         }
 
         const { targetSymbol, aliasDeclaration, spaces } = resolution;
-        assertSupportedSelectedDeclarationKind(
+        await assertSupportedSelectedDeclarationKind(
           evidence.checker,
           targetSymbol,
           aliasDeclaration
@@ -391,16 +410,19 @@ export const createModuleExportInspection =
         return {
           construction: constructionOwner.focused(),
           namespaceMembers: spaces.includes("namespace")
-            ? inspectNamespaceMemberEvidence(evidence.checker, targetSymbol)
+            ? await inspectNamespaceMemberEvidence(
+                evidence.checker,
+                targetSymbol
+              )
             : [],
           resolution,
         };
       };
 
-    const inspectAlias = function inspectAlias(
+    const inspectAlias = async function inspectAlias(
       resolution: FocusedExportResolution,
       construction: FocusedInspectionConstruction
-    ): ExportAlias | undefined {
+    ): Promise<ExportAlias | undefined> {
       const { aliasDeclaration } = resolution;
 
       if (
@@ -410,7 +432,7 @@ export const createModuleExportInspection =
         return undefined;
       }
 
-      const declaration = inspectDeclaration(
+      const declaration = await inspectDeclaration(
         aliasDeclaration,
         construction,
         "alias"
@@ -419,16 +441,18 @@ export const createModuleExportInspection =
       return construction.alias(resolution.aliasTargetName, declaration);
     };
 
-    const inspectNamespaceMembers = function inspectNamespaceMembers(
+    const inspectNamespaceMembers = async function inspectNamespaceMembers(
       members: readonly NamespaceMemberEvidence[],
       construction: FocusedInspectionConstruction
-    ): readonly ExportNamespaceMember[] {
-      return members.map((member) => {
-        const declarations = member.declarations.map((declaration) =>
-          inspectDeclaration(declaration, construction)
+    ): Promise<readonly ExportNamespaceMember[]> {
+      return await mapAsync(members, async (member) => {
+        const declarations = await mapAsync(
+          member.declarations,
+          async (declaration) =>
+            await inspectDeclaration(declaration, construction)
         );
 
-        const childMembers = inspectNamespaceMembers(
+        const childMembers = await inspectNamespaceMembers(
           member.members,
           construction
         );
@@ -441,84 +465,92 @@ export const createModuleExportInspection =
       });
     };
 
-    const inspectedDeclarations = function inspectedDeclarations(
+    const inspectedDeclarations = async function inspectedDeclarations(
       declarations: readonly Declaration[],
       aliasDeclaration: AliasDeclaration | undefined,
       construction: FocusedInspectionConstruction
-    ): readonly InspectedDeclaration[] {
+    ): Promise<readonly InspectedDeclaration[]> {
       if (declarations.length > 0) {
-        return declarations.map((declaration) =>
-          inspectDeclaration(declaration, construction)
+        return await mapAsync(
+          declarations,
+          async (declaration) =>
+            await inspectDeclaration(declaration, construction)
         );
       }
 
       return aliasDeclaration === undefined
         ? []
-        : [inspectDeclaration(aliasDeclaration, construction, "alias")];
+        : [await inspectDeclaration(aliasDeclaration, construction, "alias")];
     };
 
-    const inspectDeclarationSpaces = function inspectDeclarationSpaces({
+    const inspectDeclarationSpaces = async function inspectDeclarationSpaces({
       resolution,
       namespaceMembers,
       construction,
-    }: FocusedDeclarationEvidence): readonly ExportDeclarationSpace[] {
+    }: FocusedDeclarationEvidence): Promise<readonly ExportDeclarationSpace[]> {
       const { targetSymbol, aliasDeclaration, spaces } = resolution;
 
-      const declarations = inspectableDeclarations(
+      const declarations = await inspectableDeclarations(
         evidence.checker,
         targetSymbol
       );
 
-      return spaces.map((space): ExportDeclarationSpace => {
-        if (space === "namespace") {
-          return construction.namespaceSpace(
-            inspectNamespaceMembers(namespaceMembers, construction)
+      return await mapAsync(
+        spaces,
+        async (space): Promise<ExportDeclarationSpace> => {
+          if (space === "namespace") {
+            return construction.namespaceSpace(
+              await inspectNamespaceMembers(namespaceMembers, construction)
+            );
+          }
+
+          return construction.declarationSpace(
+            space,
+            await inspectedDeclarations(
+              declarations.filter((declaration) =>
+                declarationSpaces(declaration).includes(space)
+              ),
+              aliasDeclaration,
+              construction
+            )
           );
         }
-
-        return construction.declarationSpace(
-          space,
-          inspectedDeclarations(
-            declarations.filter((declaration) =>
-              declarationSpaces(declaration).includes(space)
-            ),
-            aliasDeclaration,
-            construction
-          )
-        );
-      });
+      );
     };
 
     /** Inspects only one Module Export's declarations, without signatures or Supporting Types. */
     const inspectFocusedModuleExportDeclarations =
-      function inspectFocusedModuleExportDeclarations(
+      async function inspectFocusedModuleExportDeclarations(
         exportName: string
-      ): DeclarationInspection | undefined {
-        const focused = readFocusedDeclarationEvidence(exportName);
+      ): Promise<DeclarationInspection | undefined> {
+        const focused = await readFocusedDeclarationEvidence(exportName);
 
         if (focused === undefined) {
           return undefined;
         }
 
-        const alias = inspectAlias(focused.resolution, focused.construction);
+        const alias = await inspectAlias(
+          focused.resolution,
+          focused.construction
+        );
 
         const moduleExport = focused.construction.moduleExportDeclarations({
           name: focused.resolution.exportedSymbol.name,
           ...(alias !== undefined && { alias }),
-          spaces: inspectDeclarationSpaces(focused),
+          spaces: await inspectDeclarationSpaces(focused),
         });
 
         return focused.construction.declarationResult(moduleExport);
       };
 
-    const inspectModuleExport = function inspectModuleExport(
+    const inspectModuleExport = async function inspectModuleExport(
       focused: FocusedDeclarationEvidence
-    ): InspectedModuleExport {
+    ): Promise<InspectedModuleExport> {
       const { resolution, construction } = focused;
-      const alias = inspectAlias(resolution, construction);
-      const focusedDeclarationSpaces = inspectDeclarationSpaces(focused);
+      const alias = await inspectAlias(resolution, construction);
+      const focusedDeclarationSpaces = await inspectDeclarationSpaces(focused);
 
-      const signatures = inspectResolvedExportSignatures(
+      const signatures = await inspectResolvedExportSignatures(
         evidence.checker,
         resolution,
         (value) => construction.signature(value)
@@ -537,58 +569,62 @@ export const createModuleExportInspection =
      * Installed Evidence. Returns `undefined` only when the named Module Export is
      * absent; unsupported declaration shapes and exhausted budgets use typed errors.
      */
-    const inspectFocusedModuleExport = function inspectFocusedModuleExport(
-      exportName: string
-    ): ExportInspection | undefined {
-      const focused = readFocusedDeclarationEvidence(exportName);
+    const inspectFocusedModuleExport =
+      async function inspectFocusedModuleExport(
+        exportName: string
+      ): Promise<ExportInspection | undefined> {
+        const focused = await readFocusedDeclarationEvidence(exportName);
 
-      if (focused === undefined) {
-        return undefined;
-      }
+        if (focused === undefined) {
+          return undefined;
+        }
 
-      const packageDocumentationEvidence = inspectPackageDocumentation(
-        evidence.checker,
-        focused.resolution.exportedSymbol,
-        focused.resolution.targetSymbol,
-        focused.resolution.aliasDeclaration
-      );
-
-      const packageDocumentation =
-        packageDocumentationEvidence === undefined
-          ? undefined
-          : focused.construction.documentation(packageDocumentationEvidence);
-
-      const moduleExport = inspectModuleExport(focused);
-
-      const supportingTypes = inspectSupportingTypes(
-        focused.resolution.targetSymbol,
-        supportingRootDeclarations(
+        const packageDocumentationEvidence = await inspectPackageDocumentation(
           evidence.checker,
+          focused.resolution.exportedSymbol,
           focused.resolution.targetSymbol,
-          focused.namespaceMembers
-        ),
-        focused.construction
-      );
+          focused.resolution.aliasDeclaration
+        );
 
-      return focused.construction.exportResult(
-        moduleExport,
-        supportingTypes,
-        packageDocumentation
-      );
-    };
+        const packageDocumentation =
+          packageDocumentationEvidence === undefined
+            ? undefined
+            : focused.construction.documentation(packageDocumentationEvidence);
+
+        const moduleExport = await inspectModuleExport(focused);
+
+        const supportingTypes = await inspectSupportingTypes(
+          focused.resolution.targetSymbol,
+          await supportingRootDeclarations(
+            evidence.checker,
+            focused.resolution.targetSymbol,
+            focused.namespaceMembers
+          ),
+          focused.construction
+        );
+
+        return focused.construction.exportResult(
+          moduleExport,
+          supportingTypes,
+          packageDocumentation
+        );
+      };
 
     const inspectFocusedModuleExportMember =
-      function inspectFocusedModuleExportMember(
+      async function inspectFocusedModuleExportMember(
         exportName: string,
         memberPath: MemberPath
-      ): FocusedMemberInspection {
-        const memberResolution = resolveFocusedMember(exportName, memberPath);
+      ): Promise<FocusedMemberInspection> {
+        const memberResolution = await resolveFocusedMember(
+          exportName,
+          memberPath
+        );
 
         if (memberResolution.status !== "success") {
           return { status: memberResolution.status };
         }
 
-        const memberDeclarations = inspectableMemberDeclarations(
+        const memberDeclarations = await inspectableMemberDeclarations(
           evidence.checker,
           memberResolution.symbol
         );
@@ -599,8 +635,10 @@ export const createModuleExportInspection =
 
         const construction = constructionOwner.focused();
 
-        const declarations = memberDeclarations.map((declaration) =>
-          inspectDeclaration(declaration, construction)
+        const declarations = await mapAsync(
+          memberDeclarations,
+          async (declaration) =>
+            await inspectDeclaration(declaration, construction)
         );
 
         return {

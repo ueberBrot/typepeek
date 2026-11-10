@@ -56,8 +56,6 @@ jobs:
 
       - name: Set up validation
         uses: ./.github/actions/setup-validation
-        with:
-          install-bun: "true"
 
       - name: Test
         run: vp test --exclude tests/packaged-cli-consumers.test.ts --shard=${{ matrix.shard }} --maxWorkers=2
@@ -102,8 +100,6 @@ jobs:
 
       - name: Set up validation
         uses: ./.github/actions/setup-validation
-        with:
-          install-bun: "true"
 
       - name: Test packaged CLI consumers
         run: vp test tests/static-inspection-tripwire.test.ts tests/packaged-cli-consumers.test.ts

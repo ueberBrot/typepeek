@@ -1,10 +1,9 @@
-import { realpathSync, statSync } from "node:fs";
-import nodePath from "node:path";
-
 import { Predicate } from "effect";
 import type { Schema } from "effect";
 
 import {
+  resolveEvidencePath,
+  evidencePathIsDirectory,
   isEvidenceFile,
   isPathWithin,
 } from "#typepeek/inspection/evidence/evidence-boundary";
@@ -15,6 +14,7 @@ import {
   InspectionLimitError,
   UnsupportedInspectionError,
 } from "#typepeek/inspection/model/errors";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 
 export interface DeclarationProvenance {
   readonly packageIdentity: PackageIdentity;
@@ -74,7 +74,7 @@ export const canonicalPath = function canonicalPath(
   observer.reserveOperation();
 
   try {
-    return realpathSync.native(fileName);
+    return resolveEvidencePath(fileName);
   } catch {
     return undefined;
   }
@@ -441,7 +441,7 @@ const startingDirectory = function startingDirectory(
 ): string {
   observer.reserveOperation();
 
-  return statSync(resolutionContext).isDirectory()
+  return evidencePathIsDirectory(resolutionContext)
     ? resolutionContext
     : nodePath.dirname(resolutionContext);
 };

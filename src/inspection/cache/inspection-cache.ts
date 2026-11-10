@@ -67,14 +67,18 @@ export const createInspectionCacheIdentity =
   };
 
 /** Returns a cached outcome only when its full evidence proof still matches. */
-export const readInspectionCacheOutcome = function readInspectionCacheOutcome(
-  identity: InspectionCacheIdentity,
-  currentSelectionProof: InstalledEvidenceProof
-): InspectionOutcome | undefined {
-  const entry = readInspectionCacheCandidate(identity);
+export const readInspectionCacheOutcome =
+  async function readInspectionCacheOutcome(
+    identity: InspectionCacheIdentity,
+    currentSelectionProof: InstalledEvidenceProof
+  ): Promise<InspectionOutcome | undefined> {
+    const entry = readInspectionCacheCandidate(identity);
 
-  return entry !== undefined &&
-    installedEvidenceProofStillMatches(entry.proof, currentSelectionProof)
-    ? entry.outcome
-    : undefined;
-};
+    return entry !== undefined &&
+      (await installedEvidenceProofStillMatches(
+        entry.proof,
+        currentSelectionProof
+      ))
+      ? entry.outcome
+      : undefined;
+  };

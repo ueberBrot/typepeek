@@ -1,17 +1,16 @@
-import nodePath from "node:path";
-
 import { Result, Schema } from "effect";
 import { constVoid } from "effect/Function";
-import { ModuleKind, ModuleResolutionKind } from "tsrs/sync";
+import { ModuleKind, ModuleResolutionKind } from "tsrs/async";
 import type {
   ModuleResolver,
   RawCompilerOptions,
   ResolvedModule,
-} from "tsrs/sync";
+} from "tsrs/async";
 
 import { cachedCompilerLookup } from "#typepeek/inspection/compiler/compiler-cache";
 import { CompilerSession } from "#typepeek/inspection/compiler/compiler-session";
 import type { ResolutionFileSystem } from "#typepeek/inspection/compiler/compiler-session";
+import type { CompilerSessionOwner } from "#typepeek/inspection/compiler/compiler-session-owner";
 import {
   canonicalEvidenceCandidatePath,
   canonicalEvidencePath,
@@ -30,6 +29,7 @@ import type { PackageBoundaryObserver } from "#typepeek/inspection/evidence/inst
 import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/model/budget-policy";
 import { InspectionLimitError } from "#typepeek/inspection/model/errors";
 import type { AccessStyle } from "#typepeek/inspection/model/protocol";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 import { decodeJson } from "#typepeek/shared/json-data";
 
 const COMPILER_HOST_BYTES = "compiler-host-bytes";
@@ -57,7 +57,7 @@ const parseManifest = function parseManifest(
 export interface PackageDeclarationResolver {
   readonly canonicalPath: (fileName: string) => string | undefined;
   readonly conditions: ReadonlySet<string>;
-  readonly resolve: (specifier: string) => string | undefined;
+  readonly resolve: (specifier: string) => Promise<string | undefined>;
 }
 
 export interface CompilerWorkSession {
@@ -67,7 +67,7 @@ export interface CompilerWorkSession {
     containingFile: string,
     allowedRoots: readonly string[],
     accessStyle: AccessStyle
-  ) => ResolvedModule | undefined;
+  ) => Promise<ResolvedModule | undefined>;
   readonly createPackageResolver: (
     resolutionContext: string,
     accessStyle: AccessStyle,
@@ -85,11 +85,12 @@ export interface CompilerWorkSession {
   readonly resolveEvidenceProbe: (
     probe: InstalledEvidenceResolutionProbe,
     allowedRoots: readonly string[]
-  ) => string | undefined;
+  ) => Promise<string | undefined>;
   readonly reserveOperations: (count?: number) => void;
 }
 
 export interface CompilerWorkLimits {
+  readonly owner?: CompilerSessionOwner;
   readonly evidenceObserver?: InstalledEvidenceObserver;
   readonly operations?: number;
   readonly resolutionBytes?: number;
@@ -372,6 +373,7 @@ const resolutionCapabilityRoots = function resolutionCapabilityRoots(
 /** Shares filesystem reads, resolution caches, and work budgets across one inspection. */
 export const createCompilerWorkSession = function createCompilerWorkSession({
   evidenceObserver,
+  owner,
   operations = INSPECTION_BUDGET_POLICY.compilerHostOperations,
   resolutionBytes = DEFAULT_COMPILER_RESOLUTION_BYTES,
 }: CompilerWorkLimits = {}): CompilerWorkSession {
@@ -388,10 +390,15 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
   let native: CompilerSession | undefined;
 
   const nativeSession = (): CompilerSession =>
-    (native ??= new CompilerSession());
+    (native ??= new CompilerSession(undefined, owner));
 
   const resolvers = new Map<string, ModuleResolver>();
-  const resolvedModules = new Map<string, ResolvedModule | undefined>();
+
+  const resolvedModules = new Map<
+    string,
+    Promise<ResolvedModule | undefined>
+  >();
+
   const fileFormats = new Map<string, AccessStyle>();
 
   let operationCount = 0;
@@ -484,12 +491,12 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
     return host;
   };
 
-  const resolveModule = (
+  const resolveModule = async (
     specifier: string,
     containingFile: string,
     allowedRoots: readonly string[],
     accessStyle: AccessStyle
-  ): ResolvedModule | undefined => {
+  ): Promise<ResolvedModule | undefined> => {
     reserveOperations();
     const host = replayHost(containingFile, allowedRoots);
 
@@ -504,35 +511,35 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
       resolvedModules.clear();
     }
 
-    return cachedCompilerLookup(
+    return await cachedCompilerLookup(
       resolvedModules,
       JSON.stringify([key, specifier, accessStyle]),
-      () =>
-        session.withFileSystem(host, () => {
+      async () =>
+        await session.withFileSystem(host, async () => {
           let resolver = resolvers.get(key);
 
           if (resolver === undefined) {
-            resolver = session.api.createModuleResolver(
+            resolver = await session.api.createModuleResolver(
               resolutionCompilerOptions()
             );
             resolvers.set(key, resolver);
           }
 
-          return (
-            resolver.resolveModuleName(
-              specifier,
-              nodePath.dirname(containingFile),
-              resolutionMode(accessStyle)
-            ).resolvedModule ?? undefined
+          const resolveModuleNameResult = await resolver.resolveModuleName(
+            specifier,
+            nodePath.dirname(containingFile),
+            resolutionMode(accessStyle)
           );
+
+          return resolveModuleNameResult.resolvedModule ?? undefined;
         })
     );
   };
 
-  const resolveProbe = (
+  const resolveProbe = async (
     probe: InstalledEvidenceResolutionProbe,
     allowedRoots: readonly string[]
-  ): string | undefined => {
+  ): Promise<string | undefined> => {
     const candidates =
       probe.kind === "module"
         ? [probe.specifier]
@@ -543,8 +550,9 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
             ]),
           ];
 
+    /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
     for (const specifier of candidates) {
-      const result = resolveModule(
+      const result = await resolveModule(
         specifier,
         probe.containingFile,
         allowedRoots,
@@ -557,6 +565,7 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
         );
       }
     }
+    /* oxlint-enable eslint/no-await-in-loop */
 
     return undefined;
   };
@@ -577,8 +586,8 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
       return {
         canonicalPath: host.canonicalPath,
         conditions: new Set([accessStyle, "types", "node"]),
-        resolve: (specifier) => {
-          const resolution = resolveModule(
+        resolve: async (specifier) => {
+          const resolution = await resolveModule(
             specifier,
             containingFile,
             allowedRoots,
@@ -671,10 +680,10 @@ export const createCompilerWorkSession = function createCompilerWorkSession({
     observeEvidenceFile,
     observeResolution,
     reserveOperations,
-    resolveEvidenceProbe: (probe, allowedRoots) => {
+    resolveEvidenceProbe: async (probe, allowedRoots) => {
       reserveOperations();
 
-      return resolveProbe(probe, allowedRoots);
+      return await resolveProbe(probe, allowedRoots);
     },
     resolveModule,
   };

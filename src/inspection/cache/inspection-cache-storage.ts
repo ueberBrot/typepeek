@@ -1,6 +1,3 @@
-/* oxlint-disable anti-slop/no-unknown-parameters -- Child-process cache receipts are untrusted IPC data until their codecs validate them. */
-import { createHash } from "node:crypto";
-
 import type { Schema } from "effect";
 import { Predicate } from "effect";
 
@@ -34,6 +31,8 @@ import type {
   InspectionResultIdentity,
 } from "#typepeek/inspection/model/protocol";
 import { readOwnOptionalProperty } from "#typepeek/inspection/model/untrusted-data";
+/* oxlint-disable anti-slop/no-unknown-parameters -- Child-process cache receipts are untrusted IPC data until their codecs validate them. */
+import { sha256 } from "#typepeek/platform/platform-crypto";
 
 export type {
   InspectionCacheHitNotice,
@@ -213,10 +212,6 @@ const outcomeMatchesCacheIdentity = function outcomeMatchesCacheIdentity(
     : atomicResultMatchesCacheIdentity(result, identity);
 };
 
-const digest = function digest(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-};
-
 export const identityFromValue = function identityFromValue(
   value: EncodedInspectionCacheIdentityValue
 ): InspectionCacheIdentity {
@@ -226,7 +221,7 @@ export const identityFromValue = function identityFromValue(
     throw new TypeError("Inspection cache identities must serialize to JSON.");
   }
 
-  return { key: digest(serialized), serialized, value };
+  return { key: sha256(serialized), serialized, value };
 };
 
 /** Stores a validated outcome by atomic rename within the cache limits. */

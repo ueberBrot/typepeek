@@ -10,7 +10,7 @@ import type {
   Checker,
   JSDocTagInfo,
   Symbol as CompilerSymbol,
-} from "tsrs/sync";
+} from "tsrs/async";
 
 import { InspectionLimitError } from "#typepeek/inspection/model/errors";
 import type { PackageDocumentation } from "#typepeek/inspection/model/protocol";
@@ -154,35 +154,37 @@ const renderJsDocTag = function renderJsDocTag(tag: JSDocTagInfo): string {
   return `@${tag.name}${text}`;
 };
 
-const symbolDocumentation = function symbolDocumentation(
+const symbolDocumentation = async function symbolDocumentation(
   symbol: CompilerSymbol,
   checker: Checker
-): string {
+): Promise<string> {
+  const jsDocTags = await symbol.getJsDocTags(checker);
+
   return [
-    symbol.getDocumentationComment(checker),
-    ...symbol.getJsDocTags(checker).map(renderJsDocTag),
+    await symbol.getDocumentationComment(checker),
+    ...jsDocTags.map(renderJsDocTag),
   ]
     .filter((part) => part.length > 0)
     .join("\n");
 };
 
-const packageDocumentationText = function packageDocumentationText(
+const packageDocumentationText = async function packageDocumentationText(
   checker: Checker,
   exportedSymbol: CompilerSymbol,
   targetSymbol: CompilerSymbol,
   aliasDeclaration: AliasDeclaration | undefined
-): string {
+): Promise<string> {
   // Prefer the documentation closest to what the caller selected. Combining
   // layers would duplicate tags and blur alias-specific guidance.
   const documentation =
     aliasDocumentation(aliasDeclaration) ||
-    symbolDocumentation(exportedSymbol, checker);
+    (await symbolDocumentation(exportedSymbol, checker));
 
   if (documentation.length > 0 || exportedSymbol === targetSymbol) {
     return documentation;
   }
 
-  return symbolDocumentation(targetSymbol, checker);
+  return await symbolDocumentation(targetSymbol, checker);
 };
 
 /**
@@ -190,35 +192,36 @@ const packageDocumentationText = function packageDocumentationText(
  * or target symbol. Returned text is marked untrusted, sanitized before leaving
  * the Inspection Core, and rejected when it exceeds the documentation budget.
  */
-export const inspectPackageDocumentation = function inspectPackageDocumentation(
-  checker: Checker,
-  exportedSymbol: CompilerSymbol,
-  targetSymbol: CompilerSymbol,
-  aliasDeclaration: AliasDeclaration | undefined
-): PackageDocumentation | undefined {
-  const documentation = sanitizePackageDocumentation(
-    packageDocumentationText(
-      checker,
-      exportedSymbol,
-      targetSymbol,
-      aliasDeclaration
-    )
-  );
-
-  if (documentation.length === 0) {
-    return undefined;
-  }
-
-  if (Buffer.byteLength(documentation) > MAX_DOCUMENTATION_BYTES) {
-    throw new InspectionLimitError(
-      "package-documentation",
-      "Inspection exceeded its Package Documentation limit."
+export const inspectPackageDocumentation =
+  async function inspectPackageDocumentation(
+    checker: Checker,
+    exportedSymbol: CompilerSymbol,
+    targetSymbol: CompilerSymbol,
+    aliasDeclaration: AliasDeclaration | undefined
+  ): Promise<PackageDocumentation | undefined> {
+    const documentation = sanitizePackageDocumentation(
+      await packageDocumentationText(
+        checker,
+        exportedSymbol,
+        targetSymbol,
+        aliasDeclaration
+      )
     );
-  }
 
-  return {
-    provenance: "installed-evidence",
-    text: documentation,
-    trust: "untrusted",
+    if (documentation.length === 0) {
+      return undefined;
+    }
+
+    if (Buffer.byteLength(documentation) > MAX_DOCUMENTATION_BYTES) {
+      throw new InspectionLimitError(
+        "package-documentation",
+        "Inspection exceeded its Package Documentation limit."
+      );
+    }
+
+    return {
+      provenance: "installed-evidence",
+      text: documentation,
+      trust: "untrusted",
+    };
   };
-};

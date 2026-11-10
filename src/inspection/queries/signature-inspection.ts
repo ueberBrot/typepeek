@@ -6,12 +6,12 @@ import { resolveFocusedExport } from "#typepeek/inspection/queries/focused-expor
 
 /** Produces a focused result without declaration or Supporting Type traversal. */
 export const inspectModuleExportSignatures =
-  function inspectModuleExportSignatures(
+  async function inspectModuleExportSignatures(
     evidence: InspectableModuleEvidence,
     exportName: string,
     constructionOwner: InspectionResultConstruction
-  ): SignatureInspection | undefined {
-    const resolution = resolveFocusedExport(
+  ): Promise<SignatureInspection | undefined> {
+    const resolution = await resolveFocusedExport(
       evidence.checker,
       evidence.moduleSymbol,
       exportName
@@ -23,7 +23,7 @@ export const inspectModuleExportSignatures =
 
     const construction = constructionOwner.signatures();
 
-    const signatures = inspectResolvedExportSignatureDetails(
+    const signatures = await inspectResolvedExportSignatureDetails(
       evidence.checker,
       resolution,
       (value) => construction.signature(value)

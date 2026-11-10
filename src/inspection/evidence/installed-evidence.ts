@@ -1,5 +1,6 @@
-import type { Checker, Symbol as CompilerSymbol } from "tsrs/sync";
+import type { Checker, Symbol as CompilerSymbol } from "tsrs/async";
 
+import type { CompilerSessionOwner } from "#typepeek/inspection/compiler/compiler-session-owner";
 import type { CompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
 import { createCompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
 import { materializeInstalledProgram } from "#typepeek/inspection/compiler/installed-program";
@@ -54,7 +55,7 @@ export interface InspectableModuleEvidence {
   readonly checker: Checker;
   readonly moduleSymbol: CompilerSymbol;
   readonly resultIdentity: InspectionResultIdentity;
-  readonly publicSubpaths: readonly PublicSubpath[];
+  readonly publicSubpaths: Promise<readonly PublicSubpath[]>;
   readonly supportingTypeScope: SupportingTypeScope;
   readonly declarationProvenance: (declarationPath: string) => {
     readonly packageIdentity: PackageIdentity;
@@ -76,13 +77,13 @@ export type InspectableModuleSelection = {
   readonly declarationAuthority: DeclarationProviderAuthority;
   readonly repositoryRoot: string;
   readonly resultIdentity: InspectionResultIdentity;
-  readonly readPublicSubpaths: () => readonly PublicSubpath[];
+  readonly readPublicSubpaths: () => Promise<readonly PublicSubpath[]>;
   readonly supportingTypeScope: SupportingTypeScope;
   readonly providerIdentity: PackageIdentity;
   readonly packageBoundaryObserver: PackageBoundaryObserver;
-  readonly readNodeDeclarationProvider: () =>
-    | DeclarationProviderAuthority
-    | undefined;
+  readonly readNodeDeclarationProvider: () => Promise<
+    DeclarationProviderAuthority | undefined
+  >;
 } & (
   | {
       readonly kind: "package";
@@ -108,11 +109,11 @@ interface PackageSpecifier {
 }
 
 const selectVisibleNodeDeclarationProvider =
-  function selectVisibleNodeDeclarationProvider(
+  async function selectVisibleNodeDeclarationProvider(
     request: NormalizedInspectionTarget,
     compilerWorkSession: CompilerWorkSession,
     packageBoundaryObserver: PackageBoundaryObserver
-  ): SelectedNodeDeclarationProvider | undefined {
+  ): Promise<SelectedNodeDeclarationProvider | undefined> {
     const location = findVisiblePackage(
       request.resolutionContext,
       ["@types", "node"],
@@ -133,7 +134,7 @@ const selectVisibleNodeDeclarationProvider =
       packageBoundaryObserver
     );
 
-    const { declarationPath } = selectResolutionVariant({
+    const { declarationPath } = await selectResolutionVariant({
       compilerWorkSession,
       declarationRoots: [declarationRoot, location.packageRoot],
       exports: manifest.exports,
@@ -158,54 +159,59 @@ const selectVisibleNodeDeclarationProvider =
     };
   };
 
-const selectNodeDeclarationProvider = function selectNodeDeclarationProvider(
-  request: NormalizedInspectionTarget,
-  compilerWorkSession: CompilerWorkSession
-): InspectableModuleSelection {
-  if (!isKnownNodePlatformSpecifier(request.specifier)) {
-    throw new UnsupportedInspectionError(
-      `Node Platform Module "${request.specifier}" is not a known Node runtime module.`
-    );
-  }
+const selectNodeDeclarationProvider =
+  async function selectNodeDeclarationProvider(
+    request: NormalizedInspectionTarget,
+    compilerWorkSession: CompilerWorkSession
+  ): Promise<InspectableModuleSelection> {
+    if (!isKnownNodePlatformSpecifier(request.specifier)) {
+      throw new UnsupportedInspectionError(
+        `Node Platform Module "${request.specifier}" is not a known Node runtime module.`
+      );
+    }
 
-  const { packageBoundaryObserver } = compilerWorkSession;
+    const { packageBoundaryObserver } = compilerWorkSession;
 
-  const provider = selectVisibleNodeDeclarationProvider(
-    request,
-    compilerWorkSession,
-    packageBoundaryObserver
-  );
-
-  if (provider === undefined) {
-    throw new UnsupportedInspectionError(
-      `Node Platform Module "${request.specifier}" has no visible @types/node Declaration Provider.`
-    );
-  }
-
-  return {
-    compilerWorkSession,
-    declarationAuthority: {
-      declarationPath: provider.declarationPath,
-      root: provider.root,
-    },
-    kind: "platform",
-    packageBoundaryObserver,
-    providerIdentity: provider.manifest.packageIdentity,
-    readNodeDeclarationProvider: (): undefined => undefined,
-    readPublicSubpaths: () => [],
-    repositoryRoot: canonicalPackageBoundary(
-      provider.location.repositoryRoot,
+    const provider = await selectVisibleNodeDeclarationProvider(
+      request,
+      compilerWorkSession,
       packageBoundaryObserver
-    ),
-    resolutionContextDirectory: canonicalPackageBoundary(
-      provider.location.contextDirectory,
-      packageBoundaryObserver
-    ),
-    resultIdentity: { declarationProvider: provider.manifest.packageIdentity },
-    specifier: request.specifier,
-    supportingTypeScope: { kind: "platform", specifier: request.specifier },
+    );
+
+    if (provider === undefined) {
+      throw new UnsupportedInspectionError(
+        `Node Platform Module "${request.specifier}" has no visible @types/node Declaration Provider.`
+      );
+    }
+
+    return {
+      compilerWorkSession,
+      declarationAuthority: {
+        declarationPath: provider.declarationPath,
+        root: provider.root,
+      },
+      kind: "platform",
+      packageBoundaryObserver,
+      providerIdentity: provider.manifest.packageIdentity,
+      readNodeDeclarationProvider: async (): Promise<undefined> => {
+        await Promise.resolve(undefined);
+      },
+      readPublicSubpaths: async () => await Promise.resolve([]),
+      repositoryRoot: canonicalPackageBoundary(
+        provider.location.repositoryRoot,
+        packageBoundaryObserver
+      ),
+      resolutionContextDirectory: canonicalPackageBoundary(
+        provider.location.contextDirectory,
+        packageBoundaryObserver
+      ),
+      resultIdentity: {
+        declarationProvider: provider.manifest.packageIdentity,
+      },
+      specifier: request.specifier,
+      supportingTypeScope: { kind: "platform", specifier: request.specifier },
+    };
   };
-};
 
 const parsePackageSpecifier = function parsePackageSpecifier(
   specifier: string
@@ -338,34 +344,35 @@ const separateProviderAmbientSpecifier =
     return declarationRoot === packageRoot ? undefined : specifier;
   };
 
-const visibleNodeDeclarationProvider = function visibleNodeDeclarationProvider(
-  request: NormalizedInspectionTarget,
-  compilerWorkSession: CompilerWorkSession,
-  packageBoundaryObserver: PackageBoundaryObserver
-): NodeDeclarationProvider | undefined {
-  const provider = selectVisibleNodeDeclarationProvider(
-    request,
-    compilerWorkSession,
-    packageBoundaryObserver
-  );
+const visibleNodeDeclarationProvider =
+  async function visibleNodeDeclarationProvider(
+    request: NormalizedInspectionTarget,
+    compilerWorkSession: CompilerWorkSession,
+    packageBoundaryObserver: PackageBoundaryObserver
+  ): Promise<NodeDeclarationProvider | undefined> {
+    const provider = await selectVisibleNodeDeclarationProvider(
+      request,
+      compilerWorkSession,
+      packageBoundaryObserver
+    );
 
-  return provider === undefined
-    ? undefined
-    : {
-        declarationPath: provider.declarationPath,
-        root: provider.root,
-      };
-};
+    return provider === undefined
+      ? undefined
+      : {
+          declarationPath: provider.declarationPath,
+          root: provider.root,
+        };
+  };
 
 const memoizePublicSubpaths = function memoizePublicSubpaths(
-  readPublicSubpaths: () => readonly PublicSubpath[]
-): () => readonly PublicSubpath[] {
-  let publicSubpaths: readonly PublicSubpath[] | undefined;
+  readPublicSubpaths: () => Promise<readonly PublicSubpath[]>
+): () => Promise<readonly PublicSubpath[]> {
+  let publicSubpaths: Promise<readonly PublicSubpath[]> | undefined;
 
-  return () => {
+  return async () => {
     publicSubpaths ??= readPublicSubpaths();
 
-    return publicSubpaths;
+    return await publicSubpaths;
   };
 };
 
@@ -383,10 +390,10 @@ const packageResultIdentity = function packageResultIdentity(
 };
 
 const selectPackageDeclarationProvider =
-  function selectPackageDeclarationProvider(
+  async function selectPackageDeclarationProvider(
     request: NormalizedInspectionTarget,
     compilerWorkSession: CompilerWorkSession
-  ): InspectableModuleSelection | undefined {
+  ): Promise<InspectableModuleSelection | undefined> {
     const packageSpecifier = parsePackageSpecifier(request.specifier);
 
     if (packageSpecifier === undefined) {
@@ -423,7 +430,7 @@ const selectPackageDeclarationProvider =
       packageBoundaryObserver
     );
 
-    const resolutionVariant = selectResolutionVariant({
+    const resolutionVariant = await selectResolutionVariant({
       compilerWorkSession,
       declarationRoots: availableDeclarationRoots(
         canonicalPackageRoot,
@@ -466,8 +473,8 @@ const selectPackageDeclarationProvider =
       kind: "package",
       packageBoundaryObserver,
       providerIdentity: declarationPackage.identity,
-      readNodeDeclarationProvider: () =>
-        visibleNodeDeclarationProvider(
+      readNodeDeclarationProvider: async () =>
+        await visibleNodeDeclarationProvider(
           request,
           compilerWorkSession,
           packageBoundaryObserver
@@ -489,66 +496,72 @@ const selectPackageDeclarationProvider =
     };
   };
 
-const selectDeclarationProvider = function selectDeclarationProvider(
+const selectDeclarationProvider = async function selectDeclarationProvider(
   request: NormalizedInspectionTarget,
   compilerWorkSession: CompilerWorkSession
-): InspectableModuleSelection | undefined {
+): Promise<InspectableModuleSelection | undefined> {
   return isNodePlatformSpecifier(request.specifier)
-    ? selectNodeDeclarationProvider(request, compilerWorkSession)
-    : selectPackageDeclarationProvider(request, compilerWorkSession);
+    ? await selectNodeDeclarationProvider(request, compilerWorkSession)
+    : await selectPackageDeclarationProvider(request, compilerWorkSession);
 };
 
 /** Selects canonical Installed Evidence without materializing a TypeScript program. */
-export const selectInspectableModule = function selectInspectableModule(
+export const selectInspectableModule = async function selectInspectableModule(
   request: NormalizedInspectionTarget,
-  evidenceObserver?: InstalledEvidenceObserver
-): InspectableModuleSelection | undefined {
+  evidenceObserver?: InstalledEvidenceObserver,
+  owner?: CompilerSessionOwner
+): Promise<InspectableModuleSelection | undefined> {
   assertAbsoluteResolutionContext(request.resolutionContext);
 
-  return profileInspectionPhase("declaration-provider-selection", () =>
-    selectDeclarationProvider(
-      request,
-      createCompilerWorkSession(
-        evidenceObserver === undefined ? {} : { evidenceObserver }
+  return await profileInspectionPhase(
+    "declaration-provider-selection",
+    async () =>
+      await selectDeclarationProvider(
+        request,
+        createCompilerWorkSession({
+          ...(evidenceObserver !== undefined && { evidenceObserver }),
+          ...(owner !== undefined && { owner }),
+        })
       )
-    )
   );
 };
 
-const materializeInspectableModule = function materializeInspectableModule(
-  selection: InspectableModuleSelection,
-  queries: readonly InspectionPlanQuery[]
-): InspectableModuleEvidence {
-  const { checker, moduleSymbol } = materializeInstalledProgram(
-    selection,
-    queries
-  );
-
-  return {
-    checker,
-    declarationProvenance: (declarationPath) =>
-      readDeclarationProvenance(
-        selection.repositoryRoot,
-        selection.declarationAuthority.root.canonical,
-        selection.providerIdentity,
-        declarationPath,
-        selection.packageBoundaryObserver
-      ),
-    moduleSymbol,
-    get publicSubpaths() {
-      return selection.readPublicSubpaths();
-    },
-    resultIdentity: selection.resultIdentity,
-    supportingTypeScope: selection.supportingTypeScope,
-  };
-};
-
-export const materializeInspectableModuleEvidence =
-  function materializeInspectableModuleEvidence(
+const materializeInspectableModule =
+  async function materializeInspectableModule(
     selection: InspectableModuleSelection,
     queries: readonly InspectionPlanQuery[]
-  ): InspectableModuleEvidence {
-    return profileInspectionPhase("program-materialization", () =>
-      materializeInspectableModule(selection, queries)
+  ): Promise<InspectableModuleEvidence> {
+    const { checker, moduleSymbol } = await materializeInstalledProgram(
+      selection,
+      queries
+    );
+
+    return {
+      checker,
+      declarationProvenance: (declarationPath) =>
+        readDeclarationProvenance(
+          selection.repositoryRoot,
+          selection.declarationAuthority.root.canonical,
+          selection.providerIdentity,
+          declarationPath,
+          selection.packageBoundaryObserver
+        ),
+      moduleSymbol,
+      get publicSubpaths() {
+        return selection.readPublicSubpaths();
+      },
+      resultIdentity: selection.resultIdentity,
+      supportingTypeScope: selection.supportingTypeScope,
+    };
+  };
+
+export const materializeInspectableModuleEvidence =
+  async function materializeInspectableModuleEvidence(
+    selection: InspectableModuleSelection,
+    queries: readonly InspectionPlanQuery[]
+  ): Promise<InspectableModuleEvidence> {
+    return await profileInspectionPhase(
+      "program-materialization",
+      async () => await materializeInspectableModule(selection, queries)
     );
   };

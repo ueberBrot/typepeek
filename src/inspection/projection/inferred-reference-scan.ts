@@ -29,13 +29,15 @@ import type {
   TypeNode,
   VariableDeclaration,
 } from "tsrs/ast";
-import type { Checker } from "tsrs/sync";
+import type { Checker } from "tsrs/async";
 
+import { forEachChildAsync } from "#typepeek/inspection/compiler/compiler-traversal";
 import type { DeclarationReferenceAuthority } from "#typepeek/inspection/projection/declaration-reference-authority";
 import {
   isPublicProjectionChild,
   selectPublicStatements,
 } from "#typepeek/inspection/projection/public-declaration-selection";
+import { mapAsync } from "#typepeek/shared/async-collection";
 
 interface InferenceScanState {
   readonly visitedDeclarations: Set<Declaration>;
@@ -104,56 +106,56 @@ export class InferredReferenceScanner {
     this.reserveTraversal = reserveTraversal;
   }
 
-  inspectNode(node: Node, depth: number): void {
-    this.inspectInferredPublicNode(node, depth, {
+  async inspectNode(node: Node, depth: number): Promise<void> {
+    await this.inspectInferredPublicNode(node, depth, {
       visitedDeclarations: new Set(),
     });
 
     if (isComputedPropertyName(node)) {
-      this.authority.recordComputedName(node.expression);
-      this.scanInferenceExpression(node.expression, depth + 1, {
+      await this.authority.recordComputedName(node.expression);
+      await this.scanInferenceExpression(node.expression, depth + 1, {
         visitedDeclarations: new Set(),
       });
     }
   }
 
-  private inspectInferredPublicNode(
+  private async inspectInferredPublicNode(
     node: Node,
     depth: number,
     state: InferenceScanState
-  ): void {
+  ): Promise<void> {
     if (hasInferredInitializerType(node) && node.initializer !== undefined) {
-      this.scanInferenceExpression(node.initializer, depth + 1, state);
+      await this.scanInferenceExpression(node.initializer, depth + 1, state);
     }
 
     if (hasInferredPublicReturn(node)) {
-      this.scanInferredFunctionBody(node.body, depth + 1, state);
+      await this.scanInferredFunctionBody(node.body, depth + 1, state);
     }
   }
-  private scanInferenceDeclaration(
+  private async scanInferenceDeclaration(
     declaration: Declaration,
     depth: number,
     state: InferenceScanState
-  ): void {
+  ): Promise<void> {
     if (state.visitedDeclarations.has(declaration)) {
       return;
     }
 
     state.visitedDeclarations.add(declaration);
     this.reserveTraversal(depth);
-    this.scanInferenceDeclarationSyntax(declaration, depth + 1, state);
+    await this.scanInferenceDeclarationSyntax(declaration, depth + 1, state);
   }
-  private scanInferenceDeclarationSyntax(
+  private async scanInferenceDeclarationSyntax(
     declaration: Declaration,
     depth: number,
     state: InferenceScanState
-  ): void {
-    const visit = (node: Node, currentDepth: number): void => {
+  ): Promise<void> {
+    const visit = async (node: Node, currentDepth: number): Promise<void> => {
       this.reserveTraversal(currentDepth);
-      this.inspectInferredPublicNode(node, currentDepth, state);
+      await this.inspectInferredPublicNode(node, currentDepth, state);
 
       if (isTypeNode(node)) {
-        this.scanInferenceTypeNode(node, currentDepth + 1, state);
+        await this.scanInferenceTypeNode(node, currentDepth + 1, state);
 
         return;
       }
@@ -162,40 +164,47 @@ export class InferredReferenceScanner {
         const { body } = node;
 
         if (body !== undefined && isModuleBlock(body)) {
-          for (const statement of selectPublicStatements(this.checker, body)) {
-            visit(statement, currentDepth + 1);
-          }
+          await mapAsync(
+            await selectPublicStatements(this.checker, body),
+            async (statement) => {
+              await visit(statement, currentDepth + 1);
+            }
+          );
         }
 
         return;
       }
 
-      node.forEachChild((child) => {
-        if (isPublicProjectionChild(this.checker, node, child)) {
-          visit(child, currentDepth + 1);
+      await forEachChildAsync(node, async (child) => {
+        if (await isPublicProjectionChild(this.checker, node, child)) {
+          await visit(child, currentDepth + 1);
         }
       });
     };
 
-    visit(declaration, depth);
+    await visit(declaration, depth);
   }
-  private scanInferenceExpression(
+  private async scanInferenceExpression(
     expression: Expression,
     depth: number,
     state: InferenceScanState
-  ): void {
-    const visit = (node: Node, currentDepth: number): void => {
+  ): Promise<void> {
+    const visit = async (node: Node, currentDepth: number): Promise<void> => {
       this.reserveTraversal(currentDepth);
 
       if (isTypeNode(node)) {
-        this.scanInferenceTypeNode(node, currentDepth + 1, state);
+        await this.scanInferenceTypeNode(node, currentDepth + 1, state);
 
         return;
       }
 
       if (isComputedPropertyName(node)) {
-        this.authority.recordComputedName(node.expression);
-        this.scanInferenceExpression(node.expression, currentDepth + 1, state);
+        await this.authority.recordComputedName(node.expression);
+        await this.scanInferenceExpression(
+          node.expression,
+          currentDepth + 1,
+          state
+        );
 
         return;
       }
@@ -205,53 +214,67 @@ export class InferredReferenceScanner {
         "body" in node &&
         node.body !== undefined
       ) {
-        this.scanInferredFunctionBody(node.body, currentDepth + 1, state);
+        await this.scanInferredFunctionBody(node.body, currentDepth + 1, state);
 
         return;
       }
 
-      for (const declaration of this.authority.inspectValueNode(node)) {
-        this.scanInferenceDeclaration(declaration, currentDepth + 1, state);
-      }
+      await mapAsync(
+        await this.authority.inspectValueNode(node),
+        async (declaration) => {
+          await this.scanInferenceDeclaration(
+            declaration,
+            currentDepth + 1,
+            state
+          );
+        }
+      );
 
-      node.forEachChild((child) => {
-        visit(child, currentDepth + 1);
+      await forEachChildAsync(node, async (child) => {
+        await visit(child, currentDepth + 1);
       });
     };
 
-    visit(expression, depth);
+    await visit(expression, depth);
   }
-  private scanInferenceTypeNode(
+  private async scanInferenceTypeNode(
     typeNode: TypeNode,
     depth: number,
     state: InferenceScanState
-  ): void {
-    const visit = (node: Node, currentDepth: number): void => {
+  ): Promise<void> {
+    const visit = async (node: Node, currentDepth: number): Promise<void> => {
       this.reserveTraversal(currentDepth);
 
-      for (const declaration of this.authority.inspectTypeNode(node)) {
-        this.scanInferenceDeclaration(declaration, currentDepth + 1, state);
-      }
+      await mapAsync(
+        await this.authority.inspectTypeNode(node),
+        async (declaration) => {
+          await this.scanInferenceDeclaration(
+            declaration,
+            currentDepth + 1,
+            state
+          );
+        }
+      );
 
-      node.forEachChild((child) => {
-        visit(child, currentDepth + 1);
+      await forEachChildAsync(node, async (child) => {
+        await visit(child, currentDepth + 1);
       });
     };
 
-    visit(typeNode, depth);
+    await visit(typeNode, depth);
   }
-  private scanInferredFunctionBody(
+  private async scanInferredFunctionBody(
     body: ConciseBody,
     depth: number,
     state: InferenceScanState
-  ): void {
+  ): Promise<void> {
     if (!isBlock(body)) {
-      this.scanInferenceExpression(body, depth, state);
+      await this.scanInferenceExpression(body, depth, state);
 
       return;
     }
 
-    const visit = (node: Node, currentDepth: number): void => {
+    const visit = async (node: Node, currentDepth: number): Promise<void> => {
       this.reserveTraversal(currentDepth);
 
       if (isFunctionLikeDeclaration(node) && node !== body.parent) {
@@ -259,16 +282,20 @@ export class InferredReferenceScanner {
       }
 
       if (isReturnStatement(node) && node.expression !== undefined) {
-        this.scanInferenceExpression(node.expression, currentDepth + 1, state);
+        await this.scanInferenceExpression(
+          node.expression,
+          currentDepth + 1,
+          state
+        );
 
         return;
       }
 
-      node.forEachChild((child) => {
-        visit(child, currentDepth + 1);
+      await forEachChildAsync(node, async (child) => {
+        await visit(child, currentDepth + 1);
       });
     };
 
-    visit(body, depth);
+    await visit(body, depth);
   }
 }

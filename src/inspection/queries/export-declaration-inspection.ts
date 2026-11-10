@@ -5,13 +5,14 @@ import {
   isTypeReferenceNode,
 } from "tsrs/ast";
 import type { Declaration, Node } from "tsrs/ast";
-import { SymbolFlags } from "tsrs/sync";
-import type { Symbol as CompilerSymbol, Type } from "tsrs/sync";
+import { SymbolFlags } from "tsrs/async";
+import type { Symbol as CompilerSymbol, Type } from "tsrs/async";
 
 import {
   declarationsOf,
   isSourceBackedNode,
 } from "#typepeek/inspection/compiler/compiler-session";
+import { forEachChildAsync } from "#typepeek/inspection/compiler/compiler-traversal";
 import { isTypeScriptStandardLibraryDeclaration } from "#typepeek/inspection/compiler/typescript-standard-library";
 import type { InspectableModuleEvidence } from "#typepeek/inspection/evidence/installed-evidence";
 import { assertMergedDeclarationLimit } from "#typepeek/inspection/model/declaration-limits";
@@ -42,6 +43,7 @@ import {
 } from "#typepeek/inspection/projection/public-declaration-selection";
 import { shouldExpandSupportingDeclaration } from "#typepeek/inspection/projection/supporting-type-policy";
 import { resolveFocusedExportTarget } from "#typepeek/inspection/queries/focused-export";
+import { mapAsync, filterAsync } from "#typepeek/shared/async-collection";
 import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 const TYPE_QUERY = "type-query";
@@ -93,10 +95,10 @@ const assertSupportingTypeBudget = function assertSupportingTypeBudget(
   }
 };
 
-const inferredTypeSymbol = function inferredTypeSymbol(
+const inferredTypeSymbol = async function inferredTypeSymbol(
   type: Type
-): CompilerSymbol | undefined {
-  return type.getAliasSymbol() ?? type.getSymbol();
+): Promise<CompilerSymbol | undefined> {
+  return (await type.getAliasSymbol()) ?? (await type.getSymbol());
 };
 
 const ordinaryTypeReferenceLocation = function ordinaryTypeReferenceLocation(
@@ -180,26 +182,28 @@ export const createExportDeclarationInspection =
       declaration: Declaration,
       construction: FocusedInspectionConstruction,
       kindOverride: "alias"
-    ): InspectedDeclaration & {
-      readonly kind: "alias";
-    };
+    ): Promise<
+      InspectedDeclaration & {
+        readonly kind: "alias";
+      }
+    >;
     function inspectDeclaration(
       declaration: Declaration,
       construction: FocusedInspectionConstruction,
       kindOverride?: DeclarationKind
-    ): InspectedDeclaration;
-    function inspectDeclaration(
+    ): Promise<InspectedDeclaration>;
+    async function inspectDeclaration(
       declaration: Declaration,
       construction: FocusedInspectionConstruction,
       kindOverride?: DeclarationKind
-    ): InspectedDeclaration {
+    ): Promise<InspectedDeclaration> {
       const sourceFile = declaration.getSourceFile();
 
       const start = sourceFile.getLineAndCharacterOfPosition(
         declaration.getStart(sourceFile, false)
       );
 
-      const text = renderPublicDeclaration(
+      const text = await renderPublicDeclaration(
         evidence.checker,
         declaration,
         projectionContext
@@ -229,51 +233,53 @@ export const createExportDeclarationInspection =
     }
 
     // oxlint-enable eslint/func-style
-    const supportsTypeQuery = function supportsTypeQuery(
+    const supportsTypeQuery = async function supportsTypeQuery(
       declaration: Declaration
-    ): boolean {
+    ): Promise<boolean> {
       return (
         declarationSupportsTypeQuery(declaration) &&
-        !declarationOwnerIsMember(
+        !(await declarationOwnerIsMember(
           evidence.checker,
           evidence.moduleSymbol,
           declaration,
           (depth) => {
             reserveAstTraversal(depth);
           }
-        )
+        ))
       );
     };
 
-    const supportingTypeDeclarations = function supportingTypeDeclarations(
-      symbol: CompilerSymbol,
-      referenceKind: SupportingReferenceKind
-    ): readonly Declaration[] {
-      // `typeof X` needs X's value declaration; ordinary type references need named type declarations.
-      const declarations = (declarationsOf(symbol) ?? []).filter(
-        (declaration) =>
-          !isTypeScriptStandardLibraryDeclaration(
-            declaration.getSourceFile().fileName
-          ) &&
-          (referenceKind === TYPE_QUERY
-            ? supportsTypeQuery(declaration)
-            : isNamedTypeDeclarationSyntax(declaration))
-      );
+    const supportingTypeDeclarations =
+      async function supportingTypeDeclarations(
+        symbol: CompilerSymbol,
+        referenceKind: SupportingReferenceKind
+      ): Promise<readonly Declaration[]> {
+        // `typeof X` needs X's value declaration; ordinary type references need named type declarations.
+        const declarations = await filterAsync(
+          (await declarationsOf(symbol)) ?? [],
+          async (declaration) =>
+            !isTypeScriptStandardLibraryDeclaration(
+              declaration.getSourceFile().fileName
+            ) &&
+            (referenceKind === TYPE_QUERY
+              ? await supportsTypeQuery(declaration)
+              : isNamedTypeDeclarationSyntax(declaration))
+        );
 
-      assertMergedDeclarationLimit(declarations);
+        assertMergedDeclarationLimit(declarations);
 
-      return declarations;
-    };
+        return declarations;
+      };
 
     const unvisitedSupportingDeclarations =
-      function unvisitedSupportingDeclarations(
+      async function unvisitedSupportingDeclarations(
         symbol: CompilerSymbol,
         referenceKind: SupportingReferenceKind,
         visited: ReadonlySet<CompilerSymbol>
-      ): readonly Declaration[] {
+      ): Promise<readonly Declaration[]> {
         return visited.has(symbol)
           ? []
-          : supportingTypeDeclarations(symbol, referenceKind);
+          : await supportingTypeDeclarations(symbol, referenceKind);
       };
 
     const shouldExpandSupporting = function shouldExpandSupporting(
@@ -285,11 +291,11 @@ export const createExportDeclarationInspection =
       );
     };
 
-    const visitTypeReferences = function visitTypeReferences(
+    const visitTypeReferences = async function visitTypeReferences(
       node: Node,
-      visitReference: (reference: SupportingReference) => void,
+      visitReference: (reference: SupportingReference) => Promise<void>,
       depth = 0
-    ): void {
+    ): Promise<void> {
       reserveAstTraversal(depth);
 
       if (isPrivateDeclaration(node)) {
@@ -299,35 +305,38 @@ export const createExportDeclarationInspection =
       const reference = supportingReference(node);
 
       if (reference !== undefined) {
-        visitReference(reference);
+        await visitReference(reference);
       }
 
-      node.forEachChild((child) => {
-        visitTypeReferences(child, visitReference, depth + 1);
+      await forEachChildAsync(node, async (child) => {
+        await visitTypeReferences(child, visitReference, depth + 1);
       });
     };
 
-    const inspectSupportingTypes = function inspectSupportingTypes(
+    const inspectSupportingTypes = async function inspectSupportingTypes(
       selectedSymbol: CompilerSymbol,
       rootDeclarations: readonly Declaration[],
       construction: FocusedInspectionConstruction
-    ): readonly SupportingType[] {
+    ): Promise<readonly SupportingType[]> {
       const supportingTypes: SupportingType[] = [];
       const visited = new Set<CompilerSymbol>([selectedSymbol]);
       const visitedInferredTypes = new Set<Type>();
 
       const supportingTraversal = {
-        inspectInferredType: (type: Type, depth: number): void => {
+        inspectInferredType: async (
+          type: Type,
+          depth: number
+        ): Promise<void> => {
           if (visitedInferredTypes.has(type)) {
             return;
           }
 
           reserveInferredTypeTraversal(depth);
           visitedInferredTypes.add(type);
-          const symbol = inferredTypeSymbol(type);
+          const symbol = await inferredTypeSymbol(type);
 
           if (symbol !== undefined) {
-            supportingTraversal.inspectSymbol(
+            await supportingTraversal.inspectSymbol(
               symbol,
               bitwiseAnd(symbol.flags, SymbolFlags.Namespace)
                 ? TYPE_QUERY
@@ -336,24 +345,27 @@ export const createExportDeclarationInspection =
             );
           }
 
-          for (const childType of inferredPublicTypeChildren(
-            evidence.checker,
-            type
-          )) {
-            supportingTraversal.inspectInferredType(childType, depth + 1);
-          }
+          await mapAsync(
+            await inferredPublicTypeChildren(evidence.checker, type),
+            async (childType) => {
+              await supportingTraversal.inspectInferredType(
+                childType,
+                depth + 1
+              );
+            }
+          );
         },
-        inspectReference: (
+        inspectReference: async (
           reference: SupportingReference,
           depth: number
-        ): void => {
+        ): Promise<void> => {
           // Synthesized names have no binder location. Their dependencies are
           // traversed through the checker types retained by the projection.
           if (!isSourceBackedNode(reference.location)) {
             return;
           }
 
-          const referenced = evidence.checker.getSymbolAtLocation(
+          const referenced = await evidence.checker.getSymbolAtLocation(
             reference.location
           );
 
@@ -361,19 +373,23 @@ export const createExportDeclarationInspection =
             return;
           }
 
-          supportingTraversal.inspectSymbol(referenced, reference.kind, depth);
+          await supportingTraversal.inspectSymbol(
+            referenced,
+            reference.kind,
+            depth
+          );
         },
-        inspectSymbol: (
+        inspectSymbol: async (
           symbol: CompilerSymbol,
           referenceKind: SupportingReferenceKind,
           depth: number
-        ): boolean => {
-          const resolvedSymbol = resolveFocusedExportTarget(
+        ): Promise<boolean> => {
+          const resolvedSymbol = await resolveFocusedExportTarget(
             evidence.checker,
             symbol
           );
 
-          const declarations = unvisitedSupportingDeclarations(
+          const declarations = await unvisitedSupportingDeclarations(
             resolvedSymbol,
             referenceKind,
             visited
@@ -386,8 +402,10 @@ export const createExportDeclarationInspection =
           assertSupportingTypeBudget(depth, supportingTypes.length);
           visited.add(resolvedSymbol);
 
-          const inspectedSupportingDeclarations = declarations.map(
-            (declaration) => inspectDeclaration(declaration, construction)
+          const inspectedSupportingDeclarations = await mapAsync(
+            declarations,
+            async (declaration) =>
+              await inspectDeclaration(declaration, construction)
           );
 
           supportingTypes.push(
@@ -397,43 +415,55 @@ export const createExportDeclarationInspection =
             )
           );
 
+          /* oxlint-disable eslint/no-await-in-loop -- Expansion shares traversal budgets and may discover later supporting declarations. */
           for (const supportingDeclaration of declarations.filter(
             shouldExpandSupporting
           )) {
-            const projection = projectPublicDeclaration(
+            const projection = await projectPublicDeclaration(
               evidence.checker,
               supportingDeclaration,
               projectionContext
             );
 
-            visitTypeReferences(projection.syntax, (reference) => {
-              supportingTraversal.inspectReference(reference, depth + 1);
-            });
+            await visitTypeReferences(
+              await projection.syntax,
+              async (reference) => {
+                await supportingTraversal.inspectReference(
+                  reference,
+                  depth + 1
+                );
+              }
+            );
 
-            for (const type of projection.inferredTypes) {
-              supportingTraversal.inspectInferredType(type, depth + 1);
+            for (const type of await projection.inferredTypes) {
+              await supportingTraversal.inspectInferredType(type, depth + 1);
             }
           }
+          /* oxlint-enable eslint/no-await-in-loop */
 
           return true;
         },
       };
 
-      for (const declaration of rootDeclarations) {
-        const projection = projectPublicDeclaration(
+      await mapAsync(rootDeclarations, async (declaration) => {
+        const projection = await projectPublicDeclaration(
           evidence.checker,
           declaration,
           projectionContext
         );
 
-        visitTypeReferences(projection.syntax, (reference) => {
-          supportingTraversal.inspectReference(reference, 1);
-        });
+        await visitTypeReferences(
+          await projection.syntax,
+          async (reference) => {
+            await supportingTraversal.inspectReference(reference, 1);
+          }
+        );
 
-        for (const type of projection.inferredTypes) {
-          supportingTraversal.inspectInferredType(type, 1);
+        for (const type of await projection.inferredTypes) {
+          // oxlint-disable-next-line eslint/no-await-in-loop -- Each inferred type extends the shared supporting declaration graph.
+          await supportingTraversal.inspectInferredType(type, 1);
         }
-      }
+      });
 
       return supportingTypes;
     };

@@ -1,5 +1,3 @@
-import nodePath from "node:path";
-
 import {
   isExportDeclaration,
   isExternalModuleReference,
@@ -22,8 +20,8 @@ import type {
   SourceFile,
   Statement,
 } from "tsrs/ast";
-import { SymbolFlags } from "tsrs/sync";
-import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/sync";
+import { SymbolFlags } from "tsrs/async";
+import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/async";
 
 import {
   aliasedSymbol,
@@ -37,6 +35,8 @@ import {
   InspectionLimitError,
   UnsupportedInspectionError,
 } from "#typepeek/inspection/model/errors";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
+import { mapAsync } from "#typepeek/shared/async-collection";
 import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 const UNRESOLVED_REEXPORT_MESSAGE =
@@ -90,12 +90,12 @@ const unresolvedDeclarationReference =
     return new UnsupportedInspectionError(UNRESOLVED_REEXPORT_MESSAGE);
   };
 
-const requiredProgramSourceFile = function requiredProgramSourceFile(
+const requiredProgramSourceFile = async function requiredProgramSourceFile(
   program: Program,
   fileName: string,
   host: InstalledProgramLoader
-): SourceFile {
-  const sourceFile = host.findProgramSourceFile(program, fileName);
+): Promise<SourceFile> {
+  const sourceFile = await host.findProgramSourceFile(program, fileName);
 
   if (sourceFile === undefined) {
     throw unresolvedDeclarationReference();
@@ -105,12 +105,12 @@ const requiredProgramSourceFile = function requiredProgramSourceFile(
 };
 
 const resolvedTypeReferenceSourceFile =
-  function resolvedTypeReferenceSourceFile(
+  async function resolvedTypeReferenceSourceFile(
     program: Program,
     containingFile: SourceFile,
     reference: FileReference,
     host: InstalledProgramLoader
-  ): SourceFile {
+  ): Promise<SourceFile> {
     const resolvedFileName = host.resolveTypeReference(
       containingFile.fileName,
       reference
@@ -120,16 +120,16 @@ const resolvedTypeReferenceSourceFile =
       throw unresolvedDeclarationReference();
     }
 
-    return requiredProgramSourceFile(program, resolvedFileName, host);
+    return await requiredProgramSourceFile(program, resolvedFileName, host);
   };
 
 const referencedDeclarationSourceFiles =
-  function referencedDeclarationSourceFiles(
+  async function referencedDeclarationSourceFiles(
     program: Program,
     declaration: Node,
     host: InstalledProgramLoader,
     traversal: DeclarationGraphTraversalState
-  ): readonly SourceFile[] {
+  ): Promise<readonly SourceFile[]> {
     if (!isSourceFile(declaration)) {
       return [];
     }
@@ -141,45 +141,60 @@ const referencedDeclarationSourceFiles =
     );
 
     return [
-      ...declaration.referencedFiles.map((reference) =>
-        requiredProgramSourceFile(
-          program,
-          nodePath.resolve(
-            nodePath.dirname(declaration.fileName),
-            reference.fileName
-          ),
-          host
-        )
-      ),
-      ...declaration.typeReferenceDirectives.map((reference) =>
-        resolvedTypeReferenceSourceFile(program, declaration, reference, host)
-      ),
+      ...(await mapAsync(
+        declaration.referencedFiles,
+        async (reference) =>
+          await requiredProgramSourceFile(
+            program,
+            nodePath.resolve(
+              nodePath.dirname(declaration.fileName),
+              reference.fileName
+            ),
+            host
+          )
+      )),
+      ...(await mapAsync(
+        declaration.typeReferenceDirectives,
+        async (reference) =>
+          await resolvedTypeReferenceSourceFile(
+            program,
+            declaration,
+            reference,
+            host
+          )
+      )),
     ];
   };
 
 const enqueueReferencedDeclarationFiles =
-  function enqueueReferencedDeclarationFiles(
+  async function enqueueReferencedDeclarationFiles(
     program: Program,
     host: InstalledProgramLoader,
     traversal: DeclarationGraphTraversalState,
     state: ReExportGraphState,
     sourceFile: SourceFile
-  ): void {
+  ): Promise<void> {
     if (state.visitedReferenceSourceFiles.has(sourceFile.fileName)) {
       return;
     }
 
     state.visitedReferenceSourceFiles.add(sourceFile.fileName);
-    state.pendingEntries.push(
-      ...referencedDeclarationSourceFiles(
+
+    const referencedDeclarationSourceFilesResult =
+      await referencedDeclarationSourceFiles(
         program,
         sourceFile,
         host,
         traversal
-      ).map((referenced): PendingDeclarationGraphEntry => ({
-        declaration: referenced,
-        expandSourceExports: true,
-      }))
+      );
+
+    state.pendingEntries.push(
+      ...referencedDeclarationSourceFilesResult.map(
+        (referenced): PendingDeclarationGraphEntry => ({
+          declaration: referenced,
+          expandSourceExports: true,
+        })
+      )
     );
   };
 
@@ -193,17 +208,17 @@ const hasModuleSpecifier = function hasModuleSpecifier(
   );
 };
 
-const resolvedModuleDeclarations = function resolvedModuleDeclarations(
+const resolvedModuleDeclarations = async function resolvedModuleDeclarations(
   checker: Checker,
   moduleSpecifier: Expression
-): readonly Node[] {
-  const referencedModule = symbolAtLocation(checker, moduleSpecifier);
+): Promise<readonly Node[]> {
+  const referencedModule = await symbolAtLocation(checker, moduleSpecifier);
 
   if (referencedModule === undefined) {
     throw new UnsupportedInspectionError(UNRESOLVED_REEXPORT_MESSAGE);
   }
 
-  const declarations = declarationsOf(referencedModule) ?? [];
+  const declarations = (await declarationsOf(referencedModule)) ?? [];
 
   if (declarations.length === 0) {
     throw new UnsupportedInspectionError(UNRESOLVED_REEXPORT_MESSAGE);
@@ -212,50 +227,63 @@ const resolvedModuleDeclarations = function resolvedModuleDeclarations(
   return declarations;
 };
 
-const resolvedModuleSourceFiles = function resolvedModuleSourceFiles(
+const resolvedModuleSourceFiles = async function resolvedModuleSourceFiles(
   checker: Checker,
   moduleSpecifier: Expression
-): readonly SourceFile[] {
-  return resolvedModuleDeclarations(checker, moduleSpecifier).filter(
-    isSourceFile
+): Promise<readonly SourceFile[]> {
+  const resolvedModuleDeclarationsResult = await resolvedModuleDeclarations(
+    checker,
+    moduleSpecifier
   );
+
+  return resolvedModuleDeclarationsResult.filter(isSourceFile);
 };
 
 const reExportedStatementDeclarations =
-  function reExportedStatementDeclarations(
+  async function reExportedStatementDeclarations(
     checker: Checker,
     statement: ExportDeclaration & {
       readonly moduleSpecifier: Expression;
     }
-  ): readonly PendingDeclarationGraphEntry[] {
+  ): Promise<readonly PendingDeclarationGraphEntry[]> {
     if (
       statement.exportClause !== undefined &&
       isNamedExports(statement.exportClause)
     ) {
-      return statement.exportClause.elements.flatMap((element) => {
-        const symbol = checker.getSymbolAtLocation(element.name);
+      const mappedValues = await mapAsync(
+        statement.exportClause.elements,
+        async (element) => {
+          const symbol = await checker.getSymbolAtLocation(element.name);
 
-        const resolved =
-          symbol !== undefined && bitwiseAnd(symbol.flags, SymbolFlags.Alias)
-            ? aliasedSymbol(checker, symbol)
-            : symbol;
+          const resolved =
+            symbol !== undefined && bitwiseAnd(symbol.flags, SymbolFlags.Alias)
+              ? await aliasedSymbol(checker, symbol)
+              : symbol;
 
-        const declarations = declarationsOf(resolved) ?? [];
+          const declarations = (await declarationsOf(resolved)) ?? [];
 
-        if (declarations.length === 0) {
-          throw unresolvedDeclarationReference();
+          if (declarations.length === 0) {
+            throw unresolvedDeclarationReference();
+          }
+
+          return declarations.map(
+            (declaration): PendingDeclarationGraphEntry => ({
+              declaration,
+              expandSourceExports: false,
+            })
+          );
         }
+      );
 
-        return declarations.map(
-          (declaration): PendingDeclarationGraphEntry => ({
-            declaration,
-            expandSourceExports: false,
-          })
-        );
-      });
+      return mappedValues.flat();
     }
 
-    return resolvedModuleSourceFiles(checker, statement.moduleSpecifier).map(
+    const resolvedModuleSourceFilesResult = await resolvedModuleSourceFiles(
+      checker,
+      statement.moduleSpecifier
+    );
+
+    return resolvedModuleSourceFilesResult.map(
       (declaration): PendingDeclarationGraphEntry => ({
         declaration,
         expandSourceExports: true,
@@ -263,30 +291,34 @@ const reExportedStatementDeclarations =
     );
   };
 
-const reExportedDeclarations = function reExportedDeclarations(
+const reExportedDeclarations = async function reExportedDeclarations(
   checker: Checker,
   sourceFile: SourceFile
-): readonly PendingDeclarationGraphEntry[] {
-  return sourceFile.statements
-    .filter(hasModuleSpecifier)
-    .flatMap((statement) =>
-      reExportedStatementDeclarations(checker, statement)
-    );
+): Promise<readonly PendingDeclarationGraphEntry[]> {
+  const mappedValues = await mapAsync(
+    sourceFile.statements.filter(hasModuleSpecifier),
+    async (statement) =>
+      await reExportedStatementDeclarations(checker, statement)
+  );
+
+  return mappedValues.flat();
 };
 
-const expandReExportSource = function expandReExportSource(
+const expandReExportSource = async function expandReExportSource(
   checker: Checker,
   traversal: DeclarationGraphTraversalState,
   state: ReExportGraphState,
   sourceFile: SourceFile
-): void {
+): Promise<void> {
   if (state.visitedExpandedSourceFiles.has(sourceFile.fileName)) {
     return;
   }
 
   state.visitedExpandedSourceFiles.add(sourceFile.fileName);
   reserveDeclarationGraphNodes(traversal, sourceFile.statements.length);
-  state.pendingEntries.push(...reExportedDeclarations(checker, sourceFile));
+  state.pendingEntries.push(
+    ...(await reExportedDeclarations(checker, sourceFile))
+  );
 };
 
 const importTypeSpecifier = function importTypeSpecifier(
@@ -340,21 +372,21 @@ const descendantImportTypeSpecifiers = function descendantImportTypeSpecifiers(
   return specifiers;
 };
 
-const inspectReExportGraphEntry = function inspectReExportGraphEntry(
+const inspectReExportGraphEntry = async function inspectReExportGraphEntry(
   program: Program,
   checker: Checker,
   host: InstalledProgramLoader,
   traversal: DeclarationGraphTraversalState,
   state: ReExportGraphState,
   entry: PendingDeclarationGraphEntry
-): void {
+): Promise<void> {
   const { declaration, expandSourceExports } = entry;
 
   if (visitedDeclarationEntry(state, declaration, expandSourceExports)) {
     return;
   }
 
-  enqueueReferencedDeclarationFiles(
+  await enqueueReferencedDeclarationFiles(
     program,
     host,
     traversal,
@@ -363,26 +395,26 @@ const inspectReExportGraphEntry = function inspectReExportGraphEntry(
   );
 
   if (isSourceFile(declaration) && expandSourceExports) {
-    expandReExportSource(checker, traversal, state, declaration);
+    await expandReExportSource(checker, traversal, state, declaration);
 
     return;
   }
 
-  for (const specifier of descendantImportTypeSpecifiers(
-    declaration,
-    traversal
-  )) {
-    resolvedModuleDeclarations(checker, specifier);
-  }
+  await mapAsync(
+    descendantImportTypeSpecifiers(declaration, traversal),
+    async (specifier) => {
+      await resolvedModuleDeclarations(checker, specifier);
+    }
+  );
 };
 
-const assertResolvedReExportGraph = function assertResolvedReExportGraph(
+const assertResolvedReExportGraph = async function assertResolvedReExportGraph(
   program: Program,
   checker: Checker,
   entrypoint: SourceFile,
   host: InstalledProgramLoader,
   traversal: DeclarationGraphTraversalState
-): void {
+): Promise<void> {
   const state: ReExportGraphState = {
     pendingEntries: [{ declaration: entrypoint, expandSourceExports: true }],
     visitedDeclarations: new Set(),
@@ -390,9 +422,16 @@ const assertResolvedReExportGraph = function assertResolvedReExportGraph(
     visitedReferenceSourceFiles: new Set(),
   };
 
-  for (const entry of state.pendingEntries) {
-    inspectReExportGraphEntry(program, checker, host, traversal, state, entry);
-  }
+  await mapAsync(state.pendingEntries, async (entry) => {
+    await inspectReExportGraphEntry(
+      program,
+      checker,
+      host,
+      traversal,
+      state,
+      entry
+    );
+  });
 };
 
 const moduleStatementTraversal = {
@@ -468,19 +507,20 @@ const ambientReExportSpecifiers = function ambientReExportSpecifiers(
 };
 
 const assertResolvedAmbientModuleReExports =
-  function assertResolvedAmbientModuleReExports(
+  async function assertResolvedAmbientModuleReExports(
     program: Program,
     checker: Checker,
     moduleSymbol: CompilerSymbol,
     host: InstalledProgramLoader,
     traversal: DeclarationGraphTraversalState
-  ): void {
+  ): Promise<void> {
     const pendingDeclarations: Node[] = (
-      declarationsOf(moduleSymbol) ?? []
+      (await declarationsOf(moduleSymbol)) ?? []
     ).filter(isModuleDeclaration);
 
     const visitedDeclarations = new Set<Node>();
 
+    /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
     for (const declaration of pendingDeclarations) {
       if (visitedDeclarations.has(declaration)) {
         continue;
@@ -488,20 +528,25 @@ const assertResolvedAmbientModuleReExports =
 
       visitedDeclarations.add(declaration);
       const specifiers = ambientReExportSpecifiers(declaration, traversal);
-      symbolsAtLocations(checker, specifiers);
+      await symbolsAtLocations(checker, specifiers);
+
+      const mappedValues = await mapAsync(
+        specifiers,
+        async (specifier) =>
+          await resolvedModuleDeclarations(checker, specifier)
+      );
 
       pendingDeclarations.push(
-        ...specifiers.flatMap((specifier) =>
-          resolvedModuleDeclarations(checker, specifier)
-        ),
-        ...referencedDeclarationSourceFiles(
+        ...mappedValues.flat(),
+        ...(await referencedDeclarationSourceFiles(
           program,
           declaration,
           host,
           traversal
-        )
+        ))
       );
     }
+    /* oxlint-enable eslint/no-await-in-loop */
   };
 
 /** Owns declaration graph validation and its aggregate budget across one inspection. */
@@ -517,12 +562,12 @@ export class InstalledDeclarationGraph {
     reserveDeclarationGraphNodes(this.traversal, 1);
   }
 
-  assertSourceResolved(
+  async assertSourceResolved(
     program: Program,
     checker: Checker,
     entrypoint: SourceFile
-  ): void {
-    assertResolvedReExportGraph(
+  ): Promise<void> {
+    await assertResolvedReExportGraph(
       program,
       checker,
       entrypoint,
@@ -531,12 +576,12 @@ export class InstalledDeclarationGraph {
     );
   }
 
-  assertAmbientModuleResolved(
+  async assertAmbientModuleResolved(
     program: Program,
     checker: Checker,
     moduleSymbol: CompilerSymbol
-  ): void {
-    assertResolvedAmbientModuleReExports(
+  ): Promise<void> {
+    await assertResolvedAmbientModuleReExports(
       program,
       checker,
       moduleSymbol,

@@ -5,13 +5,13 @@ import {
   SyntaxKind,
 } from "tsrs/ast";
 import type { Declaration, Node } from "tsrs/ast";
-import { SignatureKind } from "tsrs/sync";
+import { SignatureKind } from "tsrs/async";
 import type {
   Checker,
   Signature,
   Symbol as CompilerSymbol,
   Type,
-} from "tsrs/sync";
+} from "tsrs/async";
 
 import {
   declarationsOf,
@@ -26,6 +26,7 @@ import type {
 } from "#typepeek/inspection/model/protocol";
 import { inspectSignatureDetails } from "#typepeek/inspection/projection/signature-details";
 import type { FocusedExportResolution } from "#typepeek/inspection/queries/focused-export";
+import { mapAsync } from "#typepeek/shared/async-collection";
 
 const MAX_SIGNATURES = 64;
 const MAX_SIGNATURE_BYTES = 16 * 1024;
@@ -39,26 +40,34 @@ interface SignatureCandidate {
 }
 
 interface SignatureProjection<Value> {
-  readonly project: (candidate: SignatureCandidate) => Value;
+  readonly project: (candidate: SignatureCandidate) => Value | Promise<Value>;
   readonly retain: (value: Value) => Value;
   readonly serializeForBudget: (value: Value) => string;
 }
 
-const signatureDeclaration = function signatureDeclaration(
+const signatureDeclaration = async function signatureDeclaration(
   symbol: CompilerSymbol
-): Declaration | undefined {
-  return valueDeclarationOf(symbol) ?? declarationsOf(symbol)[0];
+): Promise<Declaration | undefined> {
+  const value = await valueDeclarationOf(symbol);
+
+  if (value !== undefined) {
+    return value;
+  }
+
+  const declarations = await declarationsOf(symbol);
+
+  return declarations[0];
 };
 
-const signatureType = function signatureType(
+const signatureType = async function signatureType(
   checker: Checker,
   symbol: CompilerSymbol,
   declaration: Declaration,
   valueAccessible: boolean
-): Type {
+): Promise<Type> {
   return valueAccessible
-    ? checker.getTypeOfSymbolAtLocation(symbol, declaration)
-    : checker.getDeclaredTypeOfSymbol(symbol);
+    ? await checker.getTypeOfSymbolAtLocation(symbol, declaration)
+    : await checker.getDeclaredTypeOfSymbol(symbol);
 };
 
 const hasAnyModifier = function hasAnyModifier(
@@ -88,42 +97,44 @@ const abstractConstructorDeclaration = function abstractConstructorDeclaration(
     : false;
 };
 
-const isPublicConstructorSignature = function isPublicConstructorSignature(
-  signature: Signature
-): boolean {
-  const declaration = signature.declaration?.resolve();
+const isPublicConstructorSignature =
+  async function isPublicConstructorSignature(
+    signature: Signature
+  ): Promise<boolean> {
+    const declaration = await signature.declaration?.resolve();
 
-  if (declaration === undefined) {
-    return true;
-  }
+    if (declaration === undefined) {
+      return true;
+    }
 
-  if (abstractConstructorDeclaration(declaration)) {
-    return false;
-  }
+    if (abstractConstructorDeclaration(declaration)) {
+      return false;
+    }
 
-  if (!isConstructorDeclaration(declaration)) {
-    return true;
-  }
+    if (!isConstructorDeclaration(declaration)) {
+      return true;
+    }
 
-  return !hasAnyModifier(declaration, [
-    SyntaxKind.PrivateKeyword,
-    SyntaxKind.ProtectedKeyword,
-  ]);
-};
+    return !hasAnyModifier(declaration, [
+      SyntaxKind.PrivateKeyword,
+      SyntaxKind.ProtectedKeyword,
+    ]);
+  };
 
-const appendSignatureCandidates = function appendSignatureCandidates(
+const appendSignatureCandidates = async function appendSignatureCandidates(
   candidates: SignatureCandidate[],
   checker: Checker,
   type: Type,
   signatureKind: SignatureKind,
   kind: ExportSignature["kind"]
-): void {
-  const signatures = checker.getSignaturesOfType(type, signatureKind);
+): Promise<void> {
+  const signatures = await checker.getSignaturesOfType(type, signatureKind);
 
+  /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
   for (const [compilerOrder, signature] of signatures.entries()) {
     if (
       signatureKind === SignatureKind.Construct &&
-      !isPublicConstructorSignature(signature)
+      !(await isPublicConstructorSignature(signature))
     ) {
       continue;
     }
@@ -142,23 +153,24 @@ const appendSignatureCandidates = function appendSignatureCandidates(
       signatureKind,
     });
   }
+  /* oxlint-enable eslint/no-await-in-loop */
 };
 
-const symbolDeclarations = function symbolDeclarations(
+const symbolDeclarations = async function symbolDeclarations(
   symbol: CompilerSymbol | undefined
-): readonly Declaration[] {
-  return declarationsOf(symbol) ?? [];
+): Promise<readonly Declaration[]> {
+  return (await declarationsOf(symbol)) ?? [];
 };
 
-const declarationSourceOrder = function declarationSourceOrder(
+const declarationSourceOrder = async function declarationSourceOrder(
   symbol: CompilerSymbol,
   type: Type
-): ReadonlyMap<string, number> {
+): Promise<ReadonlyMap<string, number>> {
   // TypeScript preserves order within one source file but can interleave
   // signatures from merged declarations. Rank their source files explicitly.
   const declarations = [
-    ...symbolDeclarations(symbol),
-    ...symbolDeclarations(type.getSymbol()),
+    ...(await symbolDeclarations(symbol)),
+    ...(await symbolDeclarations(await type.getSymbol())),
   ];
 
   const sources = declarations.map(
@@ -192,10 +204,11 @@ const sourceRank = function sourceRank(
 const compareSignatureCandidates = function compareSignatureCandidates(
   left: SignatureCandidate,
   right: SignatureCandidate,
-  sourceOrder: ReadonlyMap<string, number>
+  sourceOrder: ReadonlyMap<string, number>,
+  declarations: ReadonlyMap<SignatureCandidate, Declaration | undefined>
 ): number {
-  const leftDeclaration = left.signature.declaration?.resolve();
-  const rightDeclaration = right.signature.declaration?.resolve();
+  const leftDeclaration = declarations.get(left);
+  const rightDeclaration = declarations.get(right);
 
   if (leftDeclaration === undefined || rightDeclaration === undefined) {
     return left.compilerOrder - right.compilerOrder;
@@ -219,18 +232,18 @@ const compareSignatureCandidates = function compareSignatureCandidates(
     : sourceDifference;
 };
 
-const orderedSignatureCandidates = function orderedSignatureCandidates(
+const orderedSignatureCandidates = async function orderedSignatureCandidates(
   checker: Checker,
   resolution: FocusedExportResolution
-): SignatureCandidate[] {
+): Promise<SignatureCandidate[]> {
   const symbol = resolution.targetSymbol;
-  const declaration = signatureDeclaration(symbol);
+  const declaration = await signatureDeclaration(symbol);
 
   if (declaration === undefined) {
     return [];
   }
 
-  const type = signatureType(
+  const type = await signatureType(
     checker,
     symbol,
     declaration,
@@ -238,73 +251,83 @@ const orderedSignatureCandidates = function orderedSignatureCandidates(
   );
 
   const candidates: SignatureCandidate[] = [];
-  appendSignatureCandidates(
+  await appendSignatureCandidates(
     candidates,
     checker,
     type,
     SignatureKind.Call,
     "call"
   );
-  appendSignatureCandidates(
+  await appendSignatureCandidates(
     candidates,
     checker,
     type,
     SignatureKind.Construct,
     "construct"
   );
-  const sourceOrder = declarationSourceOrder(symbol, type);
+  const sourceOrder = await declarationSourceOrder(symbol, type);
+  const declarations = new Map<SignatureCandidate, Declaration | undefined>();
+  await mapAsync(candidates, async (candidate) => {
+    declarations.set(
+      candidate,
+      await candidate.signature.declaration?.resolve()
+    );
+  });
   candidates.sort((left, right) =>
-    compareSignatureCandidates(left, right, sourceOrder)
+    compareSignatureCandidates(left, right, sourceOrder, declarations)
   );
 
   return candidates;
 };
 
-const inspectBoundedSignatures = function inspectBoundedSignatures<Value>(
+const inspectBoundedSignatures = async function inspectBoundedSignatures<Value>(
   checker: Checker,
   resolution: FocusedExportResolution,
   projection: SignatureProjection<Value>
-): readonly Value[] {
+): Promise<readonly Value[]> {
   let totalBytes = 0;
 
-  return orderedSignatureCandidates(checker, resolution).map((candidate) => {
-    const inspectedSignature = projection.project(candidate);
+  return await mapAsync(
+    await orderedSignatureCandidates(checker, resolution),
+    async (candidate) => {
+      const inspectedSignature = await projection.project(candidate);
 
-    const signatureBytes = Buffer.byteLength(
-      projection.serializeForBudget(inspectedSignature)
-    );
-
-    totalBytes += signatureBytes;
-
-    if (
-      signatureBytes > MAX_SIGNATURE_BYTES ||
-      totalBytes > MAX_SIGNATURE_TOTAL_BYTES
-    ) {
-      throw new InspectionLimitError(
-        "signature-bytes",
-        "Inspection exceeded its Module Export signature byte limit."
+      const signatureBytes = Buffer.byteLength(
+        projection.serializeForBudget(inspectedSignature)
       );
-    }
 
-    return projection.retain(inspectedSignature);
-  });
+      totalBytes += signatureBytes;
+
+      if (
+        signatureBytes > MAX_SIGNATURE_BYTES ||
+        totalBytes > MAX_SIGNATURE_TOTAL_BYTES
+      ) {
+        throw new InspectionLimitError(
+          "signature-bytes",
+          "Inspection exceeded its Module Export signature byte limit."
+        );
+      }
+
+      return projection.retain(inspectedSignature);
+    }
+  );
 };
 
 /** Projects complete structured signatures under the shared visibility, ordering and byte policy. */
 export const inspectResolvedExportSignatureDetails =
-  function inspectResolvedExportSignatureDetails(
+  async function inspectResolvedExportSignatureDetails(
     checker: Checker,
     resolution: FocusedExportResolution,
     retainSignature: (value: InspectedSignature) => InspectedSignature
-  ): readonly InspectedSignature[] {
-    return inspectBoundedSignatures(checker, resolution, {
-      project: ({ kind, signature, signatureKind }) =>
-        inspectSignatureDetails(
+  ): Promise<readonly InspectedSignature[]> {
+    return await inspectBoundedSignatures(checker, resolution, {
+      project: async ({ kind, signature, signatureKind }) =>
+        await inspectSignatureDetails(
           checker,
           kind,
           signature,
           signatureKind,
-          signatureDeclaration(resolution.targetSymbol)
+          await signatureDeclaration(resolution.targetSymbol)
         ),
       retain: retainSignature,
       serializeForBudget: (signature) => JSON.stringify(signature),
@@ -312,19 +335,19 @@ export const inspectResolvedExportSignatureDetails =
   };
 
 export const inspectResolvedExportSignatures =
-  function inspectResolvedExportSignatures(
+  async function inspectResolvedExportSignatures(
     checker: Checker,
     resolution: FocusedExportResolution,
     retainSignature: (value: ExportSignature) => ExportSignature
-  ): readonly ExportSignature[] {
-    return inspectBoundedSignatures(checker, resolution, {
-      project: ({ kind, signature, signatureKind }) => ({
+  ): Promise<readonly ExportSignature[]> {
+    return await inspectBoundedSignatures(checker, resolution, {
+      project: async ({ kind, signature, signatureKind }) => ({
         kind,
-        text: signatureText(
+        text: await signatureText(
           checker,
           signature,
-          signature.declaration?.resolve() ??
-            signatureDeclaration(resolution.targetSymbol),
+          (await signature.declaration?.resolve()) ??
+            (await signatureDeclaration(resolution.targetSymbol)),
           signatureKind
         ),
       }),

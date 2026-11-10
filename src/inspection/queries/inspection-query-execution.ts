@@ -59,13 +59,15 @@ const compareModuleExports = function compareModuleExports(
   return 0;
 };
 
-const inspectModuleExports = function inspectModuleExports(
+const inspectModuleExports = async function inspectModuleExports(
   { checker, moduleSymbol }: InspectableModuleEvidence,
   maximum = MAX_MODULE_EXPORTS
-): readonly {
-  readonly name: string;
-}[] {
-  const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
+): Promise<
+  readonly {
+    readonly name: string;
+  }[]
+> {
+  const exportedSymbols = await checker.getExportsOfModule(moduleSymbol);
 
   if (exportedSymbols.length > maximum) {
     throw new InspectionLimitError(
@@ -134,8 +136,8 @@ const missingMemberOutcome = function missingMemberOutcome(
 
 const memberQueryResult = function memberQueryResult(
   outcome:
-    | ReturnType<ModuleExportInspection["inspectMember"]>
-    | ReturnType<ModuleExportInspection["discoverMembers"]>,
+    | Awaited<ReturnType<ModuleExportInspection["inspectMember"]>>
+    | Awaited<ReturnType<ModuleExportInspection["discoverMembers"]>>,
   query: {
     readonly exportName: string;
     readonly memberPath: MemberPath;
@@ -196,13 +198,13 @@ const documentationExcerpt = function documentationExcerpt(
     .join("");
 };
 
-const searchModuleExports = function searchModuleExports(
+const searchModuleExports = async function searchModuleExports(
   { checker, moduleSymbol }: InspectableModuleEvidence,
   query: string,
   construction: InspectionResultConstruction,
   scope?: ExportSearch["scope"]
-): ModuleExportSearchResult {
-  const exportedSymbols = checker.getExportsOfModule(moduleSymbol);
+): Promise<ModuleExportSearchResult> {
+  const exportedSymbols = await checker.getExportsOfModule(moduleSymbol);
 
   if (exportedSymbols.length > MAX_EXPORT_INDEX_CANDIDATES) {
     throw new InspectionLimitError(
@@ -225,6 +227,7 @@ const searchModuleExports = function searchModuleExports(
     matches.push(construction.exportSearchMatch(match));
   };
 
+  /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
   for (const symbol of exportedSymbols) {
     const { name } = symbol;
 
@@ -233,13 +236,13 @@ const searchModuleExports = function searchModuleExports(
         append({ name });
       }
     } else {
-      const resolution = resolveFocusedExportSymbol(
+      const resolution = await resolveFocusedExportSymbol(
         checker,
         symbol,
         moduleSymbol
       );
 
-      const documentation = inspectPackageDocumentation(
+      const documentation = await inspectPackageDocumentation(
         checker,
         symbol,
         resolution.targetSymbol,
@@ -255,7 +258,7 @@ const searchModuleExports = function searchModuleExports(
 
       append({
         name,
-        signatures: inspectResolvedExportSignatures(
+        signatures: await inspectResolvedExportSignatures(
           checker,
           resolution,
           (value) => value
@@ -270,13 +273,14 @@ const searchModuleExports = function searchModuleExports(
       });
     }
   }
+  /* oxlint-enable eslint/no-await-in-loop */
 
   matches.sort(compareModuleExports);
 
   return { matches, totalModuleExports: exportedSymbols.length };
 };
 
-const inspectEvidenceQuery = function inspectEvidenceQuery(
+const inspectEvidenceQuery = async function inspectEvidenceQuery(
   {
     evidence,
     construction,
@@ -284,12 +288,12 @@ const inspectEvidenceQuery = function inspectEvidenceQuery(
     paginationScope,
   }: EvidenceQueryContext,
   query: InspectionPlanQuery
-): EvidenceQueryResult {
+): Promise<EvidenceQueryResult> {
   switch (query.intent) {
     case "interface-overview": {
       if (query.cursor !== undefined) {
         const page = paginateExports(
-          inspectModuleExports(evidence, MAX_EXPORT_INDEX_CANDIDATES),
+          await inspectModuleExports(evidence, MAX_EXPORT_INDEX_CANDIDATES),
           query.cursor,
           paginationScope
         );
@@ -302,21 +306,21 @@ const inspectEvidenceQuery = function inspectEvidenceQuery(
               status: "unsupported",
             }
           : construction.interfaceOverview(
-              evidence.publicSubpaths,
+              await evidence.publicSubpaths,
               page.moduleExports,
               page.page
             );
       }
 
       return construction.interfaceOverview(
-        evidence.publicSubpaths,
-        inspectModuleExports(evidence)
+        await evidence.publicSubpaths,
+        await inspectModuleExports(evidence)
       );
     }
 
     case "export-inspection": {
       return focusedQueryResult(
-        moduleExport.inspectExport(query.exportName),
+        await moduleExport.inspectExport(query.exportName),
         query.exportName,
         construction.specifier
       );
@@ -324,7 +328,11 @@ const inspectEvidenceQuery = function inspectEvidenceQuery(
 
     case "signature-inspection": {
       return focusedQueryResult(
-        inspectModuleExportSignatures(evidence, query.exportName, construction),
+        await inspectModuleExportSignatures(
+          evidence,
+          query.exportName,
+          construction
+        ),
         query.exportName,
         construction.specifier
       );
@@ -332,7 +340,7 @@ const inspectEvidenceQuery = function inspectEvidenceQuery(
 
     case "declaration-inspection": {
       return focusedQueryResult(
-        moduleExport.inspectDeclarations(query.exportName),
+        await moduleExport.inspectDeclarations(query.exportName),
         query.exportName,
         construction.specifier
       );
@@ -340,7 +348,7 @@ const inspectEvidenceQuery = function inspectEvidenceQuery(
 
     case "member-inspection": {
       return memberQueryResult(
-        moduleExport.inspectMember(query.exportName, query.memberPath),
+        await moduleExport.inspectMember(query.exportName, query.memberPath),
         query,
         construction.specifier
       );
@@ -348,7 +356,7 @@ const inspectEvidenceQuery = function inspectEvidenceQuery(
 
     case "member-discovery": {
       return memberQueryResult(
-        moduleExport.discoverMembers(
+        await moduleExport.discoverMembers(
           query.exportName,
           query.memberPath,
           query.query
@@ -359,7 +367,7 @@ const inspectEvidenceQuery = function inspectEvidenceQuery(
     }
 
     case "export-search": {
-      const search = searchModuleExports(
+      const search = await searchModuleExports(
         evidence,
         query.query,
         construction,
@@ -375,7 +383,7 @@ const inspectEvidenceQuery = function inspectEvidenceQuery(
     }
 
     case "public-subpath-discovery": {
-      return construction.publicSubpathDiscovery(evidence.publicSubpaths);
+      return construction.publicSubpathDiscovery(await evidence.publicSubpaths);
     }
 
     default: {
@@ -384,19 +392,26 @@ const inspectEvidenceQuery = function inspectEvidenceQuery(
   }
 };
 
-const prepareQueryInspection = function prepareQueryInspection(
+const prepareQueryInspection = async function prepareQueryInspection(
   selection: InspectableModuleSelection,
   queries: readonly InspectionPlanQuery[],
   construction: InspectionResultConstruction,
   accessStyle: AnalysisRequest["request"]["accessStyle"]
-): (query: InspectionPlanQuery) => EvidenceQueryResult {
+): Promise<
+  (
+    query: InspectionPlanQuery
+  ) => EvidenceQueryResult | Promise<EvidenceQueryResult>
+> {
   if (queries.every((query) => query.intent === "public-subpath-discovery")) {
-    const publicSubpaths = selection.readPublicSubpaths();
+    const publicSubpaths = await selection.readPublicSubpaths();
 
     return () => construction.publicSubpathDiscovery(publicSubpaths);
   }
 
-  const evidence = materializeInspectableModuleEvidence(selection, queries);
+  const evidence = await materializeInspectableModuleEvidence(
+    selection,
+    queries
+  );
 
   const context = {
     construction,
@@ -411,14 +426,14 @@ const prepareQueryInspection = function prepareQueryInspection(
     ]),
   };
 
-  return (query) => inspectEvidenceQuery(context, query);
+  return async (query) => await inspectEvidenceQuery(context, query);
 };
 
 /** Executes ordered queries against one evidence selection and aggregate result budget. */
-export const executeInspectionQueries = function executeInspectionQueries(
+export const executeInspectionQueries = async function executeInspectionQueries(
   analysisRequest: AnalysisRequest,
   selection: InspectableModuleSelection
-): InspectionOutcome {
+): Promise<InspectionOutcome> {
   const { request } = analysisRequest;
   const queries = inspectionPlanQueriesForRequest(analysisRequest);
 
@@ -428,7 +443,7 @@ export const executeInspectionQueries = function executeInspectionQueries(
     specifier: request.specifier,
   });
 
-  const inspectQuery = prepareQueryInspection(
+  const inspectQuery = await prepareQueryInspection(
     selection,
     queries,
     construction,
@@ -437,8 +452,9 @@ export const executeInspectionQueries = function executeInspectionQueries(
 
   const inspections: AtomicInspectionResult[] = [];
 
+  /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
   for (const query of queries) {
-    const inspection = inspectQuery(query);
+    const inspection = await inspectQuery(query);
 
     if ("status" in inspection) {
       return inspection;
@@ -446,6 +462,7 @@ export const executeInspectionQueries = function executeInspectionQueries(
 
     inspections.push(inspection);
   }
+  /* oxlint-enable eslint/no-await-in-loop */
 
   if (analysisRequest.intent === "inspection-plan") {
     return { result: construction.plan(inspections), status: "success" };

@@ -2,14 +2,16 @@ import {
   closeSync,
   existsSync,
   openSync,
+  opendirSync,
   readSync,
   realpathSync,
   statSync,
 } from "node:fs";
-import nodePath from "node:path";
 
 import { InspectionLimitError } from "#typepeek/inspection/model/errors";
 import type { InspectionBudgetDimension } from "#typepeek/inspection/model/protocol-vocabulary";
+import type { DirectoryEntry } from "#typepeek/platform/node-directory";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 
 const MAX_CANONICAL_CANDIDATE_DEPTH = 256;
 const MAX_PATH_CONTAINMENT_ENTRIES = 4096;
@@ -184,3 +186,35 @@ export const canonicalEvidenceCandidatePath =
       current = parent;
     }
   };
+
+export const evidencePathExists = (fileName: string): boolean =>
+  existsSync(fileName);
+
+export const resolveEvidencePath = (fileName: string): string =>
+  realpathSync.native(fileName);
+
+export const evidencePathIsDirectory = (fileName: string): boolean =>
+  statSync(fileName).isDirectory();
+
+export const readEvidenceDirectory = (
+  directory: string,
+  reserveEntry: () => void
+): readonly DirectoryEntry[] => {
+  const handle = opendirSync(directory);
+  const entries: DirectoryEntry[] = [];
+
+  try {
+    for (
+      let entry = handle.readSync();
+      entry !== null;
+      entry = handle.readSync()
+    ) {
+      reserveEntry();
+      entries.push(entry);
+    }
+  } finally {
+    handle.closeSync();
+  }
+
+  return entries;
+};

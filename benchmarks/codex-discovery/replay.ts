@@ -53,7 +53,7 @@ const workload =
 const compiler =
   workload === undefined
     ? undefined
-    : inspectWithCompiler(requireDefined(values.workspace), workload);
+    : await inspectWithCompiler(requireDefined(values.workspace), workload);
 
 const oracle = decodeAcquisitionOracle(
   values.oracle === undefined

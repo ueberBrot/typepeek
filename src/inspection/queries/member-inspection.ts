@@ -6,8 +6,8 @@ import {
   SyntaxKind,
 } from "tsrs/ast";
 import type { Declaration } from "tsrs/ast";
-import { SymbolFlags } from "tsrs/sync";
-import type { Checker, Symbol as CompilerSymbol, Type } from "tsrs/sync";
+import { SymbolFlags } from "tsrs/async";
+import type { Checker, Symbol as CompilerSymbol, Type } from "tsrs/async";
 
 import { aliasedSymbol } from "#typepeek/inspection/compiler/compiler-queries";
 import {
@@ -32,6 +32,7 @@ import {
   isPrivateDeclaration,
   publicDeclarations,
 } from "#typepeek/inspection/projection/public-declaration-selection";
+import { mapAsync, filterAsync } from "#typepeek/shared/async-collection";
 import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 export interface DiscoveredPublicMembers {
@@ -69,13 +70,13 @@ const isCallerAccessibleMemberDeclaration =
     );
   };
 
-export const publicMemberDeclarations = function publicMemberDeclarations(
+export const publicMemberDeclarations = async function publicMemberDeclarations(
   checker: Checker,
   symbol: CompilerSymbol
-): readonly Declaration[] {
-  const declarations = publicDeclarations(
+): Promise<readonly Declaration[]> {
+  const declarations = await publicDeclarations(
     checker,
-    declarationsOf(symbol) ?? []
+    (await declarationsOf(symbol)) ?? []
   );
 
   assertMergedDeclarationLimit(declarations);
@@ -83,25 +84,26 @@ export const publicMemberDeclarations = function publicMemberDeclarations(
   return declarations.filter(isCallerAccessibleMemberDeclaration);
 };
 
-const resolveAliasTarget = function resolveAliasTarget(
+const resolveAliasTarget = async function resolveAliasTarget(
   checker: Checker,
   symbol: CompilerSymbol
-): CompilerSymbol {
+): Promise<CompilerSymbol> {
   return bitwiseAnd(symbol.flags, SymbolFlags.Alias) === 0
     ? symbol
-    : aliasedSymbol(checker, symbol);
+    : await aliasedSymbol(checker, symbol);
 };
 
 /** Bounds raw export tables and star edges before either value or namespace expansion. */
-const reserveNamespaceExpansion = function reserveNamespaceExpansion(
+const reserveNamespaceExpansion = async function reserveNamespaceExpansion(
   checker: Checker,
   symbol: CompilerSymbol,
   construction: InspectionResultConstruction
-): number {
+): Promise<number> {
   let reserved = 0;
   const pending = [symbol];
   const visited = new Set<CompilerSymbol>();
 
+  /* oxlint-disable eslint/no-await-in-loop -- Expansion updates shared candidate budgets and the pending export graph. */
   for (
     let current = pending.pop();
     current !== undefined;
@@ -112,13 +114,20 @@ const reserveNamespaceExpansion = function reserveNamespaceExpansion(
     }
 
     visited.add(current);
-    const count = current.getExports().size ?? 0;
+    const exportsResult = await current.getExports();
+    const count = exportsResult.size ?? 0;
     construction.consumeMemberCandidates(count);
     reserved += count;
-    const stars = current.getExports().get(InternalSymbolName.ExportStar);
-    const declarations = publicMemberDeclarations(checker, stars ?? current);
+
+    const stars = exportsResult.get(InternalSymbolName.ExportStar);
+
+    const declarations = await publicMemberDeclarations(
+      checker,
+      stars ?? current
+    );
 
     if (stars !== undefined) {
+      /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
       for (const declaration of declarations) {
         construction.consumeMemberCandidates(1);
         reserved += 1;
@@ -130,7 +139,9 @@ const reserveNamespaceExpansion = function reserveNamespaceExpansion(
           continue;
         }
 
-        const target = checker.getSymbolAtLocation(declaration.moduleSpecifier);
+        const target = await checker.getSymbolAtLocation(
+          declaration.moduleSpecifier
+        );
 
         if (target === undefined) {
           throw new UnsupportedInspectionError(
@@ -138,143 +149,181 @@ const reserveNamespaceExpansion = function reserveNamespaceExpansion(
           );
         }
 
-        pending.push(resolveAliasTarget(checker, target));
+        pending.push(await resolveAliasTarget(checker, target));
       }
+      /* oxlint-enable eslint/no-await-in-loop */
     }
   }
+  /* oxlint-enable eslint/no-await-in-loop */
 
   return reserved;
 };
 
-const resolvedNamespaceMembers = function resolvedNamespaceMembers(
+const resolvedNamespaceMembers = async function resolvedNamespaceMembers(
   checker: Checker,
   symbol: CompilerSymbol,
   construction: InspectionResultConstruction
-): readonly CompilerSymbol[] {
-  reserveNamespaceExpansion(checker, symbol, construction);
+): Promise<readonly CompilerSymbol[]> {
+  await reserveNamespaceExpansion(checker, symbol, construction);
 
-  return checker.getExportsOfModule(symbol);
+  return await checker.getExportsOfModule(symbol);
 };
 
-const memberType = function memberType(
+const memberType = async function memberType(
   checker: Checker,
   symbol: CompilerSymbol,
   space: "type" | "value"
-): Type | undefined {
+): Promise<Type | undefined> {
   if (space === "type") {
     return bitwiseAnd(symbol.flags, SymbolFlags.Type) === 0
       ? undefined
-      : checker.getDeclaredTypeOfSymbol(symbol);
+      : await checker.getDeclaredTypeOfSymbol(symbol);
   }
 
-  const declaration = valueDeclarationOf(symbol) ?? declarationsOf(symbol)[0];
+  let declaration = await valueDeclarationOf(symbol);
+
+  if (declaration === undefined) {
+    const declarations = await declarationsOf(symbol);
+    [declaration] = declarations;
+  }
 
   return declaration === undefined
     ? undefined
-    : checker.getTypeOfSymbolAtLocation(symbol, declaration);
+    : await checker.getTypeOfSymbolAtLocation(symbol, declaration);
 };
 
-const memberInSpace = function memberInSpace(
+const memberInSpace = async function memberInSpace(
   checker: Checker,
   symbol: CompilerSymbol,
   name: string,
   space: DeclarationSpace,
   construction: InspectionResultConstruction
-): CompilerSymbol | undefined {
+): Promise<CompilerSymbol | undefined> {
   if (space === "namespace") {
     if (bitwiseAnd(symbol.flags, SymbolFlags.Module) === 0) {
       return undefined;
     }
 
-    const direct = symbol.getExports().get(escapeLeadingUnderscores(name));
+    const exportsResult = await symbol.getExports();
+    const direct = exportsResult.get(escapeLeadingUnderscores(name));
 
     if (
       direct !== undefined ||
-      !(symbol.getExports().has(InternalSymbolName.ExportStar) ?? false)
+      !exportsResult.has(InternalSymbolName.ExportStar)
     ) {
       return direct;
     }
 
-    return resolvedNamespaceMembers(checker, symbol, construction).find(
+    const resolvedNamespaceMembersResult = await resolvedNamespaceMembers(
+      checker,
+      symbol,
+      construction
+    );
+
+    return resolvedNamespaceMembersResult.find(
       (member) => member.name === name
     );
   }
 
-  if (
-    space === "value" &&
-    (symbol.getExports().has(InternalSymbolName.ExportStar) ?? false)
-  ) {
-    reserveNamespaceExpansion(checker, symbol, construction);
+  if (space === "value") {
+    const exports = await symbol.getExports();
+
+    if (exports.has(InternalSymbolName.ExportStar)) {
+      await reserveNamespaceExpansion(checker, symbol, construction);
+    }
   }
 
-  return memberType(checker, symbol, space)?.getProperty(name);
+  const memberTypeResult = await memberType(checker, symbol, space);
+
+  return await memberTypeResult?.getProperty(name);
 };
 
-const publicMemberCandidates = function publicMemberCandidates(
+const publicMemberCandidates = async function publicMemberCandidates(
   checker: Checker,
   symbol: CompilerSymbol,
   memberName: string,
   space: DeclarationSpace | undefined,
   construction: InspectionResultConstruction
-): readonly CompilerSymbol[] {
+): Promise<readonly CompilerSymbol[]> {
   const spaces =
     space === undefined ? memberDeclarationSpaceSchema.literals : [space];
 
-  const candidates = spaces
-    .map((selectedSpace) =>
-      memberInSpace(checker, symbol, memberName, selectedSpace, construction)
-    )
-    .filter(
-      (candidate): candidate is CompilerSymbol => candidate !== undefined
-    );
+  const mappedValues = await mapAsync(
+    spaces,
+    async (selectedSpace) =>
+      await memberInSpace(
+        checker,
+        symbol,
+        memberName,
+        selectedSpace,
+        construction
+      )
+  );
+
+  const candidates = mappedValues.filter(
+    (candidate): candidate is CompilerSymbol => candidate !== undefined
+  );
 
   return [...new Set(candidates)];
 };
 
-const isUndeclaredPublicProperty = function isUndeclaredPublicProperty(
+const isUndeclaredPublicProperty = async function isUndeclaredPublicProperty(
   symbol: CompilerSymbol
-): boolean {
-  return (
-    bitwiseAnd(symbol.flags, SymbolFlags.Property) !== 0 &&
-    bitwiseAnd(symbol.flags, SymbolFlags.Prototype) === 0 &&
-    (declarationsOf(symbol) === undefined ||
-      declarationsOf(symbol).length === 0)
-  );
+): Promise<boolean> {
+  if (
+    bitwiseAnd(symbol.flags, SymbolFlags.Property) === 0 ||
+    bitwiseAnd(symbol.flags, SymbolFlags.Prototype) !== 0
+  ) {
+    return false;
+  }
+
+  const declarations = await declarationsOf(symbol);
+
+  return declarations.length === 0;
 };
 
-const hasPublicDeclaration = function hasPublicDeclaration(
+const hasPublicDeclaration = async function hasPublicDeclaration(
   checker: Checker,
   symbol: CompilerSymbol
-): boolean {
-  const target = resolveAliasTarget(checker, symbol);
+): Promise<boolean> {
+  const target = await resolveAliasTarget(checker, symbol);
+
+  const publicMemberDeclarationsResult = await publicMemberDeclarations(
+    checker,
+    target
+  );
 
   return (
-    publicMemberDeclarations(checker, target).length > 0 ||
-    isUndeclaredPublicProperty(target)
+    publicMemberDeclarationsResult.length > 0 ||
+    (await isUndeclaredPublicProperty(target))
   );
 };
 
 /** Resolves only exact names in the type, value, and namespace declaration spaces. */
-export const resolvePublicMemberPath = function resolvePublicMemberPath(
+export const resolvePublicMemberPath = async function resolvePublicMemberPath(
   checker: Checker,
   root: CompilerSymbol,
   memberPath: MemberPath,
   construction: InspectionResultConstruction
-): PublicMemberPathResolution {
+): Promise<PublicMemberPathResolution> {
   let selected = root;
 
+  /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
   for (const segment of memberPath) {
     const memberName = Predicate.isString(segment) ? segment : segment.name;
     const space = Predicate.isString(segment) ? undefined : segment.space;
-    publicMemberDeclarations(checker, selected);
+    await publicMemberDeclarations(checker, selected);
 
-    const members = publicMemberCandidates(
-      checker,
-      selected,
-      memberName,
-      space,
-      construction
-    ).filter((candidate) => hasPublicDeclaration(checker, candidate));
+    const members = await filterAsync(
+      await publicMemberCandidates(
+        checker,
+        selected,
+        memberName,
+        space,
+        construction
+      ),
+      async (candidate) => await hasPublicDeclaration(checker, candidate)
+    );
 
     const [member] = members;
 
@@ -284,57 +333,70 @@ export const resolvePublicMemberPath = function resolvePublicMemberPath(
       };
     }
 
-    selected = resolveAliasTarget(checker, member);
+    selected = await resolveAliasTarget(checker, member);
   }
+  /* oxlint-enable eslint/no-await-in-loop */
 
   return { status: "success", symbol: selected };
 };
 
-const membersInSpace = function membersInSpace(
+const membersInSpace = async function membersInSpace(
   checker: Checker,
   symbol: CompilerSymbol,
   space: DeclarationSpace,
   construction: InspectionResultConstruction
-): readonly CompilerSymbol[] {
+): Promise<readonly CompilerSymbol[]> {
   if (space === "namespace") {
     return bitwiseAnd(symbol.flags, SymbolFlags.Module) === 0
       ? []
-      : resolvedNamespaceMembers(checker, symbol, construction);
+      : await resolvedNamespaceMembers(checker, symbol, construction);
   }
 
   const reserved =
     space === "value" && bitwiseAnd(symbol.flags, SymbolFlags.Module) !== 0
-      ? reserveNamespaceExpansion(checker, symbol, construction)
+      ? await reserveNamespaceExpansion(checker, symbol, construction)
       : 0;
 
-  const members = memberType(checker, symbol, space)?.getProperties() ?? [];
+  const memberTypeResult = await memberType(checker, symbol, space);
+  const members = (await memberTypeResult?.getProperties()) ?? [];
+
   construction.consumeMemberCandidates(Math.max(0, members.length - reserved));
 
   return members;
 };
 
 /** Lists immediate caller-accessible names without projecting their declarations. */
-export const discoverPublicMembers = function discoverPublicMembers(
+export const discoverPublicMembers = async function discoverPublicMembers(
   checker: Checker,
   symbol: CompilerSymbol,
   query: string | undefined,
   construction: InspectionResultConstruction
-): DiscoveredPublicMembers {
-  publicMemberDeclarations(checker, symbol);
+): Promise<DiscoveredPublicMembers> {
+  await publicMemberDeclarations(checker, symbol);
   const names = new Map<string, DeclarationSpace[]>();
 
+  /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
   for (const space of memberDeclarationSpaceSchema.literals) {
-    const candidates = membersInSpace(checker, symbol, space, construction);
+    const candidates = await membersInSpace(
+      checker,
+      symbol,
+      space,
+      construction
+    );
 
     const valueType =
-      space === "value" ? memberType(checker, symbol, space) : undefined;
+      space === "value" ? await memberType(checker, symbol, space) : undefined;
 
     for (const candidate of candidates) {
-      if (!hasPublicDeclaration(checker, candidate)) {
+      if (!(await hasPublicDeclaration(checker, candidate))) {
         continue;
       }
 
-      if (isUndeclaredPublicProperty(resolveAliasTarget(checker, candidate))) {
+      if (
+        await isUndeclaredPublicProperty(
+          await resolveAliasTarget(checker, candidate)
+        )
+      ) {
         throw new UnsupportedInspectionError(
           "Member Discovery cannot describe public members without declaration evidence."
         );
@@ -355,7 +417,7 @@ export const discoverPublicMembers = function discoverPublicMembers(
       // Enumeration includes type-only star exports that exact value lookup rejects.
       if (
         valueType === undefined ||
-        valueType.getProperty(name) === candidate
+        (await valueType.getProperty(name)) === candidate
       ) {
         const spaces = names.get(name) ?? [];
         spaces.push(space);
@@ -363,6 +425,7 @@ export const discoverPublicMembers = function discoverPublicMembers(
       }
     }
   }
+  /* oxlint-enable eslint/no-await-in-loop */
 
   const normalizedQuery = query?.toLowerCase();
 

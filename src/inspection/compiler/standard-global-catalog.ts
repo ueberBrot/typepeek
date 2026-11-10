@@ -1,11 +1,13 @@
-import { readdirSync, readFileSync } from "node:fs";
-import nodePath from "node:path";
+import { layer } from "@effect/platform-bun/BunFileSystem";
+import { Effect, FileSystem } from "effect";
+import { forEach as forEachEffect } from "effect/Effect";
 
-import {
-  COMPILER_LIBRARY_DIRECTORY,
-  COMPILER_VERSION,
-} from "#typepeek/inspection/compiler/compiler-distribution";
+import { COMPILER_LIBRARY_DIRECTORY } from "#typepeek/inspection/compiler/compiler-distribution";
+import { COMPILER_VERSION } from "#typepeek/inspection/compiler/compiler-metadata";
 import { InspectionLimitError } from "#typepeek/inspection/model/errors";
+import { readBoundedFileText } from "#typepeek/platform/platform-file";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
+import { runAdapterEffect } from "#typepeek/shared/effect-adapter";
 import { bitwiseOr } from "#typepeek/shared/integer-bits";
 
 export interface StandardGlobalCatalog {
@@ -202,43 +204,51 @@ const collectStandardGlobalNames = function collectStandardGlobalNames(
   }
 };
 
-export const readStandardGlobalCatalog =
-  function readStandardGlobalCatalog(): StandardGlobalCatalog {
+export const readStandardGlobalCatalogEffect = Effect.fnUntraced(
+  function* readStandardGlobalCatalogEffect() {
+    const fs = yield* FileSystem.FileSystem;
     let traversalNodes = 0;
 
     const reserveTraversalNode = (): void => {
       traversalNodes += 1;
     };
 
-    const libraryFiles = readdirSync(COMPILER_LIBRARY_DIRECTORY)
+    const libraryNames = yield* fs.readDirectory(COMPILER_LIBRARY_DIRECTORY);
+
+    const libraryFiles = libraryNames
       .filter((name) => /^lib\..+\.d\.ts$/u.test(name))
       .map((name) => nodePath.join(COMPILER_LIBRARY_DIRECTORY, name));
 
     if (libraryFiles.length > MAX_STANDARD_LIBRARY_FILES) {
-      throw standardLibraryLimit();
+      return yield* Effect.die(standardLibraryLimit());
     }
 
     const names = new Map<string, StandardGlobalSpaces>();
     let byteCount = 0;
+    yield* forEachEffect(
+      libraryFiles,
+      (libraryFile) =>
+        Effect.gen(function* readLibrary() {
+          const text = yield* readBoundedFileText(
+            libraryFile,
+            MAX_STANDARD_LIBRARY_BYTES - byteCount
+          ).pipe(
+            Effect.catchTag("ByteStreamLimitError", () =>
+              Effect.die(standardLibraryLimit())
+            )
+          );
 
-    for (const libraryFile of libraryFiles) {
-      const text = readFileSync(libraryFile, "utf-8");
+          byteCount += Buffer.byteLength(text);
+          collectStandardGlobalNames(text, names, reserveTraversalNode);
 
-      if (text !== undefined) {
-        byteCount += Buffer.byteLength(text);
+          if (names.size > MAX_STANDARD_GLOBAL_NAMES) {
+            return yield* Effect.die(standardLibraryLimit());
+          }
 
-        if (byteCount > MAX_STANDARD_LIBRARY_BYTES) {
-          throw standardLibraryLimit();
-        }
-
-        collectStandardGlobalNames(text, names, reserveTraversalNode);
-
-        if (names.size > MAX_STANDARD_GLOBAL_NAMES) {
-          throw standardLibraryLimit();
-        }
-      }
-    }
-
+          return yield* Effect.void;
+        }),
+      { discard: true }
+    );
     addStandardGlobal(names, "globalThis", "value");
 
     return {
@@ -248,5 +258,11 @@ export const readStandardGlobalCatalog =
           [name, bitwiseOr(spaces.type ? 1 : 0, spaces.value ? 2 : 0)] as const
       ),
       traversalNodes,
-    };
-  };
+    } satisfies StandardGlobalCatalog;
+  }
+);
+
+export const readStandardGlobalCatalog = async () =>
+  await runAdapterEffect(
+    readStandardGlobalCatalogEffect().pipe(Effect.provide(layer))
+  );

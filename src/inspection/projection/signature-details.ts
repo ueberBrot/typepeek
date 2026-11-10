@@ -11,7 +11,7 @@ import type {
   ParameterDeclaration,
   TypeParameterDeclaration,
 } from "tsrs/ast";
-import { SymbolFlags, TypeFormatFlags, TypePredicateKind } from "tsrs/sync";
+import { SymbolFlags, TypeFormatFlags, TypePredicateKind } from "tsrs/async";
 import type {
   Checker,
   Signature,
@@ -19,7 +19,7 @@ import type {
   Symbol as CompilerSymbol,
   Type,
   TypeParameter,
-} from "tsrs/sync";
+} from "tsrs/async";
 
 import {
   emptyArgumentsType,
@@ -40,6 +40,7 @@ import type {
   SignatureTypeParameter,
   SignatureTypeParameterModifier,
 } from "#typepeek/inspection/model/protocol";
+import { mapAsync } from "#typepeek/shared/async-collection";
 import { bitwiseAnd, bitwiseOr } from "#typepeek/shared/integer-bits";
 
 const MAX_SIGNATURE_PARAMETERS = 256;
@@ -56,24 +57,33 @@ const SIGNATURE_TYPE_FORMAT_FLAGS = bitwiseOr(
   TypeFormatFlags.UseSingleQuotesForStringLiteralType
 );
 
-const renderSignatureType = function renderSignatureType(
+const renderSignatureType = async function renderSignatureType(
   checker: Checker,
   type: Type,
   location: Node
-): string {
-  return checker.typeToString(type, location, SIGNATURE_TYPE_FORMAT_FLAGS);
+): Promise<string> {
+  return await checker.typeToString(
+    type,
+    location,
+    SIGNATURE_TYPE_FORMAT_FLAGS
+  );
 };
 
-const signatureTypeParameterName = function signatureTypeParameterName(
+const signatureTypeParameterName = async function signatureTypeParameterName(
   checker: Checker,
   typeParameter: TypeParameter,
   declaration: TypeParameterDeclaration | undefined,
   location: Node
-): string {
+): Promise<string> {
+  if (declaration !== undefined) {
+    return declaration.name.text;
+  }
+
+  const symbol = await typeParameter.getSymbol();
+
   return (
-    declaration?.name.text ??
-    typeParameter.getSymbol()?.name ??
-    renderSignatureType(checker, typeParameter, location)
+    symbol?.name ??
+    (await renderSignatureType(checker, typeParameter, location))
   );
 };
 
@@ -94,15 +104,15 @@ const inspectTypeParameterModifiers = function inspectTypeParameterModifiers(
 };
 
 const signatureTypeParameterConstraint =
-  function signatureTypeParameterConstraint(
+  async function signatureTypeParameterConstraint(
     checker: Checker,
     typeParameter: TypeParameter,
     declaration: TypeParameterDeclaration | undefined,
     location: Node
-  ): Partial<Pick<SignatureTypeParameter, "constraint">> {
+  ): Promise<Partial<Pick<SignatureTypeParameter, "constraint">>> {
     if (
       declaration !== undefined &&
-      checker.getTypeAtLocation(declaration) === typeParameter
+      (await checker.getTypeAtLocation(declaration)) === typeParameter
     ) {
       return declaration.constraint === undefined
         ? {}
@@ -113,77 +123,88 @@ const signatureTypeParameterConstraint =
           };
     }
 
-    const constraint = typeParameter.getConstraint();
+    const constraint = await typeParameter.getConstraint();
 
     return constraint === undefined
       ? {}
-      : { constraint: renderSignatureType(checker, constraint, location) };
+      : {
+          constraint: await renderSignatureType(checker, constraint, location),
+        };
   };
 
-const signatureTypeParameterDefault = function signatureTypeParameterDefault(
-  checker: Checker,
-  typeParameter: TypeParameter,
-  location: Node
-): Partial<Pick<SignatureTypeParameter, "default">> {
-  const defaultType =
-    typeParameter.getDefault() ??
-    checker.getDefaultFromTypeParameter(typeParameter);
+const signatureTypeParameterDefault =
+  async function signatureTypeParameterDefault(
+    checker: Checker,
+    typeParameter: TypeParameter,
+    location: Node
+  ): Promise<Partial<Pick<SignatureTypeParameter, "default">>> {
+    const defaultType =
+      (await typeParameter.getDefault()) ??
+      (await checker.getDefaultFromTypeParameter(typeParameter));
 
-  return defaultType === undefined
-    ? {}
-    : { default: renderSignatureType(checker, defaultType, location) };
-};
-
-const inspectSignatureTypeParameter = function inspectSignatureTypeParameter(
-  checker: Checker,
-  typeParameter: TypeParameter,
-  enclosingDeclaration: Node
-): SignatureTypeParameter {
-  const declaration = (
-    typeParameter.getSymbol() === undefined
-      ? []
-      : declarationsOf(typeParameter.getSymbol())
-  ).find(isTypeParameterDeclaration);
-
-  const location = declaration ?? enclosingDeclaration;
-
-  return {
-    modifiers: inspectTypeParameterModifiers(declaration),
-    name: signatureTypeParameterName(
-      checker,
-      typeParameter,
-      declaration,
-      location
-    ),
-    ...signatureTypeParameterConstraint(
-      checker,
-      typeParameter,
-      declaration,
-      location
-    ),
-    ...signatureTypeParameterDefault(checker, typeParameter, location),
-    synthetic: declaration === undefined,
+    return defaultType === undefined
+      ? {}
+      : { default: await renderSignatureType(checker, defaultType, location) };
   };
-};
 
-const renderSymbolType = function renderSymbolType(
+const inspectSignatureTypeParameter =
+  async function inspectSignatureTypeParameter(
+    checker: Checker,
+    typeParameter: TypeParameter,
+    enclosingDeclaration: Node
+  ): Promise<SignatureTypeParameter> {
+    const declaration = (
+      (await typeParameter.getSymbol()) === undefined
+        ? []
+        : await declarationsOf(await typeParameter.getSymbol())
+    ).find(isTypeParameterDeclaration);
+
+    const location = declaration ?? enclosingDeclaration;
+
+    return {
+      modifiers: inspectTypeParameterModifiers(declaration),
+      name: await signatureTypeParameterName(
+        checker,
+        typeParameter,
+        declaration,
+        location
+      ),
+      ...(await signatureTypeParameterConstraint(
+        checker,
+        typeParameter,
+        declaration,
+        location
+      )),
+      ...(await signatureTypeParameterDefault(
+        checker,
+        typeParameter,
+        location
+      )),
+      synthetic: declaration === undefined,
+    };
+  };
+
+const renderSymbolType = async function renderSymbolType(
   checker: Checker,
   symbol: CompilerSymbol,
   location: Node
-): string {
-  return renderSignatureType(
+): Promise<string> {
+  return await renderSignatureType(
     checker,
-    checker.getTypeOfSymbolAtLocation(symbol, location),
+    await checker.getTypeOfSymbolAtLocation(symbol, location),
     location
   );
 };
 
-const findParameterDeclaration = function findParameterDeclaration(
+const findParameterDeclaration = async function findParameterDeclaration(
   symbol: CompilerSymbol
-): ParameterDeclaration | undefined {
-  const declaration =
-    valueDeclarationOf(symbol) ??
-    declarationsOf(symbol).find(isParameterDeclaration);
+): Promise<ParameterDeclaration | undefined> {
+  let declaration = await valueDeclarationOf(symbol);
+
+  if (declaration === undefined) {
+    const declarations = await declarationsOf(symbol);
+    declaration = declarations.find(isParameterDeclaration);
+  }
 
   return declaration !== undefined && isParameterDeclaration(declaration)
     ? declaration
@@ -206,37 +227,42 @@ const inspectSignatureBinding = function inspectSignatureBinding(
       };
 };
 
-const restParameterMayBeOmitted = function restParameterMayBeOmitted(
+const restParameterMayBeOmitted = async function restParameterMayBeOmitted(
   checker: Checker,
   type: Type
-): boolean {
-  const emptyArguments = emptyArgumentsType(checker);
+): Promise<boolean> {
+  const emptyArguments = await emptyArgumentsType(checker);
 
-  if (!checker.isTupleType(emptyArguments)) {
+  if (!(await checker.isTupleType(emptyArguments))) {
     throw new UnsupportedInspectionError(
       "The compiler could not describe an empty argument list."
     );
   }
 
-  return checker.isTypeAssignableTo(
+  return await checker.isTypeAssignableTo(
     emptyArguments,
-    checker.getBaseConstraintOfType(type) ?? type
+    (await checker.getBaseConstraintOfType(type)) ?? type
   );
 };
 
-const inspectSignatureParameter = function inspectSignatureParameter(
+const inspectSignatureParameter = async function inspectSignatureParameter(
   checker: Checker,
   symbol: CompilerSymbol,
   enclosingDeclaration: Node
-): SignatureParameter {
-  const declaration = findParameterDeclaration(symbol);
+): Promise<SignatureParameter> {
+  const declaration = await findParameterDeclaration(symbol);
   const location = declaration ?? enclosingDeclaration;
-  const parameterType = checker.getTypeOfSymbolAtLocation(symbol, location);
+
+  const parameterType = await checker.getTypeOfSymbolAtLocation(
+    symbol,
+    location
+  );
+
   const rest = declaration?.dotDotDotToken !== undefined;
 
-  const readOptionalResult = () => {
+  const readOptionalResult = async () => {
     if (rest) {
-      return restParameterMayBeOmitted(checker, parameterType);
+      return await restParameterMayBeOmitted(checker, parameterType);
     }
 
     if (declaration === undefined) {
@@ -266,29 +292,29 @@ const inspectSignatureParameter = function inspectSignatureParameter(
     );
   };
 
-  const optionalResult = readOptionalResult();
+  const optionalResult = await readOptionalResult();
 
   return {
     binding: inspectSignatureBinding(symbol, declaration),
     optional: optionalResult,
     rest,
-    type: renderSignatureType(checker, parameterType, location),
+    type: await renderSignatureType(checker, parameterType, location),
   };
 };
 
-const inspectSignatureReturn = function inspectSignatureReturn(
+const inspectSignatureReturn = async function inspectSignatureReturn(
   checker: Checker,
   signature: Signature,
   declaration: Node
-): SignatureReturn {
-  const predicate = checker.getTypePredicateOfSignature(signature);
+): Promise<SignatureReturn> {
+  const predicate = await checker.getTypePredicateOfSignature(signature);
 
   if (predicate === undefined) {
     return {
       kind: "type",
-      type: renderSignatureType(
+      type: await renderSignatureType(
         checker,
-        checker.getReturnTypeOfSignature(signature),
+        await checker.getReturnTypeOfSignature(signature),
         declaration
       ),
     };
@@ -308,7 +334,7 @@ const inspectSignatureReturn = function inspectSignatureReturn(
       kind: "assertion",
       parameter,
       ...(predicate.type !== undefined && {
-        type: renderSignatureType(checker, predicate.type, declaration),
+        type: await renderSignatureType(checker, predicate.type, declaration),
       }),
     };
   }
@@ -316,21 +342,22 @@ const inspectSignatureReturn = function inspectSignatureReturn(
   return {
     kind: "predicate",
     parameter,
-    type: renderSignatureType(checker, predicate.type, declaration),
+    type: await renderSignatureType(checker, predicate.type, declaration),
   };
 };
 
 /** Renders structured invocation evidence without changing signature selection or byte accounting. */
-export const inspectSignatureDetails = function inspectSignatureDetails(
+export const inspectSignatureDetails = async function inspectSignatureDetails(
   checker: Checker,
   kind: InspectedSignature["kind"],
   signature: Signature,
   signatureKind: SignatureKind,
   fallbackDeclaration: Declaration | undefined
-): InspectedSignature {
+): Promise<InspectedSignature> {
   // The native checker synthesizes implicit class constructors without a
   // signature declaration. The exported class supplies their source context.
-  const declaration = signature.declaration?.resolve() ?? fallbackDeclaration;
+  const declaration =
+    (await signature.declaration?.resolve()) ?? fallbackDeclaration;
 
   if (declaration === undefined) {
     throw new UnsupportedInspectionError(
@@ -338,7 +365,7 @@ export const inspectSignatureDetails = function inspectSignatureDetails(
     );
   }
 
-  const { parameters, typeParameters, thisParameter } = signatureParts(
+  const { parameters, typeParameters, thisParameter } = await signatureParts(
     checker,
     signature
   );
@@ -359,18 +386,22 @@ export const inspectSignatureDetails = function inspectSignatureDetails(
 
   return {
     kind,
-    text: signatureText(checker, signature, declaration, signatureKind),
-    typeParameters: typeParameters.map((item) =>
-      inspectSignatureTypeParameter(checker, item, declaration)
+    text: await signatureText(checker, signature, declaration, signatureKind),
+    typeParameters: await mapAsync(
+      typeParameters,
+      async (item) =>
+        await inspectSignatureTypeParameter(checker, item, declaration)
     ),
     ...(thisParameter !== undefined && {
       thisParameter: {
-        type: renderSymbolType(checker, thisParameter, declaration),
+        type: await renderSymbolType(checker, thisParameter, declaration),
       },
     }),
-    parameters: parameters.map((item) =>
-      inspectSignatureParameter(checker, item, declaration)
+    parameters: await mapAsync(
+      parameters,
+      async (item) =>
+        await inspectSignatureParameter(checker, item, declaration)
     ),
-    returns: inspectSignatureReturn(checker, signature, declaration),
+    returns: await inspectSignatureReturn(checker, signature, declaration),
   };
 };

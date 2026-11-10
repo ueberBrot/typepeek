@@ -24,19 +24,21 @@ import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { match } from "./helpers/matchers.ts";
 
-const currentSelectionProof = (
+const currentSelectionProof = async (
   target: NormalizedInspectionTarget
-): InstalledEvidenceProof => {
+): Promise<InstalledEvidenceProof> => {
   const recorder = createInstalledEvidenceFingerprintRecorder();
-  expect(selectInspectableModule(target, recorder)).toBeDefined();
+  await expect(
+    selectInspectableModule(target, recorder)
+  ).resolves.toBeDefined();
 
   return requireDefined(recorder.snapshot());
 };
 
-const assertStandardLibraryProof = (
+const assertStandardLibraryProof = async (
   proof: InstalledEvidenceProof,
   current: InstalledEvidenceProof
-): void => {
+): Promise<void> => {
   const libraryFiles = proof.files.filter(({ path }) =>
     path.includes("/lib.es")
   );
@@ -44,7 +46,7 @@ const assertStandardLibraryProof = (
   expect([
     libraryFiles.length > 0,
     libraryFiles.every(({ sourceFormat }) => sourceFormat === undefined),
-    installedEvidenceProofStillMatches(proof, current),
+    await installedEvidenceProofStillMatches(proof, current),
   ]).toStrictEqual([true, true, true]);
 };
 
@@ -143,7 +145,10 @@ describe("installed-evidence-proof", () => {
             },
           } as const;
 
-          const proof = successfulProof(analyzeInspection(request, false));
+          const proof = successfulProof(
+            await analyzeInspection(request, false)
+          );
+
           expect(proof.resolutions).toContainEqual(
             match.objectContaining({
               allowedRoots: [],
@@ -151,22 +156,22 @@ describe("installed-evidence-proof", () => {
               specifier: "extra",
             })
           );
-          expect(
+          await expect(
             installedEvidenceProofStillMatches(
               proof,
-              currentSelectionProof(request.request)
+              await currentSelectionProof(request.request)
             )
-          ).toBeTruthy();
+          ).resolves.toBeTruthy();
           await writeFile(
             manifestPath,
             JSON.stringify({ ...manifest, dependencies: { extra: "1.0.0" } })
           );
-          expect(
+          await expect(
             installedEvidenceProofStillMatches(
               proof,
-              currentSelectionProof(request.request)
+              await currentSelectionProof(request.request)
             )
-          ).toBeFalsy();
+          ).resolves.toBeFalsy();
         } finally {
           await rm(root, { force: true, recursive: true });
         }
@@ -278,7 +283,7 @@ describe("installed-evidence-proof", () => {
             },
           } as const;
 
-          const before = analyzeInspection(request, false);
+          const before = await analyzeInspection(request, false);
           const proof = successfulProof(before);
 
           const readBeforeName = () => {
@@ -299,9 +304,9 @@ describe("installed-evidence-proof", () => {
             before.outcome,
             proof.files.find(({ path }) => path === declarationPath)
               ?.sourceFormat,
-            installedEvidenceProofStillMatches(
+            await installedEvidenceProofStillMatches(
               proof,
-              currentSelectionProof(request.request)
+              await currentSelectionProof(request.request)
             ),
           ]).toStrictEqual([
             match.objectContaining({
@@ -320,7 +325,7 @@ describe("installed-evidence-proof", () => {
 
           if (scenario === "no-probe") {
             const signatureProof = successfulProof(
-              analyzeInspection(
+              await analyzeInspection(
                 {
                   intent: "signature-inspection",
                   request: {
@@ -334,9 +339,9 @@ describe("installed-evidence-proof", () => {
               )
             );
 
-            assertStandardLibraryProof(
+            await assertStandardLibraryProof(
               signatureProof,
-              currentSelectionProof(request.request)
+              await currentSelectionProof(request.request)
             );
           }
 
@@ -349,13 +354,13 @@ describe("installed-evidence-proof", () => {
                 : { type: "module" }
             )
           );
-          expect(
+          await expect(
             installedEvidenceProofStillMatches(
               proof,
-              currentSelectionProof(request.request)
+              await currentSelectionProof(request.request)
             )
-          ).toBeFalsy();
-          const after = analyzeInspection(request, false);
+          ).resolves.toBeFalsy();
+          const after = await analyzeInspection(request, false);
 
           const afterName =
             scenario === "implicit-module" || typeReference
@@ -376,12 +381,12 @@ describe("installed-evidence-proof", () => {
           }
 
           const afterProof = successfulProof(after);
-          expect(
+          await expect(
             installedEvidenceProofStillMatches(
               afterProof,
-              currentSelectionProof(request.request)
+              await currentSelectionProof(request.request)
             )
-          ).toBeTruthy();
+          ).resolves.toBeTruthy();
 
           if (scenario === "explicit-mode") {
             assertExplicitResolutionProof(afterProof, declarationPath);
@@ -454,7 +459,9 @@ describe("installed-evidence-proof", () => {
             },
           } as const;
 
-          const proof = successfulProof(analyzeInspection(request, false));
+          const proof = successfulProof(
+            await analyzeInspection(request, false)
+          );
 
           const markerPath = nodePath.join(
             packageRoot,
@@ -466,12 +473,16 @@ describe("installed-evidence-proof", () => {
             exists: false,
             path: markerPath,
           });
-          expect(installedEvidenceProofStillMatches(proof, proof)).toBeTruthy();
+          await expect(
+            installedEvidenceProofStillMatches(proof, proof)
+          ).resolves.toBeTruthy();
           await writeFile(markerPath, "");
-          expect(installedEvidenceProofStillMatches(proof, proof)).toBeFalsy();
+          await expect(
+            installedEvidenceProofStillMatches(proof, proof)
+          ).resolves.toBeFalsy();
 
           if (marker !== "pnpm-workspace.yaml") {
-            assertUnsupportedAnalysis(analyzeInspection(request, false));
+            assertUnsupportedAnalysis(await analyzeInspection(request, false));
           }
         } finally {
           await rm(fixtureRoot, { force: true, recursive: true });
@@ -558,25 +569,26 @@ describe("installed-evidence-proof", () => {
           },
         } as const;
 
-        const proof = successfulProof(analyzeInspection(request, false));
+        const proof = successfulProof(await analyzeInspection(request, false));
         expect(proof.fileChecks).toContainEqual({
           canonicalPath: oldTarget,
           exists: true,
           path: scopePath,
         });
-        expect(
+        await expect(
           installedEvidenceProofStillMatches(
             proof,
-            currentSelectionProof(request.request)
+            await currentSelectionProof(request.request)
           )
-        ).toBeTruthy();
+        ).resolves.toBeTruthy();
         await unlink(scopePath);
         await symlink(newTarget, scopePath);
+        const analyzeInspectionResult = await analyzeInspection(request, false);
         expect([
-          analyzeInspection(request, false).outcome,
-          installedEvidenceProofStillMatches(
+          analyzeInspectionResult.outcome,
+          await installedEvidenceProofStillMatches(
             proof,
-            currentSelectionProof(request.request)
+            await currentSelectionProof(request.request)
           ),
         ]).toStrictEqual([
           match.objectContaining({
@@ -676,12 +688,16 @@ describe("installed-evidence-proof", () => {
           specifier: "linked",
         });
         const proof = requireDefined(recorder.snapshot());
-        expect(installedEvidenceProofStillMatches(proof, proof)).toBeTruthy();
+        await expect(
+          installedEvidenceProofStillMatches(proof, proof)
+        ).resolves.toBeTruthy();
         await writeFile(
           nodePath.join(packageRoot, "dist", "package.json"),
           JSON.stringify({ type: "module" })
         );
-        expect(installedEvidenceProofStillMatches(proof, proof)).toBeFalsy();
+        await expect(
+          installedEvidenceProofStillMatches(proof, proof)
+        ).resolves.toBeFalsy();
         recorder.observeFile(declarationPath, declaration, "declaration", {
           accessStyle: "import",
           path: declarationPath,
@@ -741,8 +757,8 @@ describe("installed-evidence-proof", () => {
 
           const proof = requireDefined(recorder.snapshot());
           expect([
-            installedEvidenceProofStillMatches(proof, proof),
-            installedEvidenceProofStillMatches(
+            await installedEvidenceProofStillMatches(proof, proof),
+            await installedEvidenceProofStillMatches(
               { ...proof, resolutions: [...proof.resolutions].toReversed() },
               proof
             ),
@@ -796,8 +812,8 @@ describe("installed-evidence-proof", () => {
           });
           const proof = requireDefined(recorder.snapshot());
           expect([
-            installedEvidenceProofStillMatches(proof, proof),
-            installedEvidenceProofStillMatches(
+            await installedEvidenceProofStillMatches(proof, proof),
+            await installedEvidenceProofStillMatches(
               { ...proof, resolutions: [...proof.resolutions].toReversed() },
               proof
             ),
@@ -827,7 +843,9 @@ describe("installed-evidence-proof", () => {
               : nodePath.join(dependencyRoot, "index.d.ts"),
             "export declare const value: 2;"
           );
-          expect(installedEvidenceProofStillMatches(proof, proof)).toBeFalsy();
+          await expect(
+            installedEvidenceProofStillMatches(proof, proof)
+          ).resolves.toBeFalsy();
         } finally {
           await rm(fixtureRoot, { force: true, recursive: true });
         }
@@ -856,9 +874,13 @@ describe("installed-evidence-proof", () => {
           return;
         }
 
-        expect(installedEvidenceProofStillMatches(proof, proof)).toBeTruthy();
+        await expect(
+          installedEvidenceProofStillMatches(proof, proof)
+        ).resolves.toBeTruthy();
         await writeFile(evidencePath, "export declare const value: 2;\n");
-        expect(installedEvidenceProofStillMatches(proof, proof)).toBeFalsy();
+        await expect(
+          installedEvidenceProofStillMatches(proof, proof)
+        ).resolves.toBeFalsy();
       } finally {
         await rm(fixtureRoot, { force: true, recursive: true });
       }

@@ -39,8 +39,8 @@ import type {
   ModuleBlock,
   Statement,
 } from "tsrs/ast";
-import { TypeFlags } from "tsrs/sync";
-import type { Checker } from "tsrs/sync";
+import { TypeFlags } from "tsrs/async";
+import type { Checker } from "tsrs/async";
 
 import {
   isClassMember,
@@ -51,6 +51,7 @@ import type {
   DeclarationKind,
   DeclarationSpace,
 } from "#typepeek/inspection/model/protocol";
+import { filterAsync, someAsync } from "#typepeek/shared/async-collection";
 import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 const hasFunctionBody = function hasFunctionBody(
@@ -67,12 +68,12 @@ const hasFunctionBody = function hasFunctionBody(
   );
 };
 
-const sameComputedPropertyType = function sameComputedPropertyType(
+const sameComputedPropertyType = async function sameComputedPropertyType(
   checker: Checker,
   left: Expression,
   right: Expression
-): boolean {
-  const [leftType, rightType] = checker.getTypeAtLocation([left, right]);
+): Promise<boolean> {
+  const [leftType, rightType] = await checker.getTypeAtLocation([left, right]);
 
   if (leftType === undefined || rightType === undefined) {
     throw new Error("The native compiler returned an incomplete type batch.");
@@ -80,7 +81,8 @@ const sameComputedPropertyType = function sameComputedPropertyType(
 
   if (bitwiseAnd(leftType.flags, TypeFlags.UniqueESSymbol) !== 0) {
     return (
-      leftType === rightType || leftType.getSymbol() === rightType.getSymbol()
+      leftType === rightType ||
+      (await leftType.getSymbol()) === (await rightType.getSymbol())
     );
   }
 
@@ -93,11 +95,11 @@ const sameComputedPropertyType = function sameComputedPropertyType(
     : false;
 };
 
-const sameMethodOverloadGroup = function sameMethodOverloadGroup(
+const sameMethodOverloadGroup = async function sameMethodOverloadGroup(
   checker: Checker,
   left: Declaration,
   right: Declaration
-): boolean | undefined {
+): Promise<boolean | undefined> {
   if (!isMethodDeclaration(left) || !isMethodDeclaration(right)) {
     return undefined;
   }
@@ -109,19 +111,19 @@ const sameMethodOverloadGroup = function sameMethodOverloadGroup(
     return false;
   }
 
-  const leftSymbol = checker.getSymbolAtLocation(left.name);
-  const rightSymbol = checker.getSymbolAtLocation(right.name);
+  const leftSymbol = await checker.getSymbolAtLocation(left.name);
+  const rightSymbol = await checker.getSymbolAtLocation(right.name);
 
   if (leftSymbol !== undefined && leftSymbol === rightSymbol) {
     return true;
   }
 
   return isComputedPropertyName(left.name) && isComputedPropertyName(right.name)
-    ? sameComputedPropertyType(
+    ? (await sameComputedPropertyType(
         checker,
         left.name.expression,
         right.name.expression
-      ) || undefined
+      )) || undefined
     : undefined;
 };
 
@@ -203,12 +205,12 @@ const overloadGroup = function overloadGroup(
   return undefined;
 };
 
-const sameOverloadGroup = function sameOverloadGroup(
+const sameOverloadGroup = async function sameOverloadGroup(
   checker: Checker,
   left: Declaration,
   right: Declaration
-): boolean {
-  const sameMethod = sameMethodOverloadGroup(checker, left, right);
+): Promise<boolean> {
+  const sameMethod = await sameMethodOverloadGroup(checker, left, right);
 
   if (sameMethod !== undefined) {
     return sameMethod;
@@ -219,33 +221,35 @@ const sameOverloadGroup = function sameOverloadGroup(
   return leftGroup !== undefined && leftGroup === overloadGroup(right);
 };
 
-const isOverloadImplementation = function isOverloadImplementation(
+const isOverloadImplementation = async function isOverloadImplementation(
   checker: Checker,
   declaration: Declaration,
   declarations: readonly Declaration[]
-): boolean {
+): Promise<boolean> {
   if (!hasFunctionBody(declaration)) {
     return false;
   }
 
-  return declarations.some(
-    (candidate) =>
+  return await someAsync(
+    declarations,
+    async (candidate) =>
       candidate !== declaration &&
       !hasFunctionBody(candidate) &&
-      sameOverloadGroup(checker, declaration, candidate)
+      (await sameOverloadGroup(checker, declaration, candidate))
   );
 };
 
 /** Removes source overload implementations from the declarations visible to callers. */
-export const publicDeclarations = function publicDeclarations<
+export const publicDeclarations = async function publicDeclarations<
   PublicDeclaration extends Declaration,
 >(
   checker: Checker,
   declarations: readonly PublicDeclaration[]
-): readonly PublicDeclaration[] {
-  return declarations.filter(
-    (declaration) =>
-      !isOverloadImplementation(checker, declaration, declarations)
+): Promise<readonly PublicDeclaration[]> {
+  return await filterAsync(
+    declarations,
+    async (declaration) =>
+      !(await isOverloadImplementation(checker, declaration, declarations))
   );
 };
 
@@ -282,11 +286,11 @@ export const isPrivateDeclaration = function isPrivateDeclaration(
   );
 };
 
-const publicClassMembers = function publicClassMembers(
+const publicClassMembers = async function publicClassMembers(
   checker: Checker,
   members: readonly ClassElement[]
-): readonly ClassElement[] {
-  const membersWithoutImplementations = publicDeclarations(
+): Promise<readonly ClassElement[]> {
+  const membersWithoutImplementations = await publicDeclarations(
     checker,
     members.filter(
       (member) =>
@@ -374,56 +378,61 @@ const isDiscardedProjectionSyntax = function isDiscardedProjectionSyntax(
 };
 
 const constructorProjectsOnlyProperties =
-  function constructorProjectsOnlyProperties(
+  async function constructorProjectsOnlyProperties(
     checker: Checker,
     constructorDeclaration: ConstructorDeclaration
-  ): boolean {
+  ): Promise<boolean> {
     if (hasModifier(constructorDeclaration, SyntaxKind.PrivateKeyword)) {
       return true;
     }
 
     const { parent } = constructorDeclaration;
 
-    return (
-      isClassLikeDeclaration(parent) &&
-      !publicClassMembers(checker, parent.members).includes(
-        constructorDeclaration
-      )
-    );
+    if (!isClassLikeDeclaration(parent)) {
+      return false;
+    }
+
+    const members = await publicClassMembers(checker, parent.members);
+
+    return !members.includes(constructorDeclaration);
   };
 
-const isUnprojectedConstructorChild = function isUnprojectedConstructorChild(
-  checker: Checker,
-  parent: Node,
-  child: Node
-): boolean {
-  if (
-    !isConstructorDeclaration(parent) ||
-    !constructorProjectsOnlyProperties(checker, parent)
-  ) {
-    return false;
-  }
-
-  return (
-    !isParameterDeclaration(child) ||
-    !isVisibleConstructorParameterProperty(child)
-  );
-};
-
-const isNonPublicClassProjectionChild =
-  function isNonPublicClassProjectionChild(
+const isUnprojectedConstructorChild =
+  async function isUnprojectedConstructorChild(
     checker: Checker,
     parent: Node,
     child: Node
-  ): boolean {
+  ): Promise<boolean> {
+    if (
+      !isConstructorDeclaration(parent) ||
+      !(await constructorProjectsOnlyProperties(checker, parent))
+    ) {
+      return false;
+    }
+
+    return (
+      !isParameterDeclaration(child) ||
+      !isVisibleConstructorParameterProperty(child)
+    );
+  };
+
+const isNonPublicClassProjectionChild =
+  async function isNonPublicClassProjectionChild(
+    checker: Checker,
+    parent: Node,
+    child: Node
+  ): Promise<boolean> {
     if (!isClassLikeDeclaration(parent)) {
       return false;
     }
 
     if (isConstructorDeclaration(child)) {
-      const retained = publicClassMembers(checker, parent.members).includes(
-        child
+      const publicClassMembersResult = await publicClassMembers(
+        checker,
+        parent.members
       );
+
+      const retained = publicClassMembersResult.includes(child);
 
       return retained
         ? hasModifier(child, SyntaxKind.PrivateKeyword) &&
@@ -432,7 +441,12 @@ const isNonPublicClassProjectionChild =
     }
 
     if (isClassMember(child)) {
-      return !publicClassMembers(checker, parent.members).includes(child);
+      const publicClassMembersResult = await publicClassMembers(
+        checker,
+        parent.members
+      );
+
+      return !publicClassMembersResult.includes(child);
     }
 
     return (
@@ -471,15 +485,15 @@ const isProjectionInitializer = function isProjectionInitializer(
 };
 
 /** Selects exactly the source children that can contribute to the projected Public Interface. */
-export const isPublicProjectionChild = function isPublicProjectionChild(
+export const isPublicProjectionChild = async function isPublicProjectionChild(
   checker: Checker,
   parent: Node,
   child: Node
-): boolean {
+): Promise<boolean> {
   if (
     isDiscardedProjectionSyntax(child) ||
-    isUnprojectedConstructorChild(checker, parent, child) ||
-    isNonPublicClassProjectionChild(checker, parent, child)
+    (await isUnprojectedConstructorChild(checker, parent, child)) ||
+    (await isNonPublicClassProjectionChild(checker, parent, child))
   ) {
     return false;
   }
@@ -496,11 +510,11 @@ export type IdentifiedParameter = ParameterDeclaration & {
 
 /** Selects the declarations and parameter properties retained by class projection. */
 export const selectPublicClassDeclarations =
-  function selectPublicClassDeclarations(
+  async function selectPublicClassDeclarations(
     checker: Checker,
     members: readonly ClassElement[]
   ) {
-    const retainedMembers = publicClassMembers(checker, members);
+    const retainedMembers = await publicClassMembers(checker, members);
 
     return {
       members: retainedMembers,
@@ -522,14 +536,14 @@ const isExportedStatement = function isExportedStatement(
   );
 };
 
-export const selectPublicStatements = function selectPublicStatements(
+export const selectPublicStatements = async function selectPublicStatements(
   checker: Checker,
   container: SourceFile | ModuleBlock
-): readonly Statement[] {
+): Promise<readonly Statement[]> {
   const exported = container.statements.filter(isExportedStatement);
 
   const publicFunctions = new Set(
-    publicDeclarations(checker, exported.filter(isFunctionDeclaration))
+    await publicDeclarations(checker, exported.filter(isFunctionDeclaration))
   );
 
   return exported.filter(

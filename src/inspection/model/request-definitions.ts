@@ -1,5 +1,3 @@
-import nodePath from "node:path";
-
 import { Effect, Result, Schema } from "effect";
 
 import {
@@ -40,6 +38,7 @@ import {
   MAX_INSPECTION_PLAN_QUERIES,
   readInspectionPlanQueries,
 } from "#typepeek/inspection/queries/inspection-plan-query";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 
 const ABSOLUTE_PATH = "absolute-path";
 const EXAMPLE_RESOLUTION_CONTEXT = "/absolute/path/to/consumer";

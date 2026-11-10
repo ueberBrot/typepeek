@@ -1,7 +1,6 @@
-import { realpathSync } from "node:fs";
-import path from "node:path";
-
 import { COMPILER_LIBRARY_DIRECTORY } from "#typepeek/inspection/compiler/compiler-distribution";
+import { resolveEvidencePath } from "#typepeek/inspection/evidence/evidence-boundary";
+import { platformPath as path } from "#typepeek/platform/platform-path";
 
 export const INSPECTION_STANDARD_LIBRARY = "lib.es2024.d.ts";
 const STANDARD_LIBRARY_DECLARATION = /^lib\..+\.d\.ts$/u;
@@ -29,6 +28,6 @@ const standardLibraryRoot = COMPILER_LIBRARY_DIRECTORY;
 export const isTypeScriptStandardLibraryDeclaration =
   createStandardLibraryPredicate(
     standardLibraryRoot,
-    realpathSync.native(standardLibraryRoot),
+    resolveEvidencePath(standardLibraryRoot),
     path
   );

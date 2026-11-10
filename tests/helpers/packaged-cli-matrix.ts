@@ -61,7 +61,6 @@ const buildAndPackTypepeek = async function buildAndPackTypepeek(
   fixtureRoot: string
 ): Promise<string> {
   const tarballsRoot = nodePath.join(fixtureRoot, "tarballs");
-  const npmCacheRoot = nodePath.join(fixtureRoot, "pack-cache");
   await mkdir(tarballsRoot, { recursive: true });
 
   try {
@@ -74,7 +73,6 @@ const buildAndPackTypepeek = async function buildAndPackTypepeek(
 
   return await packPackage({
     diagnosticContext: `production tarball from ${sourceCheckout}`,
-    npmCacheRoot,
     packageRoot: sourceCheckout,
     tarballsRoot,
   });

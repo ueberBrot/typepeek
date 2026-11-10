@@ -180,9 +180,9 @@ const inspectionTripwireSource = function inspectionTripwireSource(): string {
     "const originalSpawn = childProcess.spawn;",
     "function isAllowedCompilerSpawn(command, args) {",
     "  if (!isForbiddenPath(allowedAnalysisProcessEntries, process.argv[1]) || !isForbiddenPath(allowedCompilerExecutables, command)) return false;",
-    "  if (!Array.isArray(args) || (args.length !== 5 && !(process.platform === 'win32' && args.length === 7 && args[5] === '--pipe' && typeof args[6] === 'string' && args[6].startsWith(String.raw`\\\\.\\pipe\\tsgo-sync-`)))) return false;",
-    "  if (args[0] !== '--api' || args[1] !== '--cwd' || args[2] !== process.cwd() || !/^--useCaseSensitiveFileNames=(true|false)$/.test(args[3])) return false;",
-    "  return args[4].startsWith('--callbacks=') && args[4].slice('--callbacks='.length).split(',').sort().join(',') === 'directoryExists,fileExists,getAccessibleEntries,readFile,realpath,removeFile,stat,writeFile';",
+    "  if (!Array.isArray(args) || args.length !== 6) return false;",
+    "  if (args[0] !== '--api' || args[1] !== '--async' || args[2] !== '--cwd' || args[3] !== process.cwd() || !/^--useCaseSensitiveFileNames=(true|false)$/.test(args[4])) return false;",
+    "  return args[5].startsWith('--callbacks=') && args[5].slice('--callbacks='.length).split(',').sort().join(',') === 'directoryExists,fileExists,getAccessibleEntries,readFile,realpath,removeFile,stat,writeFile';",
     "}",
     "childProcess.spawn = function guardedSpawn(command, args, options) {",
     '  if (!isAllowedAnalysisSpawn(command, args) && !isAllowedCompilerSpawn(command, args)) trip("process activity");',
@@ -259,16 +259,12 @@ const nodePathOption = function nodePathOption(
 
 export const staticInspectionNodeOptions = (
   preloadPath: string,
-  sentinel: string,
-  platform = process.platform
+  sentinel: string
 ): readonly string[] => [
   nodePathOption("--require", preloadPath),
   "--permission",
   "--allow-fs-read=*",
   nodePathOption("--allow-fs-write", sentinel),
-  ...(platform === "win32"
-    ? [nodePathOption("--allow-fs-write", String.raw`\\.\pipe\tsgo-sync-*`)]
-    : []),
   "--allow-child-process",
   "--allow-worker",
 ];

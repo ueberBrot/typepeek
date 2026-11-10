@@ -1,9 +1,4 @@
-import {
-  createHmac,
-  randomBytes,
-  randomUUID,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Stats } from "node:fs";
 import {
   existsSync,
@@ -15,7 +10,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import nodePath from "node:path";
 
 import { Schema } from "effect";
 
@@ -30,6 +24,11 @@ import {
 } from "#typepeek/inspection/cache/inspection-cache-codec";
 import { readBoundedUtf8File } from "#typepeek/inspection/evidence/evidence-boundary";
 import { HAS_EMBEDDED_TYPEPEEK_VERSION } from "#typepeek/platform/package-metadata";
+import {
+  secureRandomHex,
+  secureRandomUUID,
+} from "#typepeek/platform/platform-crypto";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 import { decodeJson } from "#typepeek/shared/json-data";
 
@@ -237,7 +236,7 @@ const readIntegrityKey = function readIntegrityKey(
 
   if (create && !existsSync(keyPath)) {
     try {
-      writeFileSync(keyPath, randomBytes(32).toString("hex"), {
+      writeFileSync(keyPath, secureRandomHex(32), {
         encoding: "utf-8",
         flag: "wx",
         mode: 0o600,
@@ -282,7 +281,7 @@ const writeAtomically = function writeAtomically(
   path: string,
   serialized: string
 ): void {
-  const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  const temporaryPath = `${path}.${process.pid}.${secureRandomUUID()}.tmp`;
 
   try {
     writeFileSync(temporaryPath, serialized, {

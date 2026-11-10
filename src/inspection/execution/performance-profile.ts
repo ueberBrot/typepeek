@@ -1,5 +1,7 @@
-import { Predicate, Result, Schema } from "effect";
+import { Clock, Config, Effect, Predicate, Result, Schema } from "effect";
 
+import { peakResidentBytes } from "#typepeek/platform/runtime-process";
+import { writeStderr } from "#typepeek/platform/stdio";
 import { decodeJson } from "#typepeek/shared/json-data";
 
 const PROFILE_SCHEMA_VERSION = 1;
@@ -23,8 +25,12 @@ const inspectionProfileSchema = Schema.Struct({
 const decodeProfile = Schema.decodeUnknownResult(inspectionProfileSchema);
 
 /** Packaged builds use performance-profile-disabled.ts instead of this module. */
-export const inspectionProfilingEnabled =
-  process.env["TYPEPEEK_PROFILE"] === "1";
+export const inspectionProfilingEnabled = Effect.runSync(
+  Config.String("TYPEPEEK_PROFILE").pipe(
+    Config.withDefault("0"),
+    Config.map((value) => value === "1")
+  )
+);
 
 type InspectionProfilePhase = typeof inspectionProfilePhaseSchema.Type;
 
@@ -51,17 +57,62 @@ export const profileInspectionPhase = function profileInspectionPhase<Value>(
     return inspect();
   }
 
-  const startedAt = performance.now();
+  const startedAt = Number(Effect.runSync(Clock.currentTimeNanos)) / 1_000_000;
+  const currentPhases = phases;
 
-  try {
-    return inspect();
-  } finally {
-    phases.push({
-      milliseconds: roundedMilliseconds(performance.now() - startedAt),
+  const record = () => {
+    currentPhases.push({
+      milliseconds: roundedMilliseconds(
+        Number(Effect.runSync(Clock.currentTimeNanos)) / 1_000_000 - startedAt
+      ),
       name,
     });
+  };
+
+  try {
+    const result = inspect();
+
+    if (Predicate.isPromiseLike(result)) {
+      void Promise.resolve(result).then(record, record);
+    } else {
+      record();
+    }
+
+    return result;
+  } catch (error) {
+    record();
+    throw error;
   }
 };
+
+export const profileInspectionEffect = <Value, E, R>(
+  name: string,
+  inspect: Effect.Effect<Value, E, R>
+): Effect.Effect<Value, E, R> =>
+  Effect.suspend(() => {
+    const currentPhases = phases;
+
+    if (currentPhases === null) {
+      return inspect;
+    }
+
+    const startedAt =
+      Number(Effect.runSync(Clock.currentTimeNanos)) / 1_000_000;
+
+    return inspect.pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          currentPhases.push({
+            milliseconds: roundedMilliseconds(
+              Number(Effect.runSync(Clock.currentTimeNanos)) / 1_000_000 -
+                startedAt
+            ),
+            name,
+          });
+        })
+      )
+    );
+  });
 
 /** Returns and clears the current profile so a later request cannot inherit it. */
 export const completeInspectionProfile = function completeInspectionProfile():
@@ -74,7 +125,7 @@ export const completeInspectionProfile = function completeInspectionProfile():
     ? undefined
     : {
         kind: "inspection-profile",
-        maxRssBytes: process.resourceUsage().maxRSS * 1024,
+        maxRssBytes: peakResidentBytes(),
         phases: completedPhases,
         schemaVersion: PROFILE_SCHEMA_VERSION,
       };
@@ -96,12 +147,12 @@ const decodeInspectionProfile = function decodeInspectionProfile(
   }
 };
 
-export const forwardInspectionProfile = function forwardInspectionProfile(
-  serialized: Uint8Array
-): void {
-  const profile = decodeInspectionProfile(serialized);
+export const forwardInspectionProfile = Effect.fnUntraced(
+  function* forwardInspectionProfile(serialized: Uint8Array) {
+    const profile = decodeInspectionProfile(serialized);
 
-  if (profile !== undefined) {
-    process.stderr.write(`${JSON.stringify(profile)}\n`);
+    if (profile !== undefined) {
+      yield* writeStderr(`${JSON.stringify(profile)}\n`);
+    }
   }
-};
+);

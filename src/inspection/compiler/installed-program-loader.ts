@@ -1,11 +1,8 @@
-import { existsSync } from "node:fs";
-import nodePath from "node:path";
-
 import { ScriptTarget } from "tsrs/ast";
 import type { FileReference, SourceFile } from "tsrs/ast";
+import { ModuleKind, ModuleResolutionKind } from "tsrs/async";
+import type { Program, RawCompilerOptions, Snapshot } from "tsrs/async";
 import { createFileSystem, createFileSystemLayer } from "tsrs/fs";
-import { ModuleKind, ModuleResolutionKind } from "tsrs/sync";
-import type { Program, RawCompilerOptions, Snapshot } from "tsrs/sync";
 
 import {
   COMPILER_LIBRARY_DIRECTORY,
@@ -15,7 +12,10 @@ import {
 import type { CompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
 import { InstalledDeclarationResolution } from "#typepeek/inspection/compiler/installed-declaration-resolution";
 import { INSPECTION_STANDARD_LIBRARY } from "#typepeek/inspection/compiler/typescript-standard-library";
-import { readBoundedUtf8File } from "#typepeek/inspection/evidence/evidence-boundary";
+import {
+  evidencePathExists,
+  readBoundedUtf8File,
+} from "#typepeek/inspection/evidence/evidence-boundary";
 import type { DeclarationProviderAuthority } from "#typepeek/inspection/evidence/installed-evidence";
 import { canonicalPath } from "#typepeek/inspection/evidence/installed-package-boundary";
 import type { PackageBoundaryObserver } from "#typepeek/inspection/evidence/installed-package-boundary";
@@ -24,6 +24,7 @@ import {
   InspectionLimitError,
   UnsupportedInspectionError,
 } from "#typepeek/inspection/model/errors";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 
 /** Materializes only authorized Installed Evidence into an immutable SDK filesystem. */
 export class InstalledProgramLoader {
@@ -61,18 +62,18 @@ export class InstalledProgramLoader {
     return this.resolution.resolveTypeReference(containingFile, reference);
   }
 
-  findProgramSourceFile(
+  async findProgramSourceFile(
     program: Program,
     fileName: string
-  ): SourceFile | undefined {
+  ): Promise<SourceFile | undefined> {
     this.work.reserveOperations();
 
-    if (!existsSync(fileName)) {
+    if (!evidencePathExists(fileName)) {
       return undefined;
     }
 
     this.resolution.assertSource(fileName);
-    const direct = program.getSourceFile(fileName);
+    const direct = await program.getSourceFile(fileName);
 
     if (direct !== undefined) {
       return direct;
@@ -82,7 +83,7 @@ export class InstalledProgramLoader {
 
     return canonical === undefined
       ? undefined
-      : program.getSourceFile(canonical);
+      : await program.getSourceFile(canonical);
   }
 
   private recordText(fileName: string, text: string): void {
@@ -101,7 +102,7 @@ export class InstalledProgramLoader {
       this.work.reserveOperations();
       const manifest = nodePath.join(directory, "package.json");
 
-      if (!this.texts.has(manifest) && existsSync(manifest)) {
+      if (!this.texts.has(manifest) && evidencePathExists(manifest)) {
         this.resolution.assertSource(manifest);
         this.recordText(manifest, this.work.readResolutionFile(manifest));
       }
@@ -121,7 +122,7 @@ export class InstalledProgramLoader {
 
     this.work.reserveOperations(2);
 
-    if (!existsSync(fileName)) {
+    if (!evidencePathExists(fileName)) {
       return undefined;
     }
 
@@ -151,7 +152,10 @@ export class InstalledProgramLoader {
     return text;
   }
 
-  createProgram(rootNames: readonly string[], libraries: boolean): Program {
+  async createProgram(
+    rootNames: readonly string[],
+    libraries: boolean
+  ): Promise<Program> {
     this.recordText(COMPILER_INTRINSIC_FILE, COMPILER_INTRINSIC_SOURCE);
     const pending = [...rootNames];
 
@@ -161,6 +165,7 @@ export class InstalledProgramLoader {
       );
     }
 
+    /* oxlint-disable eslint/no-await-in-loop -- Each parsed file discovers and authorizes the next files in the queue. */
     while (pending.length > 0) {
       const fileName = pending.pop();
 
@@ -183,8 +188,12 @@ export class InstalledProgramLoader {
         const text = this.readSource(fileName);
 
         if (text !== undefined) {
-          using lease = this.work.native.api.createSourceFile(fileName, text);
-          dependencies = this.resolution.scanSource(lease.sourceFile);
+          await using lease = await this.work.native.api.createSourceFile(
+            fileName,
+            text
+          );
+
+          dependencies = await this.resolution.scanSource(lease.sourceFile);
           this.dependencies.set(fileName, dependencies);
         }
       }
@@ -197,6 +206,7 @@ export class InstalledProgramLoader {
         }
       }
     }
+    /* oxlint-enable eslint/no-await-in-loop */
 
     const options: RawCompilerOptions = {
       module: ModuleKind.NodeNext,
@@ -211,7 +221,7 @@ export class InstalledProgramLoader {
     const session = this.work.native;
 
     const { moduleResolver, typeReferenceFiles } =
-      this.resolution.createProgramResolution(options);
+      await this.resolution.createProgramResolution(options);
 
     const createPrograms = [
       {
@@ -229,11 +239,11 @@ export class InstalledProgramLoader {
 
     this.snapshot =
       this.snapshot === undefined
-        ? session.api.createSnapshot({
+        ? await session.api.createSnapshot({
             createPrograms,
             fileSystem: createFileSystem([...this.texts]),
           })
-        : this.snapshot.update({
+        : await this.snapshot.update({
             createPrograms,
             fileSystem: createFileSystemLayer([...this.pendingTexts]),
           });

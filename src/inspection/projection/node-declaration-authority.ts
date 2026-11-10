@@ -8,14 +8,15 @@ import {
   isStringLiteralLikeNode,
 } from "tsrs/ast";
 import type { Declaration, Node, SourceFile } from "tsrs/ast";
-import { SymbolFlags } from "tsrs/sync";
-import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/sync";
+import { SymbolFlags } from "tsrs/async";
+import type { Checker, Program, Symbol as CompilerSymbol } from "tsrs/async";
 
 import {
   aliasedSymbol,
   symbolAtLocation,
 } from "#typepeek/inspection/compiler/compiler-queries";
 import { declarationsOf } from "#typepeek/inspection/compiler/compiler-session";
+import { forEachChildAsync } from "#typepeek/inspection/compiler/compiler-traversal";
 import { InspectionLimitError } from "#typepeek/inspection/model/errors";
 import { DeclarationReferenceAuthority } from "#typepeek/inspection/projection/declaration-reference-authority";
 import type { NodeProviderProgram } from "#typepeek/inspection/projection/declaration-reference-authority";
@@ -25,6 +26,7 @@ import {
   publicDeclarations,
   selectPublicStatements,
 } from "#typepeek/inspection/projection/public-declaration-selection";
+import { mapAsync } from "#typepeek/shared/async-collection";
 import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 const MAX_DECLARATION_GRAPH_DEPTH = 256;
@@ -63,13 +65,13 @@ const enclosingModuleReference = function enclosingModuleReference(
   return undefined;
 };
 
-const enqueueSymbolDeclarations = function enqueueSymbolDeclarations(
+const enqueueSymbolDeclarations = async function enqueueSymbolDeclarations(
   checker: Checker,
   symbol: CompilerSymbol | undefined,
   pendingSymbols: CompilerSymbol[],
   pendingNodes: Node[],
   visitedSymbols: Set<CompilerSymbol>
-): void {
+): Promise<void> {
   if (symbol === undefined || visitedSymbols.has(symbol)) {
     return;
   }
@@ -77,16 +79,16 @@ const enqueueSymbolDeclarations = function enqueueSymbolDeclarations(
   visitedSymbols.add(symbol);
 
   const resolved = bitwiseAnd(symbol.flags, SymbolFlags.Alias)
-    ? aliasedSymbol(checker, symbol)
+    ? await aliasedSymbol(checker, symbol)
     : symbol;
 
   if (resolved !== symbol && !visitedSymbols.has(resolved)) {
     pendingSymbols.push(resolved);
   }
 
-  for (const declaration of publicDeclarations(
+  for (const declaration of await publicDeclarations(
     checker,
-    declarationsOf(symbol) ?? []
+    (await declarationsOf(symbol)) ?? []
   )) {
     pendingNodes.push(declaration);
     const moduleReference = enclosingModuleReference(declaration);
@@ -97,25 +99,25 @@ const enqueueSymbolDeclarations = function enqueueSymbolDeclarations(
   }
 };
 
-const enqueueModuleExports = function enqueueModuleExports(
+const enqueueModuleExports = async function enqueueModuleExports(
   checker: Checker,
   node: Node,
   pendingNodes: Node[],
   pendingSymbols: CompilerSymbol[],
   selectedExportNames: ReadonlySet<string> | undefined
-): void {
+): Promise<void> {
   if (!isModuleDeclaration(node)) {
     return;
   }
 
-  const symbol = symbolAtLocation(checker, node.name);
+  const symbol = await symbolAtLocation(checker, node.name);
 
   const nestedExportNames = isStringLiteralLikeNode(node.name)
     ? selectedExportNames
     : undefined;
 
   if (symbol !== undefined) {
-    const exports = checker.getExportsOfModule(symbol);
+    const exports = await checker.getExportsOfModule(symbol);
     pendingSymbols.push(
       ...(nestedExportNames === undefined
         ? exports
@@ -132,11 +134,11 @@ const enqueueModuleExports = function enqueueModuleExports(
     isModuleBlock(body) &&
     nestedExportNames === undefined
   ) {
-    pendingNodes.push(...selectPublicStatements(checker, body));
+    pendingNodes.push(...(await selectPublicStatements(checker, body)));
   }
 };
 
-const scanPublicDeclaration = function scanPublicDeclaration(options: {
+const scanPublicDeclaration = async function scanPublicDeclaration(options: {
   readonly authority: DeclarationReferenceAuthority;
   readonly inference: InferredReferenceScanner;
   readonly checker: Checker;
@@ -145,16 +147,16 @@ const scanPublicDeclaration = function scanPublicDeclaration(options: {
   readonly reserveTraversalNode: () => void;
   readonly root: Node;
   readonly selectedExportNames: ReadonlySet<string> | undefined;
-}): void {
+}): Promise<void> {
   const nodes: { readonly node: Node; readonly depth: number }[] = [];
 
-  const visit = (node: Node, depth: number): void => {
+  const visit = async (node: Node, depth: number): Promise<void> => {
     reserveDeclarationGraphNode(options.reserveTraversalNode, depth);
 
     nodes.push({ depth, node });
-    node.forEachChild((child) => {
-      if (isPublicProjectionChild(options.checker, node, child)) {
-        visit(child, depth + 1);
+    await forEachChildAsync(node, async (child) => {
+      if (await isPublicProjectionChild(options.checker, node, child)) {
+        await visit(child, depth + 1);
       }
     });
   };
@@ -162,132 +164,144 @@ const scanPublicDeclaration = function scanPublicDeclaration(options: {
   if (isSourceFile(options.root)) {
     options.reserveTraversalNode();
 
-    options.authority.inspectNode(options.root);
+    await options.authority.inspectNode(options.root);
 
     return;
   }
 
-  visit(options.root, 0);
-  options.authority.prefetch(nodes.map(({ node }) => node));
+  await visit(options.root, 0);
+  await options.authority.prefetch(nodes.map(({ node }) => node));
 
-  for (const { node, depth } of nodes) {
-    const symbol = options.authority.inspectNode(node);
+  await mapAsync(nodes, async ({ node, depth }) => {
+    const symbol = await options.authority.inspectNode(node);
 
     if (symbol !== undefined) {
       options.pendingSymbols.push(symbol);
     }
 
-    options.inference.inspectNode(node, depth);
+    await options.inference.inspectNode(node, depth);
 
-    enqueueModuleExports(
+    await enqueueModuleExports(
       options.checker,
       node,
       options.pendingNodes,
       options.pendingSymbols,
       options.selectedExportNames
     );
-  }
+  });
 };
 
-const inspectInitialPublicInterface = function inspectInitialPublicInterface(
-  program: Program,
-  moduleSymbol: CompilerSymbol,
-  entrypoint: SourceFile,
-  reserveTraversalNode: () => void,
-  selectedExportNames: ReadonlySet<string> | undefined
-): DeclarationReferenceAuthority {
-  const { checker } = program.getProject();
+const inspectInitialPublicInterface =
+  async function inspectInitialPublicInterface(
+    program: Program,
+    moduleSymbol: CompilerSymbol,
+    entrypoint: SourceFile,
+    reserveTraversalNode: () => void,
+    selectedExportNames: ReadonlySet<string> | undefined
+  ): Promise<DeclarationReferenceAuthority> {
+    const { checker } = program.getProject();
 
-  const authority = new DeclarationReferenceAuthority(
-    checker,
-    reserveTraversalNode
-  );
-
-  const inference = new InferredReferenceScanner(
-    checker,
-    authority,
-    (depth) => {
-      reserveDeclarationGraphNode(reserveTraversalNode, depth);
-    }
-  );
-
-  const moduleExports = checker.getExportsOfModule(moduleSymbol);
-
-  const pendingSymbols =
-    selectedExportNames === undefined
-      ? [...moduleExports]
-      : moduleExports.filter((symbol) => selectedExportNames.has(symbol.name));
-
-  const pendingNodes: Node[] = [
-    ...(selectedExportNames === undefined
-      ? selectPublicStatements(checker, entrypoint)
-      : []),
-    ...(declarationsOf(moduleSymbol) ?? []).filter(isModuleDeclaration),
-    entrypoint,
-  ];
-
-  const visitedSymbols = new Set<CompilerSymbol>();
-  const visitedNodes = new Set<Node>();
-  let pendingSymbolIndex = 0;
-  let pendingNodeIndex = 0;
-
-  while (
-    pendingSymbolIndex < pendingSymbols.length ||
-    pendingNodeIndex < pendingNodes.length
-  ) {
-    if (pendingSymbolIndex < pendingSymbols.length) {
-      const pendingSymbol = pendingSymbols[pendingSymbolIndex];
-      pendingSymbolIndex += 1;
-      enqueueSymbolDeclarations(
-        checker,
-        pendingSymbol,
-        pendingSymbols,
-        pendingNodes,
-        visitedSymbols
-      );
-    }
-
-    const root = pendingNodes[pendingNodeIndex];
-
-    if (pendingNodeIndex < pendingNodes.length) {
-      pendingNodeIndex += 1;
-    }
-
-    if (root === undefined || visitedNodes.has(root)) {
-      continue;
-    }
-
-    visitedNodes.add(root);
-    scanPublicDeclaration({
-      authority,
+    const authority = new DeclarationReferenceAuthority(
       checker,
-      inference,
-      pendingNodes,
-      pendingSymbols,
-      reserveTraversalNode,
-      root,
-      selectedExportNames,
-    });
-  }
+      reserveTraversalNode
+    );
 
-  return authority;
-};
+    const inference = new InferredReferenceScanner(
+      checker,
+      authority,
+      (depth) => {
+        reserveDeclarationGraphNode(reserveTraversalNode, depth);
+      }
+    );
+
+    const moduleExports = await checker.getExportsOfModule(moduleSymbol);
+
+    const pendingSymbols =
+      selectedExportNames === undefined
+        ? [...moduleExports]
+        : moduleExports.filter((symbol) =>
+            selectedExportNames.has(symbol.name)
+          );
+
+    const pendingNodes: Node[] = [
+      ...(selectedExportNames === undefined
+        ? await selectPublicStatements(checker, entrypoint)
+        : []),
+      ...((await declarationsOf(moduleSymbol)) ?? []).filter(
+        isModuleDeclaration
+      ),
+      entrypoint,
+    ];
+
+    const visitedSymbols = new Set<CompilerSymbol>();
+    const visitedNodes = new Set<Node>();
+    let pendingSymbolIndex = 0;
+    let pendingNodeIndex = 0;
+
+    /* oxlint-disable eslint/no-await-in-loop -- Each resolved declaration extends the pending authority graph. */
+    while (
+      pendingSymbolIndex < pendingSymbols.length ||
+      pendingNodeIndex < pendingNodes.length
+    ) {
+      if (pendingSymbolIndex < pendingSymbols.length) {
+        const pendingSymbol = pendingSymbols[pendingSymbolIndex];
+        pendingSymbolIndex += 1;
+        await enqueueSymbolDeclarations(
+          checker,
+          pendingSymbol,
+          pendingSymbols,
+          pendingNodes,
+          visitedSymbols
+        );
+      }
+
+      const root = pendingNodes[pendingNodeIndex];
+
+      if (pendingNodeIndex < pendingNodes.length) {
+        pendingNodeIndex += 1;
+      }
+
+      if (root === undefined || visitedNodes.has(root)) {
+        continue;
+      }
+
+      visitedNodes.add(root);
+      await scanPublicDeclaration({
+        authority,
+        checker,
+        inference,
+        pendingNodes,
+        pendingSymbols,
+        reserveTraversalNode,
+        root,
+        selectedExportNames,
+      });
+    }
+    /* oxlint-enable eslint/no-await-in-loop */
+
+    return authority;
+  };
 
 /** Loads the visible Node Declaration Provider when the selected declarations reference it. */
 export const selectNodeDeclarationProgram =
-  function selectNodeDeclarationProgram(
+  async function selectNodeDeclarationProgram(
     initialProgram: Program,
     initialModuleSymbol: CompilerSymbol,
     entrypoint: SourceFile,
-    createProviderProgram: () => NodeProviderProgram | undefined,
+    createProviderProgram: () => Promise<NodeProviderProgram | undefined>,
     reserveTraversalNode: () => void,
     selectedExportNames?: ReadonlySet<string>
-  ): Program | undefined {
-    return inspectInitialPublicInterface(
-      initialProgram,
-      initialModuleSymbol,
-      entrypoint,
-      reserveTraversalNode,
-      selectedExportNames
-    ).selectProvider(createProviderProgram);
+  ): Promise<Program | undefined> {
+    const inspectInitialPublicInterfaceResult =
+      await inspectInitialPublicInterface(
+        initialProgram,
+        initialModuleSymbol,
+        entrypoint,
+        reserveTraversalNode,
+        selectedExportNames
+      );
+
+    return await inspectInitialPublicInterfaceResult.selectProvider(
+      createProviderProgram
+    );
   };

@@ -1,6 +1,5 @@
-import nodePath from "node:path";
-
 import { cachedCompilerLookup } from "#typepeek/inspection/compiler/compiler-cache";
+import { createCompilerSessionOwner } from "#typepeek/inspection/compiler/compiler-session-owner";
 import type { CompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
 import { createCompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
 import {
@@ -28,6 +27,8 @@ import {
   parsePackageNameSegments,
 } from "#typepeek/inspection/evidence/installed-package-boundary";
 import { readOwnOptionalProperty } from "#typepeek/inspection/model/untrusted-data";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
+import { everyAsync } from "#typepeek/shared/async-collection";
 
 const MAX_PROOF_REPLAY_BYTES = 24 * 1024 * 1024;
 
@@ -253,15 +254,15 @@ const resolutionSearchRoots = function resolutionSearchRoots(
   });
 };
 
-const resolutionProbesStillMatch = function resolutionProbesStillMatch(
+const resolutionProbesStillMatch = async function resolutionProbesStillMatch(
   probes: readonly InstalledEvidenceResolutionProbe[],
   manifestRoots: ReadonlySet<string>,
   session: CompilerWorkSession
-): boolean {
+): Promise<boolean> {
   const searchRootsByPackage = new Map<string, readonly string[]>();
 
   try {
-    return probes.every((probe) => {
+    return await everyAsync(probes, async (probe) => {
       const accessStyle = readOwnOptionalProperty(probe, "accessStyle");
 
       const canonicalContainingFile =
@@ -306,10 +307,10 @@ const resolutionProbesStillMatch = function resolutionProbesStillMatch(
       );
 
       return (
-        session.resolveEvidenceProbe(safeProbe, [
+        (await session.resolveEvidenceProbe(safeProbe, [
           ...allowedRoots,
           ...searchRoots,
-        ]) === resolvedPath
+        ])) === resolvedPath
       );
     });
   } catch {
@@ -319,40 +320,50 @@ const resolutionProbesStillMatch = function resolutionProbesStillMatch(
 
 /** Replays cached resolutions and fingerprints against current Installed Evidence. */
 export const installedEvidenceProofStillMatches =
-  function installedEvidenceProofStillMatches(
+  async function installedEvidenceProofStillMatches(
     cached: InstalledEvidenceProof,
     current: InstalledEvidenceProof
-  ): boolean {
-    const session = createCompilerWorkSession();
+  ): Promise<boolean> {
+    const owner = createCompilerSessionOwner();
 
-    if (
-      !currentManifestsMatch(cached, current) ||
-      !fileChecksStillMatch(
-        readOwnOptionalProperty(cached, "fileChecks") ?? [],
-        session
-      ) ||
-      !fileFingerprintsStillMatch(cached.files) ||
-      !directoryFingerprintsStillMatch(cached.directories)
-    ) {
-      return false;
+    try {
+      const session = createCompilerWorkSession({ owner });
+
+      if (
+        !currentManifestsMatch(cached, current) ||
+        !fileChecksStillMatch(
+          readOwnOptionalProperty(cached, "fileChecks") ?? [],
+          session
+        ) ||
+        !fileFingerprintsStillMatch(cached.files) ||
+        !directoryFingerprintsStillMatch(cached.directories)
+      ) {
+        return false;
+      }
+
+      const manifestRoots = new Set(
+        cached.files
+          .filter(
+            ({ kind, path }) =>
+              kind === "manifest" && nodePath.basename(path) === "package.json"
+          )
+          .map(({ path }) => nodePath.dirname(path))
+      );
+
+      return (
+        sourceFormatsStillMatch(
+          cached.files,
+          cached.resolutions,
+          manifestRoots,
+          session
+        ) &&
+        (await resolutionProbesStillMatch(
+          cached.resolutions,
+          manifestRoots,
+          session
+        ))
+      );
+    } finally {
+      await owner.close();
     }
-
-    const manifestRoots = new Set(
-      cached.files
-        .filter(
-          ({ kind, path }) =>
-            kind === "manifest" && nodePath.basename(path) === "package.json"
-        )
-        .map(({ path }) => nodePath.dirname(path))
-    );
-
-    return (
-      sourceFormatsStillMatch(
-        cached.files,
-        cached.resolutions,
-        manifestRoots,
-        session
-      ) &&
-      resolutionProbesStillMatch(cached.resolutions, manifestRoots, session)
-    );
   };

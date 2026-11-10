@@ -1,35 +1,34 @@
-import { readFileSync } from "node:fs";
+import { layer } from "@effect/platform-bun/BunFileSystem";
+import { Effect, FileSystem, Schema } from "effect";
 
-import { Result, Schema } from "effect";
-
-import { decodeJson } from "#typepeek/shared/json-data";
+import { platformPath } from "#typepeek/platform/platform-path";
 
 const embeddedTypepeekVersion = globalThis.__TYPEPEEK_VERSION__;
 
-const decodePackageVersion = Schema.decodeUnknownResult(
+const manifestSchema = Schema.fromJsonString(
   Schema.Struct({ version: Schema.String })
 );
 
-const readSourcePackageVersion = function readSourcePackageVersion(): string {
-  const manifest = Result.getOrUndefined(
-    decodePackageVersion(
-      decodeJson(
-        Schema.Unknown,
-        readFileSync(new URL("../../package.json", import.meta.url), "utf-8")
-      )
-    )
-  );
+const readSourcePackageVersion = Effect.gen(
+  function* readSourcePackageVersion() {
+    const fs = yield* FileSystem.FileSystem;
 
-  if (manifest === undefined) {
-    throw new Error("Typepeek package manifest has no version.");
+    const path = yield* platformPath.fromFileUrl(
+      new URL("../../package.json", import.meta.url)
+    );
+
+    const text = yield* fs.readFileString(path);
+    const manifest = yield* Schema.decodeEffect(manifestSchema)(text);
+
+    return manifest.version;
   }
+);
 
-  return manifest.version;
-};
-
-/** The package version embedded into cache semantics by both source and packaged builds. */
 export const TYPEPEEK_VERSION =
-  embeddedTypepeekVersion ?? readSourcePackageVersion();
+  embeddedTypepeekVersion ??
+  (await Effect.runPromise(
+    readSourcePackageVersion.pipe(Effect.provide(layer))
+  ));
 
 export const HAS_EMBEDDED_TYPEPEEK_VERSION =
   embeddedTypepeekVersion !== undefined;

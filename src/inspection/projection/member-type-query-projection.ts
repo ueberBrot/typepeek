@@ -13,17 +13,20 @@ import {
   isTypeQueryNode,
   isVariableDeclaration,
   SyntaxKind,
-  visitEachChild,
 } from "tsrs/ast";
 import type { Declaration, Node, TypeNode, TypeQueryNode } from "tsrs/ast";
-import { NodeBuilderFlags, SymbolFlags } from "tsrs/sync";
-import type { Checker, Symbol as CompilerSymbol, Type } from "tsrs/sync";
+import { NodeBuilderFlags, SymbolFlags } from "tsrs/async";
+import type { Checker, Symbol as CompilerSymbol, Type } from "tsrs/async";
 
 import { aliasedSymbol } from "#typepeek/inspection/compiler/compiler-queries";
 import {
   declarationsOf,
   isSourceBackedNode,
 } from "#typepeek/inspection/compiler/compiler-session";
+import {
+  visitEachChildAsync,
+  forEachChildAsync,
+} from "#typepeek/inspection/compiler/compiler-traversal";
 import { isTypeScriptStandardLibraryDeclaration } from "#typepeek/inspection/compiler/typescript-standard-library";
 import { UnsupportedInspectionError } from "#typepeek/inspection/model/errors";
 import {
@@ -33,6 +36,7 @@ import {
 } from "#typepeek/inspection/projection/inferred-public-type";
 import type { DeclarationProjectionContext } from "#typepeek/inspection/projection/inferred-public-type";
 import { isWellKnownSymbolMemberName } from "#typepeek/inspection/projection/well-known-symbol";
+import { findAsync, someAsync } from "#typepeek/shared/async-collection";
 import { bitwiseAnd, bitwiseOr } from "#typepeek/shared/integer-bits";
 
 const UNREPRESENTABLE_MEMBER_MESSAGE =
@@ -55,19 +59,19 @@ const MEMBER_CONTAINER_KINDS = new Set<SyntaxKind>([
   SyntaxKind.TypeLiteral,
 ]);
 
-const resolvedSymbolAtLocation = function resolvedSymbolAtLocation(
+const resolvedSymbolAtLocation = async function resolvedSymbolAtLocation(
   checker: Checker,
   node: Node
-): CompilerSymbol | undefined {
+): Promise<CompilerSymbol | undefined> {
   if (!isSourceBackedNode(node)) {
     return undefined;
   }
 
-  const symbol = checker.getSymbolAtLocation(node);
+  const symbol = await checker.getSymbolAtLocation(node);
 
   return symbol !== undefined &&
     bitwiseAnd(symbol.flags, SymbolFlags.Alias) !== 0
-    ? aliasedSymbol(checker, symbol)
+    ? await aliasedSymbol(checker, symbol)
     : symbol;
 };
 
@@ -84,10 +88,10 @@ const declarationsAreStandardLibrary = function declarationsAreStandardLibrary(
   );
 };
 
-const isWellKnownSymbolTypeQuery = function isWellKnownSymbolTypeQuery(
+const isWellKnownSymbolTypeQuery = async function isWellKnownSymbolTypeQuery(
   checker: Checker,
   node: TypeQueryNode
-): boolean {
+): Promise<boolean> {
   if (
     !isQualifiedName(node.exprName) ||
     !isIdentifier(node.exprName.left) ||
@@ -97,23 +101,27 @@ const isWellKnownSymbolTypeQuery = function isWellKnownSymbolTypeQuery(
     return false;
   }
 
-  const rootSymbol = resolvedSymbolAtLocation(checker, node.exprName.left);
+  const rootSymbol = await resolvedSymbolAtLocation(
+    checker,
+    node.exprName.left
+  );
 
   return (
     rootSymbol === undefined ||
-    declarationsAreStandardLibrary(declarationsOf(rootSymbol) ?? [])
+    declarationsAreStandardLibrary((await declarationsOf(rootSymbol)) ?? [])
   );
 };
 
 /** Identifies declarations owned by a Member rather than the selected Inspectable Module. */
-export const declarationOwnerIsMember = function declarationOwnerIsMember(
+export const declarationOwnerIsMember = async function declarationOwnerIsMember(
   checker: Checker,
   moduleSymbol: CompilerSymbol,
   declaration: Declaration,
   reserveTraversal: (depth: number) => void
-): boolean {
+): Promise<boolean> {
   let ancestor = declaration.parent;
 
+  /* oxlint-disable eslint/no-await-in-loop -- Each ancestor determines the next owner and consumes traversal depth. */
   for (
     let depth = 0;
     ancestor !== undefined;
@@ -127,11 +135,11 @@ export const declarationOwnerIsMember = function declarationOwnerIsMember(
 
     if (isModuleBlock(ancestor)) {
       return (
-        checker.getSymbolAtLocation(
+        (await checker.getSymbolAtLocation(
           isModuleDeclaration(ancestor.parent)
             ? ancestor.parent.name
             : ancestor.parent
-        ) !== moduleSymbol
+        )) !== moduleSymbol
       );
     }
 
@@ -139,38 +147,40 @@ export const declarationOwnerIsMember = function declarationOwnerIsMember(
       return true;
     }
   }
+  /* oxlint-enable eslint/no-await-in-loop */
 
   return false;
 };
 
-const isMemberTypeQuery = function isMemberTypeQuery(
+const isMemberTypeQuery = async function isMemberTypeQuery(
   checker: Checker,
   node: Node,
   context: DeclarationProjectionContext
-): node is TypeQueryNode {
+): Promise<boolean> {
   if (!isTypeQueryNode(node)) {
     return false;
   }
 
-  if (isWellKnownSymbolTypeQuery(checker, node)) {
+  if (await isWellKnownSymbolTypeQuery(checker, node)) {
     return false;
   }
 
-  const symbol = resolvedSymbolAtLocation(checker, node.exprName);
-  const declarations = declarationsOf(symbol) ?? [];
+  const symbol = await resolvedSymbolAtLocation(checker, node.exprName);
+  const declarations = (await declarationsOf(symbol)) ?? [];
 
   if (
-    declarations.some(
-      (declaration) =>
+    await someAsync(
+      declarations,
+      async (declaration) =>
         !isTypeScriptStandardLibraryDeclaration(
           declaration.getSourceFile().fileName
         ) &&
-        declarationOwnerIsMember(
+        (await declarationOwnerIsMember(
           checker,
           context.moduleSymbol,
           declaration,
           context.reserveTraversal
-        )
+        ))
     )
   ) {
     return true;
@@ -205,78 +215,98 @@ const explicitDeclarationType = function explicitDeclarationType(
 };
 
 const standardLibraryTypeQueryIsAuthoritative =
-  function standardLibraryTypeQueryIsAuthoritative(
+  async function standardLibraryTypeQueryIsAuthoritative(
     checker: Checker,
     typeQuery: TypeQueryNode
-  ): boolean {
-    const typeSymbol = resolvedSymbolAtLocation(checker, typeQuery.exprName);
+  ): Promise<boolean> {
+    const typeSymbol = await resolvedSymbolAtLocation(
+      checker,
+      typeQuery.exprName
+    );
 
     return (
-      declarationsAreStandardLibrary(declarationsOf(typeSymbol) ?? []) ||
-      isWellKnownSymbolTypeQuery(checker, typeQuery)
+      declarationsAreStandardLibrary(
+        (await declarationsOf(typeSymbol)) ?? []
+      ) || (await isWellKnownSymbolTypeQuery(checker, typeQuery))
     );
   };
 
 const exactStandardLibraryMemberTypeQuery =
-  function exactStandardLibraryMemberTypeQuery(
+  async function exactStandardLibraryMemberTypeQuery(
     checker: Checker,
     query: TypeQueryNode
-  ): TypeQueryNode | undefined {
-    const symbol = resolvedSymbolAtLocation(checker, query.exprName);
+  ): Promise<TypeQueryNode | undefined> {
+    const symbol = await resolvedSymbolAtLocation(checker, query.exprName);
 
-    return declarationsOf(symbol)
-      ?.map(explicitDeclarationType)
-      .find(
-        (typeNode): typeNode is TypeQueryNode =>
-          typeNode !== undefined &&
-          isTypeQueryNode(typeNode) &&
-          standardLibraryTypeQueryIsAuthoritative(checker, typeNode)
-      );
+    const declarationsResult = await declarationsOf(symbol);
+
+    const found = await findAsync(
+      declarationsResult.map(explicitDeclarationType),
+      async (typeNode) =>
+        typeNode !== undefined &&
+        isTypeQueryNode(typeNode) &&
+        (await standardLibraryTypeQueryIsAuthoritative(checker, typeNode))
+    );
+
+    return found !== undefined && isTypeQueryNode(found) ? found : undefined;
   };
 
-export const collectMemberTypeQueryTypes = function collectMemberTypeQueryTypes(
-  checker: Checker,
-  node: Node,
-  types: Type[],
-  context: DeclarationProjectionContext,
-  depth: number
-): void {
-  context.reserveTraversal(depth);
+export const collectMemberTypeQueryTypes =
+  async function collectMemberTypeQueryTypes(
+    checker: Checker,
+    node: Node,
+    types: Type[],
+    context: DeclarationProjectionContext,
+    depth: number
+  ): Promise<void> {
+    context.reserveTraversal(depth);
 
-  if (isMemberTypeQuery(checker, node, context)) {
-    if (exactStandardLibraryMemberTypeQuery(checker, node) === undefined) {
-      types.push(checker.getTypeAtLocation(node.exprName));
+    if (
+      isTypeQueryNode(node) &&
+      (await isMemberTypeQuery(checker, node, context))
+    ) {
+      if (
+        (await exactStandardLibraryMemberTypeQuery(checker, node)) === undefined
+      ) {
+        types.push(await checker.getTypeAtLocation(node.exprName));
+      }
+
+      return;
     }
 
-    return;
-  }
-
-  node.forEachChild((child) => {
-    collectMemberTypeQueryTypes(checker, child, types, context, depth + 1);
-  });
-};
+    await forEachChildAsync(node, async (child) => {
+      await collectMemberTypeQueryTypes(
+        checker,
+        child,
+        types,
+        context,
+        depth + 1
+      );
+    });
+  };
 
 const assertMemberTypeSymbolIsRepresentable =
-  function assertMemberTypeSymbolIsRepresentable(
+  async function assertMemberTypeSymbolIsRepresentable(
     checker: Checker,
     type: Type,
     context: DeclarationProjectionContext
-  ): void {
-    const symbol = type.getAliasSymbol() ?? type.getSymbol();
+  ): Promise<void> {
+    const symbol = (await type.getAliasSymbol()) ?? (await type.getSymbol());
 
     if (
       symbol !== undefined &&
-      declarationsOf(symbol).some(
-        (declaration) =>
+      (await someAsync(
+        await declarationsOf(symbol),
+        async (declaration) =>
           (isNamedTypeDeclarationSyntax(declaration) ||
             isEnumMember(declaration)) &&
-          declarationOwnerIsMember(
+          (await declarationOwnerIsMember(
             checker,
             context.moduleSymbol,
             declaration,
             context.reserveTraversal
-          )
-      )
+          ))
+      ))
     ) {
       throw new UnsupportedInspectionError(UNREPRESENTABLE_MEMBER_MESSAGE);
     }
@@ -292,13 +322,15 @@ const declarationHasExplicitType = function declarationHasExplicitType(
 };
 
 const memberTypeHasExplicitDeclaration =
-  function memberTypeHasExplicitDeclaration(
+  async function memberTypeHasExplicitDeclaration(
     checker: Checker,
     query: TypeQueryNode
-  ): boolean {
-    const symbol = resolvedSymbolAtLocation(checker, query.exprName);
+  ): Promise<boolean> {
+    const symbol = await resolvedSymbolAtLocation(checker, query.exprName);
 
-    return declarationsOf(symbol).some(declarationHasExplicitType);
+    const declarationsResult = await declarationsOf(symbol);
+
+    return declarationsResult.some(declarationHasExplicitType);
   };
 
 const containsTypeQuery = function containsTypeQuery(
@@ -326,12 +358,12 @@ const containsTypeQuery = function containsTypeQuery(
   return found;
 };
 
-const resolvedMemberTypeNode = function resolvedMemberTypeNode(
+const resolvedMemberTypeNode = async function resolvedMemberTypeNode(
   checker: Checker,
   query: TypeQueryNode,
   context: DeclarationProjectionContext
-): TypeNode {
-  const exactStandardLibraryQuery = exactStandardLibraryMemberTypeQuery(
+): Promise<TypeNode> {
+  const exactStandardLibraryQuery = await exactStandardLibraryMemberTypeQuery(
     checker,
     query
   );
@@ -340,21 +372,28 @@ const resolvedMemberTypeNode = function resolvedMemberTypeNode(
     return exactStandardLibraryQuery;
   }
 
-  const type = checker.getTypeAtLocation(query.exprName);
-  assertNoImplementationLocalType(checker, type, context);
-  assertMemberTypeSymbolIsRepresentable(checker, type, context);
-  const typeNode = checker.typeToTypeNode(type, query, MEMBER_TYPE_QUERY_FLAGS);
+  const type = await checker.getTypeAtLocation(query.exprName);
+  await assertNoImplementationLocalType(checker, type, context);
+  await assertMemberTypeSymbolIsRepresentable(checker, type, context);
+
+  const typeNode = await checker.typeToTypeNode(
+    type,
+    query,
+    MEMBER_TYPE_QUERY_FLAGS
+  );
 
   if (typeNode === undefined) {
     throw new UnsupportedInspectionError(UNREPRESENTABLE_MEMBER_MESSAGE);
   }
 
-  if (!memberTypeHasExplicitDeclaration(checker, query)) {
+  if (!(await memberTypeHasExplicitDeclaration(checker, query))) {
     assertReliableInferredType(typeNode, context);
   }
 
   const allowsStandardLibraryTypeQuery = declarationsAreStandardLibrary(
-    declarationsOf(type.getAliasSymbol() ?? type.getSymbol())
+    await declarationsOf(
+      (await type.getAliasSymbol()) ?? (await type.getSymbol())
+    )
   );
 
   if (containsTypeQuery(typeNode, context, allowsStandardLibraryTypeQuery, 0)) {
@@ -364,20 +403,27 @@ const resolvedMemberTypeNode = function resolvedMemberTypeNode(
   return typeNode;
 };
 
-export const projectMemberTypeQueries = function projectMemberTypeQueries(
+export const projectMemberTypeQueries = async function projectMemberTypeQueries(
   checker: Checker,
   declaration: Declaration,
   projectionContext: DeclarationProjectionContext
-): Declaration {
-  const visit = (node: Node, depth: number): Node => {
+): Promise<Declaration> {
+  const visit = async (node: Node, depth: number): Promise<Node> => {
     projectionContext.reserveTraversal(depth);
 
-    return isMemberTypeQuery(checker, node, projectionContext)
-      ? resolvedMemberTypeNode(checker, node, projectionContext)
-      : visitEachChild(node, (child) => visit(child, depth + 1));
+    return isTypeQueryNode(node) &&
+      (await isMemberTypeQuery(checker, node, projectionContext))
+      ? await resolvedMemberTypeNode(checker, node, projectionContext)
+      : await visitEachChildAsync(
+          node,
+          async (child) => await visit(child, depth + 1)
+        );
   };
 
   projectionContext.reserveTraversal(0);
 
-  return visitEachChild(declaration, (child) => visit(child, 1));
+  return await visitEachChildAsync(
+    declaration,
+    async (child) => await visit(child, 1)
+  );
 };
