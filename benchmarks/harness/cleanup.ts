@@ -3,7 +3,7 @@ import nodePath from "node:path";
 
 import { Schema } from "effect";
 
-import { decodeJson } from "#typepeek/json-data";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import { createHarnessArtifacts } from "./artifacts.ts";
 import { codexSandbox } from "./codex-sandbox.ts";

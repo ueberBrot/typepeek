@@ -43,13 +43,13 @@ import {
   declarationsOf,
   valueDeclarationOf,
   signatureText,
-} from "#typepeek/inspection/compiler-session";
-import { bitwiseAnd } from "#typepeek/integer-bits";
+} from "#typepeek/inspection/compiler/compiler-session";
+import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 import {
   decodeJson,
   isJsonObject,
   mutableJsonObjectSchema,
-} from "#typepeek/json-data";
+} from "#typepeek/shared/json-data";
 
 import { createFixtureProgram } from "./native-compiler.ts";
 import { installLockedPackagesWithNpm } from "./package-toolchain.ts";

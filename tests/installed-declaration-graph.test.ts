@@ -1,10 +1,10 @@
 import { isModuleDeclaration } from "tsrs/ast";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
-import { InstalledDeclarationGraph } from "#typepeek/inspection/installed-declaration-graph";
-import { InstalledProgramLoader } from "#typepeek/inspection/installed-program-loader";
+import { createCompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
+import { InstalledProgramLoader } from "#typepeek/inspection/compiler/installed-program-loader";
+import { InstalledDeclarationGraph } from "#typepeek/inspection/projection/installed-declaration-graph";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { createFixtureProgram } from "./helpers/native-compiler.ts";
 

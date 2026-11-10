@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { cpus, hostname, release } from "node:os";
 import nodePath from "node:path";
 
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
 
 export interface DiscoveryIdentity {
   readonly workspace: string;

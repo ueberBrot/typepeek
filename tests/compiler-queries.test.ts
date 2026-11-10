@@ -4,14 +4,14 @@ import { createFileSystem, createFileSystemLayer } from "tsrs/fs";
 import { API } from "tsrs/sync";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler-distribution";
+import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler/compiler-distribution";
 import {
   aliasedSymbol,
   symbolAtLocation,
   symbolsAtLocations,
-} from "#typepeek/inspection/compiler-queries";
-import { declarationsOf } from "#typepeek/inspection/compiler-session";
+} from "#typepeek/inspection/compiler/compiler-queries";
+import { declarationsOf } from "#typepeek/inspection/compiler/compiler-session";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { createFixtureProgram } from "./helpers/native-compiler.ts";
 

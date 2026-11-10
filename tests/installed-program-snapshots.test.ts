@@ -4,9 +4,9 @@ import nodePath from "node:path";
 
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
-import { InstalledProgramLoader } from "#typepeek/inspection/installed-program-loader";
+import { createCompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
+import { InstalledProgramLoader } from "#typepeek/inspection/compiler/installed-program-loader";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 describe("Installed Evidence snapshot updates", () => {
   it("transfers only new contents while preserving old files and checker handles", async () => {

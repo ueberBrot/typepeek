@@ -1,6 +1,6 @@
 import { Predicate, Schema } from "effect";
 
-import { decodeJson } from "#typepeek/json-data";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 const TURN_COMPLETED = "turn.completed";
 

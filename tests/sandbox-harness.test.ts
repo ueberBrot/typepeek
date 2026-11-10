@@ -6,7 +6,7 @@ import nodePath from "node:path";
 import { defineSandbox, defineWorkspace } from "@tanstack/ai-sandbox";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
 
 import { createCodexTrial } from "../benchmarks/codex-discovery/fixture.ts";
 import {

@@ -6,8 +6,8 @@ import { stripVTControlCharacters } from "node:util";
 
 import { Schema } from "effect";
 
-import { decodeJson } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import {
   assertArtifactCacheReuse,

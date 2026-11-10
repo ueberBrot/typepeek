@@ -8,7 +8,7 @@
     "tests/benchmark-package-smoke.ts",
     "tests/fixtures/codex-app-server.ts",
     "tests/fixtures/sandbox-cli.ts",
-    "src/inspection/performance-profile-disabled.ts",
+    "src/inspection/execution/performance-profile-disabled.ts",
     "taze.config.ts",
     "tests/build-output-smoke.ts",
     "tests/package-output-smoke.ts",

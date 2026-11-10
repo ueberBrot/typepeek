@@ -10,9 +10,9 @@ import { selectJsPlugins } from "ultracite/oxlint/js-plugins";
 import ultraciteVitest from "ultracite/oxlint/vitest";
 import { defineConfig } from "vite-plus";
 
-import { COMPILER_VERSION } from "./src/inspection/compiler-distribution.ts";
-import { readStandardGlobalCatalog } from "./src/inspection/standard-global-catalog.ts";
-import { decodeJson } from "./src/json-data.ts";
+import { COMPILER_VERSION } from "./src/inspection/compiler/compiler-distribution.ts";
+import { readStandardGlobalCatalog } from "./src/inspection/compiler/standard-global-catalog.ts";
+import { decodeJson } from "./src/shared/json-data.ts";
 
 const presetImportOrder = ultraciteFormat.sortImports;
 
@@ -48,7 +48,10 @@ const packageVersionDefine = {
 };
 
 const releaseProfileAdapter = fileURLToPath(
-  new URL("src/inspection/performance-profile-disabled.ts", import.meta.url)
+  new URL(
+    "src/inspection/execution/performance-profile-disabled.ts",
+    import.meta.url
+  )
 );
 
 const effectBarrel = fileURLToPath(import.meta.resolve("effect")).replaceAll(
@@ -97,7 +100,9 @@ const validationInputs = [
 const inspectionCoreChunk = function inspectionCoreChunk(
   moduleId: string
 ): string | undefined {
-  return moduleId.replaceAll("\\", "/").endsWith("/src/inspection/protocol.ts")
+  return moduleId
+    .replaceAll("\\", "/")
+    .endsWith("/src/inspection/model/protocol.ts")
     ? "inspection-outcome-codec"
     : undefined;
 };
@@ -228,7 +233,8 @@ export default defineConfig({
   },
   pack: {
     alias: {
-      "#typepeek/inspection/performance-profile": releaseProfileAdapter,
+      "#typepeek/inspection/execution/performance-profile":
+        releaseProfileAdapter,
     },
     define: packageVersionDefine,
     // Keep SDK subpath imports external and resolvable in installed consumers.
@@ -261,7 +267,8 @@ export default defineConfig({
   // Packaged builds disable phase tracing.
   resolve: {
     alias: {
-      "#typepeek/inspection/performance-profile": releaseProfileAdapter,
+      "#typepeek/inspection/execution/performance-profile":
+        releaseProfileAdapter,
     },
   },
   run: {

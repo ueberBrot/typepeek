@@ -3,9 +3,9 @@ import nodePath from "node:path";
 
 import { Predicate, Schema } from "effect";
 
-import { decodeJson } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
-import { unreachableCase } from "#typepeek/unreachable-case";
+import { runCommand } from "#typepeek/platform/process-command";
+import { decodeJson } from "#typepeek/shared/json-data";
+import { unreachableCase } from "#typepeek/shared/unreachable-case";
 
 const IGNORE_SCRIPTS = "--ignore-scripts";
 const NO_AUDIT = "--no-audit";

@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { createStandardLibraryPredicate } from "#typepeek/inspection/typescript-standard-library";
+import { createStandardLibraryPredicate } from "#typepeek/inspection/compiler/typescript-standard-library";
 
 const isStandardLibrary = createStandardLibraryPredicate(
   "C:\\Users\\RUNNER~1\\typepeek\\node_modules\\typescript\\lib",

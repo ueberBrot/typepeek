@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { renderInspection } from "#typepeek/terminal-rendering";
+import { renderInspection } from "#typepeek/presentation/terminal-rendering";
 
 describe("terminal-rendering", () => {
   it("renders Member Discovery selectors and escapes package-controlled names", () => {

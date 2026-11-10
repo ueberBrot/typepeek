@@ -9,8 +9,8 @@ import {
 import {
   inspectionProtocolRequestSchema,
   inspectionProtocolResponseSchema,
-} from "#typepeek/inspection/inspection-protocol-schema";
-import { protocolRecoveryGuidance } from "#typepeek/inspection/protocol-recovery";
+} from "#typepeek/inspection/model/inspection-protocol-schema";
+import { protocolRecoveryGuidance } from "#typepeek/inspection/model/protocol-recovery";
 
 import type { CompiledPackageFixture } from "../helpers/compiled-package-fixture.ts";
 import { match } from "../helpers/matchers.ts";

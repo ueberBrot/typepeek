@@ -5,7 +5,7 @@ import { parseArgs } from "node:util";
 
 import { defineSandbox, defineWorkspace } from "@tanstack/ai-sandbox";
 
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
 
 import { prepareOutputDirectory } from "../support/output-directory.ts";
 import { createHarnessArtifacts } from "./artifacts.ts";

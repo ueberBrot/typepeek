@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
 
 import { inspectWithCompiler } from "../benchmarks/support/compiler.ts";
 import { typepeekFacts } from "../benchmarks/support/evidence.ts";

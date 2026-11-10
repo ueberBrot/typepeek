@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import type { JsonInput } from "#typepeek/json-data";
+import type { JsonInput } from "#typepeek/shared/json-data";
 
 import type { CodexLaunch } from "./capture.ts";
 

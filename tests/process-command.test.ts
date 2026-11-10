@@ -4,8 +4,8 @@ import nodePath from "node:path";
 
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { runCommand } from "#typepeek/process-command";
-import { processExecutable } from "#typepeek/process-executable";
+import { runCommand } from "#typepeek/platform/process-command";
+import { processExecutable } from "#typepeek/platform/process-executable";
 
 describe("Effect command execution", () => {
   it("preserves argument bytes without interpreting shell syntax", async () => {

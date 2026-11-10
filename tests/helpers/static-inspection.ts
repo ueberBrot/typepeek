@@ -11,8 +11,8 @@ import { createRequire } from "node:module";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { analysisProcessNodeArguments } from "#typepeek/inspection/analysis-process";
-import { runCommand } from "#typepeek/process-command";
+import { analysisProcessNodeArguments } from "#typepeek/inspection/execution/analysis-process";
+import { runCommand } from "#typepeek/platform/process-command";
 
 interface GuardedEnvironment {
   readonly [key: string]: string | undefined;

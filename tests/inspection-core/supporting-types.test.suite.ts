@@ -1,7 +1,7 @@
 import { expect, test } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
 import { inspectExport } from "#typepeek/inspection";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import type { CompiledPackageFixture } from "../helpers/compiled-package-fixture.ts";
 

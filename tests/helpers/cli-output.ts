@@ -1,6 +1,6 @@
 import { expect } from "vite-plus/test";
 
-import { splitCodePoints } from "#typepeek/code-point-ranges";
+import { splitCodePoints } from "#typepeek/presentation/code-point-ranges";
 
 const UNSAFE_TERMINAL_CODE_POINTS = new Set([
   ...Array.from({ length: 32 }, (_, codePoint) => codePoint),

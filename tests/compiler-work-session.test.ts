@@ -11,19 +11,19 @@ import nodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
-import { canonicalEvidenceCandidatePath } from "#typepeek/inspection/evidence-boundary";
+import { createCompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
+import { canonicalEvidenceCandidatePath } from "#typepeek/inspection/evidence/evidence-boundary";
 import {
   materializeInspectableModuleEvidence,
   selectInspectableModule,
-} from "#typepeek/inspection/installed-evidence";
+} from "#typepeek/inspection/evidence/installed-evidence";
 import {
   createInstalledEvidenceFingerprintRecorder,
   MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
-} from "#typepeek/inspection/installed-evidence-fingerprint";
-import { compactEvidenceProof } from "#typepeek/inspection/installed-evidence-format";
-import { readDeclarationProvenance } from "#typepeek/inspection/installed-package-boundary";
+} from "#typepeek/inspection/evidence/installed-evidence-fingerprint";
+import { compactEvidenceProof } from "#typepeek/inspection/evidence/installed-evidence-format";
+import { readDeclarationProvenance } from "#typepeek/inspection/evidence/installed-package-boundary";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 describe("compiler work session", () => {
   it("applies the manifest limit before the aggregate allowance unless fewer bytes remain", async () => {

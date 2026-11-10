@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/untrusted-data";
+import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/model/untrusted-data";
 
 const generousBounds = {
   maximumObjects: 32,

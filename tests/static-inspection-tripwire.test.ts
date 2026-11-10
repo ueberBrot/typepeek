@@ -5,8 +5,8 @@ import nodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler-distribution";
-import { runCommand } from "#typepeek/process-command";
+import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler/compiler-distribution";
+import { runCommand } from "#typepeek/platform/process-command";
 
 import {
   materializeStaticInspection,
@@ -31,7 +31,7 @@ describe("Static Inspection compiler launch tripwire", () => {
       const probe = nodePath.join(fixtureRoot, "compiler-connection.mjs");
 
       const sessionUrl = new URL(
-        "../src/inspection/compiler-session.ts",
+        "../src/inspection/compiler/compiler-session.ts",
         import.meta.url
       ).href;
 

@@ -5,13 +5,16 @@ import { parseArgs } from "node:util";
 import { Cause, Effect, Exit, Predicate, Queue, Schema, Stream } from "effect";
 import { ChildProcess } from "effect/process";
 
-import type { JsonInput } from "#typepeek/json-data";
-import { decodeJson } from "#typepeek/json-data";
-import { nodeProcessLayer, scopedProcess } from "#typepeek/node-process";
 import {
   boundedProcessOutput,
   collectProcessOutput,
-} from "#typepeek/process-output";
+} from "#typepeek/platform/process-output";
+import {
+  processLayer,
+  scopedProcess,
+} from "#typepeek/platform/process-runtime";
+import type { JsonInput } from "#typepeek/shared/json-data";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import type { TimedCodexEvent } from "./acquisition.ts";
 import { runCodexExchange } from "./exchange.ts";
@@ -356,7 +359,7 @@ export const captureCodex = async function captureCodex(launch: CodexLaunch) {
           );
         })
       ),
-      Effect.provide(nodeProcessLayer)
+      Effect.provide(processLayer)
     )
   );
 

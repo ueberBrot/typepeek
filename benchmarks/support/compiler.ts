@@ -25,14 +25,14 @@ import type {
 import {
   COMPILER_EXECUTABLE,
   COMPILER_VERSION,
-} from "#typepeek/inspection/compiler-distribution";
+} from "#typepeek/inspection/compiler/compiler-distribution";
 import {
   bindCompilerProgram,
   declarationsOf,
   valueDeclarationOf,
   signatureText,
-} from "#typepeek/inspection/compiler-session";
-import { bitwiseAnd } from "#typepeek/integer-bits";
+} from "#typepeek/inspection/compiler/compiler-session";
+import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 import { signatureFact } from "./signature.ts";
 import type { DiscoveryWorkload } from "./workloads.ts";

@@ -12,15 +12,15 @@ import nodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import type { AnalysisExecution } from "#typepeek/inspection/analyze";
-import { analyzeInspection } from "#typepeek/inspection/analyze";
-import { selectInspectableModule } from "#typepeek/inspection/installed-evidence";
-import type { InstalledEvidenceProof } from "#typepeek/inspection/installed-evidence-fingerprint";
-import { createInstalledEvidenceFingerprintRecorder } from "#typepeek/inspection/installed-evidence-fingerprint";
-import { EVIDENCE_PROOF_LIMITS } from "#typepeek/inspection/installed-evidence-format";
-import { installedEvidenceProofStillMatches } from "#typepeek/inspection/installed-evidence-proof";
-import type { NormalizedInspectionTarget } from "#typepeek/inspection/protocol";
+import { selectInspectableModule } from "#typepeek/inspection/evidence/installed-evidence";
+import type { InstalledEvidenceProof } from "#typepeek/inspection/evidence/installed-evidence-fingerprint";
+import { createInstalledEvidenceFingerprintRecorder } from "#typepeek/inspection/evidence/installed-evidence-fingerprint";
+import { EVIDENCE_PROOF_LIMITS } from "#typepeek/inspection/evidence/installed-evidence-format";
+import { installedEvidenceProofStillMatches } from "#typepeek/inspection/evidence/installed-evidence-proof";
+import type { AnalysisExecution } from "#typepeek/inspection/execution/analyze";
+import { analyzeInspection } from "#typepeek/inspection/execution/analyze";
+import type { NormalizedInspectionTarget } from "#typepeek/inspection/model/protocol";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { match } from "./helpers/matchers.ts";
 

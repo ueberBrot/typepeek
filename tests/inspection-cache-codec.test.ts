@@ -2,30 +2,30 @@ import { createHash } from "node:crypto";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
-import { COMPILER_VERSION } from "#typepeek/inspection/compiler-metadata";
-import type { InspectionCacheSelection } from "#typepeek/inspection/inspection-cache";
+import type { InspectionCacheSelection } from "#typepeek/inspection/cache/inspection-cache";
 import {
   createInspectionCacheIdentity,
   createInspectionCacheWriteReceipt,
   readInspectionCacheHitNotice,
-} from "#typepeek/inspection/inspection-cache";
+} from "#typepeek/inspection/cache/inspection-cache";
 import {
   CACHE_SCHEMA_VERSION,
   encodeInspectionCacheWriteReceipt,
   readInspectionCacheEnvelope,
   readInspectionCachePayload,
   readInspectionCacheWriteReceiptMessage,
-} from "#typepeek/inspection/inspection-cache-codec";
-import type { InstalledEvidenceProof } from "#typepeek/inspection/installed-evidence-fingerprint";
-import { MAX_INSTALLED_EVIDENCE_PROOF_BYTES } from "#typepeek/inspection/installed-evidence-fingerprint";
+} from "#typepeek/inspection/cache/inspection-cache-codec";
+import { COMPILER_VERSION } from "#typepeek/inspection/compiler/compiler-metadata";
+import type { InstalledEvidenceProof } from "#typepeek/inspection/evidence/installed-evidence-fingerprint";
+import { MAX_INSTALLED_EVIDENCE_PROOF_BYTES } from "#typepeek/inspection/evidence/installed-evidence-fingerprint";
 import {
   compactEvidenceProof,
   expandEvidenceProof,
-} from "#typepeek/inspection/installed-evidence-format";
-import type { AnalysisRequest } from "#typepeek/inspection/protocol";
-import { TYPEPEEK_VERSION } from "#typepeek/package-metadata";
+} from "#typepeek/inspection/evidence/installed-evidence-format";
+import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/model/budget-policy";
+import type { AnalysisRequest } from "#typepeek/inspection/model/protocol";
+import { TYPEPEEK_VERSION } from "#typepeek/platform/package-metadata";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { match } from "./helpers/matchers.ts";
 import { defineObjectPrototypeProperty } from "./helpers/prototype-fixture.ts";

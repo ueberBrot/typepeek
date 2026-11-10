@@ -9,8 +9,8 @@ import { live as it } from "@effect/vitest";
 import { Effect, Exit, Fiber } from "effect";
 import { afterAll, beforeAll, describe, expect } from "vite-plus/test";
 
-import { runAnalysisFixtureProcess } from "#typepeek/inspection/analysis-process";
-import type { AnalysisRequest } from "#typepeek/inspection/protocol";
+import { runAnalysisFixtureProcess } from "#typepeek/inspection/execution/analysis-process";
+import type { AnalysisRequest } from "#typepeek/inspection/model/protocol";
 
 import { match } from "./helpers/matchers.ts";
 

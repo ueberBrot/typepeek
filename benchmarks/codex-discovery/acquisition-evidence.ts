@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { decodeJson } from "#typepeek/json-data";
+import { requireDefined } from "#typepeek/shared/defined-value";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import { typepeekFacts } from "../support/evidence.ts";
 import { signatureFact } from "../support/signature.ts";

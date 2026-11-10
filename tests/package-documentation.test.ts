@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { resolveFocusedExportSymbol } from "#typepeek/inspection/focused-export";
-import { inspectPackageDocumentation } from "#typepeek/inspection/package-documentation";
+import { inspectPackageDocumentation } from "#typepeek/inspection/projection/package-documentation";
+import { resolveFocusedExportSymbol } from "#typepeek/inspection/queries/focused-export";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { createFixtureProgram } from "./helpers/native-compiler.ts";
 

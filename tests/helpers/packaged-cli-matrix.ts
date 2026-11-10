@@ -13,9 +13,9 @@ import nodePath from "node:path";
 
 import { Predicate, Schema } from "effect";
 
-import { bitwiseAnd, unsignedRightShift } from "#typepeek/integer-bits";
-import { decodeJson } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import { bitwiseAnd, unsignedRightShift } from "#typepeek/shared/integer-bits";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import type { PackageManagerPin } from "./package-toolchain.ts";
 import {

@@ -4,9 +4,9 @@ import nodePath from "node:path";
 
 import { expect } from "vite-plus/test";
 
-import type { JsonInput } from "#typepeek/json-data";
-import { decodeJson } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import type { JsonInput } from "#typepeek/shared/json-data";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import { acquisitionMeasurementSchema } from "./benchmark-artifact.ts";
 

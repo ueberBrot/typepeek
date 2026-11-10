@@ -1,0 +1,456 @@
+import type {
+  AtomicInspectionResult,
+  DeclarationInspection,
+  ExportDeclarationSpace,
+  ExportInspection,
+  ExportNamespaceMember,
+  ExportSearch,
+  InspectedDeclaration,
+  InspectionPlan,
+  InspectionResult,
+  InterfaceOverview,
+  MemberDiscovery,
+  MemberInspection,
+  PackageIdentity,
+  PublicInterfaceComparison,
+  PublicInterfaceComparisonTarget,
+  PublicSubpathDiscovery,
+  ResolutionVariant,
+  SignatureInspection,
+} from "#typepeek/inspection";
+import { InspectionLimitError } from "#typepeek/inspection/model/errors";
+import { formatMemberPath } from "#typepeek/inspection/model/member-path";
+import { terminalSafeLine } from "#typepeek/presentation/output-safety";
+import { unreachableCase } from "#typepeek/shared/unreachable-case";
+
+const MAX_TERMINAL_OUTPUT_BYTES = 128 * 1024;
+
+export interface TerminalRenderingOptions {
+  readonly includePublicSubpaths?: boolean;
+  readonly moduleExportMatch?: string;
+}
+
+const renderPackageIdentity = function renderPackageIdentity(
+  packageIdentity: PackageIdentity
+): string {
+  const version =
+    packageIdentity.version === undefined
+      ? ""
+      : `@${terminalSafeLine(packageIdentity.version)}`;
+
+  return `${terminalSafeLine(packageIdentity.name)}${version}`;
+};
+
+const renderComparisonTarget = function renderComparisonTarget(
+  label: "Before" | "After",
+  target: PublicInterfaceComparisonTarget
+): readonly string[] {
+  return [
+    `${label} Specifier: ${terminalSafeLine(target.specifier)}`,
+    `${label} Access Style: ${terminalSafeLine(target.resolutionVariant.accessStyle)}`,
+    ...(target.packageIdentity === undefined
+      ? []
+      : [`${label} Package: ${renderPackageIdentity(target.packageIdentity)}`]),
+    ...(target.declarationProvider === undefined
+      ? []
+      : [
+          `${label} Declaration Provider: ${renderPackageIdentity(target.declarationProvider)}`,
+        ]),
+  ];
+};
+
+const renderPublicInterfaceComparison =
+  function renderPublicInterfaceComparison(
+    result: PublicInterfaceComparison
+  ): string {
+    return [
+      "Public Interface Comparison (Interface Overview indexes)",
+      ...renderComparisonTarget("Before", result.before),
+      ...renderComparisonTarget("After", result.after),
+      `Module Exports (${result.moduleExports.added.length} added, ${result.moduleExports.removed.length} removed):`,
+      ...result.moduleExports.added.map(
+        ({ name }) => `+ ${terminalSafeLine(name)}`
+      ),
+      ...result.moduleExports.removed.map(
+        ({ name }) => `- ${terminalSafeLine(name)}`
+      ),
+      `Public Subpaths (${result.publicSubpaths.added.length} added, ${result.publicSubpaths.removed.length} removed):`,
+      ...result.publicSubpaths.added.map(
+        ({ specifier }) => `+ ${terminalSafeLine(specifier)}`
+      ),
+      ...result.publicSubpaths.removed.map(
+        ({ specifier }) => `- ${terminalSafeLine(specifier)}`
+      ),
+    ].join("\n");
+  };
+
+const matchingModuleExports = function matchingModuleExports(
+  result: InterfaceOverview,
+  match: string | undefined
+): InterfaceOverview["moduleExports"] {
+  if (match === undefined) {
+    return result.moduleExports;
+  }
+
+  const normalizedMatch = match.toLowerCase();
+
+  return result.moduleExports.filter(({ name }) =>
+    name.toLowerCase().includes(normalizedMatch)
+  );
+};
+
+const renderInspectionTarget = function renderInspectionTarget(
+  specifier: string,
+  resolutionVariant: ResolutionVariant
+): readonly string[] {
+  return [
+    `Specifier: ${terminalSafeLine(specifier)}`,
+    `Access Style: ${terminalSafeLine(resolutionVariant.accessStyle)}`,
+  ];
+};
+
+const renderEvidenceIdentities = function renderEvidenceIdentities(
+  packageIdentity: PackageIdentity | undefined,
+  declarationProvider: PackageIdentity | undefined
+): readonly string[] {
+  return [
+    ...(packageIdentity === undefined
+      ? []
+      : [`Package: ${renderPackageIdentity(packageIdentity)}`]),
+    ...(declarationProvider === undefined
+      ? []
+      : [
+          `Declaration Provider: ${renderPackageIdentity(declarationProvider)}`,
+        ]),
+  ];
+};
+
+const renderSingleTargetHeading = function renderSingleTargetHeading(
+  title: string,
+  result: AtomicInspectionResult
+): readonly string[] {
+  return [
+    title,
+    ...renderInspectionTarget(result.specifier, result.resolutionVariant),
+    ...renderEvidenceIdentities(
+      result.packageIdentity,
+      result.declarationProvider
+    ),
+  ];
+};
+
+const renderModuleExportsHeading = function renderModuleExportsHeading(
+  result: InterfaceOverview,
+  matchedCount: number,
+  match: string | undefined
+): string {
+  return match === undefined
+    ? `Module Exports (${result.moduleExports.length}):`
+    : `Module Exports (${matchedCount} matching "${terminalSafeLine(match)}"; ${result.moduleExports.length} total):`;
+};
+
+const renderInterfaceOverview = function renderInterfaceOverview(
+  result: InterfaceOverview,
+  includePublicSubpaths: boolean,
+  moduleExportMatch: string | undefined
+): string {
+  const moduleExports = matchingModuleExports(result, moduleExportMatch);
+
+  return [
+    ...renderSingleTargetHeading("Interface Overview", result),
+    renderModuleExportsHeading(result, moduleExports.length, moduleExportMatch),
+    ...moduleExports.map(({ name }) => `- ${terminalSafeLine(name)}`),
+    ...(result.exportPage === undefined
+      ? []
+      : [
+          `Export index: ${result.exportPage.totalModuleExports} total; ${result.exportPage.complete ? "complete index" : "one page"}.`,
+          ...(result.exportPage.nextCursor === undefined
+            ? ["End of export index."]
+            : [
+                `Next page: --cursor ${terminalSafeLine(result.exportPage.nextCursor)}`,
+              ]),
+        ]),
+    includePublicSubpaths
+      ? `Public Subpaths (${result.publicSubpaths.length}):`
+      : `Public Subpaths (${result.publicSubpaths.length}; use --subpaths to list):`,
+    ...(includePublicSubpaths
+      ? result.publicSubpaths.map(
+          ({ specifier }) => `- ${terminalSafeLine(specifier)}`
+        )
+      : []),
+  ].join("\n");
+};
+
+const renderDeclaration = function renderDeclaration(
+  declaration: InspectedDeclaration
+): readonly string[] {
+  return [
+    `  ${terminalSafeLine(declaration.kind)}:`,
+    ...declaration.text
+      .split("\n")
+      .map((line) => `    ${terminalSafeLine(line)}`),
+    `  @ ${renderPackageIdentity(declaration.provenance.packageIdentity)}:${terminalSafeLine(declaration.provenance.file)}:${declaration.provenance.line}:${declaration.provenance.column}`,
+  ];
+};
+
+const renderNamespaceMember = function renderNamespaceMember(
+  member: ExportNamespaceMember,
+  parentPath: readonly string[]
+): readonly string[] {
+  const path = [...parentPath, member.name];
+
+  return [
+    `  ${terminalSafeLine(path.join("."))}:`,
+    ...member.declarations.flatMap(renderDeclaration),
+    ...member.members.flatMap((child) => renderNamespaceMember(child, path)),
+  ];
+};
+
+const renderDeclarationSpace = function renderDeclarationSpace(
+  space: ExportDeclarationSpace
+): readonly string[] {
+  return space.space === "namespace"
+    ? [
+        `- ${terminalSafeLine(space.space)}`,
+        ...space.members.flatMap((member) => renderNamespaceMember(member, [])),
+      ]
+    : [
+        `- ${terminalSafeLine(space.space)}`,
+        ...space.declarations.flatMap(renderDeclaration),
+      ];
+};
+
+const renderDeclaredModuleExport = function renderDeclaredModuleExport(
+  moduleExport:
+    | DeclarationInspection["moduleExport"]
+    | ExportInspection["moduleExport"]
+): readonly string[] {
+  const alias =
+    moduleExport.alias === undefined
+      ? ""
+      : ` (alias of ${terminalSafeLine(moduleExport.alias.targetName)})`;
+
+  return [
+    `Module Export: ${terminalSafeLine(moduleExport.name)}${alias}`,
+    ...(moduleExport.alias === undefined
+      ? []
+      : [
+          "Alias Declaration:",
+          ...renderDeclaration(moduleExport.alias.declaration),
+        ]),
+    "Declaration Spaces:",
+    ...moduleExport.spaces.flatMap(renderDeclarationSpace),
+  ];
+};
+
+const renderExportInspection = function renderExportInspection(
+  result: ExportInspection
+): string {
+  return [
+    ...renderSingleTargetHeading("Export Inspection", result),
+    ...renderDeclaredModuleExport(result.moduleExport),
+    `Signatures (${result.moduleExport.signatures.length}):`,
+    ...result.moduleExport.signatures.map(
+      ({ kind, text }) =>
+        `- ${terminalSafeLine(kind)}: ${terminalSafeLine(text)}`
+    ),
+    `Supporting Types (${result.supportingTypes.length}):`,
+    ...result.supportingTypes.flatMap(({ name, declarations }) => [
+      `- ${terminalSafeLine(name)}`,
+      ...declarations.flatMap(renderDeclaration),
+    ]),
+    ...(result.packageDocumentation === undefined
+      ? []
+      : [
+          "Package Documentation (untrusted Installed Evidence):",
+          ...result.packageDocumentation.text
+            .split("\n")
+            .map((line) => `| ${terminalSafeLine(line)}`),
+        ]),
+  ].join("\n");
+};
+
+const renderSignatureInspection = function renderSignatureInspection(
+  result: SignatureInspection
+): string {
+  const alias =
+    result.moduleExport.aliasTargetName === undefined
+      ? ""
+      : ` (alias of ${terminalSafeLine(result.moduleExport.aliasTargetName)})`;
+
+  return [
+    ...renderSingleTargetHeading("Signature Inspection", result),
+    `Module Export: ${terminalSafeLine(result.moduleExport.name)}${alias}`,
+    `Signatures (${result.moduleExport.signatures.length}):`,
+    ...result.moduleExport.signatures.map(
+      ({ kind, text }) =>
+        `- ${terminalSafeLine(kind)}: ${terminalSafeLine(text)}`
+    ),
+  ].join("\n");
+};
+
+const renderExportSearch = function renderExportSearch(
+  result: ExportSearch
+): string {
+  return [
+    ...renderSingleTargetHeading("Export Search", result),
+    `Module Exports (${result.matches.length} matching "${terminalSafeLine(result.query)}"; ${result.totalModuleExports} total):`,
+    ...result.matches.flatMap(({ name, signatures, packageDocumentation }) => [
+      `- ${terminalSafeLine(name)}`,
+      ...(signatures?.map(
+        (signature) => `  ${terminalSafeLine(signature.text)}`
+      ) ?? []),
+      ...(packageDocumentation === undefined
+        ? []
+        : [
+            `  Package Documentation excerpt (untrusted): ${terminalSafeLine(packageDocumentation.text)}`,
+          ]),
+    ]),
+  ].join("\n");
+};
+
+const renderPublicSubpathDiscovery = function renderPublicSubpathDiscovery(
+  result: PublicSubpathDiscovery
+): string {
+  return [
+    ...renderSingleTargetHeading("Public Subpath Discovery", result),
+    `Public Subpaths (${result.publicSubpaths.length}):`,
+    ...result.publicSubpaths.map(
+      ({ specifier }) => `- ${terminalSafeLine(specifier)}`
+    ),
+  ].join("\n");
+};
+
+const renderDeclarationInspection = function renderDeclarationInspection(
+  result: DeclarationInspection
+): string {
+  return [
+    ...renderSingleTargetHeading("Declaration Inspection", result),
+    ...renderDeclaredModuleExport(result.moduleExport),
+  ].join("\n");
+};
+
+const renderMemberInspection = function renderMemberInspection(
+  result: MemberInspection
+): string {
+  return [
+    ...renderSingleTargetHeading("Member Inspection", result),
+    `Member: ${terminalSafeLine(result.moduleExportName)}.${terminalSafeLine(formatMemberPath(result.memberPath))}`,
+    ...result.declarations.flatMap(renderDeclaration),
+  ].join("\n");
+};
+
+const renderMemberDiscovery = function renderMemberDiscovery(
+  result: MemberDiscovery
+): string {
+  const path = formatMemberPath(result.memberPath);
+
+  const count =
+    result.query === undefined
+      ? `${result.totalMembers}`
+      : `${result.members.length} matching "${terminalSafeLine(result.query)}"; ${result.totalMembers} total`;
+
+  const generatedText1 = path === "" ? "" : `.${terminalSafeLine(path)}`;
+
+  return [
+    ...renderSingleTargetHeading("Member Discovery", result),
+    `Members of: ${terminalSafeLine(result.moduleExportName)}${generatedText1}`,
+    `Public Members (${count}):`,
+    ...result.members.map(
+      ({ name, spaces }) => `- ${terminalSafeLine(name)} (${spaces.join(", ")})`
+    ),
+  ].join("\n");
+};
+
+const inspectionRendering = {
+  renderInspectionPlan(
+    result: InspectionPlan,
+    options: TerminalRenderingOptions
+  ): string {
+    return [
+      `Inspection Plan (${result.inspections.length}):`,
+      ...result.inspections.flatMap((inspection, index) => [
+        `Inspection ${index + 1}:`,
+        inspectionRendering.renderInspectionResult(inspection, options),
+      ]),
+    ].join("\n");
+  },
+  renderInspectionResult(
+    result: InspectionResult,
+    options: TerminalRenderingOptions
+  ): string {
+    return result.intent === "public-interface-comparison"
+      ? renderPublicInterfaceComparison(result)
+      : inspectionRendering.renderSingleTargetInspectionResult(result, options);
+  },
+  renderSingleTargetInspectionResult(
+    result: Exclude<InspectionResult, PublicInterfaceComparison>,
+    options: TerminalRenderingOptions
+  ): string {
+    switch (result.intent) {
+      case "interface-overview": {
+        return renderInterfaceOverview(
+          result,
+          options.includePublicSubpaths === true,
+          options.moduleExportMatch
+        );
+      }
+
+      case "export-inspection": {
+        return renderExportInspection(result);
+      }
+
+      case "signature-inspection": {
+        return renderSignatureInspection(result);
+      }
+
+      case "inspection-plan": {
+        return inspectionRendering.renderInspectionPlan(result, options);
+      }
+
+      case "export-search": {
+        return renderExportSearch(result);
+      }
+
+      case "public-subpath-discovery": {
+        return renderPublicSubpathDiscovery(result);
+      }
+
+      case "declaration-inspection": {
+        return renderDeclarationInspection(result);
+      }
+
+      case "member-inspection": {
+        return renderMemberInspection(result);
+      }
+
+      case "member-discovery": {
+        return renderMemberDiscovery(result);
+      }
+
+      default: {
+        return unreachableCase(result);
+      }
+    }
+  },
+};
+
+/**
+ * Renders a validated Inspection Result as deterministic plain text. Every
+ * value originating in Installed Evidence is escaped before terminal display.
+ */
+export const renderInspection = function renderInspection(
+  result: InspectionResult,
+  options: TerminalRenderingOptions = {}
+): string {
+  const rendered = inspectionRendering.renderInspectionResult(result, options);
+
+  if (Buffer.byteLength(rendered) > MAX_TERMINAL_OUTPUT_BYTES) {
+    throw new InspectionLimitError(
+      "terminal-output",
+      "Inspection exceeded its terminal output limit."
+    );
+  }
+
+  return rendered;
+};

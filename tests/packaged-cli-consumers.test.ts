@@ -3,7 +3,7 @@ import { access } from "node:fs/promises";
 import { Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
-import { decodeJson } from "#typepeek/json-data";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import { match } from "./helpers/matchers.ts";
 import { PACKAGE_MANAGER_PINS } from "./helpers/package-toolchain.ts";

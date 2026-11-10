@@ -5,7 +5,7 @@ import nodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { inspectWithCompiler } from "../benchmarks/support/compiler.ts";
 import {

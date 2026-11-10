@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { enforceInspectionOutcome } from "#typepeek/inspection/inspection-outcome-authority";
+import { enforceInspectionOutcome } from "#typepeek/inspection/model/inspection-outcome-authority";
 
 import { registerDataAdmissionTests } from "./inspection-outcome-authority/data-admission.test.suite.ts";
 import { registerNamespaceGraphTests } from "./inspection-outcome-authority/namespace-graph.test.suite.ts";

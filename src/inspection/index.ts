@@ -17,9 +17,9 @@ export {
   INSPECTION_PROTOCOL_VERSION,
   inspectCapabilities,
   inspectionCapabilitiesSchema,
-} from "#typepeek/inspection/protocol-metadata";
+} from "#typepeek/inspection/model/protocol-metadata";
 
-export { invokeInspectionProtocol } from "#typepeek/inspection/inspection-protocol";
+export { invokeInspectionProtocol } from "#typepeek/inspection/model/inspection-protocol";
 
 export type {
   AtomicInspectionResult,
@@ -42,8 +42,8 @@ export type {
   PublicSubpathDiscovery,
   ResolutionVariant,
   SignatureInspection,
-} from "#typepeek/inspection/protocol";
+} from "#typepeek/inspection/model/protocol";
 
-export type { InspectionIntent } from "#typepeek/inspection/protocol-metadata";
+export type { InspectionIntent } from "#typepeek/inspection/model/protocol-metadata";
 
-export type { MemberPath } from "#typepeek/inspection/member-path";
+export type { MemberPath } from "#typepeek/inspection/model/member-path";

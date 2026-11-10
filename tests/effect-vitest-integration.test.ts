@@ -6,7 +6,7 @@ import { expect as effectExpect, effect as scopedIt } from "@effect/vitest";
 import { Effect, Predicate, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { decodeJson } from "#typepeek/json-data";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 const packageManifestSchema = Schema.Struct({
   dependencies: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),

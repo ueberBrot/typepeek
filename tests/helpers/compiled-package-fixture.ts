@@ -5,7 +5,7 @@ import nodePath from "node:path";
 import type { Schema } from "effect";
 import { Predicate } from "effect";
 
-import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/budget-policy";
+import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/model/budget-policy";
 
 import {
   installPackedPackagesWithNpm,

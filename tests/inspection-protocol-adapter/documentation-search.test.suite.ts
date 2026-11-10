@@ -5,7 +5,7 @@ import {
   inspectExportSignatures,
   invokeInspectionProtocol,
 } from "#typepeek/inspection";
-import { inspectionProtocolResponseSchema } from "#typepeek/inspection/inspection-protocol-schema";
+import { inspectionProtocolResponseSchema } from "#typepeek/inspection/model/inspection-protocol-schema";
 
 import type { CompiledPackageFixture } from "../helpers/compiled-package-fixture.ts";
 import { match } from "../helpers/matchers.ts";

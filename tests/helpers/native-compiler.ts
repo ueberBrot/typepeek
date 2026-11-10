@@ -2,8 +2,8 @@ import { createFileSystem } from "tsrs/fs";
 import { API } from "tsrs/sync";
 import type { Program, RawCompilerOptions } from "tsrs/sync";
 
-import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler-distribution";
-import { retainCompilerProgram } from "#typepeek/inspection/compiler-session";
+import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler/compiler-distribution";
+import { retainCompilerProgram } from "#typepeek/inspection/compiler/compiler-session";
 
 /** Fixture compiler uses the SDK directly, independently of the evidence loader. */
 export const createFixtureProgram = (

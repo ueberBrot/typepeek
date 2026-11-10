@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
 
 export const stageHarnessSource = async (repository: string) => {
   const root = await mkdtemp(

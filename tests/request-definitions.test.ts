@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { readInspectionPlanQueries } from "#typepeek/inspection/inspection-plan-query";
 import {
   readAnalysisRequest,
   readInspectionRequest,
-} from "#typepeek/inspection/request-definitions";
+} from "#typepeek/inspection/model/request-definitions";
+import { readInspectionPlanQueries } from "#typepeek/inspection/queries/inspection-plan-query";
 
 import { match } from "./helpers/matchers.ts";
 

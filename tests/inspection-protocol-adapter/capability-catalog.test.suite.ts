@@ -8,8 +8,8 @@ import {
   inspectionCapabilitiesSchema,
   invokeInspectionProtocol,
 } from "#typepeek/inspection";
-import { withRequestFieldCapability } from "#typepeek/inspection/request-capability";
-import { isJsonObject } from "#typepeek/json-data";
+import { withRequestFieldCapability } from "#typepeek/inspection/model/request-capability";
+import { isJsonObject } from "#typepeek/shared/json-data";
 
 import { match } from "../helpers/matchers.ts";
 

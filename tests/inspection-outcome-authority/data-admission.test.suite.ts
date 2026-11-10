@@ -1,6 +1,6 @@
 import { expect, test } from "vite-plus/test";
 
-import { enforceInspectionOutcome } from "#typepeek/inspection/inspection-outcome-authority";
+import { enforceInspectionOutcome } from "#typepeek/inspection/model/inspection-outcome-authority";
 
 import { defineObjectPrototypeProperty } from "../helpers/prototype-fixture.ts";
 

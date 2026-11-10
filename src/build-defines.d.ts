@@ -1,4 +1,4 @@
-import type { StandardGlobalCatalog } from "#typepeek/inspection/standard-global-catalog";
+import type { StandardGlobalCatalog } from "#typepeek/inspection/compiler/standard-global-catalog";
 
 declare global {
   var __TYPEPEEK_VERSION__: string | undefined;

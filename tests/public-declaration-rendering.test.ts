@@ -8,14 +8,14 @@ import type {
 } from "tsrs/sync";
 import { describe, expect, it } from "vite-plus/test";
 
-import { declarationsOf } from "#typepeek/inspection/compiler-session";
+import { declarationsOf } from "#typepeek/inspection/compiler/compiler-session";
+import { InspectionResultConstruction } from "#typepeek/inspection/model/result-construction";
 import {
   projectPublicDeclaration,
   renderPublicDeclaration,
-} from "#typepeek/inspection/declaration-projection";
-import { createModuleExportInspection } from "#typepeek/inspection/export-inspection";
-import { publicDeclarations } from "#typepeek/inspection/public-declaration-selection";
-import { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
+} from "#typepeek/inspection/projection/declaration-projection";
+import { publicDeclarations } from "#typepeek/inspection/projection/public-declaration-selection";
+import { createModuleExportInspection } from "#typepeek/inspection/queries/export-inspection";
 
 import { createFixtureProgram } from "./helpers/native-compiler.ts";
 

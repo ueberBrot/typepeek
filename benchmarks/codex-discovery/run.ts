@@ -3,8 +3,8 @@ import nodePath from "node:path";
 
 import { countTokens } from "gpt-tokenizer/encoding/o200k_base";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { inspectWithCompiler } from "../support/compiler.ts";
 import {

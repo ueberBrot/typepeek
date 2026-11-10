@@ -1,5 +1,5 @@
-import { requireDefined } from "#typepeek/defined-value";
-import { unsignedRightShift } from "#typepeek/integer-bits";
+import { requireDefined } from "#typepeek/shared/defined-value";
+import { unsignedRightShift } from "#typepeek/shared/integer-bits";
 
 export interface ObservationSummary {
   readonly count: number;

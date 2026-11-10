@@ -4,8 +4,8 @@ import nodePath from "node:path";
 
 import { beforeAll, describe, expect, it } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { registerAcquisitionCampaignTests } from "./codex-acquisition/campaign.test.suite.ts";
 import { registerAcquisitionCaptureTests } from "./codex-acquisition/capture.test.suite.ts";
