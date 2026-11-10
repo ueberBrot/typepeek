@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
-import { Effect } from "effect";
+import { Effect, Redacted } from "effect";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { runCommand } from "#typepeek/platform/process-command";
@@ -131,9 +131,14 @@ describe("Effect command execution", () => {
     }
   });
 
-  it.each([true, false])(
-    "resolves Windows shims using child PATH and cwd with extendEnv=%s",
-    async (extendEnv) => {
+  it.each([
+    { extendEnv: true, redacted: false },
+    { extendEnv: false, redacted: false },
+    { extendEnv: true, redacted: true },
+    { extendEnv: false, redacted: true },
+  ])(
+    "resolves Windows shims using child PATH and cwd with extendEnv=$extendEnv and redacted=$redacted",
+    async ({ extendEnv, redacted }) => {
       const root = await mkdtemp(
         nodePath.join(tmpdir(), "typepeek-command-context-")
       );
@@ -160,20 +165,23 @@ describe("Effect command execution", () => {
         vi.stubEnv("PATH", inheritedDirectory);
         vi.stubGlobal("process", { ...process, platform: "win32" });
 
+        const childPath = redacted ? Redacted.make("bin") : "bin";
+
         const resolved = await Effect.runPromise(
           processExecutable("npm", ["--version"], {
             cwd,
-            env: { Path: "bin", TYPEPEEK_COMMAND_SENTINEL: "child" },
+            env: { Path: childPath, TYPEPEEK_COMMAND_SENTINEL: "child" },
             extendEnv,
           }).pipe(Effect.provide(processLayer))
         );
 
         expect(resolved).toMatchObject({
           args: [cli, "--version"],
-          env: { PATH: "bin", TYPEPEEK_COMMAND_SENTINEL: "child" },
+          env: { PATH: childPath, TYPEPEEK_COMMAND_SENTINEL: "child" },
           executable: process.execPath,
           extendEnv: false,
         });
+        expect(resolved.env?.["PATH"]).toBe(childPath);
         expect(
           Object.keys(resolved.env ?? {}).filter(
             (key) => key.toLowerCase() === "path"
@@ -186,6 +194,31 @@ describe("Effect command execution", () => {
       }
     }
   );
+
+  it("keeps a redacted Windows PATH out of shim-resolution failures", async () => {
+    const root = await mkdtemp(
+      nodePath.join(tmpdir(), "typepeek-redacted-command-")
+    );
+
+    await writeFile(nodePath.join(root, "npm.cmd"), "");
+
+    try {
+      vi.stubGlobal("process", { ...process, platform: "win32" });
+      await expect(
+        Effect.runPromise(
+          processExecutable("npm", [], {
+            env: { PATH: Redacted.make(root) },
+            extendEnv: false,
+          }).pipe(Effect.provide(processLayer))
+        )
+      ).rejects.toThrow(
+        "Cannot resolve the package-manager entrypoint for npm from <redacted>."
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(root, { force: true, recursive: true });
+    }
+  });
 
   it("does not use inherited Windows PATH when command inheritance is disabled", async () => {
     const root = await mkdtemp(

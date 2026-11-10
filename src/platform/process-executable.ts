@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Option } from "effect";
+import { Effect, FileSystem, Option, Redacted } from "effect";
 import type { ChildProcess } from "effect/process";
 
 import { pathDelimiter } from "#typepeek/platform/node-path-matching";
@@ -44,7 +44,12 @@ export const processExecutable = Effect.fnUntraced(function* processExecutable(
 
   const context = { env, extendEnv: false } as const;
   const cwd = nodePath.resolve(options.cwd ?? process.cwd());
-  const environmentPath = env["PATH"] ?? "";
+
+  const childPath = env["PATH"] ?? "";
+
+  const environmentPath = Redacted.isRedacted(childPath)
+    ? Redacted.value(childPath)
+    : childPath;
 
   for (const directory of environmentPath.split(pathDelimiter)) {
     const commandDirectory = nodePath.resolve(cwd, directory);
@@ -81,7 +86,7 @@ export const processExecutable = Effect.fnUntraced(function* processExecutable(
     }
 
     throw new Error(
-      `Cannot resolve the package-manager entrypoint for ${name} from ${directory}.`
+      `Cannot resolve the package-manager entrypoint for ${name} from ${Redacted.isRedacted(childPath) ? "<redacted>" : directory}.`
     );
   }
 

@@ -546,13 +546,19 @@ process.stdin.once("data", () => setInterval(() => {}, 1000));`
 
         if (reason === "interruption") {
           yield* Fiber.interrupt(fiber);
-        } else {
-          const outcome = yield* Fiber.join(fiber);
-          expect(outcome).toMatchObject({
-            exceededBudget: "analysis-deadline",
-            status: "limit-exceeded",
-          });
         }
+
+        const completion = yield* Fiber.await(fiber);
+
+        const expectedDeadline: unknown = expect.objectContaining({
+          exceededBudget: "analysis-deadline",
+          status: "limit-exceeded",
+        });
+
+        expect(Exit.hasInterrupts(completion)).toBe(reason === "interruption");
+        expect(
+          Exit.isSuccess(completion) ? completion.value : undefined
+        ).toStrictEqual(reason === "deadline" ? expectedDeadline : undefined);
 
         yield* Effect.promise(async () => {
           await waitForProcessExit(pid);

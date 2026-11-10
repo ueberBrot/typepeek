@@ -85,6 +85,10 @@ describe("effect-vitest-integration", () => {
       import.meta.resolve("vite-plus/package.json")
     );
 
+    const vitestManifest = readManifest(
+      import.meta.resolve("vitest/package.json")
+    );
+
     expect([
       rootManifest.devDependencies?.["vite-plus"],
       rootManifest.devDependencies?.["vite"],
@@ -93,7 +97,7 @@ describe("effect-vitest-integration", () => {
     ]).toStrictEqual([
       vitePlusManifest.version,
       `npm:${viteManifest.name}@${viteManifest.version}`,
-      vitePlusManifest.dependencies?.["vitest"],
+      vitestManifest.version,
       true,
     ]);
   });

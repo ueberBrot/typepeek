@@ -19,13 +19,13 @@ import {
   COMPILER_EXECUTABLE,
   COMPILER_INTRINSIC_FILE,
 } from "#typepeek/inspection/compiler/compiler-distribution";
+import { mergeCompilerFlags } from "#typepeek/inspection/compiler/compiler-flags";
 import { symbolsAtLocations } from "#typepeek/inspection/compiler/compiler-queries";
 import { createCompilerSessionOwner } from "#typepeek/inspection/compiler/compiler-session-owner";
 import type { CompilerSessionOwner } from "#typepeek/inspection/compiler/compiler-session-owner";
 import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 import { mapAsync } from "#typepeek/shared/async-collection";
 import { runAdapterEffect } from "#typepeek/shared/effect-adapter";
-import { bitwiseOr } from "#typepeek/shared/integer-bits";
 
 export interface ResolutionFileSystem {
   readonly directoryExists: (path: string) => boolean;
@@ -300,12 +300,12 @@ export const signatureText = async (
       ? SyntaxKind.ConstructSignature
       : SyntaxKind.CallSignature,
     location,
-    bitwiseOr(
-      bitwiseOr(
+    mergeCompilerFlags(
+      mergeCompilerFlags(
         NodeBuilderFlags.NoTruncation,
         NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope
       ),
-      bitwiseOr(
+      mergeCompilerFlags(
         NodeBuilderFlags.NoTypeReduction,
         NodeBuilderFlags.UseSingleQuotesForStringLiteralType
       )

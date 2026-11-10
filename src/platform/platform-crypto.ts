@@ -1,15 +1,20 @@
-import { layer } from "@effect/platform-bun/BunCrypto";
-import { Crypto, Effect } from "effect";
+import { layerDigest, layerSecureRandom } from "@effect/platform-bun/BunCrypto";
+import { Effect } from "effect";
+import { Digest, SecureRandom } from "effect/crypto";
 import { Hex } from "effect/encoding";
 
 const encoder = new TextEncoder();
-const crypto = Effect.runSync(Crypto.Crypto.pipe(Effect.provide(layer)));
+const digest = Effect.runSync(Digest.Digest.pipe(Effect.provide(layerDigest)));
+
+const secureRandom = Effect.runSync(
+  SecureRandom.SecureRandom.pipe(Effect.provide(layerSecureRandom))
+);
 
 export const sha256 = (value: string): string =>
-  Hex.encode(Effect.runSync(crypto.digest("SHA-256", encoder.encode(value))));
+  Effect.runSync(digest.digestHex(Digest.sha256, encoder.encode(value)));
 
 export const secureRandomHex = (size: number): string =>
-  Hex.encode(Effect.runSync(crypto.randomBytes(size)));
+  Hex.encode(Effect.runSync(secureRandom.randomBytes(size)));
 
 export const secureRandomUUID = (): string =>
-  Effect.runSync(crypto.randomUUIDv4());
+  Effect.runSync(secureRandom.uuidV4());

@@ -21,6 +21,7 @@ import type {
   TypeParameter,
 } from "tsrs/async";
 
+import { mergeCompilerFlags } from "#typepeek/inspection/compiler/compiler-flags";
 import {
   emptyArgumentsType,
   declarationsOf,
@@ -41,14 +42,14 @@ import type {
   SignatureTypeParameterModifier,
 } from "#typepeek/inspection/model/protocol";
 import { mapAsync } from "#typepeek/shared/async-collection";
-import { bitwiseAnd, bitwiseOr } from "#typepeek/shared/integer-bits";
+import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 const MAX_SIGNATURE_PARAMETERS = 256;
 const MAX_SIGNATURE_TYPE_PARAMETERS = 64;
 
-const SIGNATURE_TYPE_FORMAT_FLAGS = bitwiseOr(
-  bitwiseOr(
-    bitwiseOr(
+const SIGNATURE_TYPE_FORMAT_FLAGS = mergeCompilerFlags(
+  mergeCompilerFlags(
+    mergeCompilerFlags(
       TypeFormatFlags.NoTruncation,
       TypeFormatFlags.UseAliasDefinedOutsideCurrentScope
     ),
