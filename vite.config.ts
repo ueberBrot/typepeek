@@ -10,7 +10,7 @@ import { selectJsPlugins } from "ultracite/oxlint/js-plugins";
 import ultraciteVitest from "ultracite/oxlint/vitest";
 import { defineConfig } from "vite-plus";
 
-import { COMPILER_VERSION } from "./src/inspection/compiler/compiler-distribution.ts";
+import { COMPILER_VERSION } from "./src/inspection/compiler/compiler-metadata.ts";
 import { readStandardGlobalCatalog } from "./src/inspection/compiler/standard-global-catalog.ts";
 import { createRequire } from "./src/platform/node-module.ts";
 import { decodeJson } from "./src/shared/json-data.ts";

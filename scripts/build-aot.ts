@@ -3,6 +3,7 @@ import { Effect, FileSystem, Option, Path, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 import { forEach as forEachEffect } from "effect/Effect";
 
+import { COMPILER_LIBRARY_DIRECTORY } from "#typepeek/inspection/compiler/compiler-distribution";
 import { COMPILER_VERSION } from "#typepeek/inspection/compiler/compiler-metadata";
 import { readStandardGlobalCatalogEffect } from "#typepeek/inspection/compiler/standard-global-catalog";
 import { runCommandEffect } from "#typepeek/platform/process-command";
@@ -77,8 +78,18 @@ const buildPackage = Effect.fnUntraced(function* buildPackage(values: {
 
   const standardGlobals = yield* readStandardGlobalCatalogEffect();
 
+  const nativePackage = decodeJson(
+    Schema.Struct({ name: Schema.String }),
+    yield* fs.readFileString(
+      path.join(COMPILER_LIBRARY_DIRECTORY, PACKAGE_MANIFEST_FILE)
+    )
+  );
+
   const define = {
     "globalThis.__TYPEPEEK_COMPILED__": "true",
+    "globalThis.__TYPEPEEK_COMPILER_PLATFORM__": JSON.stringify(
+      nativePackage.name
+    ),
     "globalThis.__TYPEPEEK_COMPILER_VERSION__":
       JSON.stringify(COMPILER_VERSION),
     "globalThis.__TYPEPEEK_STANDARD_GLOBALS__": JSON.stringify(standardGlobals),

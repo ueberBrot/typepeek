@@ -7,12 +7,15 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { createRequire } from "node:module";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { Effect } from "effect";
+
+import { resolveCompilerLibraryDirectory } from "#typepeek/inspection/compiler/compiler-distribution";
 import { analysisProcessNodeArguments } from "#typepeek/inspection/execution/analysis-process";
 import { runCommand } from "#typepeek/platform/process-command";
+import { processLayer } from "#typepeek/platform/process-runtime";
 
 interface GuardedEnvironment {
   readonly [key: string]: string | undefined;
@@ -21,29 +24,17 @@ interface GuardedEnvironment {
 const PLUGIN_RUNTIME_SOURCE = "module.exports = true;\n";
 const PACKAGE_MANIFEST_FILE = "package.json";
 
-const compilerExecutableFor = (entrypoint: string): string => {
-  const require = createRequire(
-    createRequire(pathToFileURL(realpathSync.native(entrypoint))).resolve(
-      "tsrs/package.json"
-    )
+const compilerExecutableFor = async (entrypoint: string): Promise<string> => {
+  const directory = await Effect.runPromise(
+    resolveCompilerLibraryDirectory(
+      pathToFileURL(realpathSync.native(entrypoint))
+    ).pipe(Effect.provide(processLayer))
   );
 
-  const base = `@tsrs/${process.platform}-${process.arch}`;
-
-  for (const candidate of process.platform === "linux"
-    ? [`${base}-gnu`, `${base}-musl`]
-    : [base]) {
-    try {
-      return nodePath.join(
-        nodePath.dirname(require.resolve(`${candidate}/package.json`)),
-        process.platform === "win32" ? "tsrs.exe" : "tsrs"
-      );
-    } catch {
-      // Only the current platform's optional dependency is installed.
-    }
-  }
-
-  throw new Error("The CLI's pinned native compiler is missing.");
+  return nodePath.join(
+    directory,
+    process.platform === "win32" ? "tsrs.exe" : "tsrs"
+  );
 };
 
 const PROTECTED_TRIPWIRE_ENVIRONMENT_NAMES = [
@@ -696,7 +687,7 @@ export const materializeStaticInspection =
               cwd: resolutionContext,
               env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
                 allowedAnalysisProcessEntry: analysisProcessEntryPath,
-                allowedCompilerExecutable: compilerExecutableFor(
+                allowedCompilerExecutable: await compilerExecutableFor(
                   analysisProcessEntryPath
                 ),
                 denyWorkers: true,

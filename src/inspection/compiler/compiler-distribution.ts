@@ -1,56 +1,74 @@
 import { layer } from "@effect/platform-bun/BunFileSystem";
-import { Effect, FileSystem, Option } from "effect";
-import { typescriptVersion, version } from "tsrs";
+import { Effect, FileSystem, Predicate, Schema } from "effect";
 
 import { createRequire } from "#typepeek/platform/node-module";
 import { platformPath as path } from "#typepeek/platform/platform-path";
 
-export const COMPILER_VERSION = `${typescriptVersion}/tsrs-${version}`;
+const sdkPlatformSchema = Schema.Struct({
+  getPlatformPackageName: Schema.declare((input): input is () => string =>
+    Predicate.isFunction(input)
+  ),
+});
 
-const platformDirectory = Effect.gen(function* platformDirectory() {
-  const fs = yield* FileSystem.FileSystem;
-  let anchor: string | URL = import.meta.url;
+export const resolveCompilerLibraryDirectory = Effect.fnUntraced(
+  function* resolveCompilerLibraryDirectory(anchor: string | URL) {
+    const fs = yield* FileSystem.FileSystem;
+    const sdkManifest = createRequire(anchor).resolve("tsrs/package.json");
+    const require = createRequire(sdkManifest);
 
-  if (globalThis.__TYPEPEEK_COMPILED__ === true) {
-    anchor = yield* path.toFileUrl(yield* fs.realPath(process.execPath));
-  }
+    const candidate =
+      globalThis.__TYPEPEEK_COMPILER_PLATFORM__ ??
+      (yield* Effect.gen(function* sdkPlatformPackage() {
+        const platformFile = path.join(
+          path.dirname(sdkManifest),
+          "lib",
+          "platform.js"
+        );
 
-  const require = createRequire(
-    createRequire(anchor).resolve("tsrs/package.json")
-  );
+        const sdkPlatform = yield* Effect.try(() => {
+          const loaded: unknown = require(platformFile);
 
-  const base = `@tsrs/${process.platform}-${process.arch}`;
+          return loaded;
+        });
 
-  const candidates =
-    process.platform === "linux" ? [`${base}-gnu`, `${base}-musl`] : [base];
+        const { getPlatformPackageName } =
+          yield* Schema.decodeUnknownEffect(sdkPlatformSchema)(sdkPlatform);
 
-  const executable = process.platform === "win32" ? "tsrs.exe" : "tsrs";
+        return yield* Schema.decodeEffect(Schema.String)(
+          getPlatformPackageName()
+        );
+      }));
 
-  for (const candidate of candidates) {
     const manifest = yield* Effect.try(() =>
       require.resolve(`${candidate}/package.json`)
-    ).pipe(Effect.option);
+    );
 
-    if (Option.isNone(manifest)) {
-      continue;
-    }
-
-    const directory = path.dirname(manifest.value);
+    const directory = path.dirname(manifest);
+    const executable = process.platform === "win32" ? "tsrs.exe" : "tsrs";
 
     if (yield* fs.exists(path.join(directory, executable))) {
       return directory;
     }
-  }
 
-  return yield* Effect.die(
-    new Error(
-      `The pinned TSRS native dependency is missing for ${process.platform}-${process.arch}.`
-    )
-  );
-});
+    return yield* Effect.die(
+      new Error(
+        `The pinned TSRS native dependency is missing for ${candidate}.`
+      )
+    );
+  }
+);
 
 export const COMPILER_LIBRARY_DIRECTORY = await Effect.runPromise(
-  platformDirectory.pipe(Effect.provide(layer))
+  Effect.gen(function* compilerLibraryDirectory() {
+    const fs = yield* FileSystem.FileSystem;
+
+    const anchor =
+      globalThis.__TYPEPEEK_COMPILED__ === true
+        ? yield* path.toFileUrl(yield* fs.realPath(process.execPath))
+        : import.meta.url;
+
+    return yield* resolveCompilerLibraryDirectory(anchor);
+  }).pipe(Effect.provide(layer))
 );
 
 export const COMPILER_EXECUTABLE = path.join(
