@@ -41,6 +41,77 @@
         "vite-plus": "1.4.0",
         "vitest": "5.1.0",
       },
+      "optionalDependencies": {
+        "typepeek-darwin-arm64": "workspace:*",
+        "typepeek-darwin-x64": "workspace:*",
+        "typepeek-linux-arm64-gnu": "workspace:*",
+        "typepeek-linux-arm64-musl": "workspace:*",
+        "typepeek-linux-x64-gnu": "workspace:*",
+        "typepeek-linux-x64-musl": "workspace:*",
+        "typepeek-win32-x64": "workspace:*",
+      },
+    },
+    "packages/typepeek-darwin-arm64": {
+      "name": "typepeek-darwin-arm64",
+      "version": "0.5.0",
+      "dependencies": {
+        "tsrs": "0.20.1-ts7.1.0-beta",
+      },
+    },
+    "packages/typepeek-darwin-x64": {
+      "name": "typepeek-darwin-x64",
+      "version": "0.5.0",
+      "dependencies": {
+        "tsrs": "0.20.1-ts7.1.0-beta",
+      },
+    },
+    "packages/typepeek-linux-arm64-gnu": {
+      "name": "typepeek-linux-arm64-gnu",
+      "version": "0.5.0",
+      "dependencies": {
+        "tsrs": "0.20.1-ts7.1.0-beta",
+      },
+    },
+    "packages/typepeek-linux-arm64-musl": {
+      "name": "typepeek-linux-arm64-musl",
+      "version": "0.5.0",
+      "dependencies": {
+        "tsrs": "0.20.1-ts7.1.0-beta",
+      },
+    },
+    "packages/typepeek-linux-x64-gnu": {
+      "name": "typepeek-linux-x64-gnu",
+      "version": "0.5.0",
+      "dependencies": {
+        "tsrs": "0.20.1-ts7.1.0-beta",
+      },
+    },
+    "packages/typepeek-linux-x64-musl": {
+      "name": "typepeek-linux-x64-musl",
+      "version": "0.5.0",
+      "dependencies": {
+        "tsrs": "0.20.1-ts7.1.0-beta",
+      },
+    },
+    "packages/typepeek-win32-x64": {
+      "name": "typepeek-win32-x64",
+      "version": "0.5.0",
+      "dependencies": {
+        "tsrs": "0.20.1-ts7.1.0-beta",
+      },
+    },
+    "tooling/aot-compiler": {
+      "name": "@typepeek/aot-compiler",
+      "version": "0.0.0",
+      "optionalDependencies": {
+        "@oven/bun-darwin-aarch64": "1.4.4-canary.20261102.1",
+        "@oven/bun-darwin-x64": "1.4.4-canary.20261102.1",
+        "@oven/bun-linux-aarch64": "1.4.4-canary.20261102.1",
+        "@oven/bun-linux-aarch64-musl": "1.4.4-canary.20261102.1",
+        "@oven/bun-linux-x64": "1.4.4-canary.20261102.1",
+        "@oven/bun-linux-x64-musl": "1.4.4-canary.20261102.1",
+        "@oven/bun-windows-x64": "1.4.4-canary.20261102.1",
+      },
     },
   },
   "trustedDependencies": [],
@@ -240,6 +311,20 @@
 
     "@opentelemetry/semantic-conventions": ["@opentelemetry/semantic-conventions@1.44.0", "", {}, "sha512-E3JkOlMBi3N8OGGkbl7tFyqk2MAS6/lySRZBK3Mu7AzjF1fT8oIChH9ChE48SUWzDn9Kdwta+G/p5LJ4xW4CLQ=="],
 
+    "@oven/bun-darwin-aarch64": ["@oven/bun-darwin-aarch64@1.4.4-canary.20261102.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-xlB/rjKIShm0ynZMVYAP8cgy+J7vK1DfvARwgEwiztIDcl9G6U4cRVWkskwsWwX+PC5cdzp1czR8s2O2A5ascQ=="],
+
+    "@oven/bun-darwin-x64": ["@oven/bun-darwin-x64@1.4.4-canary.20261102.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-QuHh7XO/33yx5del43BtYbrWgsf/BKtrmfym5Y9SfZVuRV4Uhoe5g/oyeNXfEwzNhbW+NvsHWqeY7EKhqecpqw=="],
+
+    "@oven/bun-linux-aarch64": ["@oven/bun-linux-aarch64@1.4.4-canary.20261102.1", "", { "os": "linux", "cpu": "arm64", "libc": "glibc" }, "sha512-0wcdi9B8osDdYaTrSv529kaAzpcNjgde2Ub7Mo3cA/UZNfhjFifi4jeAK4aJYyqeY20vhKU0Zmqol/F/Yj844Q=="],
+
+    "@oven/bun-linux-aarch64-musl": ["@oven/bun-linux-aarch64-musl@1.4.4-canary.20261102.1", "", { "os": "linux", "cpu": "arm64", "libc": "musl" }, "sha512-4jkQ5UO90Y0dCQFpUytzNGXWCtchru4gPIXJJG9ZAdiJcsL4ZhsVSU/QX+DbfT0yFfQh0rvd/QDMVrGfV8/2zQ=="],
+
+    "@oven/bun-linux-x64": ["@oven/bun-linux-x64@1.4.4-canary.20261102.1", "", { "os": "linux", "cpu": "x64", "libc": "glibc" }, "sha512-E30yjdWCzpJfJuNE6LIzHZcguMnuggm44wFzyjiai3tC6MLRq6i3J3Cq2KNlS/eAgD1INx4nWk8H1rHmod6Ftg=="],
+
+    "@oven/bun-linux-x64-musl": ["@oven/bun-linux-x64-musl@1.4.4-canary.20261102.1", "", { "os": "linux", "cpu": "x64", "libc": "musl" }, "sha512-xXVnQpF3ohqNWuK4FNJEJYrVxkwdFcEwPGuuXckQp/Ls4LdK98j+Fo83Ayug7KsFhszsJpaac/hIbktoGSpDqA=="],
+
+    "@oven/bun-windows-x64": ["@oven/bun-windows-x64@1.4.4-canary.20261102.1", "", { "os": "win32", "cpu": "x64" }, "sha512-g+r5pp6ZzyzSSYDJZ+trKM38hucpsxQGtokx5R01rFnioKQKK7aNUnpqb3rW00t+cPdyeygYQe3n5RFGBc4fsw=="],
+
     "@oxc-project/runtime": ["@oxc-project/runtime@0.155.0", "", {}, "sha512-VbW9raczGS5ZZ1FMunUBYHe4uV/R684qlQCoMdE3n5JT1PcqQsvmFpMYkF8AD+W04fBLGAq6Tr7YsTk0jjvDBA=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.155.0", "", {}, "sha512-SeE8JPwW1xs1tHeNycjUtUBdhorRa8o4jlvjwk49R7/Z291i+4DQa7JJIgOm/TaYQZx+QrPQbVJ/9c8dMIZN8Q=="],
@@ -413,6 +498,8 @@
     "@tsrs/linux-x64-musl": ["@tsrs/linux-x64-musl@0.20.1-ts7.1.0-beta", "", { "os": "linux", "cpu": "x64", "libc": "musl" }, "sha512-DoqErlQkQioKYunFyl6nUXWR1kjerqoRV56dggx7qMKvauSZMGkjBQ2Za4tmnISIn4BiJBOyZa/SYc0wfnxDpA=="],
 
     "@tsrs/win32-x64": ["@tsrs/win32-x64@0.20.1-ts7.1.0-beta", "", { "os": "win32", "cpu": "x64" }, "sha512-hQ98/ViclULVELy4bsFHlWM1PsR2K/ohuPVxx2H9wg1iJ/Rhfezdo3lXB3rq7x+NyYMXIBHX7c51ztA74VytPQ=="],
+
+    "@typepeek/aot-compiler": ["@typepeek/aot-compiler@workspace:tooling/aot-compiler"],
 
     "@types/aria-query": ["@types/aria-query@5.0.4", "", {}, "sha512-rfT93uj5s0PRL7EzccGMs3brplhcrghnDoV26NqKhCAS1hVo+WdNsPvE/yb6ilfr5hi2MEk6d5EWJTKdxg8jVw=="],
 
@@ -1415,6 +1502,20 @@
     "typed-array-byte-offset": ["typed-array-byte-offset@1.0.5", "", { "dependencies": { "available-typed-arrays": "1.0.7", "call-bind": "1.0.9", "for-each": "0.3.5", "gopd": "1.2.0", "is-typed-array": "1.1.15", "reflect.getprototypeof": "1.0.10" } }, "sha512-0FHJvLPqZ7KJzp17O13jfsAjsqazgrxBu2zEK95PmUz8lv2+GjRuxUInCr2Rk9Dms3ihN21zJ929ZO43yJ95QQ=="],
 
     "typed-array-length": ["typed-array-length@1.0.8", "", { "dependencies": { "call-bind": "1.0.9", "for-each": "0.3.5", "gopd": "1.2.0", "is-typed-array": "1.1.15", "possible-typed-array-names": "1.1.0", "reflect.getprototypeof": "1.0.10" } }, "sha512-phPGCwqr2+Qo0fwniCE8e4pKnGu/yFb5nD5Y8bf0EEeiI5GklnACYA9GFy/DrAeRrKHXvHn+1SUsOWgJp6RO+g=="],
+
+    "typepeek-darwin-arm64": ["typepeek-darwin-arm64@workspace:packages/typepeek-darwin-arm64"],
+
+    "typepeek-darwin-x64": ["typepeek-darwin-x64@workspace:packages/typepeek-darwin-x64"],
+
+    "typepeek-linux-arm64-gnu": ["typepeek-linux-arm64-gnu@workspace:packages/typepeek-linux-arm64-gnu"],
+
+    "typepeek-linux-arm64-musl": ["typepeek-linux-arm64-musl@workspace:packages/typepeek-linux-arm64-musl"],
+
+    "typepeek-linux-x64-gnu": ["typepeek-linux-x64-gnu@workspace:packages/typepeek-linux-x64-gnu"],
+
+    "typepeek-linux-x64-musl": ["typepeek-linux-x64-musl@workspace:packages/typepeek-linux-x64-musl"],
+
+    "typepeek-win32-x64": ["typepeek-win32-x64@workspace:packages/typepeek-win32-x64"],
 
     "typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 

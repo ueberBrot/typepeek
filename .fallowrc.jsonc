@@ -5,6 +5,7 @@
   // roots cover build adapters and repository-only executables.
   "entry": [
     "scripts/build-aot.ts",
+    "scripts/verify-native-packages.ts",
     "tests/effect-diagnostics.ts",
     "tests/benchmark-package-smoke.ts",
     "tests/fixtures/codex-app-server.ts",
@@ -33,6 +34,9 @@
   "health": {
     "ignore": ["benchmarks/**", "tests/**", "vite.config.ts", "taze.config.ts"],
   },
+
+  // Optional executable packages are resolved by host name at runtime.
+  "ignoreDependencies": ["typepeek-*", "@oven/bun-*"],
 
   "rules": {
     "private-type-leaks": "error",

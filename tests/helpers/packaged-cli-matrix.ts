@@ -224,7 +224,7 @@ const verifyExecutableTarget = async function verifyExecutableTarget(
   const expectedCliEntry = nodePath.join(
     typepeekPhysicalPath,
     "dist",
-    "cli.js"
+    "launcher.js"
   );
 
   if (process.platform === "win32" && packageManager.manager === "bun") {
@@ -274,7 +274,7 @@ const verifyExecutableTarget = async function verifyExecutableTarget(
       installedModulesDirectory,
       "typepeek",
       "dist",
-      "cli.js"
+      "launcher.js"
     );
 
     const normalizedLinkedTarget = nodePath

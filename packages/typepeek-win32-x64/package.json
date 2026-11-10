@@ -1,0 +1,28 @@
+{
+  "name": "typepeek-win32-x64",
+  "version": "0.5.0",
+  "description": "Typepeek AOT binaries for win32-x64.",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ueberBrot/typepeek.git"
+  },
+  "files": [
+    "dist/typepeek*",
+    "LICENSE"
+  ],
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "dependencies": {
+    "tsrs": "0.20.1-ts7.1.0-beta"
+  }
+}

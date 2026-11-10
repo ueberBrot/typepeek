@@ -8,7 +8,18 @@
     }
   ],
   "commit": false,
-  "fixed": [],
+  "fixed": [
+    [
+      "typepeek",
+      "typepeek-darwin-arm64",
+      "typepeek-darwin-x64",
+      "typepeek-linux-arm64-gnu",
+      "typepeek-linux-x64-gnu",
+      "typepeek-linux-arm64-musl",
+      "typepeek-linux-x64-musl",
+      "typepeek-win32-x64"
+    ]
+  ],
   "linked": [],
   "access": "public",
   "baseBranch": "main",

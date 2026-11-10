@@ -1,7 +1,7 @@
 name: Release
 
 on:
-  workflow_run:
+  workflow_run: # zizmor: ignore[dangerous-triggers] -- Select mode accepts only successful same-repository main pushes.
     workflows:
       - CI
     types:
@@ -78,10 +78,20 @@ jobs:
           pr-base-branch: main
           pr-title: Release package
 
+  native:
+    name: Build native release artifacts
+    if: needs.select-mode.outputs.mode == 'publish'
+    needs: select-mode
+    uses: ./.github/workflows/native-binaries.yml
+    with:
+      ref: ${{ github.event.workflow_run.head_sha }}
+    permissions:
+      contents: read
+
   pack:
     name: Build release artifact
     if: needs.select-mode.outputs.mode == 'publish'
-    needs: select-mode
+    needs: [select-mode, native]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -100,6 +110,16 @@ jobs:
         uses: ./.github/actions/setup-validation
         with:
           cache: "false"
+
+      - name: Download all native distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: native-typepeek-*
+          path: packages
+          merge-multiple: true
+
+      - name: Verify complete native distributions
+        run: bun scripts/verify-native-packages.ts
 
       - name: Build package
         run: vp run pack

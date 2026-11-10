@@ -82,6 +82,7 @@ const effectSubpathImports = {
 // Explicit inputs avoid tracing conflicts with the native checker subprocesses.
 const validationInputs = [
   "src/**",
+  "packages/**",
   "scripts/**",
   "tests/**",
   "benchmarks/**",
@@ -246,7 +247,11 @@ export default defineConfig({
     },
     // This package exposes CLI binaries; validation checks types separately.
     dts: false,
-    entry: ["src/cli.ts", "src/inspection/analysis-process-entry.ts"],
+    entry: [
+      "src/launcher.ts",
+      "src/cli.ts",
+      "src/inspection/analysis-process-entry.ts",
+    ],
     format: ["esm"],
     outExtensions: () => ({
       dts: ".d.ts",

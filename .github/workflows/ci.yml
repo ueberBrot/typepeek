@@ -17,6 +17,35 @@ env:
   VITE_GIT_HOOKS: "0"
 
 jobs:
+  native:
+    name: Native distribution
+    uses: ./.github/workflows/native-binaries.yml
+
+  changesets:
+    name: Changeset release plan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out trusted base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Calculate release changes
+        id: changesets
+        uses: changesets/action/pr-status@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+
+      - name: Report release changes
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: changesets/action/pr-comment@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          body: ${{ steps.changesets.outputs.comment-body }}
+
   quality:
     name: Quality
     runs-on: ubuntu-latest
@@ -25,6 +54,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up validation
         uses: ./.github/actions/setup-validation
@@ -53,12 +84,14 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up validation
         uses: ./.github/actions/setup-validation
 
       - name: Test
-        run: vp test --exclude tests/packaged-cli-consumers.test.ts --shard=${{ matrix.shard }} --maxWorkers=2
+        run: vp test --exclude tests/packaged-cli-consumers.test.ts --shard=${{ matrix.shard }} --maxWorkers=1
 
   package:
     name: Package
@@ -68,6 +101,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up validation
         uses: ./.github/actions/setup-validation
@@ -97,6 +132,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up validation
         uses: ./.github/actions/setup-validation

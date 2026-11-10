@@ -8,8 +8,13 @@
     "url": "git+https://github.com/ueberBrot/typepeek.git"
   },
   "bin": {
-    "typepeek": "./dist/cli.js"
+    "typepeek": "./dist/launcher.js"
   },
+  "workspaces": [
+    ".",
+    "packages/*",
+    "tooling/*"
+  ],
   "files": [
     "dist/**/*.js",
     "!dist/inspection-api.js",
@@ -31,7 +36,7 @@
   },
   "scripts": {
     "changeset": "changeset",
-    "release:version": "changeset version && vp fmt CHANGELOG.md package.json",
+    "release:version": "changeset version && vp install --lockfile-only --ignore-scripts && vp fmt CHANGELOG.md package.json packages",
     "prepare": "effect-tsgo patch --no-typescript --oxlint && vp config --no-agent"
   },
   "dependencies": {
@@ -70,6 +75,15 @@
     "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
     "vite-plus": "1.4.0",
     "vitest": "5.1.0"
+  },
+  "optionalDependencies": {
+    "typepeek-darwin-arm64": "workspace:*",
+    "typepeek-darwin-x64": "workspace:*",
+    "typepeek-linux-arm64-gnu": "workspace:*",
+    "typepeek-linux-arm64-musl": "workspace:*",
+    "typepeek-linux-x64-gnu": "workspace:*",
+    "typepeek-linux-x64-musl": "workspace:*",
+    "typepeek-win32-x64": "workspace:*"
   },
   "overrides": {
     "@oxlint/plugins": "1.90.0",

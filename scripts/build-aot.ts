@@ -3,9 +3,11 @@ import { Effect, FileSystem, Option, Path, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 import { forEach as forEachEffect } from "effect/Effect";
 
+import { hostNativePackage } from "#typepeek/distribution/native-platform";
 import { COMPILER_LIBRARY_DIRECTORY } from "#typepeek/inspection/compiler/compiler-distribution";
 import { COMPILER_VERSION } from "#typepeek/inspection/compiler/compiler-metadata";
 import { readStandardGlobalCatalogEffect } from "#typepeek/inspection/compiler/standard-global-catalog";
+import { createRequire } from "#typepeek/platform/node-module";
 import { runCommandEffect } from "#typepeek/platform/process-command";
 import { cliLayer } from "#typepeek/platform/process-runtime";
 import { writeStdout, writeStderr } from "#typepeek/platform/stdio";
@@ -42,10 +44,40 @@ const buildPackage = Effect.fnUntraced(function* buildPackage(values: {
 
   const output = path.resolve(values.output);
 
-  if (Option.isSome(values.compiler)) {
+  let { compiler } = values;
+
+  if (Option.isNone(compiler) && !Bun.revision.startsWith("271b65ec6")) {
+    const packageName = yield* hostNativePackage;
+
+    if (packageName === undefined) {
+      return yield* new AotBuildError({
+        message: "No AOT compiler is available for this host.",
+      });
+    }
+
+    const ovenTarget = packageName
+      .slice("typepeek-".length)
+      .replace("win32", "windows")
+      .replace("arm64", "aarch64")
+      .replace("-gnu", "");
+
+    const compilerManifest = createRequire(
+      new URL("../tooling/aot-compiler/package.json", import.meta.url)
+    ).resolve(`@oven/bun-${ovenTarget}/package.json`);
+
+    compiler = Option.some(
+      path.join(
+        path.dirname(compilerManifest),
+        "bin",
+        process.platform === "win32" ? "bun.exe" : "bun"
+      )
+    );
+  }
+
+  if (Option.isSome(compiler)) {
     const entry = yield* path.fromFileUrl(new URL(import.meta.url));
 
-    const result = yield* runCommandEffect(values.compiler.value, [
+    const result = yield* runCommandEffect(compiler.value, [
       entry,
       "--mode",
       values.mode,
@@ -154,34 +186,21 @@ const buildPackage = Effect.fnUntraced(function* buildPackage(values: {
     { discard: true }
   );
 
-  const omittedFields = new Set([
-    "devDependencies",
-    "engines",
-    "imports",
-    "packageManager",
-    "scripts",
-  ]);
+  const packageName = yield* hostNativePackage;
 
-  const metadata = Object.fromEntries(
-    Object.entries(
-      decodeJson(Schema.Record(Schema.String, Schema.Unknown), manifestText)
-    ).filter(([key]) => !omittedFields.has(key))
+  if (packageName === undefined) {
+    return yield* new AotBuildError({
+      message: "This host has no supported TSRS native distribution.",
+    });
+  }
+
+  const platformManifest = yield* fs.readFileString(
+    path.join("packages", packageName, PACKAGE_MANIFEST_FILE)
   );
 
   yield* fs.writeFileString(
     path.join(output, PACKAGE_MANIFEST_FILE),
-    JSON.stringify({
-      ...metadata,
-      bin: {
-        typepeek:
-          process.platform === "win32"
-            ? "./dist/typepeek.exe"
-            : "./dist/typepeek",
-      },
-      cpu: [process.arch],
-      files: ["dist/typepeek*", "LICENSE"],
-      os: [process.platform],
-    })
+    platformManifest
   );
   yield* fs.copyFile("LICENSE", path.join(output, "LICENSE"));
 
