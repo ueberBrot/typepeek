@@ -12,9 +12,14 @@ const moduleUrl = new URL(
 ).href;
 
 describe("Bun analysis heap", () => {
-  it.each([false, true])(
-    "bounds the Bun worker heap without keeping an idle worker alive: %s",
-    async (allocate) => {
+  it.each([
+    { allocate: false, diagnostic: "available" },
+    { allocate: true, diagnostic: "available" },
+    { allocate: true, diagnostic: "failed" },
+    { allocate: true, diagnostic: "blocked" },
+  ] as const)(
+    "bounds the Bun worker heap with allocation=$allocate and stderr=$diagnostic",
+    async ({ allocate, diagnostic }) => {
       const fixture = await mkdtemp(
         nodePath.join(tmpdir(), "typepeek-analysis-heap-")
       );
@@ -23,11 +28,17 @@ describe("Bun analysis heap", () => {
         const entry = nodePath.join(fixture, "entry.mjs");
         await writeFile(
           entry,
-          `import { Effect } from ${JSON.stringify(import.meta.resolve("effect"))};
+          `import { Effect, Sink, Stdio } from ${JSON.stringify(import.meta.resolve("effect"))};
+import { systemError } from ${JSON.stringify(import.meta.resolve("effect/PlatformError"))};
 import { layer } from ${JSON.stringify(import.meta.resolve("@effect/platform-node-shared/NodeStdio"))};
 import { installAnalysisHeapLimit } from ${JSON.stringify(moduleUrl)};
 await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
-  yield* installAnalysisHeapLimit();
+  const stdio = yield* Stdio.Stdio;
+  const diagnostic = ${JSON.stringify(diagnostic)};
+  const stderr = diagnostic === "available" ? stdio.stderr : () => diagnostic === "failed"
+    ? Sink.fail(systemError({ _tag: "Unknown", module: "Stdio", method: "stderr", cause: new Error("Closed diagnostic stream.") }))
+    : Sink.fromEffect(Effect.never);
+  yield* installAnalysisHeapLimit().pipe(Effect.provideService(Stdio.Stdio, Stdio.make({ ...stdio, stderr })));
   yield* Effect.promise(async () => {
 if (${JSON.stringify(allocate)}) {
   const retained = [];
@@ -51,7 +62,9 @@ console.log("completed");
         expect(result.timedOut).toBeFalsy();
         expect(result.exitCode).toBe(allocate ? 1 : 0);
         expect(result.stderr).toBe(
-          allocate ? "Typepeek analysis heap limit exceeded." : ""
+          allocate && diagnostic === "available"
+            ? "Typepeek analysis heap limit exceeded."
+            : ""
         );
         expect(result.stdout).toBe(allocate ? "" : "completed");
       } finally {

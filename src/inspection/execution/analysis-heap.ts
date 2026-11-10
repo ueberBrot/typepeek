@@ -4,6 +4,8 @@ import { INSPECTION_BUDGET_POLICY } from "#typepeek/inspection/model/budget-poli
 import { exitImmediately, heapUsed } from "#typepeek/platform/runtime-process";
 import { writeStderr } from "#typepeek/platform/stdio";
 
+const HEAP_MONITOR_INTERVAL = "10 millis";
+
 export const installAnalysisHeapLimit = Effect.fnUntraced(
   function* installAnalysisHeapLimit() {
     const megabytes = yield* Config.schema(
@@ -15,13 +17,17 @@ export const installAnalysisHeapLimit = Effect.fnUntraced(
     yield* Effect.forkScoped(
       Effect.forever(
         Effect.gen(function* monitorAnalysisHeap() {
-          yield* Effect.sleep("10 millis");
+          yield* Effect.sleep(HEAP_MONITOR_INTERVAL);
           const used = yield* heapUsed;
 
           if (used > limit) {
-            yield* writeStderr("Typepeek analysis heap limit exceeded.\n");
-
-            return yield* exitImmediately(1);
+            return yield* writeStderr(
+              "Typepeek analysis heap limit exceeded.\n"
+            ).pipe(
+              Effect.timeout(HEAP_MONITOR_INTERVAL),
+              Effect.ignore,
+              Effect.ensuring(exitImmediately(1))
+            );
           }
 
           return yield* Effect.void;
