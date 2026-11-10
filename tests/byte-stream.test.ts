@@ -37,6 +37,78 @@ describe("bounded byte streams", () => {
     );
   });
 
+  it("preserves bytes when an upstream reader reuses its buffer", async () => {
+    const buffer = new Uint8Array(2);
+
+    const input = Stream.unfold(1, (value) =>
+      Effect.sync(() =>
+        value > 3 ? undefined : ([buffer.fill(value), value + 1] as const)
+      )
+    );
+
+    await expect(
+      runAdapterEffect(collectByteStream(input, 6))
+    ).resolves.toStrictEqual(Uint8Array.of(1, 1, 2, 2, 3, 3));
+  });
+
+  it("handles empty and fragmented chunks with bounded storage", async () => {
+    const input = Stream.fromIterable(
+      Array.from({ length: 10_000 }, (_, index) =>
+        index % 2 === 0 ? new Uint8Array() : Uint8Array.of(index % 256)
+      )
+    );
+
+    const expected = Uint8Array.from(
+      Array.from({ length: 5000 }, (_, index) => (2 * index + 1) % 256)
+    );
+
+    const result = await runAdapterEffect(collectByteStream(input, 5000));
+    expect(result).toStrictEqual(expected);
+    expect(result.buffer.byteLength).toBe(5000);
+  });
+
+  it("allocates independent storage for each execution", async () => {
+    const bytes = Uint8Array.of(1, 2);
+    const collection = collectByteStream(Stream.make(bytes), 2);
+    const first = await runAdapterEffect(collection);
+    bytes.fill(3);
+    const second = await runAdapterEffect(collection);
+
+    expect(first).toStrictEqual(Uint8Array.of(1, 2));
+    expect(second).toStrictEqual(Uint8Array.of(3, 3));
+  });
+
+  it("closes its input on overflow without pulling more bytes", async () => {
+    let closed = false;
+    let pulls = 0;
+
+    const input = Stream.unwrap(
+      Effect.acquireRelease(
+        Effect.succeed(
+          Stream.fromEffectRepeat(
+            Effect.sync(() => {
+              pulls += 1;
+
+              return Uint8Array.of(pulls);
+            })
+          )
+        ),
+        () =>
+          Effect.sync(() => {
+            closed = true;
+          })
+      )
+    );
+
+    await expect(
+      runAdapterEffect(collectByteStream(input, 2))
+    ).rejects.toMatchObject({
+      _tag: "ByteStreamLimitError",
+    });
+    expect(pulls).toBe(3);
+    expect(closed).toBeTruthy();
+  });
+
   it("preserves an upstream failure instead of returning partial bytes", async () => {
     const failure = new ByteStreamLimitError({ limit: 42 });
 

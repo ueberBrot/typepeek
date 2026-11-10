@@ -28,24 +28,38 @@ export const boundedByteStream = <E, R>(
     )
   );
 
-export const collectByteStream = <E, R>(
-  stream: Stream.Stream<Uint8Array, E, R>,
-  limit: number
-) =>
-  boundedByteStream(stream, limit).pipe(
-    Stream.runCollect,
-    Effect.map((chunks) => {
-      const bytes = new Uint8Array(
-        chunks.reduce((length, chunk) => length + chunk.byteLength, 0)
-      );
+export const collectByteStream = Effect.fnUntraced(function* collectByteStream<
+  E,
+  R,
+>(stream: Stream.Stream<Uint8Array, E, R>, limit: number) {
+  let bytes = new Uint8Array(0);
+  let length = 0;
 
-      let offset = 0;
+  yield* stream.pipe(
+    Stream.runForEach((chunk) => {
+      const required = length + chunk.byteLength;
 
-      for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.byteLength;
+      if (required > limit) {
+        return Effect.fail(new ByteStreamLimitError({ limit }));
       }
 
-      return bytes;
+      return Effect.sync(() => {
+        if (required > bytes.byteLength) {
+          const capacity = Math.min(
+            limit,
+            Math.max(4096, required, bytes.byteLength * 2)
+          );
+
+          const expanded = new Uint8Array(capacity);
+          expanded.set(bytes.subarray(0, length));
+          bytes = expanded;
+        }
+
+        bytes.set(chunk, length);
+        length = required;
+      });
     })
   );
+
+  return length === bytes.byteLength ? bytes : bytes.slice(0, length);
+});
