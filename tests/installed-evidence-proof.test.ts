@@ -10,8 +10,9 @@ import {
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
+import { CompilerSession } from "#typepeek/inspection/compiler/compiler-session";
 import { selectInspectableModule } from "#typepeek/inspection/evidence/installed-evidence";
 import type { InstalledEvidenceProof } from "#typepeek/inspection/evidence/installed-evidence-fingerprint";
 import { createInstalledEvidenceFingerprintRecorder } from "#typepeek/inspection/evidence/installed-evidence-fingerprint";
@@ -84,6 +85,50 @@ const successfulProof = function successfulProof(
 
 describe("installed-evidence-proof", () => {
   describe("Installed Evidence Proof replay", () => {
+    it("treats compiler cleanup failure as a cache miss and permits uncached inspection", async () => {
+      const request = {
+        intent: "member-discovery",
+        request: {
+          accessStyle: "import",
+          exportName: "Option",
+          memberPath: [],
+          resolutionContext: process.cwd(),
+          specifier: "effect",
+        },
+      } as const;
+
+      const proof = successfulProof(await analyzeInspection(request, false));
+      const current = await currentSelectionProof(request.request);
+      await expect(
+        installedEvidenceProofStillMatches(proof, current)
+      ).resolves.toBeTruthy();
+      // oxlint-disable-next-line typescript/unbound-method -- The original method is deliberately rebound with call before injecting a cleanup failure.
+      const { close } = CompilerSession.prototype;
+      const cleanup = vi.spyOn(CompilerSession.prototype, "close");
+
+      cleanup.mockImplementationOnce(async function failingCleanup(
+        this: CompilerSession
+      ) {
+        await close.call(this);
+        throw new Error("Compiler cleanup failed after closing.");
+      });
+
+      try {
+        await expect(
+          installedEvidenceProofStillMatches(proof, current)
+        ).resolves.toBeFalsy();
+        expect(cleanup).toHaveBeenCalledOnce();
+      } finally {
+        cleanup.mockRestore();
+      }
+
+      const uncached = await analyzeInspection(request, false);
+
+      expect(uncached.outcome).toMatchObject({
+        status: "success",
+      });
+    });
+
     it.each(["extra", "@types/extra"])(
       "keeps undeclared hoisted %s outside cached resolution",
       async (dependencyName) => {

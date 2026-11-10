@@ -327,43 +327,48 @@ export const installedEvidenceProofStillMatches =
     const owner = createCompilerSessionOwner();
 
     try {
-      const session = createCompilerWorkSession({ owner });
+      try {
+        const session = createCompilerWorkSession({ owner });
 
-      if (
-        !currentManifestsMatch(cached, current) ||
-        !fileChecksStillMatch(
-          readOwnOptionalProperty(cached, "fileChecks") ?? [],
-          session
-        ) ||
-        !fileFingerprintsStillMatch(cached.files) ||
-        !directoryFingerprintsStillMatch(cached.directories)
-      ) {
-        return false;
+        if (
+          !currentManifestsMatch(cached, current) ||
+          !fileChecksStillMatch(
+            readOwnOptionalProperty(cached, "fileChecks") ?? [],
+            session
+          ) ||
+          !fileFingerprintsStillMatch(cached.files) ||
+          !directoryFingerprintsStillMatch(cached.directories)
+        ) {
+          return false;
+        }
+
+        const manifestRoots = new Set(
+          cached.files
+            .filter(
+              ({ kind, path }) =>
+                kind === "manifest" &&
+                nodePath.basename(path) === "package.json"
+            )
+            .map(({ path }) => nodePath.dirname(path))
+        );
+
+        return (
+          sourceFormatsStillMatch(
+            cached.files,
+            cached.resolutions,
+            manifestRoots,
+            session
+          ) &&
+          (await resolutionProbesStillMatch(
+            cached.resolutions,
+            manifestRoots,
+            session
+          ))
+        );
+      } finally {
+        await owner.close();
       }
-
-      const manifestRoots = new Set(
-        cached.files
-          .filter(
-            ({ kind, path }) =>
-              kind === "manifest" && nodePath.basename(path) === "package.json"
-          )
-          .map(({ path }) => nodePath.dirname(path))
-      );
-
-      return (
-        sourceFormatsStillMatch(
-          cached.files,
-          cached.resolutions,
-          manifestRoots,
-          session
-        ) &&
-        (await resolutionProbesStillMatch(
-          cached.resolutions,
-          manifestRoots,
-          session
-        ))
-      );
-    } finally {
-      await owner.close();
+    } catch {
+      return false;
     }
   };
