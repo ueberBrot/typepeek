@@ -42,12 +42,7 @@
           "effect/PlatformError",
           "effect/Stdio",
           "effect/cli",
-          "effect/process",
-          "@effect/platform-node-shared/NodeFileSystem#layer",
-          "@effect/platform-node-shared/NodePath#layer",
-          "@effect/platform-node-shared/NodeRuntime#runMain",
-          "@effect/platform-node-shared/NodeStdio#layer",
-          "@effect/platform-node-shared/NodeTerminal#layer"
+          "effect/process"
         ]
       }
     ]

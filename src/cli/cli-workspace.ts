@@ -1,7 +1,8 @@
-import { isBuiltin } from "node:module";
-import nodePath from "node:path";
+import { Cause, Effect } from "effect";
 
 import { parsePackageNameSegments } from "#typepeek/inspection/evidence/installed-package-boundary";
+import { isBuiltin } from "#typepeek/platform/node-module";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 import { requireDefined } from "#typepeek/shared/defined-value";
 
 import type { WorkspaceRepository } from "../workspace/workspace-repository.ts";
@@ -20,16 +21,18 @@ const workspacePackageName = function workspacePackageName(
     : parsePackageNameSegments(specifier)?.join("/");
 };
 
-const usesCurrentResolutionContext = function usesCurrentResolutionContext(
-  repository: WorkspaceRepository,
-  resolutionContext: string,
-  packageName: string
-): boolean {
-  return (
-    repository.root !== resolutionContext ||
-    repository.declaresPackage(packageName)
-  );
-};
+const usesCurrentResolutionContext = Effect.fnUntraced(
+  function* usesCurrentResolutionContext(
+    repository: WorkspaceRepository,
+    resolutionContext: string,
+    packageName: string
+  ) {
+    return (
+      repository.root !== resolutionContext ||
+      (yield* repository.declaresPackage(packageName))
+    );
+  }
+);
 
 const displayWorkspaceCandidate = function displayWorkspaceCandidate(
   repositoryRoot: string,
@@ -48,7 +51,7 @@ const selectDeclaredWorkspace = function selectDeclaredWorkspace(
   resolutionContext: string,
   specifier: string,
   workspaceFlag: WorkspaceFlag
-): string | Error {
+) {
   if (candidates.length === 1) {
     return requireDefined(candidates[0]);
   }
@@ -66,78 +69,84 @@ const selectDeclaredWorkspace = function selectDeclaredWorkspace(
   );
 };
 
-const selectRepositoryWorkspace = function selectRepositoryWorkspace(
-  resolutionContext: string,
-  packageName: string,
-  specifier: string,
-  workspaceFlag: WorkspaceFlag
-): string | Error {
-  const repository = findWorkspaceRepository(resolutionContext);
-
-  if (
-    repository === undefined ||
-    usesCurrentResolutionContext(repository, resolutionContext, packageName)
-  ) {
-    return resolutionContext;
-  }
-
-  const candidates = repository.consumingWorkspaces(packageName);
-
-  return selectDeclaredWorkspace(
-    candidates,
-    repository,
-    resolutionContext,
-    specifier,
-    workspaceFlag
-  );
-};
-
-const selectBoundedRepositoryWorkspace =
-  function selectBoundedRepositoryWorkspace(
+const selectRepositoryWorkspace = Effect.fnUntraced(
+  function* selectRepositoryWorkspace(
     resolutionContext: string,
     packageName: string,
     specifier: string,
     workspaceFlag: WorkspaceFlag
-  ): string | Error {
-    try {
-      return selectRepositoryWorkspace(
+  ) {
+    const repository = yield* findWorkspaceRepository(resolutionContext);
+
+    if (
+      repository === undefined ||
+      (yield* usesCurrentResolutionContext(
+        repository,
         resolutionContext,
-        packageName,
-        specifier,
-        workspaceFlag
-      );
-    } catch (error) {
-      if (error instanceof WorkspaceDiscoveryLimitError) {
-        return new Error(
-          `Workspace discovery exceeded its bound. Select one with ${workspaceFlag} <path>.`
-        );
-      }
-
-      throw error;
+        packageName
+      ))
+    ) {
+      return resolutionContext;
     }
-  };
 
-export const selectCliWorkspace = function selectCliWorkspace(
+    const candidates = yield* repository.consumingWorkspaces(packageName);
+
+    return selectDeclaredWorkspace(
+      candidates,
+      repository,
+      resolutionContext,
+      specifier,
+      workspaceFlag
+    );
+  }
+);
+
+const selectBoundedRepositoryWorkspace = (
+  resolutionContext: string,
+  packageName: string,
   specifier: string,
-  explicitWorkspace: string | undefined,
-  workspaceFlag: "--workspace" | "--before-workspace" | "--after-workspace",
-  currentDirectory = process.cwd()
-): string | Error {
-  if (explicitWorkspace !== undefined) {
-    return explicitWorkspace;
-  }
-
-  const resolutionContext = nodePath.resolve(currentDirectory);
-  const packageName = workspacePackageName(specifier);
-
-  if (packageName === undefined) {
-    return resolutionContext;
-  }
-
-  return selectBoundedRepositoryWorkspace(
+  workspaceFlag: WorkspaceFlag
+) =>
+  selectRepositoryWorkspace(
     resolutionContext,
     packageName,
     specifier,
     workspaceFlag
+  ).pipe(
+    Effect.catchCauseIf(
+      (cause) => Cause.squash(cause) instanceof WorkspaceDiscoveryLimitError,
+      () =>
+        Effect.succeed(
+          new Error(
+            `Workspace discovery exceeded its bound. Select one with ${workspaceFlag} <path>.`
+          )
+        )
+    )
   );
-};
+
+export const selectCliWorkspace = Effect.fnUntraced(
+  function* selectCliWorkspace(
+    specifier: string,
+    explicitWorkspace: string | undefined,
+    workspaceFlag: "--workspace" | "--before-workspace" | "--after-workspace",
+    currentDirectory: string = process.cwd()
+  ) {
+    if (explicitWorkspace !== undefined) {
+      return explicitWorkspace;
+    }
+
+    const resolutionContext = nodePath.resolve(currentDirectory);
+    const packageName = workspacePackageName(specifier);
+
+    if (packageName === undefined) {
+      return resolutionContext;
+    }
+
+    return yield* selectBoundedRepositoryWorkspace(
+      resolutionContext,
+      packageName,
+      specifier,
+      workspaceFlag
+    );
+  }
+);

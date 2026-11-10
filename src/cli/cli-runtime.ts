@@ -1,6 +1,4 @@
-import nodePath from "node:path";
-
-import { Effect, Exit, Option, Schema, Scope } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
 
 import { InspectionFailureError } from "#typepeek/cli/inspection-failure-error";
@@ -23,6 +21,9 @@ import { readBoundedMemberPath } from "#typepeek/inspection/model/member-path";
 import type { InspectionOutcome } from "#typepeek/inspection/model/protocol";
 import type { InspectionPlanQueryIssue } from "#typepeek/inspection/queries/inspection-plan-query";
 import { readInspectionPlanQueries } from "#typepeek/inspection/queries/inspection-plan-query";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
+import { setExitCode } from "#typepeek/platform/runtime-process";
+import { writeStdout } from "#typepeek/platform/stdio";
 import { renderJsonOutcome } from "#typepeek/presentation/json-rendering";
 import {
   serializeTerminalSafeJson,
@@ -30,7 +31,7 @@ import {
 } from "#typepeek/presentation/output-safety";
 import type { TerminalRenderingOptions } from "#typepeek/presentation/terminal-rendering";
 import { renderInspection } from "#typepeek/presentation/terminal-rendering";
-import { runProtocolWireStream } from "#typepeek/protocol/protocol-wire";
+import { runProtocolWire } from "#typepeek/protocol/protocol-wire";
 import { decodeJson } from "#typepeek/shared/json-data";
 
 import {
@@ -38,13 +39,6 @@ import {
   INSPECTION_FAILURE_EXIT_CODE,
 } from "./cli-execution.ts";
 import { selectCliWorkspace } from "./cli-workspace.ts";
-
-const taggedError = Schema.TaggedError;
-
-class ProtocolExchangeError extends taggedError<
-  ProtocolExchangeError,
-  { readonly brand: unique symbol }
->()("ProtocolExchangeError", { message: Schema.String }) {}
 
 const SIGNATURE_INSPECTION = "signature-inspection";
 
@@ -159,37 +153,41 @@ const overviewJsonOptionError = function overviewJsonOptionError(
   }
 
   if (options.subpaths) {
-    return new InvalidInvocationError(
-      "--subpaths cannot be combined with --json."
-    );
+    return new InvalidInvocationError({
+      message: "--subpaths cannot be combined with --json.",
+    });
   }
 
   return options.match === undefined
     ? undefined
-    : new InvalidInvocationError("--match cannot be combined with --json.");
+    : new InvalidInvocationError({
+        message: "--match cannot be combined with --json.",
+      });
 };
 
-const resolutionContextForSpecifier = function resolutionContextForSpecifier(
-  specifier: string,
-  explicitWorkspace: string | undefined,
-  workspaceFlag: "--workspace" | "--before-workspace" | "--after-workspace"
-): string | InvalidInvocationError {
-  const selection = selectCliWorkspace(
-    specifier,
-    explicitWorkspace,
-    workspaceFlag
-  );
+const resolutionContextForSpecifier = Effect.fnUntraced(
+  function* resolutionContextForSpecifier(
+    specifier: string,
+    explicitWorkspace: string | undefined,
+    workspaceFlag: "--workspace" | "--before-workspace" | "--after-workspace"
+  ) {
+    const selection = yield* selectCliWorkspace(
+      specifier,
+      explicitWorkspace,
+      workspaceFlag
+    );
 
-  return selection instanceof Error
-    ? new InvalidInvocationError(selection.message)
-    : selection;
-};
+    return selection instanceof Error
+      ? new InvalidInvocationError({ message: selection.message })
+      : selection;
+  }
+);
 
-const inspectionRequest = function inspectionRequest(
+const inspectionRequest = Effect.fnUntraced(function* inspectionRequest(
   options: InspectionTargetOptions,
   specifier: string
 ) {
-  const resolutionContext = resolutionContextForSpecifier(
+  const resolutionContext = yield* resolutionContextForSpecifier(
     specifier,
     options.workspace,
     "--workspace"
@@ -204,7 +202,7 @@ const inspectionRequest = function inspectionRequest(
     resolutionContext,
     specifier,
   } as const;
-};
+});
 
 const cliRequestUsesSignatureEvidence =
   function cliRequestUsesSignatureEvidence<Intent extends InspectionIntent>(
@@ -240,60 +238,62 @@ const invokeCliInspection = Effect.fnUntraced(function* invokeCliInspection<
   return enforceInspectionOutcome(intent, response.outcome);
 });
 
-const writeJsonOutcome = function writeJsonOutcome(
+const writeJsonOutcome = Effect.fnUntraced(function* writeJsonOutcome(
   outcome: InspectionOutcome,
   pretty: boolean
-): void {
+) {
   const rendering = renderJsonOutcome(outcome, pretty);
-  process.stdout.write(`${rendering.text}\n`);
+  yield* writeStdout(`${rendering.text}\n`);
 
   if (rendering.failed) {
-    process.exitCode = INSPECTION_FAILURE_EXIT_CODE;
+    yield* setExitCode(INSPECTION_FAILURE_EXIT_CODE);
   }
-};
+});
 
 const renderForCommand = function renderForCommand(
   result: InspectionResult,
   options: TerminalRenderingOptions
-): string | Error {
+): string | InspectionFailureError {
   try {
     return renderInspection(result, options);
   } catch (error) {
     if (error instanceof InspectionLimitError) {
-      return new InspectionFailureError(`limit-exceeded: ${error.message}`);
+      return new InspectionFailureError({
+        message: `limit-exceeded: ${error.message}`,
+      });
     }
 
     throw error;
   }
 };
 
-const writeCliOutcome = function writeCliOutcome(
+const writeCliOutcome = Effect.fnUntraced(function* writeCliOutcome(
   options: CliOutputOptions,
   outcome: InspectionOutcome,
   renderingOptions: TerminalRenderingOptions = {}
-): Error | undefined {
+) {
   if (options.json) {
-    writeJsonOutcome(outcome, options.pretty);
+    yield* writeJsonOutcome(outcome, options.pretty);
 
-    return undefined;
+    return yield* Effect.void;
   }
 
   if (outcome.status !== "success") {
-    return new InspectionFailureError(
-      terminalSafeLine(`${outcome.status}: ${outcome.message}`)
-    );
+    return yield* new InspectionFailureError({
+      message: terminalSafeLine(`${outcome.status}: ${outcome.message}`),
+    });
   }
 
   const rendering = renderForCommand(outcome.result, renderingOptions);
 
-  if (rendering instanceof Error) {
-    return rendering;
+  if (rendering instanceof InspectionFailureError) {
+    return yield* rendering;
   }
 
-  process.stdout.write(`${rendering}\n`);
+  yield* writeStdout(`${rendering}\n`);
 
-  return undefined;
-};
+  return yield* Effect.void;
+});
 
 const runCliTargetInspection = Effect.fnUntraced(
   function* runCliTargetInspection<Intent extends InspectionIntent>(
@@ -305,10 +305,10 @@ const runCliTargetInspection = Effect.fnUntraced(
     ) => InspectionRequestByIntent[Intent],
     renderingOptions: TerminalRenderingOptions = {}
   ) {
-    const target = inspectionRequest(options, specifier);
+    const target = yield* inspectionRequest(options, specifier);
 
     if (target instanceof Error) {
-      return yield* Effect.fail(target);
+      return yield* target;
     }
 
     const outcome = yield* invokeCliInspection(
@@ -316,11 +316,7 @@ const runCliTargetInspection = Effect.fnUntraced(
       requestForTarget(target)
     );
 
-    const error = writeCliOutcome(options, outcome, renderingOptions);
-
-    if (error !== undefined) {
-      return yield* Effect.fail(error);
-    }
+    yield* writeCliOutcome(options, outcome, renderingOptions);
 
     return yield* Effect.void;
   }
@@ -612,61 +608,17 @@ const capabilitiesCommand = Command.make(
   "capabilities",
   outputFlags,
   (options) =>
-    Effect.sync(() => {
-      process.stdout.write(
-        `${serializeTerminalSafeJson(inspectCapabilities(), options.pretty)}\n`
-      );
-    })
+    writeStdout(
+      `${serializeTerminalSafeJson(inspectCapabilities(), options.pretty)}\n`
+    )
 ).pipe(
   Command.withDescription(
     "List supported protocol requests and limits as JSON. Capability output is always JSON. Pass --json to select machine-mode diagnostics; add --pretty for indented output."
   )
 );
 
-const closeProtocolExchange = (
-  scope: Scope.Closeable,
-  exchange: Promise<number>
-) =>
-  Scope.close(scope, Exit.void).pipe(
-    Effect.andThen(
-      Effect.promise(async () => {
-        try {
-          await exchange;
-        } catch {
-          /* The command reports exchange failures. */
-        }
-      })
-    )
-  );
-
 const protocolCommand = Command.make("protocol", {}, () =>
-  Effect.scoped(
-    Effect.gen(function* runProtocol() {
-      const scope = yield* Effect.acquireRelease(Scope.make(), Scope.close);
-
-      const signal = yield* Effect.abortSignal.pipe(
-        Effect.provideService(Scope.Scope, scope)
-      );
-
-      const exchange = runProtocolWireStream(
-        process.stdin,
-        process.stdout,
-        signal
-      );
-
-      yield* Effect.addFinalizer(() => closeProtocolExchange(scope, exchange));
-
-      const exitCode = yield* Effect.tryPromise({
-        catch: (error) =>
-          new ProtocolExchangeError({
-            message: error instanceof Error ? error.message : String(error),
-          }),
-        try: async () => await exchange,
-      });
-
-      process.exitCode = Math.max(Number(process.exitCode ?? 0), exitCode);
-    })
-  )
+  runProtocolWire().pipe(Effect.tap(setExitCode))
 ).pipe(
   Command.withDescription(
     "Invoke the Inspection Protocol with JSON request lines on stdin. Emit one compact JSON response line per request, in order, until stdin closes. Each line may contain at most 32 KiB of UTF-8 JSON; the final newline is optional. Empty input closes without a response. Invalid wire input ends the stream; inspection failures allow further requests and leave exit status 1. Run typepeek capabilities --json first to discover valid requests, response options, and recovery limits."
@@ -697,24 +649,24 @@ const compareCommand = Command.make(
     ),
   },
   Effect.fnUntraced(function* compareCommand(options) {
-    const beforeResolutionContext = resolutionContextForSpecifier(
+    const beforeResolutionContext = yield* resolutionContextForSpecifier(
       options.args[0],
       options.beforeWorkspace,
       "--before-workspace"
     );
 
     if (beforeResolutionContext instanceof Error) {
-      return yield* Effect.fail(beforeResolutionContext);
+      return yield* beforeResolutionContext;
     }
 
-    const afterResolutionContext = resolutionContextForSpecifier(
+    const afterResolutionContext = yield* resolutionContextForSpecifier(
       options.args[1],
       options.afterWorkspace,
       "--after-workspace"
     );
 
     if (afterResolutionContext instanceof Error) {
-      return yield* Effect.fail(afterResolutionContext);
+      return yield* afterResolutionContext;
     }
 
     const outcome = yield* invokeCliInspection("public-interface-comparison", {
@@ -730,11 +682,7 @@ const compareCommand = Command.make(
       },
     });
 
-    const error = writeCliOutcome(options, outcome);
-
-    if (error !== undefined) {
-      return yield* Effect.fail(error);
-    }
+    yield* writeCliOutcome(options, outcome);
 
     return yield* Effect.void;
   })

@@ -1,10 +1,13 @@
-import { Cause, Effect, Option } from "effect";
+import { Cause, Effect, Option, Stdio } from "effect";
 import { CliError, CliOutput, Command } from "effect/cli";
+import type { PlatformError } from "effect/PlatformError";
 
 import { InspectionFailureError } from "#typepeek/cli/inspection-failure-error";
 import { InvalidInvocationError } from "#typepeek/cli/invalid-invocation-error";
 import { TYPEPEEK_VERSION } from "#typepeek/platform/package-metadata";
 import { cliLayer } from "#typepeek/platform/process-runtime";
+import { setExitCode } from "#typepeek/platform/runtime-process";
+import { writeStdout, writeStderr } from "#typepeek/platform/stdio";
 import {
   serializeTerminalSafeJson,
   terminalSafeLine,
@@ -126,20 +129,15 @@ const renderHumanCliDiagnostic = function renderHumanCliDiagnostic(
   return `${cliDiagnosticStatus(snapshot.exitCode)}: ${cliDiagnosticLimitMessage()}\n`;
 };
 
-const writeCapturedDiagnostic = function writeCapturedDiagnostic(
+const writeCapturedDiagnostic = (
   rawInputs: readonly string[],
   diagnostic: CliDiagnosticSnapshot
-): void {
-  if (requestsJson(rawInputs)) {
-    process.stdout.write(
-      `${renderCliDiagnostic(diagnostic, requestsPretty(rawInputs))}\n`
-    );
-
-    return;
-  }
-
-  process.stderr.write(renderHumanCliDiagnostic(diagnostic));
-};
+) =>
+  requestsJson(rawInputs)
+    ? writeStdout(
+        `${renderCliDiagnostic(diagnostic, requestsPretty(rawInputs))}\n`
+      )
+    : writeStderr(renderHumanCliDiagnostic(diagnostic));
 
 const leadingCommonOptionsEnd = function leadingCommonOptionsEnd(
   inputs: readonly string[]
@@ -184,15 +182,12 @@ const diagnostic = (
   rawInputs: readonly string[],
   error: Error,
   exitCode: number
-): void => {
-  const stderr = error.message;
+) =>
   writeCapturedDiagnostic(rawInputs, {
-    exceeded: Buffer.byteLength(stderr) > MAX_CLI_DIAGNOSTIC_BYTES,
+    exceeded: Buffer.byteLength(error.message) > MAX_CLI_DIAGNOSTIC_BYTES,
     exitCode,
-    stderr,
-  });
-  process.exitCode = exitCode;
-};
+    stderr: error.message,
+  }).pipe(Effect.andThen(setExitCode(exitCode)));
 
 const cliInputs = (rawInputs: readonly string[]): readonly string[] => {
   if (rawInputs.length === 0) {
@@ -220,12 +215,13 @@ const cliInputs = (rawInputs: readonly string[]): readonly string[] => {
   return actions.has(first) ? normalized : ["overview", ...normalized];
 };
 
-const cliPresenter: CliOutput.Presenter = {
+const cliPresenter = (stdio: Stdio.Stdio): CliOutput.Presenter => ({
   present: (event) => {
     if (event._tag === "Version") {
-      return Effect.sync(() => {
-        process.stdout.write(`${event.version}\n`);
-      });
+      return writeStdout(`${event.version}\n`).pipe(
+        Effect.provideService(Stdio.Stdio, stdio),
+        Effect.orDie
+      );
     }
 
     if (
@@ -237,7 +233,7 @@ const cliPresenter: CliOutput.Presenter = {
 
     return CliOutput.defaultPresenter.present(event);
   },
-};
+});
 
 const failureExitCode = (error: Error): number => {
   if (error instanceof InvalidInvocationError) {
@@ -252,7 +248,7 @@ const failureExitCode = (error: Error): number => {
 const reportCliCause = <E>(
   rawInputs: readonly string[],
   cause: Cause.Cause<E>
-) => {
+): Effect.Effect<void, E | PlatformError, Stdio.Stdio> => {
   if (Cause.hasInterruptsOnly(cause)) {
     return Effect.failCause(cause);
   }
@@ -268,42 +264,37 @@ const reportCliCause = <E>(
         ? error.errors.map((entry) => entry.message).join("\n")
         : error.message;
 
-    return Effect.sync(() => {
-      diagnostic(
-        rawInputs,
-        new Error(message || "Invalid invocation."),
-        INVALID_INVOCATION_EXIT_CODE
-      );
-    });
+    return diagnostic(
+      rawInputs,
+      new Error(message || "Invalid invocation."),
+      INVALID_INVOCATION_EXIT_CODE
+    );
   }
 
-  return Effect.sync(() => {
-    diagnostic(rawInputs, error, failureExitCode(error));
-  });
+  return diagnostic(rawInputs, error, failureExitCode(error));
 };
 
 /** Owns option normalization, bounded diagnostics, exit classification and CLI execution. */
 export const createCliRunner =
-  <Name extends string, Input, ContextInput, E>(
-    command: Command.Command<Name, Input, ContextInput, E>
+  <Name extends string, Input, ContextInput, E, R>(
+    command: Command.Command<Name, Input, ContextInput, E, R>
   ) =>
   (rawInputs: readonly string[]) =>
-    Effect.suspend(() => {
+    Effect.gen(function* executeCli() {
       if (requestsPretty(rawInputs) && !requestsJson(rawInputs)) {
-        return Effect.sync(() => {
-          diagnostic(
-            rawInputs,
-            new InvalidInvocationError("--pretty requires --json."),
-            INVALID_INVOCATION_EXIT_CODE
-          );
-        });
+        return yield* diagnostic(
+          rawInputs,
+          new InvalidInvocationError({ message: "--pretty requires --json." }),
+          INVALID_INVOCATION_EXIT_CODE
+        );
       }
 
-      return Command.runWith(command, { version: TYPEPEEK_VERSION })(
+      const stdio = yield* Stdio.Stdio;
+
+      return yield* Command.runWith(command, { version: TYPEPEEK_VERSION })(
         cliInputs(rawInputs)
       ).pipe(
-        Effect.provideService(CliOutput.Presenter, cliPresenter),
-        Effect.catchCause((cause) => reportCliCause(rawInputs, cause)),
-        Effect.provide(cliLayer)
+        Effect.provideService(CliOutput.Presenter, cliPresenter(stdio)),
+        Effect.catchCause((cause) => reportCliCause(rawInputs, cause))
       );
-    });
+    }).pipe(Effect.provide(cliLayer));

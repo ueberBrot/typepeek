@@ -1,18 +1,12 @@
-import { isUtf8 } from "node:buffer";
-import type { Readable, Writable } from "node:stream";
+import { Cause, Effect, Option, Schema, Stdio, Stream } from "effect";
 
-import { Schema } from "effect";
-import { constVoid } from "effect/Function";
-
-import {
-  INSPECTION_PROTOCOL_VERSION,
-  invokeInspectionProtocol,
-} from "#typepeek/inspection";
+import { INSPECTION_PROTOCOL_VERSION } from "#typepeek/inspection";
+import { invokeInspectionProtocolEffect } from "#typepeek/inspection/model/inspection-protocol";
 import type { InspectionProtocolResponse } from "#typepeek/inspection/model/inspection-protocol-schema";
 import { serializeTerminalSafeJson } from "#typepeek/presentation/output-safety";
-import { decodeJson } from "#typepeek/shared/json-data";
+import { readProtocolWireStream } from "#typepeek/protocol/protocol-input";
+import type { ProtocolWireError } from "#typepeek/protocol/protocol-input";
 
-const MAX_PROTOCOL_INPUT_BYTES = 32 * 1024;
 const MAX_PROTOCOL_OUTPUT_BYTES = 128 * 1024;
 const INSPECTION_FAILURE_EXIT_CODE = 1;
 const INVALID_INVOCATION_EXIT_CODE = 2;
@@ -20,153 +14,15 @@ const INTERNAL_ERROR_EXIT_CODE = 70;
 
 type ProtocolWireValue = InspectionProtocolResponse | ProtocolWireError;
 
-type ProtocolWireInputFailureReason =
-  | "empty-input"
-  | "input-too-large"
-  | "invalid-utf8"
-  | "malformed-json";
+const taggedError = Schema.TaggedError;
 
-interface ProtocolWireError {
-  readonly wireVersion: "1";
-  readonly status: "internal-error" | "invalid-input";
-  readonly reason: ProtocolWireInputFailureReason | "unexpected-error";
-  readonly message: string;
-}
+class ProtocolOutputError extends taggedError<
+  ProtocolOutputError,
+  { readonly brand: unique symbol }
+>()("ProtocolOutputError", {}) {}
 
-type ProtocolWireReading =
-  | {
-      readonly accepted: true;
-      readonly value: Schema.Json;
-    }
-  | {
-      readonly accepted: false;
-      readonly error: ProtocolWireError;
-    };
-
-class ProtocolOutputError extends Error {
-  override name = "ProtocolOutputError";
-}
-
-/** Produces bounded terminal-safe JSON for the protocol stdout wire. */
-const renderProtocolWireValue = function renderProtocolWireValue(
-  value: ProtocolWireValue
-): string | undefined {
-  const text = serializeTerminalSafeJson(value);
-
-  return Buffer.byteLength(text) <= MAX_PROTOCOL_OUTPUT_BYTES
-    ? `${text}\n`
-    : undefined;
-};
-
-const writeProtocolOutput = async function writeProtocolOutput(
-  output: Writable,
-  rendering: string
-): Promise<void> {
-  const completion = Promise.withResolvers<undefined>();
-  const { resolve, reject } = completion;
-
-  const onError = () => {
-    reject(new ProtocolOutputError());
-  };
-
-  output.once("error", onError);
-  // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Writable.write exposes completion through this native callback.
-  output.write(rendering, (error) => {
-    if (error !== undefined && error !== null) {
-      onError();
-    } else {
-      output.off("error", onError);
-      resolve(undefined);
-    }
-  });
-  await completion.promise;
-};
-
-const invalidProtocolWireInput = function invalidProtocolWireInput(
-  reason: ProtocolWireInputFailureReason
-): ProtocolWireReading {
-  return {
-    accepted: false,
-    error: {
-      message: "Typepeek received invalid protocol input.",
-      reason,
-      status: "invalid-input",
-      wireVersion: "1",
-    },
-  };
-};
-
-const parseProtocolWireInput = function parseProtocolWireInput(
-  inputBuffer: Buffer
-): ProtocolWireReading {
-  if (!isUtf8(inputBuffer)) {
-    return invalidProtocolWireInput("invalid-utf8");
-  }
-
-  const text = inputBuffer.toString("utf-8");
-
-  if (text.trim() === "") {
-    return invalidProtocolWireInput("empty-input");
-  }
-
-  try {
-    return { accepted: true, value: decodeJson(Schema.Json, text) };
-  } catch {
-    return invalidProtocolWireInput("malformed-json");
-  }
-};
-
-/**
- * Reads newline-delimited requests with a separate byte limit for each line.
- * Each input line yields an independently bounded and decoded request.
- */
-const readProtocolWireStream = async function* readProtocolWireStream(
-  input: Readable
-): AsyncGenerator<ProtocolWireReading> {
-  let chunks: Buffer[] = [];
-  let bytes = 0;
-
-  for await (const chunk of input) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-    let start = 0;
-
-    while (start < buffer.length) {
-      const newline = buffer.indexOf(0x0a, start);
-      const end = newline === -1 ? buffer.length : newline;
-      bytes += end - start;
-
-      if (bytes > MAX_PROTOCOL_INPUT_BYTES) {
-        input.destroy();
-        yield invalidProtocolWireInput("input-too-large");
-
-        return;
-      }
-
-      chunks.push(buffer.subarray(start, end));
-
-      if (newline !== -1) {
-        const reading = parseProtocolWireInput(Buffer.concat(chunks, bytes));
-        yield reading;
-
-        if (!reading.accepted) {
-          return;
-        }
-
-        chunks = [];
-        bytes = 0;
-      }
-
-      start = end + 1;
-    }
-  }
-
-  if (bytes > 0) {
-    yield parseProtocolWireInput(Buffer.concat(chunks, bytes));
-  }
-};
-
-const protocolOutputLimitResponse = function protocolOutputLimitResponse() {
-  return {
+const protocolOutputLimitResponse = () =>
+  ({
     outcome: {
       exceededBudget: "json-output",
       message: "Inspection exceeded its protocol output limit.",
@@ -174,88 +30,80 @@ const protocolOutputLimitResponse = function protocolOutputLimitResponse() {
       status: "limit-exceeded",
     },
     protocolVersion: INSPECTION_PROTOCOL_VERSION,
-  } as const;
-};
+  }) as const;
 
-const internalProtocolWireError =
-  function internalProtocolWireError(): ProtocolWireError {
-    return {
-      message: "Typepeek could not complete the protocol exchange.",
-      reason: "unexpected-error",
-      status: "internal-error",
-      wireVersion: "1",
-    };
-  };
+const internalProtocolWireError = (): ProtocolWireError => ({
+  message: "Typepeek could not complete the protocol exchange.",
+  reason: "unexpected-error",
+  status: "internal-error",
+  wireVersion: "1",
+});
 
-/** Exchanges ordered, bounded JSON lines and returns the aggregate process exit status. */
-export const runProtocolWireStream = async function runProtocolWireStream(
-  input: Readable,
-  output: Writable,
-  signal?: AbortSignal
-): Promise<number> {
+/** Owns ordered protocol requests, bounded framing, output backpressure, and interruption. */
+export const runProtocolWire = Effect.fnUntraced(function* runProtocolWire() {
+  const stdio = yield* Stdio.Stdio;
   let exitCode = 0;
 
-  const onAbort = () => {
-    input.destroy();
-  };
+  const write = (value: ProtocolWireValue, failureExitCode: number) =>
+    Effect.gen(function* writeValue() {
+      const text = serializeTerminalSafeJson(value);
 
-  signal?.addEventListener("abort", onAbort, { once: true });
-
-  const write = async (
-    value: ProtocolWireValue,
-    failureExitCode: number
-  ): Promise<boolean> => {
-    const rendering = renderProtocolWireValue(value);
-
-    if (rendering === undefined) {
-      return false;
-    }
-
-    exitCode = Math.max(exitCode, failureExitCode);
-    await writeProtocolOutput(output, rendering);
-
-    return true;
-  };
-
-  try {
-    for await (const reading of readProtocolWireStream(input)) {
-      if (!reading.accepted) {
-        await write(reading.error, INVALID_INVOCATION_EXIT_CODE);
-
-        return exitCode;
+      if (Buffer.byteLength(text) > MAX_PROTOCOL_OUTPUT_BYTES) {
+        return false;
       }
 
-      const response = await invokeInspectionProtocol(reading.value, signal);
+      yield* Stream.make(`${text}\n`).pipe(
+        Stream.run(stdio.stdout()),
+        Effect.mapError(() => new ProtocolOutputError({}))
+      );
+      exitCode = Math.max(exitCode, failureExitCode);
 
-      if (
-        !(await write(
+      return true;
+    });
+
+  return yield* readProtocolWireStream(stdio.stdin).pipe(
+    Stream.runForEachWhile((reading) =>
+      Effect.gen(function* respond() {
+        if (!reading.accepted) {
+          yield* write(reading.error, INVALID_INVOCATION_EXIT_CODE);
+
+          return false;
+        }
+
+        const response = yield* invokeInspectionProtocolEffect(reading.value);
+
+        const written = yield* write(
           response,
           response.outcome.status === "success"
             ? 0
             : INSPECTION_FAILURE_EXIT_CODE
-        ))
-      ) {
-        await write(
-          protocolOutputLimitResponse(),
-          INSPECTION_FAILURE_EXIT_CODE
         );
+
+        if (!written) {
+          yield* write(
+            protocolOutputLimitResponse(),
+            INSPECTION_FAILURE_EXIT_CODE
+          );
+        }
+
+        return true;
+      })
+    ),
+    Effect.map(() => exitCode),
+    Effect.catchCause((cause) => {
+      if (Cause.hasInterruptsOnly(cause)) {
+        return Effect.failCause(cause);
       }
-    }
-  } catch (error) {
-    if (signal?.aborted === true) {
-      return exitCode;
-    }
 
-    exitCode = INTERNAL_ERROR_EXIT_CODE;
+      const error = Option.getOrUndefined(Cause.findErrorOption(cause));
 
-    if (!(error instanceof ProtocolOutputError)) {
-      await write(internalProtocolWireError(), INTERNAL_ERROR_EXIT_CODE).catch(
-        constVoid
-      );
-    }
-  } finally {
-    signal?.removeEventListener("abort", onAbort);
-  }
-
-  return exitCode;
-};
+      return (
+        error instanceof ProtocolOutputError
+          ? Effect.void
+          : write(internalProtocolWireError(), INTERNAL_ERROR_EXIT_CODE).pipe(
+              Effect.ignore
+            )
+      ).pipe(Effect.as(INTERNAL_ERROR_EXIT_CODE));
+    })
+  );
+});

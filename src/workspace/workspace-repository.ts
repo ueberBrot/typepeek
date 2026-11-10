@@ -1,11 +1,24 @@
-import { opendirSync, readFileSync, statSync } from "node:fs";
-import nodePath from "node:path";
-
-import { Predicate, Schema } from "effect";
+import {
+  ByteSize,
+  Effect,
+  FileSystem,
+  Option,
+  Predicate,
+  Schema,
+  Stream,
+} from "effect";
+import {
+  filter as filterEffect,
+  forEach as forEachEffect,
+} from "effect/Effect";
 
 import { hasDeclaredPackage } from "#typepeek/inspection/evidence/installed-package-boundary";
+import { directoryEntries } from "#typepeek/platform/node-directory";
+import { matchesGlob } from "#typepeek/platform/node-path-matching";
+import { readBoundedFileText } from "#typepeek/platform/platform-file";
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
 import { requireDefined } from "#typepeek/shared/defined-value";
-import { decodeJson, isJsonObject } from "#typepeek/shared/json-data";
+import { isJsonObject } from "#typepeek/shared/json-data";
 
 const PACKAGE_MANIFEST_FILE = "package.json";
 const MAX_ANCESTOR_DIRECTORIES = 64;
@@ -18,86 +31,12 @@ export class WorkspaceDiscoveryLimitError extends Error {
   override name = "WorkspaceDiscoveryLimitError";
 }
 
-const readableFileSize = function readableFileSize(
-  fileName: string
-): number | undefined {
-  try {
-    const statistics = statSync(fileName);
-
-    return statistics.isFile() ? statistics.size : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-const readText = function readText(fileName: string): string | undefined {
-  try {
-    return readFileSync(fileName, "utf-8");
-  } catch {
-    return undefined;
-  }
-};
-
-const readBoundedText = function readBoundedText(
-  fileName: string
-): string | undefined {
-  const fileSize = readableFileSize(fileName);
-
-  if (fileSize === undefined) {
-    return undefined;
-  }
-
-  if (fileSize > MAX_WORKSPACE_CONFIG_BYTES) {
-    throw new WorkspaceDiscoveryLimitError();
-  }
-
-  return readText(fileName);
-};
-
-const readJsonRecord = function readJsonRecord(
-  fileName: string
-): Schema.JsonObject | undefined {
-  const text = readBoundedText(fileName);
-
-  if (text === undefined) {
-    return undefined;
-  }
-
-  try {
-    const value: Schema.Json = decodeJson(Schema.MutableJson, text);
-
-    return isJsonObject(value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
 const stringValues = function stringValues(
   value: Schema.Json | undefined
 ): readonly string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => Predicate.isString(entry))
     : [];
-};
-
-const readManifestWorkspacePatterns = function readManifestWorkspacePatterns(
-  manifestPath: string
-): readonly string[] {
-  const manifest = readJsonRecord(manifestPath);
-
-  if (manifest === undefined) {
-    return [];
-  }
-
-  const { workspaces } = manifest;
-
-  if (Array.isArray(workspaces)) {
-    return stringValues(workspaces);
-  }
-
-  return stringValues(
-    isJsonObject(workspaces) ? workspaces["packages"] : undefined
-  );
 };
 
 const leadingWhitespace = function leadingWhitespace(line: string): number {
@@ -218,62 +157,6 @@ const pnpmWorkspacePatterns = function pnpmWorkspacePatterns(
   );
 };
 
-const readPnpmWorkspacePatterns = function readPnpmWorkspacePatterns(
-  fileName: string
-): readonly string[] {
-  const text = readBoundedText(fileName);
-
-  return text === undefined ? [] : pnpmWorkspacePatterns(text);
-};
-
-const readWorkspacePatterns = function readWorkspacePatterns(
-  directory: string
-): readonly string[] {
-  return [
-    ...readManifestWorkspacePatterns(
-      nodePath.join(directory, PACKAGE_MANIFEST_FILE)
-    ),
-    ...readPnpmWorkspacePatterns(
-      nodePath.join(directory, "pnpm-workspace.yaml")
-    ),
-  ];
-};
-
-const findWorkspaceLayout = function findWorkspaceLayout(
-  startingDirectory: string
-): WorkspaceLayout | undefined {
-  let directory = startingDirectory;
-
-  for (let depth = 0; depth < MAX_ANCESTOR_DIRECTORIES; depth += 1) {
-    const patterns = readWorkspacePatterns(directory);
-
-    if (patterns.length > 0) {
-      return { patterns, root: directory };
-    }
-
-    const parent = nodePath.dirname(directory);
-
-    if (parent === directory) {
-      return undefined;
-    }
-
-    directory = parent;
-  }
-
-  throw new WorkspaceDiscoveryLimitError();
-};
-
-const workspaceDeclaresPackage = function workspaceDeclaresPackage(
-  directory: string,
-  packageName: string
-): boolean {
-  const manifest = readJsonRecord(
-    nodePath.join(directory, PACKAGE_MANIFEST_FILE)
-  );
-
-  return manifest !== undefined && hasDeclaredPackage(manifest, packageName);
-};
-
 const unusableWorkspacePattern = function unusableWorkspacePattern(
   pattern: string
 ): boolean {
@@ -336,83 +219,12 @@ const consumeDiscoveryOperation = function consumeDiscoveryOperation(
   }
 };
 
-const openWorkspaceDirectory = function openWorkspaceDirectory(
-  directory: string
-): ReturnType<typeof opendirSync> | undefined {
-  try {
-    return opendirSync(directory);
-  } catch {
-    return undefined;
-  }
-};
-
-const isPackageManifestEntry = function isPackageManifestEntry(
-  name: string,
-  isFile: boolean
-): boolean {
-  return isFile && name === PACKAGE_MANIFEST_FILE;
-};
-
-const isTraversableDirectory = function isTraversableDirectory(
-  name: string,
-  isDirectory: boolean
-): boolean {
-  return isDirectory && name !== ".git" && name !== "node_modules";
-};
-
-const traversableDirectoryNames = function traversableDirectoryNames(
-  name: string,
-  isDirectory: boolean
-): readonly string[] {
-  return isTraversableDirectory(name, isDirectory) ? [name] : [];
-};
-
-const collectWorkspaceDirectoryContents =
-  function collectWorkspaceDirectoryContents(
-    directoryHandle: ReturnType<typeof opendirSync>,
-    state: WorkspaceDiscoveryState
-  ): WorkspaceDirectoryContents {
-    const childDirectories: string[] = [];
-    let hasManifest = false;
-
-    for (
-      let entry = directoryHandle.readSync();
-      entry !== null;
-      entry = directoryHandle.readSync()
-    ) {
-      consumeDiscoveryOperation(state);
-      hasManifest ||= isPackageManifestEntry(entry.name, entry.isFile());
-      childDirectories.push(
-        ...traversableDirectoryNames(entry.name, entry.isDirectory())
-      );
-    }
-
-    return { childDirectories, hasManifest };
-  };
-
-const readWorkspaceDirectory = function readWorkspaceDirectory(
-  directory: string,
-  state: WorkspaceDiscoveryState
-): WorkspaceDirectoryContents | undefined {
-  const directoryHandle = openWorkspaceDirectory(directory);
-
-  if (directoryHandle === undefined) {
-    return undefined;
-  }
-
-  try {
-    return collectWorkspaceDirectoryContents(directoryHandle, state);
-  } finally {
-    directoryHandle.closeSync();
-  }
-};
-
 const matchesWorkspacePattern = function matchesWorkspacePattern(
   path: string,
   pattern: string
 ): boolean {
   try {
-    return nodePath.matchesGlob(path, pattern);
+    return matchesGlob(path, pattern);
   } catch {
     return false;
   }
@@ -500,37 +312,162 @@ const couldContainWorkspace = function couldContainWorkspace(
   );
 };
 
-const workspaceTraversal = {
-  visitWorkspaceChild(
-    directory: string,
-    relativeDirectory: string,
-    childDirectory: string,
-    depth: number,
-    traversal: WorkspaceTraversal
-  ): void {
-    const childRelative =
-      relativeDirectory === ""
-        ? childDirectory
-        : `${relativeDirectory}/${childDirectory}`;
+const readBoundedText = Effect.fnUntraced(function* readBoundedText(
+  fileName: string
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const stat = yield* fs.stat(fileName).pipe(Effect.option);
 
-    if (couldContainWorkspace(childRelative, traversal.includePatterns)) {
-      workspaceTraversal.visitWorkspaceDirectory(
-        nodePath.join(directory, childDirectory),
-        childRelative,
-        depth + 1,
-        traversal
-      );
+  if (Option.isNone(stat) || stat.value.type !== "File") {
+    return Option.none<string>();
+  }
+
+  if (ByteSize.toBigInt(stat.value.size) > MAX_WORKSPACE_CONFIG_BYTES) {
+    return yield* Effect.die(new WorkspaceDiscoveryLimitError());
+  }
+
+  return yield* readBoundedFileText(fileName, MAX_WORKSPACE_CONFIG_BYTES).pipe(
+    Effect.asSome,
+    Effect.catchTag("ByteStreamLimitError", () =>
+      Effect.die(new WorkspaceDiscoveryLimitError())
+    ),
+    Effect.orElseSucceed(Option.none<string>)
+  );
+});
+
+const decodeWorkspaceManifest = Schema.decodeOption(
+  Schema.fromJsonString(Schema.JsonObject)
+);
+
+const readJsonRecord = Effect.fnUntraced(function* readJsonRecord(
+  fileName: string
+) {
+  const text = yield* readBoundedText(fileName);
+
+  return text.pipe(Option.flatMap(decodeWorkspaceManifest));
+});
+
+const readManifestWorkspacePatterns = Effect.fnUntraced(
+  function* readManifestWorkspacePatterns(manifestPath: string) {
+    const manifest = yield* readJsonRecord(manifestPath);
+
+    if (Option.isNone(manifest)) {
+      return [];
     }
-  },
-  visitWorkspaceDirectory(
+
+    const { workspaces } = manifest.value;
+
+    if (Array.isArray(workspaces)) {
+      return stringValues(workspaces);
+    }
+
+    const packages = isJsonObject(workspaces)
+      ? workspaces["packages"]
+      : undefined;
+
+    return stringValues(packages);
+  }
+);
+
+const readWorkspacePatterns = Effect.fnUntraced(function* readWorkspacePatterns(
+  directory: string
+) {
+  const manifest = yield* readManifestWorkspacePatterns(
+    nodePath.join(directory, PACKAGE_MANIFEST_FILE)
+  );
+
+  const pnpm = yield* readBoundedText(
+    nodePath.join(directory, "pnpm-workspace.yaml")
+  );
+
+  return [
+    ...manifest,
+    ...Option.match(pnpm, { onNone: () => [], onSome: pnpmWorkspacePatterns }),
+  ];
+});
+
+const findWorkspaceLayout = Effect.fnUntraced(function* findWorkspaceLayout(
+  startingDirectory: string
+) {
+  let directory = startingDirectory;
+
+  for (let depth = 0; depth < MAX_ANCESTOR_DIRECTORIES; depth += 1) {
+    const patterns = yield* readWorkspacePatterns(directory);
+
+    if (patterns.length > 0) {
+      return Option.some({ patterns, root: directory });
+    }
+
+    const parent = nodePath.dirname(directory);
+
+    if (parent === directory) {
+      return Option.none<WorkspaceLayout>();
+    }
+
+    directory = parent;
+  }
+
+  return yield* Effect.die(new WorkspaceDiscoveryLimitError());
+});
+
+const workspaceDeclaresPackage = Effect.fnUntraced(
+  function* workspaceDeclaresPackage(directory: string, packageName: string) {
+    const manifest = yield* readJsonRecord(
+      nodePath.join(directory, PACKAGE_MANIFEST_FILE)
+    );
+
+    return (
+      Option.isSome(manifest) && hasDeclaredPackage(manifest.value, packageName)
+    );
+  }
+);
+
+const readWorkspaceDirectory = Effect.fnUntraced(
+  function* readWorkspaceDirectory(
+    directory: string,
+    state: WorkspaceDiscoveryState
+  ) {
+    const childDirectories: string[] = [];
+    let hasManifest = false;
+
+    const read = yield* directoryEntries(directory).pipe(
+      Stream.runForEach((entry) =>
+        Effect.sync(() => {
+          consumeDiscoveryOperation(state);
+          hasManifest ||=
+            entry.isFile() && entry.name === PACKAGE_MANIFEST_FILE;
+
+          if (
+            entry.isDirectory() &&
+            entry.name !== ".git" &&
+            entry.name !== "node_modules"
+          ) {
+            childDirectories.push(entry.name);
+          }
+        })
+      ),
+      Effect.option
+    );
+
+    return read._tag === "Some" ? { childDirectories, hasManifest } : undefined;
+  }
+);
+
+const visitWorkspaceDirectory: (
+  directory: string,
+  relativeDirectory: string,
+  depth: number,
+  traversal: WorkspaceTraversal
+) => Effect.Effect<void, never, FileSystem.FileSystem> = Effect.fnUntraced(
+  function* visitDirectory(
     directory: string,
     relativeDirectory: string,
     depth: number,
     traversal: WorkspaceTraversal
-  ): void {
+  ): Effect.fn.Return<void, never, FileSystem.FileSystem> {
     enforceDiscoveryDepth(depth);
     consumeDiscoveryOperation(traversal.state);
-    const contents = readWorkspaceDirectory(directory, traversal.state);
+    const contents = yield* readWorkspaceDirectory(directory, traversal.state);
 
     if (contents === undefined) {
       return;
@@ -547,41 +484,45 @@ const workspaceTraversal = {
       recordWorkspaceDirectory(traversal.state, directory);
     }
 
-    for (const childDirectory of contents.childDirectories) {
-      workspaceTraversal.visitWorkspaceChild(
-        directory,
-        relativeDirectory,
-        childDirectory,
-        depth,
-        traversal
-      );
-    }
-  },
-};
+    yield* forEachEffect(
+      contents.childDirectories,
+      (child) => {
+        const relativeChild =
+          relativeDirectory === "" ? child : `${relativeDirectory}/${child}`;
 
-const discoverWorkspaceDirectories = function discoverWorkspaceDirectories(
-  repository: WorkspaceLayout
-): readonly string[] {
-  const includePatterns = normalizedWorkspacePatterns(
-    repository.patterns.filter((pattern) => !pattern.startsWith("!"))
-  );
+        return couldContainWorkspace(relativeChild, traversal.includePatterns)
+          ? visitWorkspaceDirectory(
+              nodePath.join(directory, child),
+              relativeChild,
+              depth + 1,
+              traversal
+            )
+          : Effect.void;
+      },
+      { discard: true }
+    );
+  }
+);
 
-  const excludePatterns = normalizedWorkspacePatterns(
-    repository.patterns
-      .filter((pattern) => pattern.startsWith("!"))
-      .map((pattern) => pattern.slice(1))
-  );
+const discoverWorkspaceDirectories = Effect.fnUntraced(
+  function* discoverWorkspaceDirectories(repository: WorkspaceLayout) {
+    const traversal: WorkspaceTraversal = {
+      excludePatterns: normalizedWorkspacePatterns(
+        repository.patterns
+          .filter((pattern) => pattern.startsWith("!"))
+          .map((pattern) => pattern.slice(1))
+      ),
+      includePatterns: normalizedWorkspacePatterns(
+        repository.patterns.filter((pattern) => !pattern.startsWith("!"))
+      ),
+      state: { directories: [], operations: 0 },
+    };
 
-  const traversal: WorkspaceTraversal = {
-    excludePatterns,
-    includePatterns,
-    state: { directories: [], operations: 0 },
-  };
+    yield* visitWorkspaceDirectory(repository.root, "", 0, traversal);
 
-  workspaceTraversal.visitWorkspaceDirectory(repository.root, "", 0, traversal);
-
-  return traversal.state.directories.toSorted();
-};
+    return traversal.state.directories.toSorted();
+  }
+);
 
 interface WorkspaceLayout {
   readonly patterns: readonly string[];
@@ -593,42 +534,46 @@ interface WorkspaceDiscoveryState {
   operations: number;
 }
 
-interface WorkspaceDirectoryContents {
-  readonly childDirectories: readonly string[];
-  readonly hasManifest: boolean;
-}
-
 interface WorkspaceTraversal {
   readonly excludePatterns: readonly string[];
   readonly includePatterns: readonly string[];
   readonly state: WorkspaceDiscoveryState;
 }
 
+/** Owns static workspace configuration and bounded discovery of consuming workspaces. */
+export const findWorkspaceRepository = Effect.fnUntraced(
+  function* findWorkspaceRepository(startingDirectory: string) {
+    const layout = yield* findWorkspaceLayout(startingDirectory);
+
+    if (Option.isNone(layout)) {
+      return Option.none<WorkspaceRepository>();
+    }
+
+    const repository = layout.value;
+
+    return Option.some({
+      consumingWorkspaces: (packageName: string) =>
+        discoverWorkspaceDirectories(repository).pipe(
+          Effect.flatMap((directories) =>
+            filterEffect(directories, (directory) =>
+              workspaceDeclaresPackage(directory, packageName)
+            )
+          )
+        ),
+      declaresPackage: (packageName: string) =>
+        workspaceDeclaresPackage(repository.root, packageName),
+      root: repository.root,
+    });
+  },
+  Effect.map(Option.getOrUndefined)
+);
+
 export interface WorkspaceRepository {
   readonly root: string;
-  readonly declaresPackage: (packageName: string) => boolean;
-  readonly consumingWorkspaces: (packageName: string) => readonly string[];
+  readonly consumingWorkspaces: (
+    packageName: string
+  ) => Effect.Effect<string[], never, FileSystem.FileSystem>;
+  readonly declaresPackage: (
+    packageName: string
+  ) => Effect.Effect<boolean, never, FileSystem.FileSystem>;
 }
-
-/** Owns static workspace configuration and bounded discovery of consuming workspaces. */
-export const findWorkspaceRepository = function findWorkspaceRepository(
-  startingDirectory: string
-): WorkspaceRepository | undefined {
-  const layout = findWorkspaceLayout(startingDirectory);
-
-  if (layout === undefined) {
-    return undefined;
-  }
-
-  return {
-    consumingWorkspaces(packageName) {
-      return discoverWorkspaceDirectories(layout).filter((directory) =>
-        workspaceDeclaresPackage(directory, packageName)
-      );
-    },
-    declaresPackage(packageName) {
-      return workspaceDeclaresPackage(layout.root, packageName);
-    },
-    root: layout.root,
-  };
-};
