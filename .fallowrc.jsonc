@@ -4,6 +4,7 @@
   // Package exports and bins are discovered automatically. These additional
   // roots cover build adapters and repository-only executables.
   "entry": [
+    "scripts/build-aot.ts",
     "tests/effect-diagnostics.ts",
     "tests/benchmark-package-smoke.ts",
     "tests/fixtures/codex-app-server.ts",

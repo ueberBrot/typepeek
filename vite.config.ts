@@ -82,6 +82,7 @@ const effectSubpathImports = {
 // Explicit inputs avoid tracing conflicts with the native checker subprocesses.
 const validationInputs = [
   "src/**",
+  "scripts/**",
   "tests/**",
   "benchmarks/**",
   "docs/**",
@@ -296,6 +297,10 @@ export default defineConfig({
         cache: { output: [] },
         command: "node tests/build-output-smoke.ts",
         dependsOn: ["build"],
+      },
+      "build:aot": {
+        cache: false,
+        command: "bun scripts/build-aot.ts",
       },
       check: {
         cache: { input: validationInputs, output: [] },

@@ -49,6 +49,7 @@
   },
   "include": [
     "benchmarks/**/*.ts",
+    "scripts/**/*.ts",
     "src/**/*.ts",
     "tests/**/*.ts",
     "taze.config.ts",
