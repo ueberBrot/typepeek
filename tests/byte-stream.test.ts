@@ -22,6 +22,23 @@ describe("bounded byte streams", () => {
     ).rejects.toMatchObject({ _tag: "ByteStreamLimitError", limit: 3 });
   });
 
+  it("enforces the aggregate budget across a batch of smaller chunks", async () => {
+    await expect(
+      runAdapterEffect(
+        collectByteStream(Stream.make(new Uint8Array(2), new Uint8Array(2)), 3)
+      )
+    ).rejects.toMatchObject({ _tag: "ByteStreamLimitError", limit: 3 });
+  });
+
+  it("releases unused backing storage after collection", async () => {
+    const result = await runAdapterEffect(
+      collectByteStream(Stream.make(Uint8Array.of(1, 2, 3)), 8192)
+    );
+
+    expect(result).toStrictEqual(Uint8Array.of(1, 2, 3));
+    expect(result.buffer.byteLength).toBe(3);
+  });
+
   it("joins bytes before decoding split UTF-8 characters", async () => {
     const bytes = encoder.encode("a💡z");
 

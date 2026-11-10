@@ -36,8 +36,11 @@ export const collectByteStream = Effect.fnUntraced(function* collectByteStream<
   let length = 0;
 
   yield* stream.pipe(
-    Stream.runForEach((chunk) => {
-      const required = length + chunk.byteLength;
+    Stream.runForEachArray((chunks) => {
+      const required = chunks.reduce(
+        (size, chunk) => size + chunk.byteLength,
+        length
+      );
 
       if (required > limit) {
         return Effect.fail(new ByteStreamLimitError({ limit }));
@@ -55,8 +58,10 @@ export const collectByteStream = Effect.fnUntraced(function* collectByteStream<
           bytes = expanded;
         }
 
-        bytes.set(chunk, length);
-        length = required;
+        for (const chunk of chunks) {
+          bytes.set(chunk, length);
+          length += chunk.byteLength;
+        }
       });
     })
   );
