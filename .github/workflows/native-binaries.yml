@@ -80,6 +80,7 @@ jobs:
       - name: Pack installed artifacts with Vite+ and Bun
         shell: bash
         run: |
+          mkdir -p .vite-plus
           vp pm pack --out "$PWD/.vite-plus/native.tgz" -- --ignore-scripts --cwd "$NATIVE_DIRECTORY"
           vp pm pack --out "$PWD/.vite-plus/launcher.tgz" -- --ignore-scripts
 
