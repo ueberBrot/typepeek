@@ -4,7 +4,7 @@ import nodePath from "node:path";
 
 import { expect, test } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { oracle, command, replay } from "../helpers/acquisition-fixture.ts";
 

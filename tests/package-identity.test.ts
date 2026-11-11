@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { readJsonPackageIdentity } from "#typepeek/inspection/package-identity";
+import { readJsonPackageIdentity } from "#typepeek/inspection/evidence/package-identity";
 
 import { defineObjectPrototypeProperty } from "./helpers/prototype-fixture.ts";
 

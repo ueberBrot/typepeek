@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import type { CodexOptions } from "../benchmarks/codex-discovery/options.ts";
 import type { CodexAttempt } from "../benchmarks/codex-discovery/report.ts";

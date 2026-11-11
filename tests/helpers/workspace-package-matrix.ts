@@ -85,7 +85,6 @@ const packContextualPackages = async function packContextualPackages(
 ): Promise<ContextualPackages> {
   const sourcesRoot = nodePath.join(fixtureRoot, "sources");
   const tarballsRoot = nodePath.join(fixtureRoot, "tarballs");
-  const npmCacheRoot = nodePath.join(fixtureRoot, "npm-cache");
   const consumerOneRoot = nodePath.join(sourcesRoot, "consumer-one-contextual");
   const consumerTwoRoot = nodePath.join(sourcesRoot, "consumer-two-contextual");
   await Promise.all([
@@ -96,13 +95,11 @@ const packContextualPackages = async function packContextualPackages(
   return {
     consumerOne: await packPackage({
       diagnosticContext: "consumer one contextual Package Module fixture",
-      npmCacheRoot,
       packageRoot: consumerOneRoot,
       tarballsRoot,
     }),
     consumerTwo: await packPackage({
       diagnosticContext: "consumer two contextual Package Module fixture",
-      npmCacheRoot,
       packageRoot: consumerTwoRoot,
       tarballsRoot,
     }),

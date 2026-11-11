@@ -1,8 +1,8 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
-import { decodeJson } from "#typepeek/json-data";
-import { renderJsonOutcome } from "#typepeek/json-rendering";
+import { renderJsonOutcome } from "#typepeek/presentation/json-rendering";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 describe("json-rendering", () => {
   it("escapes terminal controls without changing parsed outcome values", () => {

@@ -2,10 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
+import { Effect, Redacted } from "effect";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { runCommand } from "#typepeek/process-command";
-import { processExecutable } from "#typepeek/process-executable";
+import { runCommand } from "#typepeek/platform/process-command";
+import { processExecutable } from "#typepeek/platform/process-executable";
+import { processLayer } from "#typepeek/platform/process-runtime";
 
 describe("Effect command execution", () => {
   it("preserves argument bytes without interpreting shell syntax", async () => {
@@ -112,9 +114,13 @@ describe("Effect command execution", () => {
     try {
       vi.stubEnv("PATH", directory);
       vi.stubGlobal("process", { ...process, platform: "win32" });
-      expect(
-        processExecutable("npm.cmd", ["pack", "path & spaces"])
-      ).toStrictEqual({
+      await expect(
+        Effect.runPromise(
+          processExecutable("npm.cmd", ["pack", "path & spaces"]).pipe(
+            Effect.provide(processLayer)
+          )
+        )
+      ).resolves.toMatchObject({
         args: [cli, "pack", "path & spaces"],
         executable: process.execPath,
       });
@@ -125,9 +131,137 @@ describe("Effect command execution", () => {
     }
   });
 
-  it.each(["pnpm.exe", "pnpm.native.exe"])(
-    "resolves a Windows pnpm shim backed by %s",
-    async (filename) => {
+  it.each([
+    { extendEnv: true, redacted: false },
+    { extendEnv: false, redacted: false },
+    { extendEnv: true, redacted: true },
+    { extendEnv: false, redacted: true },
+  ])(
+    "resolves Windows shims using child PATH and cwd with extendEnv=$extendEnv and redacted=$redacted",
+    async ({ extendEnv, redacted }) => {
+      const root = await mkdtemp(
+        nodePath.join(tmpdir(), "typepeek-command-context-")
+      );
+
+      const inheritedDirectory = nodePath.join(root, "inherited");
+      const cwd = nodePath.join(root, "child");
+      const directory = nodePath.join(cwd, "bin");
+
+      const cli = nodePath.join(
+        directory,
+        "node_modules",
+        "npm",
+        "bin",
+        "npm-cli.js"
+      );
+
+      await mkdir(inheritedDirectory, { recursive: true });
+      await mkdir(nodePath.dirname(cli), { recursive: true });
+      await writeFile(nodePath.join(inheritedDirectory, "npm.exe"), "");
+      await writeFile(cli, "");
+      await writeFile(nodePath.join(directory, "npm.cmd"), "");
+
+      try {
+        vi.stubEnv("PATH", inheritedDirectory);
+        vi.stubGlobal("process", { ...process, platform: "win32" });
+
+        const childPath = redacted ? Redacted.make("bin") : "bin";
+
+        const resolved = await Effect.runPromise(
+          processExecutable("npm", ["--version"], {
+            cwd,
+            env: { Path: childPath, TYPEPEEK_COMMAND_SENTINEL: "child" },
+            extendEnv,
+          }).pipe(Effect.provide(processLayer))
+        );
+
+        expect(resolved).toMatchObject({
+          args: [cli, "--version"],
+          env: { PATH: childPath, TYPEPEEK_COMMAND_SENTINEL: "child" },
+          executable: process.execPath,
+          extendEnv: false,
+        });
+        expect(resolved.env?.["PATH"]).toBe(childPath);
+        expect(
+          Object.keys(resolved.env ?? {}).filter(
+            (key) => key.toLowerCase() === "path"
+          )
+        ).toStrictEqual(["PATH"]);
+      } finally {
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+        await rm(root, { force: true, recursive: true });
+      }
+    }
+  );
+
+  it("keeps a redacted Windows PATH out of shim-resolution failures", async () => {
+    const root = await mkdtemp(
+      nodePath.join(tmpdir(), "typepeek-redacted-command-")
+    );
+
+    await writeFile(nodePath.join(root, "npm.cmd"), "");
+
+    try {
+      vi.stubGlobal("process", { ...process, platform: "win32" });
+      await expect(
+        Effect.runPromise(
+          processExecutable("npm", [], {
+            env: { PATH: Redacted.make(root) },
+            extendEnv: false,
+          }).pipe(Effect.provide(processLayer))
+        )
+      ).rejects.toThrow(
+        "Cannot resolve the package-manager entrypoint for npm from <redacted>."
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("does not use inherited Windows PATH when command inheritance is disabled", async () => {
+    const root = await mkdtemp(
+      nodePath.join(tmpdir(), "typepeek-command-isolation-")
+    );
+
+    const inheritedDirectory = nodePath.join(root, "inherited");
+    const cwd = nodePath.join(root, "child");
+    await mkdir(inheritedDirectory);
+    await mkdir(cwd);
+    await writeFile(nodePath.join(inheritedDirectory, "npm.exe"), "");
+
+    try {
+      vi.stubEnv("PATH", inheritedDirectory);
+      vi.stubGlobal("process", { ...process, platform: "win32" });
+      await expect(
+        Effect.runPromise(
+          processExecutable("npm", ["--version"], {
+            cwd,
+            env: {},
+            extendEnv: false,
+          }).pipe(Effect.provide(processLayer))
+        )
+      ).resolves.toMatchObject({
+        args: ["--version"],
+        env: {},
+        executable: "npm",
+        extendEnv: false,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it.each([
+    ["pnpm.exe", true],
+    ["pnpm.native.exe", true],
+    ["pnpm.exe", false],
+  ] as const)(
+    "resolves a Windows pnpm shim backed by %s with extendEnv=%s and no replacement environment",
+    async (filename, extendEnv) => {
       const root = await mkdtemp(
         nodePath.join(tmpdir(), "typepeek-windows-pnpm-")
       );
@@ -142,9 +276,13 @@ describe("Effect command execution", () => {
       try {
         vi.stubEnv("PATH", directory);
         vi.stubGlobal("process", { ...process, platform: "win32" });
-        expect(
-          processExecutable("pnpm", ["--version", "path & spaces"])
-        ).toStrictEqual({
+        await expect(
+          Effect.runPromise(
+            processExecutable("pnpm", ["--version", "path & spaces"], {
+              extendEnv,
+            }).pipe(Effect.provide(processLayer))
+          )
+        ).resolves.toMatchObject({
           args: ["--version", "path & spaces"],
           executable: cli,
         });

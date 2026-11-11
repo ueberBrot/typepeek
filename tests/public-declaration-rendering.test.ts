@@ -1,21 +1,21 @@
 import { ScriptTarget } from "tsrs/ast";
 import type { Declaration } from "tsrs/ast";
-import { ModuleKind, ModuleResolutionKind } from "tsrs/sync";
+import { ModuleKind, ModuleResolutionKind } from "tsrs/async";
 import type {
   Checker,
   RawCompilerOptions,
   Symbol as CompilerSymbol,
-} from "tsrs/sync";
+} from "tsrs/async";
 import { describe, expect, it } from "vite-plus/test";
 
-import { declarationsOf } from "#typepeek/inspection/compiler-session";
+import { declarationsOf } from "#typepeek/inspection/compiler/compiler-session";
+import { InspectionResultConstruction } from "#typepeek/inspection/model/result-construction";
 import {
   projectPublicDeclaration,
   renderPublicDeclaration,
-} from "#typepeek/inspection/declaration-projection";
-import { createModuleExportInspection } from "#typepeek/inspection/export-inspection";
-import { publicDeclarations } from "#typepeek/inspection/public-declaration-selection";
-import { InspectionResultConstruction } from "#typepeek/inspection/result-construction";
+} from "#typepeek/inspection/projection/declaration-projection";
+import { publicDeclarations } from "#typepeek/inspection/projection/public-declaration-selection";
+import { createModuleExportInspection } from "#typepeek/inspection/queries/export-inspection";
 
 import { createFixtureProgram } from "./helpers/native-compiler.ts";
 
@@ -25,10 +25,10 @@ interface ExportedDeclarations {
   readonly moduleSymbol: CompilerSymbol;
 }
 
-const exportedDeclarations = function exportedDeclarations(
+const exportedDeclarations = async function exportedDeclarations(
   sourceText: string,
   exportName: string
-): ExportedDeclarations {
+): Promise<ExportedDeclarations> {
   const fileName = "/typepeek-public-interface.ts";
 
   const options: RawCompilerOptions = {
@@ -39,30 +39,32 @@ const exportedDeclarations = function exportedDeclarations(
     target: ScriptTarget.ES2024,
   };
 
-  const program = createFixtureProgram([fileName], options, [
+  const program = await createFixtureProgram([fileName], options, [
     [fileName, sourceText],
   ]);
 
-  const sourceFile = program.getSourceFile(fileName);
+  const sourceFile = await program.getSourceFile(fileName);
 
   if (sourceFile === undefined) {
     throw new Error("The native fixture source is missing.");
   }
 
   const { checker } = program.getProject();
-  const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
+  const moduleSymbol = await checker.getSymbolAtLocation(sourceFile);
 
   if (moduleSymbol === undefined) {
     throw new Error("Test source did not create a module symbol.");
   }
 
-  const exportedSymbol = checker
-    .getExportsOfModule(moduleSymbol)
-    .find((symbol) => symbol.name === exportName);
+  const exportsOfModule = await checker.getExportsOfModule(moduleSymbol);
 
-  const declarations = publicDeclarations(
+  const exportedSymbol = exportsOfModule.find(
+    (symbol) => symbol.name === exportName
+  );
+
+  const declarations = await publicDeclarations(
     checker,
-    declarationsOf(exportedSymbol) ?? []
+    (await declarationsOf(exportedSymbol)) ?? []
   );
 
   if (declarations.length === 0) {
@@ -72,23 +74,26 @@ const exportedDeclarations = function exportedDeclarations(
   return { checker, declarations, moduleSymbol };
 };
 
-const renderExport = function renderExport(
+const renderExport = async function renderExport(
   sourceText: string,
   exportName: string
-): string {
-  const { checker, declarations } = exportedDeclarations(
+): Promise<string> {
+  const { checker, declarations } = await exportedDeclarations(
     sourceText,
     exportName
   );
 
-  return declarations
-    .map((declaration) => renderPublicDeclaration(checker, declaration))
-    .join("\n");
+  const mappedValues = await Array.fromAsync(
+    declarations,
+    async (declaration) => await renderPublicDeclaration(checker, declaration)
+  );
+
+  return mappedValues.join("\n");
 };
 
 describe("public-declaration-rendering", () => {
   describe("Public Interface declaration rendering", () => {
-    it("recovers inferred types while removing source implementation", () => {
+    it("recovers inferred types while removing source implementation", async () => {
       const source = [
         'const implementationSecret = "hidden";',
         'export const inferred = { mode: "source" as const };',
@@ -128,15 +133,15 @@ describe("public-declaration-rendering", () => {
       ].join("\n");
 
       expect([
-        renderExport(source, "inferred"),
-        renderExport(source, "createLabel"),
-        renderExport(source, "Tools"),
-        renderExport(source, "SourceClass"),
-        renderExport(source, "Overloaded"),
-        renderExport(source, "overloaded"),
-        renderExport(source, "OverloadedTools"),
-        renderExport(source, "MixedOverloads"),
-        renderExport(source, "defaultBeforeRequired"),
+        await renderExport(source, "inferred"),
+        await renderExport(source, "createLabel"),
+        await renderExport(source, "Tools"),
+        await renderExport(source, "SourceClass"),
+        await renderExport(source, "Overloaded"),
+        await renderExport(source, "overloaded"),
+        await renderExport(source, "OverloadedTools"),
+        await renderExport(source, "MixedOverloads"),
+        await renderExport(source, "defaultBeforeRequired"),
       ]).toStrictEqual([
         'inferred: {\n    mode: "source";\n}',
         "function createLabel(prefix?: string): string;",
@@ -175,7 +180,7 @@ describe("public-declaration-rendering", () => {
       ]);
     });
 
-    it("removes decorators and private enum initializer expressions", () => {
+    it("removes decorators and private enum initializer expressions", async () => {
       const source = [
         "function hidden(): any { return () => undefined; }",
         "@hidden()",
@@ -190,15 +195,15 @@ describe("public-declaration-rendering", () => {
       ].join("\n");
 
       expect([
-        renderExport(source, "Decorated"),
-        renderExport(source, "Values"),
+        await renderExport(source, "Decorated"),
+        await renderExport(source, "Values"),
       ]).toStrictEqual([
         "class Decorated {\n    method(): number;\n}",
         "enum Values {\n    First = 1,\n    Hidden\n}",
       ]);
     });
 
-    it("preserves constructor accessibility without exposing private parameters", () => {
+    it("preserves constructor accessibility without exposing private parameters", async () => {
       const source = [
         "export class Token {",
         "  private constructor(",
@@ -214,8 +219,8 @@ describe("public-declaration-rendering", () => {
       ].join("\n");
 
       expect([
-        renderExport(source, "Token"),
-        renderExport(source, "ExtensibleToken"),
+        await renderExport(source, "Token"),
+        await renderExport(source, "ExtensibleToken"),
       ]).toStrictEqual([
         [
           "class Token {",
@@ -233,7 +238,7 @@ describe("public-declaration-rendering", () => {
       ]);
     });
 
-    it("removes an overload implementation whose equivalent property name uses different syntax", () => {
+    it("removes an overload implementation whose equivalent property name uses different syntax", async () => {
       const source = [
         "export declare const key: unique symbol;",
         "declare const alias: typeof key;",
@@ -253,7 +258,7 @@ describe("public-declaration-rendering", () => {
         "}",
       ].join("\n");
 
-      expect(renderExport(source, "ComputedOverload")).toBe(
+      await expect(renderExport(source, "ComputedOverload")).resolves.toBe(
         [
           "class ComputedOverload {",
           '    ["method"](value: string): string;',
@@ -266,7 +271,7 @@ describe("public-declaration-rendering", () => {
       );
     });
 
-    it("preserves parameter properties declared only by overload implementations", () => {
+    it("preserves parameter properties declared only by overload implementations", async () => {
       const source = [
         "class Visible {}",
         "export class PublicToken {",
@@ -280,8 +285,8 @@ describe("public-declaration-rendering", () => {
       ].join("\n");
 
       expect([
-        renderExport(source, "PublicToken"),
-        renderExport(source, "PrivateToken"),
+        await renderExport(source, "PublicToken"),
+        await renderExport(source, "PrivateToken"),
       ]).toStrictEqual([
         [
           "class PublicToken {",
@@ -298,7 +303,7 @@ describe("public-declaration-rendering", () => {
       ]);
     });
 
-    it("traverses visible parameter properties without leaking hidden private constructor inputs", () => {
+    it("traverses visible parameter properties without leaking hidden private constructor inputs", async () => {
       const source = [
         "class Visible {}",
         "class Secret {}",
@@ -307,15 +312,30 @@ describe("public-declaration-rendering", () => {
         "}",
       ].join("\n");
 
-      const { checker, declarations } = exportedDeclarations(source, "Token");
-
-      const inferredNames = new Set(
-        declarations.flatMap((declaration) =>
-          projectPublicDeclaration(checker, declaration).inferredTypes.map(
-            (type) => type.getSymbol()?.name
-          )
-        )
+      const { checker, declarations } = await exportedDeclarations(
+        source,
+        "Token"
       );
+
+      const inferred = await Array.fromAsync(
+        declarations,
+        async (declaration) => {
+          const projection = await projectPublicDeclaration(
+            checker,
+            declaration
+          );
+
+          const types = await projection.inferredTypes;
+
+          return await Array.fromAsync(types, async (type) => {
+            const symbol = await type.getSymbol();
+
+            return symbol?.name;
+          });
+        }
+      );
+
+      const inferredNames = new Set(inferred.flat());
 
       expect([
         inferredNames.has("Visible"),
@@ -323,59 +343,59 @@ describe("public-declaration-rendering", () => {
       ]).toStrictEqual([true, false]);
     });
 
-    it("rejects inferred async returns that cannot be authoritative without libraries", () => {
-      expect(() =>
+    it("rejects inferred async returns that cannot be authoritative without libraries", async () => {
+      await expect(
         renderExport(
           "export async function loadValue() { return 1; }",
           "loadValue"
         )
-      ).toThrow(
+      ).rejects.toThrow(
         "An inferred async Public Interface cannot be represented statically."
       );
-      expect(() =>
+      await expect(
         renderExport("export const loadValue = async () => 1;", "loadValue")
-      ).toThrow(
+      ).rejects.toThrow(
         "An inferred async Public Interface cannot be represented statically."
       );
-      expect(() =>
+      await expect(
         renderExport(
           "export class Loader { readonly loadValue = async () => 1; }",
           "Loader"
         )
-      ).toThrow(
+      ).rejects.toThrow(
         "An inferred async Public Interface cannot be represented statically."
       );
-      expect(() =>
+      await expect(
         renderExport("export const loadValue = (async () => 1);", "loadValue")
-      ).toThrow(
+      ).rejects.toThrow(
         "An inferred async Public Interface cannot be represented statically."
       );
-      expect(() =>
+      await expect(
         renderExport(
           "export const loader = { async load() { return 1; } };",
           "loader"
         )
-      ).toThrow(
+      ).rejects.toThrow(
         "An inferred async Public Interface cannot be represented statically."
       );
     });
 
-    it("rejects inferred types degraded by unavailable standard libraries", () => {
+    it("rejects inferred types degraded by unavailable standard libraries", async () => {
       const cases: readonly (readonly [string, string])[] = [
         ["export const values = [1, 2];", "values"],
         ["export function values() { return [1, 2]; }", "values"],
         ["export const promise = Promise.resolve(1);", "promise"],
       ];
 
-      for (const [source, exportName] of cases) {
-        expect(() => renderExport(source, exportName)).toThrow(
+      await Array.fromAsync(cases, async ([source, exportName]) => {
+        await expect(renderExport(source, exportName)).rejects.toThrow(
           "An inferred Public Interface type cannot be represented statically without standard libraries."
         );
-      }
+      });
     });
 
-    it("rejects an inferred function-local type that consumers cannot name", () => {
-      expect(() =>
+    it("rejects an inferred function-local type that consumers cannot name", async () => {
+      await expect(
         renderExport(
           [
             "export function makeLocal() {",
@@ -385,20 +405,20 @@ describe("public-declaration-rendering", () => {
           ].join("\n"),
           "makeLocal"
         )
-      ).toThrow(
+      ).rejects.toThrow(
         "An inferred Public Interface references an implementation-local type."
       );
     });
 
-    it("rejects a default source expression instead of exposing it", () => {
-      expect(() =>
+    it("rejects a default source expression instead of exposing it", async () => {
+      await expect(
         renderExport('export default { secret: "hidden" };', "default")
-      ).toThrow(
+      ).rejects.toThrow(
         "A source-backed default expression cannot be represented without implementation."
       );
     });
 
-    it("shares traversal across focused inspections and isolates separate plans", () => {
+    it("shares traversal across focused inspections and isolates separate plans", async () => {
       const source = Array.from({ length: 16 }, (_, index) => {
         const values = Array.from(
           { length: 260 },
@@ -408,7 +428,11 @@ describe("public-declaration-rendering", () => {
         return `export const tuple${index} = [${values}] as const;`;
       }).join("\n");
 
-      const { checker, moduleSymbol } = exportedDeclarations(source, "tuple0");
+      const { checker, moduleSymbol } = await exportedDeclarations(
+        source,
+        "tuple0"
+      );
+
       const packageIdentity = { name: "projection-fixture" };
 
       const createInspection = () =>
@@ -420,7 +444,7 @@ describe("public-declaration-rendering", () => {
               packageIdentity,
             }),
             moduleSymbol,
-            publicSubpaths: [],
+            publicSubpaths: Promise.resolve([]),
             resultIdentity: { packageIdentity },
             supportingTypeScope: { kind: "package" },
           },
@@ -432,16 +456,24 @@ describe("public-declaration-rendering", () => {
         );
 
       const inspection = createInspection();
-      expect(inspection.inspectDeclarations("tuple0")).toMatchObject({
+      await expect(
+        inspection.inspectDeclarations("tuple0")
+      ).resolves.toMatchObject({
         intent: "declaration-inspection",
         moduleExport: { name: "tuple0" },
       });
-      expect(() => {
+      await expect(async () => {
+        /* oxlint-disable eslint/no-await-in-loop -- Each inspection consumes the same traversal budget. */
         for (let index = 1; index < 16; index += 1) {
-          inspection.inspectDeclarations(`tuple${index}`);
+          await inspection.inspectDeclarations(`tuple${index}`);
         }
-      }).toThrow("Inspection exceeded its Supporting Type traversal limit.");
-      expect(createInspection().inspectDeclarations("tuple15")).toMatchObject({
+        /* oxlint-enable eslint/no-await-in-loop */
+      }).rejects.toThrow(
+        "Inspection exceeded its Supporting Type traversal limit."
+      );
+      await expect(
+        createInspection().inspectDeclarations("tuple15")
+      ).resolves.toMatchObject({
         intent: "declaration-inspection",
         moduleExport: { name: "tuple15" },
       });

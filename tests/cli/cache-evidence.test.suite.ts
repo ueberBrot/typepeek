@@ -12,8 +12,11 @@ import nodePath from "node:path";
 
 import { expect, test } from "vite-plus/test";
 
-import { decodeJson, mutableJsonObjectSchema } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import {
+  decodeJson,
+  mutableJsonObjectSchema,
+} from "#typepeek/shared/json-data";
 
 import type { CompiledPackageFixture } from "../helpers/compiled-package-fixture.ts";
 import { profilePhaseNames } from "../helpers/inspection-profile.ts";

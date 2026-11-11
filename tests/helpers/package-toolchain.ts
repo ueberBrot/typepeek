@@ -1,11 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import nodePath from "node:path";
 
-import { Predicate, Schema } from "effect";
-
-import { decodeJson } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
-import { unreachableCase } from "#typepeek/unreachable-case";
+import { runCommand } from "#typepeek/platform/process-command";
+import { unreachableCase } from "#typepeek/shared/unreachable-case";
 
 const IGNORE_SCRIPTS = "--ignore-scripts";
 const NO_AUDIT = "--no-audit";
@@ -54,24 +51,8 @@ const runToolchainCommand = async function runToolchainCommand(options: {
   }
 };
 
-const readPackedFilename = function readPackedFilename(stdout: string): string {
-  const output = decodeJson(Schema.MutableJson, stdout);
-  const firstResult = Array.isArray(output) ? output[0] : undefined;
-
-  if (
-    !Predicate.isObjectOrArray(firstResult) ||
-    !("filename" in firstResult) ||
-    !Predicate.isString(firstResult.filename)
-  ) {
-    throw new Error("npm pack did not report a tarball filename");
-  }
-
-  return firstResult.filename;
-};
-
 export const packPackage = async function packPackage(options: {
   readonly diagnosticContext: string;
-  readonly npmCacheRoot: string;
   readonly packageRoot: string;
   readonly tarballsRoot: string;
 }): Promise<string> {
@@ -79,20 +60,19 @@ export const packPackage = async function packPackage(options: {
 
   const packed = await runToolchainCommand({
     cliArguments: [
+      "pm",
       "pack",
-      "--json",
+      "--quiet",
       IGNORE_SCRIPTS,
-      "--pack-destination",
+      "--destination",
       options.tarballsRoot,
-      options.packageRoot,
     ],
-    command: "npm",
+    command: "bun",
     cwd: options.packageRoot,
     diagnosticContext: options.diagnosticContext,
-    env: { npm_config_cache: options.npmCacheRoot },
   });
 
-  return nodePath.join(options.tarballsRoot, readPackedFilename(packed.stdout));
+  return nodePath.resolve(options.tarballsRoot, packed.stdout.trim());
 };
 
 const verifyPackageManager = async function verifyPackageManager(

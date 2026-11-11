@@ -1,17 +1,17 @@
 import { isTypeAliasDeclaration, isTypeReferenceNode } from "tsrs/ast";
 import type { Node, SourceFile } from "tsrs/ast";
+import { API } from "tsrs/async";
 import { createFileSystem, createFileSystemLayer } from "tsrs/fs";
-import { API } from "tsrs/sync";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler-distribution";
+import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler/compiler-distribution";
 import {
   aliasedSymbol,
   symbolAtLocation,
   symbolsAtLocations,
-} from "#typepeek/inspection/compiler-queries";
-import { declarationsOf } from "#typepeek/inspection/compiler-session";
+} from "#typepeek/inspection/compiler/compiler-queries";
+import { declarationsOf } from "#typepeek/inspection/compiler/compiler-session";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { createFixtureProgram } from "./helpers/native-compiler.ts";
 
@@ -27,49 +27,50 @@ const referenceNodes = (file: SourceFile): readonly Node[] =>
   );
 
 describe("native compiler queries", () => {
-  it("reuses alias targets only within the checker that resolved them", () => {
+  it("reuses alias targets only within the checker that resolved them", async () => {
     const fileName = "/query-aliases.d.ts";
 
-    const createProgram = (target: string) =>
-      createFixtureProgram([fileName], { noEmit: true, noLib: true }, [
+    const createProgram = async (target: string) =>
+      await createFixtureProgram([fileName], { noEmit: true, noLib: true }, [
         [fileName, `interface ${target} {} export { ${target} as Selected };`],
       ]);
 
-    const firstProgram = createProgram("Before");
-    const secondProgram = createProgram("After");
+    const firstProgram = await createProgram("Before");
+    const secondProgram = await createProgram("After");
     const firstChecker = firstProgram.getProject().checker;
     const secondChecker = secondProgram.getProject().checker;
-    expect(firstChecker.getAliasedSymbol).toBeTypeOf("function");
-    expect(secondChecker.getAliasedSymbol).toBeTypeOf("function");
+
     const nativeRead = vi.spyOn(firstChecker, "getAliasedSymbol");
     const secondRead = vi.spyOn(secondChecker, "getAliasedSymbol");
 
     try {
       const firstAlias = requireDefined(
-        firstChecker.getSymbolAtLocation(
-          requireDefined(firstProgram.getSourceFile(fileName))
+        await firstChecker.getSymbolAtLocation(
+          requireDefined(await firstProgram.getSourceFile(fileName))
         )
       );
 
       const secondAlias = requireDefined(
-        secondChecker.getSymbolAtLocation(
-          requireDefined(secondProgram.getSourceFile(fileName))
+        await secondChecker.getSymbolAtLocation(
+          requireDefined(await secondProgram.getSourceFile(fileName))
         )
       );
 
-      const before = requireDefined(
-        firstChecker.getExportsOfModule(firstAlias)[0]
-      );
+      const beforeExports = await firstChecker.getExportsOfModule(firstAlias);
+      const before = requireDefined(beforeExports[0]);
 
-      const after = requireDefined(
-        secondChecker.getExportsOfModule(secondAlias)[0]
-      );
+      const afterExports = await secondChecker.getExportsOfModule(secondAlias);
+      const after = requireDefined(afterExports[0]);
 
+      const targetSymbol = await aliasedSymbol(firstChecker, before);
+      const targetSymbolResult = await aliasedSymbol(firstChecker, before);
+      const targetSymbolResult2 = await aliasedSymbol(secondChecker, after);
+      const targetSymbolResult3 = await aliasedSymbol(secondChecker, after);
       expect([
-        aliasedSymbol(firstChecker, before).name,
-        aliasedSymbol(firstChecker, before).name,
-        aliasedSymbol(secondChecker, after).name,
-        aliasedSymbol(secondChecker, after).name,
+        targetSymbol.name,
+        targetSymbolResult.name,
+        targetSymbolResult2.name,
+        targetSymbolResult3.name,
       ]).toStrictEqual(["Before", "Before", "After", "After"]);
       expect(nativeRead).toHaveBeenCalledOnce();
       expect(secondRead).toHaveBeenCalledOnce();
@@ -79,7 +80,7 @@ describe("native compiler queries", () => {
     }
   });
 
-  it("preserves order and cached misses across bounded native batches", () => {
+  it("preserves order and cached misses across bounded native batches", async () => {
     const fileName = "/query-batches.d.ts";
 
     const text = [
@@ -91,22 +92,22 @@ describe("native compiler queries", () => {
       "export type Primitive = string;",
     ].join("\n");
 
-    const program = createFixtureProgram(
+    const program = await createFixtureProgram(
       [fileName],
       { noEmit: true, noLib: true },
       [[fileName, text]]
     );
 
     const nodes = referenceNodes(
-      requireDefined(program.getSourceFile(fileName))
+      requireDefined(await program.getSourceFile(fileName))
     );
 
     const { checker } = program.getProject();
-    expect(checker.getSymbolAtLocation).toBeTypeOf("function");
+
     const nativeRead = vi.spyOn(checker, "getSymbolAtLocation");
 
     try {
-      const symbols = symbolsAtLocations(checker, nodes);
+      const symbols = await symbolsAtLocations(checker, nodes);
       expect(symbols.map((symbol) => symbol?.name)).toStrictEqual([
         ...Array.from({ length: 300 }, () => "Value"),
         undefined,
@@ -120,11 +121,16 @@ describe("native compiler queries", () => {
       const calls = nativeRead.mock.calls.length;
       const missing = requireDefined(nodes.at(-1));
       const first = requireDefined(nodes[0]);
+
+      const symbolsAtLocationsResult = await symbolsAtLocations(checker, [
+        missing,
+        first,
+        missing,
+      ]);
+
       expect([
-        symbolAtLocation(checker, missing),
-        ...symbolsAtLocations(checker, [missing, first, missing]).map(
-          (symbol) => symbol?.name
-        ),
+        await symbolAtLocation(checker, missing),
+        ...symbolsAtLocationsResult.map((symbol) => symbol?.name),
       ]).toStrictEqual([undefined, undefined, "Value", undefined]);
       expect(nativeRead).toHaveBeenCalledTimes(calls);
     } finally {
@@ -132,11 +138,11 @@ describe("native compiler queries", () => {
     }
   });
 
-  it("keeps bindings separate when a later snapshot changes a global", () => {
+  it("keeps bindings separate when a later snapshot changes a global", async () => {
     const main = "/query-snapshots/main.d.ts";
     const global = "/query-snapshots/global.d.ts";
 
-    using api = new API({
+    await using api = new API({
       runExternalCode: false,
       tsserverPath: COMPILER_EXECUTABLE,
     });
@@ -148,7 +154,7 @@ describe("native compiler queries", () => {
       },
     ];
 
-    using before = api.createSnapshot({
+    await using before = await api.createSnapshot({
       createPrograms,
       fileSystem: createFileSystem([
         [main, "export type Selected = Global;"],
@@ -161,13 +167,14 @@ describe("native compiler queries", () => {
     );
 
     const node = requireDefined(
-      referenceNodes(requireDefined(beforeProgram.getSourceFile(main)))[0]
+      referenceNodes(requireDefined(await beforeProgram.getSourceFile(main)))[0]
     );
 
     const beforeChecker = beforeProgram.getProject().checker;
-    expect(symbolAtLocation(beforeChecker, node)?.name).toBe("Global");
+    const symbolResult = await symbolAtLocation(beforeChecker, node);
+    expect(symbolResult?.name).toBe("Global");
 
-    using after = before.update({
+    await using after = await before.update({
       createPrograms,
       fileSystem: createFileSystemLayer([
         [global, "interface Global { readonly after: true; }"],
@@ -177,11 +184,16 @@ describe("native compiler queries", () => {
     const afterProgram = requireDefined(after.operation?.createdPrograms?.[0]);
     const afterChecker = afterProgram.getProject().checker;
 
-    expect(
-      declarationsOf(symbolAtLocation(afterChecker, node))[0]?.getText()
-    ).toContain("readonly after");
-    expect(
-      declarationsOf(symbolAtLocation(beforeChecker, node))[0]?.getText()
-    ).toContain("readonly before");
+    const afterDeclarations = await declarationsOf(
+      await symbolAtLocation(afterChecker, node)
+    );
+
+    expect(afterDeclarations[0]?.getText()).toContain("readonly after");
+
+    const beforeDeclarations = await declarationsOf(
+      await symbolAtLocation(beforeChecker, node)
+    );
+
+    expect(beforeDeclarations[0]?.getText()).toContain("readonly before");
   });
 });

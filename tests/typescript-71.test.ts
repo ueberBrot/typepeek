@@ -4,7 +4,7 @@ import nodePath from "node:path";
 
 import { Effect } from "effect";
 import { ScriptTarget } from "tsrs/ast";
-import { ModuleKind, ModuleResolutionKind } from "tsrs/sync";
+import { ModuleKind, ModuleResolutionKind } from "tsrs/async";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { invokeInspectionCore } from "#typepeek/inspection/core";
@@ -100,7 +100,7 @@ describe("TypeScript 7.1 Public Interfaces", () => {
   ])("preserves the inferred %s/%s type", async (entry, exportName, type) => {
     const file = nodePath.join(packageRoot, `${entry}.ts`);
 
-    const program = createFixtureProgram([file], {
+    const program = await createFixtureProgram([file], {
       lib: ["esnext"],
       module: ModuleKind.NodeNext,
       moduleResolution: ModuleResolutionKind.NodeNext,
@@ -111,8 +111,8 @@ describe("TypeScript 7.1 Public Interfaces", () => {
       types: [],
     });
 
-    expect(program.getSyntacticDiagnostics()).toStrictEqual([]);
-    expect(program.getSemanticDiagnostics()).toStrictEqual([]);
+    await expect(program.getSyntacticDiagnostics()).resolves.toStrictEqual([]);
+    await expect(program.getSemanticDiagnostics()).resolves.toStrictEqual([]);
 
     const { outcome } = await Effect.runPromise(
       invokeInspectionCore("export-inspection", {
@@ -140,7 +140,7 @@ describe("TypeScript 7.1 Public Interfaces", () => {
     async (exportName, text) => {
       const file = nodePath.join(packageRoot, "es2026.ts");
 
-      const program = createFixtureProgram([file], {
+      const program = await createFixtureProgram([file], {
         lib: ["es2026"],
         module: ModuleKind.NodeNext,
         moduleResolution: ModuleResolutionKind.NodeNext,
@@ -151,8 +151,10 @@ describe("TypeScript 7.1 Public Interfaces", () => {
         types: [],
       });
 
-      expect(program.getSyntacticDiagnostics()).toStrictEqual([]);
-      expect(program.getSemanticDiagnostics()).toStrictEqual([]);
+      await expect(program.getSyntacticDiagnostics()).resolves.toStrictEqual(
+        []
+      );
+      await expect(program.getSemanticDiagnostics()).resolves.toStrictEqual([]);
 
       const { outcome } = await Effect.runPromise(
         invokeInspectionCore("signature-inspection", {

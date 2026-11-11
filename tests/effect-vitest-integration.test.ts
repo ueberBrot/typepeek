@@ -6,7 +6,7 @@ import { expect as effectExpect, effect as scopedIt } from "@effect/vitest";
 import { Effect, Predicate, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { decodeJson } from "#typepeek/json-data";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 const packageManifestSchema = Schema.Struct({
   dependencies: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
@@ -85,6 +85,10 @@ describe("effect-vitest-integration", () => {
       import.meta.resolve("vite-plus/package.json")
     );
 
+    const vitestManifest = readManifest(
+      import.meta.resolve("vitest/package.json")
+    );
+
     expect([
       rootManifest.devDependencies?.["vite-plus"],
       rootManifest.devDependencies?.["vite"],
@@ -93,7 +97,7 @@ describe("effect-vitest-integration", () => {
     ]).toStrictEqual([
       vitePlusManifest.version,
       `npm:${viteManifest.name}@${viteManifest.version}`,
-      vitePlusManifest.dependencies?.["vitest"],
+      vitestManifest.version,
       true,
     ]);
   });

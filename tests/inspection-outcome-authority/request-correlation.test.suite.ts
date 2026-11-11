@@ -3,8 +3,8 @@ import { expect, test } from "vite-plus/test";
 import {
   enforceAnalysisRequestOutcome,
   enforceInspectionOutcome,
-} from "#typepeek/inspection/inspection-outcome-authority";
-import type { NormalizedInspectionPlanRequest } from "#typepeek/inspection/protocol";
+} from "#typepeek/inspection/model/inspection-outcome-authority";
+import type { NormalizedInspectionPlanRequest } from "#typepeek/inspection/model/protocol";
 
 import { match } from "../helpers/matchers.ts";
 import { defineObjectPrototypeProperty } from "../helpers/prototype-fixture.ts";

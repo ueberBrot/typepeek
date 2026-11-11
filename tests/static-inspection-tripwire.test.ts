@@ -5,18 +5,13 @@ import nodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler-distribution";
-import { runCommand } from "#typepeek/process-command";
+import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler/compiler-distribution";
+import { runCommand } from "#typepeek/platform/process-command";
 
 import {
   materializeStaticInspection,
   staticInspectionNodeOptions,
 } from "./helpers/static-inspection.ts";
-
-const channelUrl = new URL(
-  "../syncChannel.js",
-  import.meta.resolve("tsrs/sync")
-).href;
 
 describe("Static Inspection compiler launch tripwire", () => {
   it("connects to the pinned native compiler under the guard", async () => {
@@ -31,7 +26,7 @@ describe("Static Inspection compiler launch tripwire", () => {
       const probe = nodePath.join(fixtureRoot, "compiler-connection.mjs");
 
       const sessionUrl = new URL(
-        "../src/inspection/compiler-session.ts",
+        "../src/inspection/compiler/compiler-session.ts",
         import.meta.url
       ).href;
 
@@ -42,10 +37,10 @@ describe("Static Inspection compiler launch tripwire", () => {
           `import { CompilerSession } from ${JSON.stringify(sessionUrl)};`,
           "const session = new CompilerSession();",
           "try {",
-          `  const lease = session.api.createSourceFile(${JSON.stringify(nodePath.join(fixtureRoot, "connected.d.ts"))}, ${JSON.stringify(declaration)});`,
+          `  const lease = await session.api.createSourceFile(${JSON.stringify(nodePath.join(fixtureRoot, "connected.d.ts"))}, ${JSON.stringify(declaration)});`,
           "  try { process.stdout.write(lease.sourceFile.getText()); }",
-          "  finally { lease[Symbol.dispose](); }",
-          "} finally { session.close(); }",
+          "  finally { await lease[Symbol.asyncDispose](); }",
+          "} finally { await session.close(); }",
         ].join("\n")
       );
 
@@ -69,7 +64,7 @@ describe("Static Inspection compiler launch tripwire", () => {
     }
   });
 
-  it("permits Windows compiler pipe writes while denying unrelated paths", async () => {
+  it("denies filesystem writes outside the inspection sentinel", async () => {
     const fixtureRoot = await mkdtemp(
       nodePath.join(tmpdir(), "typepeek-compiler-permissions-")
     );
@@ -93,24 +88,22 @@ describe("Static Inspection compiler launch tripwire", () => {
 
       const result = await runCommand(process.execPath, [probe], {
         env: {
-          NODE_OPTIONS: staticInspectionNodeOptions(
-            preload,
-            sentinel,
-            "win32"
-          ).join(" "),
+          NODE_OPTIONS: staticInspectionNodeOptions(preload, sentinel).join(
+            " "
+          ),
         },
       });
 
-      expect(result.stdout).toBe("[true,false,false]");
+      expect(result.stdout).toBe("[false,false,false]");
     } finally {
       await rm(fixtureRoot, { force: true, recursive: true });
     }
   });
 
   it.each([
-    ["accepts the pinned SDK Windows pipe transport", "native", 0],
-    ["opens the compiler pipe without canonicalizing it", "open-pipe", 0],
-    ["rejects another pipe namespace", "other-pipe", 1],
+    ["accepts the pinned SDK async transport", "native", 0],
+    ["rejects a synchronous compiler invocation", "sync", 1],
+    ["rejects an extra pipe transport", "other-pipe", 1],
     ["rejects extra compiler arguments", "extra-argument", 1],
     ["rejects an unexpected callback set", "other-callbacks", 1],
   ] as const)("%s", async (_description, variant, expectedExitCode) => {
@@ -128,31 +121,17 @@ describe("Static Inspection compiler launch tripwire", () => {
         probe,
         [
           'import { spawn } from "node:child_process";',
-          'import { openSync, realpathSync } from "node:fs";',
-          `import { createPipePath } from ${JSON.stringify(channelUrl)};`,
-          'Object.defineProperty(process, "platform", { value: "win32" });',
           `const variant = ${JSON.stringify(variant)};`,
           "const args = [",
-          "  '--api', '--cwd', process.cwd(), '--useCaseSensitiveFileNames=false',",
+          "  '--api', '--async', '--cwd', process.cwd(), '--useCaseSensitiveFileNames=false',",
           "  '--callbacks=directoryExists,fileExists,getAccessibleEntries,readFile,realpath,removeFile,stat,writeFile',",
-          "  '--pipe', createPipePath(),",
           "];",
-          "if (variant === 'other-pipe') args[6] = args[6].replace('tsgo-sync-', 'other-');",
+          "if (variant === 'other-pipe') args.push('--pipe', 'unapproved');",
+          "if (variant === 'sync') args.splice(1, 1);",
           "if (variant === 'extra-argument') args.push('--locale=en');",
-          "if (variant === 'other-callbacks') args[4] = '--callbacks=readFile';",
+          "if (variant === 'other-callbacks') args[5] = '--callbacks=readFile';",
           // Node rejects --api before executing code; reaching that exit proves the guard allowed spawning.
           "const child = spawn(process.execPath, args, { stdio: 'ignore' });",
-          "if (variant === 'open-pipe') {",
-          "  const originalRealpath = realpathSync.native;",
-          "  let pipeCanonicalizations = 0;",
-          "  realpathSync.native = function(file, ...rest) {",
-          "    if (String(file).includes('tsgo-sync-')) pipeCanonicalizations += 1;",
-          "    return originalRealpath(file, ...rest);",
-          "  };",
-          "  try { openSync(args[6], 'r+'); } catch {}",
-          "  realpathSync.native = originalRealpath;",
-          "  if (pipeCanonicalizations !== 0) throw new Error('Canonicalization consumed the compiler pipe connection');",
-          "}",
           "await new Promise((resolve, reject) => {",
           "  child.once('error', reject);",
           "  child.once('exit', (code) => code === 9 ? resolve() : reject(new Error('Unexpected compiler probe exit: ' + code)));",

@@ -9,8 +9,8 @@ import { live as it } from "@effect/vitest";
 import { Effect, Exit, Fiber } from "effect";
 import { afterAll, beforeAll, describe, expect } from "vite-plus/test";
 
-import { runAnalysisFixtureProcess } from "#typepeek/inspection/analysis-process";
-import type { AnalysisRequest } from "#typepeek/inspection/protocol";
+import { runAnalysisFixtureProcess } from "#typepeek/inspection/execution/analysis-process";
+import type { AnalysisRequest } from "#typepeek/inspection/model/protocol";
 
 import { match } from "./helpers/matchers.ts";
 
@@ -546,13 +546,19 @@ process.stdin.once("data", () => setInterval(() => {}, 1000));`
 
         if (reason === "interruption") {
           yield* Fiber.interrupt(fiber);
-        } else {
-          const outcome = yield* Fiber.join(fiber);
-          expect(outcome).toMatchObject({
-            exceededBudget: "analysis-deadline",
-            status: "limit-exceeded",
-          });
         }
+
+        const completion = yield* Fiber.await(fiber);
+
+        const expectedDeadline: unknown = expect.objectContaining({
+          exceededBudget: "analysis-deadline",
+          status: "limit-exceeded",
+        });
+
+        expect(Exit.hasInterrupts(completion)).toBe(reason === "interruption");
+        expect(
+          Exit.isSuccess(completion) ? completion.value : undefined
+        ).toStrictEqual(reason === "deadline" ? expectedDeadline : undefined);
 
         yield* Effect.promise(async () => {
           await waitForProcessExit(pid);

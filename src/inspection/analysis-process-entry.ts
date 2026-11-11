@@ -1,5 +1,5 @@
-import { enableCompileCache } from "node:module";
+import { enableCompileCache } from "#typepeek/platform/node-module";
 
 enableCompileCache();
 
-await import("#typepeek/inspection/analysis-worker");
+await import("#typepeek/inspection/execution/analysis-worker");

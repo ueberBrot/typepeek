@@ -5,8 +5,8 @@ import nodePath from "node:path";
 import { Schema } from "effect";
 import { expect, test } from "vite-plus/test";
 
-import { decodeJson } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import { match } from "../helpers/matchers.ts";
 

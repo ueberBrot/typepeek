@@ -47,5 +47,5 @@ export const harnessCommand = (
 
 export const HARNESS_SETUP = [
   "sh benchmarks/harness/node-runtime.sh 2>&1",
-  'export PATH="$HOME/.local/typepeek-node/bin:$PATH"; npx --yes --ignore-scripts pnpm@12.16.1 install --frozen-lockfile',
+  'export PATH="$HOME/.local/typepeek-node/bin:$PATH"; npx --yes --package=bun@1.4.4 bun install --frozen-lockfile',
 ];

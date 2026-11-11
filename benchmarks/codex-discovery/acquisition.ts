@@ -1,7 +1,7 @@
 import { Predicate, Schema } from "effect";
 import { countTokens } from "gpt-tokenizer/encoding/o200k_base";
 
-import { requireDefined } from "#typepeek/defined-value";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import type { AcquisitionOracle } from "./acquisition-evidence.ts";
 import { AcquisitionEvidence } from "./acquisition-evidence.ts";

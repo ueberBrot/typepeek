@@ -1,0 +1,487 @@
+import type {
+  InspectableModuleEvidence,
+  InspectableModuleSelection,
+} from "#typepeek/inspection/evidence/installed-evidence";
+import { materializeInspectableModuleEvidence } from "#typepeek/inspection/evidence/installed-evidence";
+import {
+  MAX_EXPORT_INDEX_CANDIDATES,
+  MAX_EXPORT_SEARCH_MATCHES,
+  MAX_MODULE_EXPORTS,
+} from "#typepeek/inspection/model/budget-policy";
+import {
+  InspectionLimitError,
+  UnsupportedInspectionError,
+} from "#typepeek/inspection/model/errors";
+import { paginateExports } from "#typepeek/inspection/model/export-pagination";
+import type { MemberPath } from "#typepeek/inspection/model/member-path";
+import { formatMemberPath } from "#typepeek/inspection/model/member-path";
+import type {
+  AnalysisRequest,
+  AtomicInspectionResult,
+  ExportSearch,
+  InspectionFailure,
+  InspectionOutcome,
+  InspectionPlanQuery,
+} from "#typepeek/inspection/model/protocol";
+import { InspectionResultConstruction } from "#typepeek/inspection/model/result-construction";
+import { inspectPackageDocumentation } from "#typepeek/inspection/projection/package-documentation";
+import { inspectResolvedExportSignatures } from "#typepeek/inspection/projection/public-signatures";
+import type { ModuleExportInspection } from "#typepeek/inspection/queries/export-inspection";
+import { createModuleExportInspection } from "#typepeek/inspection/queries/export-inspection";
+import { resolveFocusedExportSymbol } from "#typepeek/inspection/queries/focused-export";
+import { inspectionPlanQueriesForRequest } from "#typepeek/inspection/queries/inspection-plan-query";
+import { inspectModuleExportSignatures } from "#typepeek/inspection/queries/signature-inspection";
+import { splitCodePoints } from "#typepeek/presentation/code-point-ranges";
+import { requireDefined } from "#typepeek/shared/defined-value";
+import { unreachableCase } from "#typepeek/shared/unreachable-case";
+
+interface ModuleExportSearchResult {
+  readonly totalModuleExports: number;
+  readonly matches: ExportSearch["matches"];
+}
+
+const compareModuleExports = function compareModuleExports(
+  left: {
+    readonly name: string;
+  },
+  right: {
+    readonly name: string;
+  }
+): number {
+  if (left.name < right.name) {
+    return -1;
+  }
+
+  if (left.name > right.name) {
+    return 1;
+  }
+
+  return 0;
+};
+
+const inspectModuleExports = async function inspectModuleExports(
+  { checker, moduleSymbol }: InspectableModuleEvidence,
+  maximum = MAX_MODULE_EXPORTS
+): Promise<
+  readonly {
+    readonly name: string;
+  }[]
+> {
+  const exportedSymbols = await checker.getExportsOfModule(moduleSymbol);
+
+  if (exportedSymbols.length > maximum) {
+    throw new InspectionLimitError(
+      "module-exports",
+      "Inspection exceeded its Module Export limit."
+    );
+  }
+
+  return exportedSymbols
+    .map((symbol) => ({ name: symbol.name }))
+    .toSorted(compareModuleExports);
+};
+
+const missingExportOutcome = function missingExportOutcome(
+  exportName: string,
+  specifier: string
+): InspectionFailure {
+  return {
+    message: `Module Export "${exportName}" was not found in "${specifier}".`,
+    reason: "export-not-found",
+    status: "not-found",
+  };
+};
+
+const focusedQueryResult = function focusedQueryResult(
+  result: AtomicInspectionResult | undefined,
+  exportName: string,
+  specifier: string
+): EvidenceQueryResult {
+  return result ?? missingExportOutcome(exportName, specifier);
+};
+
+const ambiguousMemberOutcome = function ambiguousMemberOutcome(
+  exportName: string,
+  memberPath: MemberPath
+): InspectionFailure {
+  return {
+    message: `Public Member "${[exportName, formatMemberPath(memberPath)].join(".")}" is ambiguous across declaration spaces.`,
+    reason: "ambiguous-member",
+    status: "unsupported",
+  };
+};
+
+const unsupportedMemberOutcome = function unsupportedMemberOutcome(
+  exportName: string,
+  memberPath: MemberPath
+): InspectionFailure {
+  return {
+    message: `Public Member "${[exportName, formatMemberPath(memberPath)].join(".")}" has no declaration-safe static representation.`,
+    reason: "no-static-representation",
+    status: "unsupported",
+  };
+};
+
+const missingMemberOutcome = function missingMemberOutcome(
+  exportName: string,
+  memberPath: MemberPath,
+  specifier: string
+): InspectionFailure {
+  return {
+    message: `Public Member "${[exportName, formatMemberPath(memberPath)].join(".")}" was not found in "${specifier}".`,
+    reason: "member-not-found",
+    status: "not-found",
+  };
+};
+
+const memberQueryResult = function memberQueryResult(
+  outcome:
+    | Awaited<ReturnType<ModuleExportInspection["inspectMember"]>>
+    | Awaited<ReturnType<ModuleExportInspection["discoverMembers"]>>,
+  query: {
+    readonly exportName: string;
+    readonly memberPath: MemberPath;
+  },
+  specifier: string
+): EvidenceQueryResult {
+  switch (outcome.status) {
+    case "success": {
+      return outcome.result;
+    }
+
+    case "export-not-found": {
+      return missingExportOutcome(query.exportName, specifier);
+    }
+
+    case "ambiguous-member": {
+      return ambiguousMemberOutcome(query.exportName, query.memberPath);
+    }
+
+    case "unsupported-member": {
+      return unsupportedMemberOutcome(query.exportName, query.memberPath);
+    }
+
+    case "member-not-found": {
+      return missingMemberOutcome(
+        query.exportName,
+        query.memberPath,
+        specifier
+      );
+    }
+
+    default: {
+      return unreachableCase(outcome);
+    }
+  }
+};
+
+const documentationExcerpt = function documentationExcerpt(
+  text: string,
+  normalizedQuery: string
+): string {
+  const characters = splitCodePoints(text);
+  const matchOffset = text.toLowerCase().indexOf(normalizedQuery);
+  let normalizedOffset = 0;
+  let matchIndex = 0;
+
+  while (matchIndex < characters.length && normalizedOffset < matchOffset) {
+    normalizedOffset += requireDefined(characters[matchIndex]).toLowerCase()
+      .length;
+    matchIndex += 1;
+  }
+
+  return characters
+    .slice(
+      Math.max(0, matchIndex - 64),
+      matchIndex + normalizedQuery.length + 128
+    )
+    .join("");
+};
+
+const searchModuleExports = async function searchModuleExports(
+  { checker, moduleSymbol }: InspectableModuleEvidence,
+  query: string,
+  construction: InspectionResultConstruction,
+  scope?: ExportSearch["scope"]
+): Promise<ModuleExportSearchResult> {
+  const exportedSymbols = await checker.getExportsOfModule(moduleSymbol);
+
+  if (exportedSymbols.length > MAX_EXPORT_INDEX_CANDIDATES) {
+    throw new InspectionLimitError(
+      "export-search-candidates",
+      "Inspection exceeded its Module Export search limit."
+    );
+  }
+
+  const normalizedQuery = query.toLowerCase();
+  const matches: ExportSearch["matches"][number][] = [];
+
+  const append = function append(match: ExportSearch["matches"][number]): void {
+    if (matches.length >= MAX_EXPORT_SEARCH_MATCHES) {
+      throw new InspectionLimitError(
+        "export-search-matches",
+        "Inspection exceeded its Module Export search match limit."
+      );
+    }
+
+    matches.push(construction.exportSearchMatch(match));
+  };
+
+  /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
+  for (const symbol of exportedSymbols) {
+    const { name } = symbol;
+
+    if (scope === undefined) {
+      if (name.toLowerCase().includes(normalizedQuery)) {
+        append({ name });
+      }
+    } else {
+      const resolution = await resolveFocusedExportSymbol(
+        checker,
+        symbol,
+        moduleSymbol
+      );
+
+      const documentation = await inspectPackageDocumentation(
+        checker,
+        symbol,
+        resolution.targetSymbol,
+        resolution.aliasDeclaration
+      );
+
+      if (
+        !name.toLowerCase().includes(normalizedQuery) &&
+        !(documentation?.text.toLowerCase().includes(normalizedQuery) ?? false)
+      ) {
+        continue;
+      }
+
+      append({
+        name,
+        signatures: await inspectResolvedExportSignatures(
+          checker,
+          resolution,
+          (value) => value
+        ),
+        ...(documentation !== undefined && {
+          packageDocumentation: {
+            ...documentation,
+            excerpt: true as const,
+            text: documentationExcerpt(documentation.text, normalizedQuery),
+          },
+        }),
+      });
+    }
+  }
+  /* oxlint-enable eslint/no-await-in-loop */
+
+  matches.sort(compareModuleExports);
+
+  return { matches, totalModuleExports: exportedSymbols.length };
+};
+
+const inspectEvidenceQuery = async function inspectEvidenceQuery(
+  {
+    evidence,
+    construction,
+    moduleExport,
+    paginationScope,
+  }: EvidenceQueryContext,
+  query: InspectionPlanQuery
+): Promise<EvidenceQueryResult> {
+  switch (query.intent) {
+    case "interface-overview": {
+      if (query.cursor !== undefined) {
+        const page = paginateExports(
+          await inspectModuleExports(evidence, MAX_EXPORT_INDEX_CANDIDATES),
+          query.cursor,
+          paginationScope
+        );
+
+        return page === undefined
+          ? {
+              message:
+                'The export cursor does not match this index. Restart with cursor "start".',
+              reason: "invalid-request",
+              status: "unsupported",
+            }
+          : construction.interfaceOverview(
+              await evidence.publicSubpaths,
+              page.moduleExports,
+              page.page
+            );
+      }
+
+      return construction.interfaceOverview(
+        await evidence.publicSubpaths,
+        await inspectModuleExports(evidence)
+      );
+    }
+
+    case "export-inspection": {
+      return focusedQueryResult(
+        await moduleExport.inspectExport(query.exportName),
+        query.exportName,
+        construction.specifier
+      );
+    }
+
+    case "signature-inspection": {
+      return focusedQueryResult(
+        await inspectModuleExportSignatures(
+          evidence,
+          query.exportName,
+          construction
+        ),
+        query.exportName,
+        construction.specifier
+      );
+    }
+
+    case "declaration-inspection": {
+      return focusedQueryResult(
+        await moduleExport.inspectDeclarations(query.exportName),
+        query.exportName,
+        construction.specifier
+      );
+    }
+
+    case "member-inspection": {
+      return memberQueryResult(
+        await moduleExport.inspectMember(query.exportName, query.memberPath),
+        query,
+        construction.specifier
+      );
+    }
+
+    case "member-discovery": {
+      return memberQueryResult(
+        await moduleExport.discoverMembers(
+          query.exportName,
+          query.memberPath,
+          query.query
+        ),
+        query,
+        construction.specifier
+      );
+    }
+
+    case "export-search": {
+      const search = await searchModuleExports(
+        evidence,
+        query.query,
+        construction,
+        query.scope
+      );
+
+      return construction.exportSearch(
+        query.query,
+        search.totalModuleExports,
+        search.matches,
+        query.scope
+      );
+    }
+
+    case "public-subpath-discovery": {
+      return construction.publicSubpathDiscovery(await evidence.publicSubpaths);
+    }
+
+    default: {
+      return unreachableCase(query);
+    }
+  }
+};
+
+const prepareQueryInspection = async function prepareQueryInspection(
+  selection: InspectableModuleSelection,
+  queries: readonly InspectionPlanQuery[],
+  construction: InspectionResultConstruction,
+  accessStyle: AnalysisRequest["request"]["accessStyle"]
+): Promise<
+  (
+    query: InspectionPlanQuery
+  ) => EvidenceQueryResult | Promise<EvidenceQueryResult>
+> {
+  if (queries.every((query) => query.intent === "public-subpath-discovery")) {
+    const publicSubpaths = await selection.readPublicSubpaths();
+
+    return () => construction.publicSubpathDiscovery(publicSubpaths);
+  }
+
+  const evidence = await materializeInspectableModuleEvidence(
+    selection,
+    queries
+  );
+
+  const context = {
+    construction,
+    evidence,
+    moduleExport: createModuleExportInspection(evidence, construction),
+    paginationScope: JSON.stringify([
+      selection.resolutionContextDirectory,
+      selection.declarationAuthority,
+      selection.resultIdentity,
+      construction.specifier,
+      accessStyle,
+    ]),
+  };
+
+  return async (query) => await inspectEvidenceQuery(context, query);
+};
+
+/** Executes ordered queries against one evidence selection and aggregate result budget. */
+export const executeInspectionQueries = async function executeInspectionQueries(
+  analysisRequest: AnalysisRequest,
+  selection: InspectableModuleSelection
+): Promise<InspectionOutcome> {
+  const { request } = analysisRequest;
+  const queries = inspectionPlanQueriesForRequest(analysisRequest);
+
+  const construction = InspectionResultConstruction.create({
+    identity: selection.resultIdentity,
+    resolutionVariant: { accessStyle: request.accessStyle },
+    specifier: request.specifier,
+  });
+
+  const inspectQuery = await prepareQueryInspection(
+    selection,
+    queries,
+    construction,
+    request.accessStyle
+  );
+
+  const inspections: AtomicInspectionResult[] = [];
+
+  /* oxlint-disable eslint/no-await-in-loop -- Compiler queries share inspection state and must retain serial traversal order. */
+  for (const query of queries) {
+    const inspection = await inspectQuery(query);
+
+    if ("status" in inspection) {
+      return inspection;
+    }
+
+    inspections.push(inspection);
+  }
+  /* oxlint-enable eslint/no-await-in-loop */
+
+  if (analysisRequest.intent === "inspection-plan") {
+    return { result: construction.plan(inspections), status: "success" };
+  }
+
+  const [result] = inspections;
+
+  if (result === undefined) {
+    throw new UnsupportedInspectionError("Inspection has no query to execute.");
+  }
+
+  return { result, status: "success" };
+};
+
+interface EvidenceQueryContext {
+  readonly evidence: InspectableModuleEvidence;
+  readonly construction: InspectionResultConstruction;
+  readonly moduleExport: ModuleExportInspection;
+  readonly paginationScope: string;
+}
+
+type EvidenceQueryResult = AtomicInspectionResult | InspectionFailure;

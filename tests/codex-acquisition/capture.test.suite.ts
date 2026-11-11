@@ -5,9 +5,9 @@ import nodePath from "node:path";
 import { Schema } from "effect";
 import { expect, test } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { decodeJson } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import { requireDefined } from "#typepeek/shared/defined-value";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import { replay } from "../helpers/acquisition-fixture.ts";
 import { captureReceiptSchema } from "../helpers/benchmark-artifact.ts";

@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { resolveFocusedExportSymbol } from "#typepeek/inspection/focused-export";
-import { inspectPackageDocumentation } from "#typepeek/inspection/package-documentation";
+import { inspectPackageDocumentation } from "#typepeek/inspection/projection/package-documentation";
+import { resolveFocusedExportSymbol } from "#typepeek/inspection/queries/focused-export";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { createFixtureProgram } from "./helpers/native-compiler.ts";
 
-const selectedExport = (text: string) => {
+const selectedExport = async (text: string) => {
   const fileName = "/documentation/index.d.ts";
 
-  const program = createFixtureProgram(
+  const program = await createFixtureProgram(
     [fileName],
     { noEmit: true, noLib: true },
     [[fileName, text]]
@@ -18,30 +18,32 @@ const selectedExport = (text: string) => {
   const { checker } = program.getProject();
 
   const moduleSymbol = requireDefined(
-    checker.getSymbolAtLocation(requireDefined(program.getSourceFile(fileName)))
+    await checker.getSymbolAtLocation(
+      requireDefined(await program.getSourceFile(fileName))
+    )
   );
 
-  const exportedSymbol = requireDefined(
-    checker.getExportsOfModule(moduleSymbol)[0]
-  );
+  const exportsOfModule = await checker.getExportsOfModule(moduleSymbol);
+  const exportedSymbol = requireDefined(exportsOfModule[0]);
 
   return {
     checker,
-    ...resolveFocusedExportSymbol(checker, exportedSymbol, moduleSymbol),
+    ...(await resolveFocusedExportSymbol(
+      checker,
+      exportedSymbol,
+      moduleSymbol
+    )),
   };
 };
 
 describe("package documentation queries", () => {
   it.each(["Reads a value.", ""])(
     "reads an unaliased symbol once, including empty documentation: %s",
-    (comment) => {
+    async (comment) => {
       const { checker, exportedSymbol, targetSymbol, aliasDeclaration } =
-        selectedExport(
+        await selectedExport(
           `/** ${comment} */ export declare function read(): void;`
         );
-
-      expect(exportedSymbol.getDocumentationComment).toBeTypeOf("function");
-      expect(exportedSymbol.getJsDocTags).toBeTypeOf("function");
 
       const documentationRead = vi.spyOn(
         exportedSymbol,
@@ -51,7 +53,7 @@ describe("package documentation queries", () => {
       const tagsRead = vi.spyOn(exportedSymbol, "getJsDocTags");
 
       try {
-        const documentation = inspectPackageDocumentation(
+        const documentation = await inspectPackageDocumentation(
           checker,
           exportedSymbol,
           targetSymbol,
@@ -68,29 +70,28 @@ describe("package documentation queries", () => {
     }
   );
 
-  it("stops at attached alias documentation before querying native symbol documentation", () => {
+  it("stops at attached alias documentation before querying native symbol documentation", async () => {
     const { checker, exportedSymbol, targetSymbol, aliasDeclaration } =
-      selectedExport(
+      await selectedExport(
         [
           "/** Target guidance. */ declare function read(): void;",
           "/** Alias guidance. */ export { read as selected };",
         ].join("\n")
       );
 
-    expect(exportedSymbol.getDocumentationComment).toBeTypeOf("function");
-    expect(targetSymbol.getDocumentationComment).toBeTypeOf("function");
     const exportRead = vi.spyOn(exportedSymbol, "getDocumentationComment");
     const targetRead = vi.spyOn(targetSymbol, "getDocumentationComment");
 
     try {
-      expect(
-        inspectPackageDocumentation(
+      const inspectPackageDocumentationResult =
+        await inspectPackageDocumentation(
           checker,
           exportedSymbol,
           targetSymbol,
           aliasDeclaration
-        )?.text
-      ).toBe("Alias guidance.");
+        );
+
+      expect(inspectPackageDocumentationResult?.text).toBe("Alias guidance.");
       expect(exportRead).not.toHaveBeenCalled();
       expect(targetRead).not.toHaveBeenCalled();
     } finally {

@@ -4,9 +4,9 @@ import nodePath from "node:path";
 
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
-import { InstalledProgramLoader } from "#typepeek/inspection/installed-program-loader";
+import { createCompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
+import { InstalledProgramLoader } from "#typepeek/inspection/compiler/installed-program-loader";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 describe("Installed Evidence snapshot updates", () => {
   it("transfers only new contents while preserving old files and checker handles", async () => {
@@ -33,32 +33,38 @@ describe("Installed Evidence snapshot updates", () => {
         '{"name":"snapshot-fixture","version":"1.0.0","type":"module"}'
       );
       const work = createCompilerWorkSession();
-      expect(work.native.api.createSnapshot).toBeTypeOf("function");
+
       const snapshots = vi.spyOn(work.native.api, "createSnapshot");
       const loader = new InstalledProgramLoader([packageRoot], work);
-      const before = loader.createProgram([first], false);
-      const source = requireDefined(before.getSourceFile(first));
+      const before = await loader.createProgram([first], false);
+      const source = requireDefined(await before.getSourceFile(first));
       const { checker } = before.getProject();
-      const symbol = requireDefined(checker.getSymbolAtLocation(source));
+
+      const symbol = requireDefined(await checker.getSymbolAtLocation(source));
+
       const [initial] = snapshots.mock.results;
 
       if (initial?.type !== "return") {
         throw new Error("The initial native snapshot was not created.");
       }
 
-      expect(initial.value.update).toBeTypeOf("function");
-      const update = vi.spyOn(initial.value, "update");
+      const initialSnapshot = await initial.value;
+
+      const update = vi.spyOn(initialSnapshot, "update");
 
       try {
-        const after = loader.createProgram([first, second], true);
+        const after = await loader.createProgram([first, second], true);
         const layer = JSON.stringify(update.mock.calls[0]?.[0].fileSystem);
         expect(layer).toContain("addedSnapshotOnly");
         expect(layer).not.toContain("originalSnapshotOnly");
-        expect(after.getSourceFile(first)?.getText()).toBe(firstText);
-        expect(after.getSourceFile(second)?.getText()).toContain("Added");
-        expect(
-          checker.getExportsOfModule(symbol).map((item) => item.name)
-        ).toStrictEqual(["Original"]);
+        const firstSource = await after.getSourceFile(first);
+        expect(firstSource?.getText()).toBe(firstText);
+        const secondSource = await after.getSourceFile(second);
+        expect(secondSource?.getText()).toContain("Added");
+        const exportsOfModule = await checker.getExportsOfModule(symbol);
+        expect(exportsOfModule.map((item) => item.name)).toStrictEqual([
+          "Original",
+        ]);
       } finally {
         update.mockRestore();
         snapshots.mockRestore();

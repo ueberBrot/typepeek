@@ -7,10 +7,10 @@ import type { PlatformError, Cause } from "effect";
 import { ChildProcess } from "effect/process";
 import { describe, expect, it } from "vite-plus/test";
 
-import { decodeJson } from "#typepeek/json-data";
-import { nodeProcessLayer, spawnProcess } from "#typepeek/node-process";
-import { runCommand } from "#typepeek/process-command";
-import { collectProcessOutput } from "#typepeek/process-output";
+import { runCommand } from "#typepeek/platform/process-command";
+import { processLayer, spawnProcess } from "#typepeek/platform/process-runtime";
+import { collectByteStream } from "#typepeek/shared/byte-stream";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import { match } from "./helpers/matchers.ts";
 
@@ -133,16 +133,16 @@ describe("protocol-stream", () => {
             yield* Queue.end(input);
 
             const [exitCode, stderr] = yield* Effect.all(
-              [
-                subprocess.exitCode,
-                collectProcessOutput(subprocess.stderr, 1024),
-              ],
+              [subprocess.exitCode, collectByteStream(subprocess.stderr, 1024)],
               { concurrency: "unbounded" }
             );
 
-            expect([exitCode, stderr.toString()]).toStrictEqual([0, ""]);
+            expect([exitCode, new TextDecoder().decode(stderr)]).toStrictEqual([
+              0,
+              "",
+            ]);
           })
-        ).pipe(Effect.timeout(10_000), Effect.provide(nodeProcessLayer))
+        ).pipe(Effect.timeout(10_000), Effect.provide(processLayer))
       );
     } finally {
       await rm(resolutionContext, { force: true, recursive: true });

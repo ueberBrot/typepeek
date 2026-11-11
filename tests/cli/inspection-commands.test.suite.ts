@@ -3,8 +3,8 @@ import { stripVTControlCharacters } from "node:util";
 import { Schema } from "effect";
 import { expect, test } from "vite-plus/test";
 
-import { decodeJson } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import type { CompiledPackageFixture } from "../helpers/compiled-package-fixture.ts";
 import { match } from "../helpers/matchers.ts";

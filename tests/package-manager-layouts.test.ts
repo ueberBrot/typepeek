@@ -4,12 +4,12 @@ import { Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { inspectExport, inspectInterfaceOverview } from "#typepeek/inspection";
-import type { JsonInput } from "#typepeek/json-data";
+import type { JsonInput } from "#typepeek/shared/json-data";
 import {
   decodeJson,
   isJsonInputArray,
   isJsonInputObject,
-} from "#typepeek/json-data";
+} from "#typepeek/shared/json-data";
 
 import { match } from "./helpers/matchers.ts";
 import type { PackageManagerMatrix } from "./helpers/package-manager-matrix.ts";

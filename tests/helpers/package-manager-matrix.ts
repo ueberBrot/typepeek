@@ -92,8 +92,7 @@ const writeFixturePackage = async function writeFixturePackage(
 };
 
 const packFixturePackages = async function packFixturePackages(
-  fixtureRoot: string,
-  npmCacheRoot: string
+  fixtureRoot: string
 ): Promise<PackedFixturePackages> {
   const sourcesRoot = nodePath.join(fixtureRoot, "sources");
   const tarballsRoot = nodePath.join(fixtureRoot, "tarballs");
@@ -116,14 +115,12 @@ const packFixturePackages = async function packFixturePackages(
 
   const subjectNested = await packPackage({
     diagnosticContext: "subject nested Package Module fixture",
-    npmCacheRoot,
     packageRoot: subjectNestedRoot,
     tarballsRoot,
   });
 
   const repositoryNested = await packPackage({
     diagnosticContext: "repository nested Package Module fixture",
-    npmCacheRoot,
     packageRoot: repositoryNestedRoot,
     tarballsRoot,
   });
@@ -150,7 +147,6 @@ const packFixturePackages = async function packFixturePackages(
     repositoryNested,
     subject: await packPackage({
       diagnosticContext: "layout subject Package Module fixture",
-      npmCacheRoot,
       packageRoot: subjectRoot,
       tarballsRoot,
     }),
@@ -281,8 +277,7 @@ export const materializePackageManagerMatrix =
     );
 
     try {
-      const npmCacheRoot = nodePath.join(fixtureRoot, "npm-cache");
-      const packages = await packFixturePackages(fixtureRoot, npmCacheRoot);
+      const packages = await packFixturePackages(fixtureRoot);
       const installations: PackageManagerInstallation[] = [];
 
       await Array.fromAsync(PACKAGE_MANAGER_PINS, async (packageManager) => {

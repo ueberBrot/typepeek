@@ -3,8 +3,8 @@ import { parseArgs } from "node:util";
 
 import { Schema } from "effect";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { decodeJson } from "#typepeek/json-data";
+import { requireDefined } from "#typepeek/shared/defined-value";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import { inspectWithCompiler } from "../support/compiler.ts";
 import { selectDiscoveryWorkloads } from "../support/workloads.ts";
@@ -53,7 +53,7 @@ const workload =
 const compiler =
   workload === undefined
     ? undefined
-    : inspectWithCompiler(requireDefined(values.workspace), workload);
+    : await inspectWithCompiler(requireDefined(values.workspace), workload);
 
 const oracle = decodeAcquisitionOracle(
   values.oracle === undefined

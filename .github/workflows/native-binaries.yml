@@ -1,0 +1,113 @@
+name: Native binaries
+
+on:
+  workflow_call:
+    inputs:
+      upload-artifacts:
+        description: Retain tested native packages for the release workflow.
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: AOT (${{ matrix.package }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: typepeek-darwin-arm64
+            runner: macos-15
+            musl: false
+          - package: typepeek-darwin-x64
+            runner: macos-15-intel
+            musl: false
+          - package: typepeek-linux-x64-gnu
+            runner: ubuntu-24.04
+            musl: false
+          - package: typepeek-linux-arm64-gnu
+            runner: ubuntu-24.04-arm
+            musl: false
+          - package: typepeek-win32-x64
+            runner: windows-2025
+            musl: false
+          - package: typepeek-linux-x64-musl
+            runner: ubuntu-24.04
+            musl: true
+            oven: linux-x64-musl
+          - package: typepeek-linux-arm64-musl
+            runner: ubuntu-24.04-arm
+            musl: true
+            oven: linux-aarch64-musl
+    env:
+      NATIVE_DIRECTORY: packages/${{ matrix.package }}
+      TYPEPEEK_NATIVE_NAME: ${{ matrix.package }}
+      TYPEPEEK_NATIVE_PACKAGE: .vite-plus/native.tgz
+      TYPEPEEK_LAUNCHER_PACKAGE: .vite-plus/launcher.tgz
+      VITE_GIT_HOOKS: "0"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up validation
+        uses: ./.github/actions/setup-validation
+        with:
+          pnpm: ${{ !matrix.musl }}
+          musl: ${{ matrix.musl }}
+
+      - name: Build launcher
+        run: vp pack
+
+      - name: Compile native binaries
+        if: ${{ !matrix.musl }}
+        shell: bash
+        run: bun scripts/build-aot.ts --output "$NATIVE_DIRECTORY"
+
+      - name: Compile musl binaries
+        if: matrix.musl
+        env:
+          OVEN_TARGET: ${{ matrix.oven }}
+        run: >-
+          docker run --rm --volume "$PWD:/workspace" --workdir /workspace --env NATIVE_DIRECTORY --env OVEN_TARGET node:24-alpine3.22@sha256:191c9f0080fcbbc6547a85dc0ff7988072214a355aabdc1d2ec55a7dae5eea8a sh -eu -c '"tooling/aot-compiler/node_modules/@oven/bun-$OVEN_TARGET/bin/bun" scripts/build-aot.ts --output "$NATIVE_DIRECTORY"'
+
+      - name: Pack installed artifacts with Vite+ and Bun
+        shell: bash
+        run: |
+          mkdir -p .vite-plus
+          vp pm pack --out "$PWD/.vite-plus/native.tgz" -- --ignore-scripts --cwd "$NATIVE_DIRECTORY"
+          vp pm pack --out "$PWD/.vite-plus/launcher.tgz" -- --ignore-scripts
+
+      - name: Test npm, pnpm, and Bun installations
+        if: ${{ !matrix.musl }}
+        run: vp test tests/native-cli-consumers.test.ts
+
+      - name: Test musl npm installation and launcher
+        if: matrix.musl
+        env:
+          TYPEPEEK_NATIVE_MANAGER: npm
+        run: >-
+          docker run --rm --volume "$PWD:/workspace" --workdir /workspace --env TYPEPEEK_NATIVE_MANAGER --env TYPEPEEK_NATIVE_NAME --env TYPEPEEK_NATIVE_PACKAGE --env TYPEPEEK_LAUNCHER_PACKAGE node:24-alpine3.22@sha256:191c9f0080fcbbc6547a85dc0ff7988072214a355aabdc1d2ec55a7dae5eea8a sh -eu -c 'npm install --global npm@11.19.1 --ignore-scripts && node node_modules/vitest/vitest.mjs run tests/native-cli-consumers.test.ts'
+
+      # Tar preserves executable permissions and isolates each platform's files.
+      - name: Archive native distribution
+        if: inputs.upload-artifacts
+        shell: bash
+        run: |
+          tar -cf - -C packages "$TYPEPEEK_NATIVE_NAME" | gzip -1 >"$RUNNER_TEMP/$TYPEPEEK_NATIVE_NAME.tar.gz"
+
+      - name: Upload native distribution
+        if: inputs.upload-artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-${{ matrix.package }}
+          path: ${{ runner.temp }}/${{ matrix.package }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
 
 import { inspectWithCompiler } from "../benchmarks/support/compiler.ts";
 import { typepeekFacts } from "../benchmarks/support/evidence.ts";
@@ -29,7 +29,7 @@ assert.equal(workloads.length, 10);
 
 try {
   await Array.fromAsync(workloads, async (workload) => {
-    const oracle = inspectWithCompiler(workspace, workload);
+    const oracle = await inspectWithCompiler(workspace, workload);
     const before = evidenceFingerprint(workspace, oracle.files);
 
     if (workload.id === "semver-clean") {

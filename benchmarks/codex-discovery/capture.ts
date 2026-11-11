@@ -5,13 +5,16 @@ import { parseArgs } from "node:util";
 import { Cause, Effect, Exit, Predicate, Queue, Schema, Stream } from "effect";
 import { ChildProcess } from "effect/process";
 
-import type { JsonInput } from "#typepeek/json-data";
-import { decodeJson } from "#typepeek/json-data";
-import { nodeProcessLayer, scopedProcess } from "#typepeek/node-process";
 import {
-  boundedProcessOutput,
-  collectProcessOutput,
-} from "#typepeek/process-output";
+  processLayer,
+  scopedProcess,
+} from "#typepeek/platform/process-runtime";
+import {
+  boundedByteStream,
+  collectByteStream,
+} from "#typepeek/shared/byte-stream";
+import type { JsonInput } from "#typepeek/shared/json-data";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import type { TimedCodexEvent } from "./acquisition.ts";
 import { runCodexExchange } from "./exchange.ts";
@@ -255,7 +258,7 @@ export const captureCodex = async function captureCodex(launch: CodexLaunch) {
       const capture = Effect.all(
         {
           exit: child.exitCode,
-          output: boundedProcessOutput(child.stdout, 32 * 1024 * 1024).pipe(
+          output: boundedByteStream(child.stdout, 32 * 1024 * 1024).pipe(
             Stream.decodeText(),
             Stream.splitLines,
             Stream.runForEach((line) =>
@@ -264,7 +267,7 @@ export const captureCodex = async function captureCodex(launch: CodexLaunch) {
               })
             )
           ),
-          stderr: collectProcessOutput(child.stderr, 32 * 1024 * 1024),
+          stderr: collectByteStream(child.stderr, 32 * 1024 * 1024),
         },
         { concurrency: "unbounded" }
       ).pipe(
@@ -272,7 +275,7 @@ export const captureCodex = async function captureCodex(launch: CodexLaunch) {
           Effect.sync(() => {
             processResult = {
               exitCode: Exit.isSuccess(exit) ? Number(exit.value) : null,
-              stderr: stderr.toString("utf-8"),
+              stderr: new TextDecoder().decode(stderr),
             };
 
             if (turnCompletedMilliseconds === null || pending.size > 0) {
@@ -356,7 +359,7 @@ export const captureCodex = async function captureCodex(launch: CodexLaunch) {
           );
         })
       ),
-      Effect.provide(nodeProcessLayer)
+      Effect.provide(processLayer)
     )
   );
 

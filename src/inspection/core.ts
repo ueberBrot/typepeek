@@ -1,8 +1,8 @@
 /* oxlint-disable anti-slop/no-unknown-parameters -- Inspection Core is a public validation boundary; request data must be checked before intent-specific dispatch. */
 import { Effect } from "effect";
 
-import { runBoundedAnalysis } from "#typepeek/inspection/analysis-process";
-import { enforceInspectionOutcome } from "#typepeek/inspection/inspection-outcome-authority";
+import { runBoundedAnalysis } from "#typepeek/inspection/execution/analysis-process";
+import { enforceInspectionOutcome } from "#typepeek/inspection/model/inspection-outcome-authority";
 import type {
   DeclarationInspection,
   DeclarationInspectionRequest,
@@ -29,11 +29,11 @@ import type {
   PublicSubpathDiscoveryRequest,
   SignatureInspection,
   SignatureInspectionRequest,
-} from "#typepeek/inspection/protocol";
-import type { InspectionIntent } from "#typepeek/inspection/protocol-vocabulary";
-import { compareInterfaceOverviews } from "#typepeek/inspection/public-interface-comparison";
-import type { PreparedInspectionCoreRequest } from "#typepeek/inspection/request-definitions";
-import { readInspectionCoreRequest } from "#typepeek/inspection/request-definitions";
+} from "#typepeek/inspection/model/protocol";
+import type { InspectionIntent } from "#typepeek/inspection/model/protocol-vocabulary";
+import type { PreparedInspectionCoreRequest } from "#typepeek/inspection/model/request-definitions";
+import { readInspectionCoreRequest } from "#typepeek/inspection/model/request-definitions";
+import { compareInterfaceOverviews } from "#typepeek/inspection/queries/public-interface-comparison";
 
 const INTERFACE_OVERVIEW = "interface-overview";
 const PUBLIC_INTERFACE_COMPARISON = "public-interface-comparison";

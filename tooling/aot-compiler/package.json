@@ -1,0 +1,14 @@
+{
+  "name": "@typepeek/aot-compiler",
+  "version": "0.0.0",
+  "private": true,
+  "optionalDependencies": {
+    "@oven/bun-darwin-aarch64": "1.4.4-canary.20261102.1",
+    "@oven/bun-darwin-x64": "1.4.4-canary.20261102.1",
+    "@oven/bun-linux-aarch64": "1.4.4-canary.20261102.1",
+    "@oven/bun-linux-aarch64-musl": "1.4.4-canary.20261102.1",
+    "@oven/bun-linux-x64": "1.4.4-canary.20261102.1",
+    "@oven/bun-linux-x64-musl": "1.4.4-canary.20261102.1",
+    "@oven/bun-windows-x64": "1.4.4-canary.20261102.1"
+  }
+}

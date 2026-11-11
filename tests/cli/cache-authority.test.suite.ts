@@ -15,10 +15,13 @@ import nodePath from "node:path";
 import { Schema } from "effect";
 import { expect, test } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { bitwiseAnd } from "#typepeek/integer-bits";
-import { decodeJson, mutableJsonObjectSchema } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import { requireDefined } from "#typepeek/shared/defined-value";
+import { bitwiseAnd } from "#typepeek/shared/integer-bits";
+import {
+  decodeJson,
+  mutableJsonObjectSchema,
+} from "#typepeek/shared/json-data";
 
 import type { CompiledPackageFixture } from "../helpers/compiled-package-fixture.ts";
 import { profilePhaseNames } from "../helpers/inspection-profile.ts";

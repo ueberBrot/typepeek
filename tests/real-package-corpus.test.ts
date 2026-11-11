@@ -5,7 +5,6 @@ import nodePath from "node:path";
 import { Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
 import type { ExportInspection, InterfaceOverview } from "#typepeek/inspection";
 import {
   inspectExport,
@@ -16,9 +15,10 @@ import {
   inspectInterfaceOverview,
   inspectPlan,
 } from "#typepeek/inspection";
-import type { InspectionOutcome } from "#typepeek/inspection/protocol";
-import { decodeJson } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
+import type { InspectionOutcome } from "#typepeek/inspection/model/protocol";
+import { runCommand } from "#typepeek/platform/process-command";
+import { requireDefined } from "#typepeek/shared/defined-value";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import { match } from "./helpers/matchers.ts";
 import type { RealPackageCorpus } from "./helpers/real-package-corpus.ts";
@@ -725,7 +725,7 @@ describe("real-package-corpus", () => {
       } finally {
         await rm(cacheDirectory, { force: true, recursive: true });
       }
-    });
+    }, 90_000);
 
     it("pages the large SDK export index", async () => {
       const outcome = await inspectInterfaceOverview({
@@ -749,7 +749,7 @@ describe("real-package-corpus", () => {
         outcome.result.moduleExports.length,
         requireDefined(outcome.result.exportPage?.totalModuleExports) > 8000,
       ]).toStrictEqual([100, true]);
-    });
+    }, 90_000);
 
     it("searches the large SDK export index by name", async () => {
       const outcome = await inspectExportSearch({

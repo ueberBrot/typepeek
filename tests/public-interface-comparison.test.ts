@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { compareInterfaceOverviews } from "#typepeek/inspection/public-interface-comparison";
+import { compareInterfaceOverviews } from "#typepeek/inspection/queries/public-interface-comparison";
 
 const overview = (prefix: string) => ({
   intent: "interface-overview" as const,

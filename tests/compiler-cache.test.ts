@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { cachedCompilerLookup } from "#typepeek/inspection/compiler-cache";
+import { cachedCompilerLookup } from "#typepeek/inspection/compiler/compiler-cache";
 
 describe("compiler lookup cache", () => {
   it.each([undefined, null, false, 0, ""])(

@@ -4,8 +4,8 @@ import { pathToFileURL } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
 import { inspectExport, inspectInterfaceOverview } from "#typepeek/inspection";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { match } from "./helpers/matchers.ts";
 import { materializeStaticInspection } from "./helpers/static-inspection.ts";

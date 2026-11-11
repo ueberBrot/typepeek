@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import nodePath from "node:path";
 
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
 
 import { MIN_SBX_VERSION } from "../../benchmarks/harness/sbx-version.ts";
 

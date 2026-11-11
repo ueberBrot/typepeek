@@ -3,8 +3,8 @@ import nodePath from "node:path";
 
 import { countTokens } from "gpt-tokenizer/encoding/o200k_base";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { inspectWithCompiler } from "../support/compiler.ts";
 import {
@@ -66,7 +66,7 @@ const codexVersionResult = await runCommand("codex", ["--version"]);
 const version = codexVersionResult.stdout.trim();
 const skill = await readFile("skills/typepeek/SKILL.md", "utf-8");
 
-const reference = inspectWithCompiler(
+const reference = await inspectWithCompiler(
   nodePath.resolve("."),
   requireDefined(scenarios[0]).workload
 );
@@ -206,7 +206,12 @@ const runStudy = async function runStudy(): Promise<void> {
     const directory = nodePath.join(options.output, id);
     await mkdir(directory, { recursive: true });
     const trial = await createCodexTrial(fixture, id, condition);
-    const oracle = inspectWithCompiler(trial.workspace, plan.scenario.workload);
+
+    const oracle = await inspectWithCompiler(
+      trial.workspace,
+      plan.scenario.workload
+    );
+
     const evidenceHash = evidenceFingerprint(trial.workspace, oracle.files);
     const prompt = codexPrompt(plan.scenario, condition, skill);
     const schemaPath = nodePath.join(directory, "answer.schema.json");
@@ -371,8 +376,8 @@ const runStudy = async function runStudy(): Promise<void> {
       return;
     }
   }
-
   /* oxlint-enable eslint/no-await-in-loop */
+
   await saveSummary("complete");
 
   if (attempts.some((attempt) => !attempt.passed)) {

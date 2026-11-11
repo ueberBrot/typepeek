@@ -7,12 +7,15 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { createRequire } from "node:module";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { analysisProcessNodeArguments } from "#typepeek/inspection/analysis-process";
-import { runCommand } from "#typepeek/process-command";
+import { Effect } from "effect";
+
+import { resolveCompilerLibraryDirectory } from "#typepeek/inspection/compiler/compiler-distribution";
+import { analysisProcessNodeArguments } from "#typepeek/inspection/execution/analysis-process";
+import { runCommand } from "#typepeek/platform/process-command";
+import { processLayer } from "#typepeek/platform/process-runtime";
 
 interface GuardedEnvironment {
   readonly [key: string]: string | undefined;
@@ -21,29 +24,17 @@ interface GuardedEnvironment {
 const PLUGIN_RUNTIME_SOURCE = "module.exports = true;\n";
 const PACKAGE_MANIFEST_FILE = "package.json";
 
-const compilerExecutableFor = (entrypoint: string): string => {
-  const require = createRequire(
-    createRequire(pathToFileURL(realpathSync.native(entrypoint))).resolve(
-      "tsrs/package.json"
-    )
+const compilerExecutableFor = async (entrypoint: string): Promise<string> => {
+  const directory = await Effect.runPromise(
+    resolveCompilerLibraryDirectory(
+      pathToFileURL(realpathSync.native(entrypoint))
+    ).pipe(Effect.provide(processLayer))
   );
 
-  const base = `@tsrs/${process.platform}-${process.arch}`;
-
-  for (const candidate of process.platform === "linux"
-    ? [`${base}-gnu`, `${base}-musl`]
-    : [base]) {
-    try {
-      return nodePath.join(
-        nodePath.dirname(require.resolve(`${candidate}/package.json`)),
-        process.platform === "win32" ? "tsrs.exe" : "tsrs"
-      );
-    } catch {
-      // Only the current platform's optional dependency is installed.
-    }
-  }
-
-  throw new Error("The CLI's pinned native compiler is missing.");
+  return nodePath.join(
+    directory,
+    process.platform === "win32" ? "tsrs.exe" : "tsrs"
+  );
 };
 
 const PROTECTED_TRIPWIRE_ENVIRONMENT_NAMES = [
@@ -180,9 +171,9 @@ const inspectionTripwireSource = function inspectionTripwireSource(): string {
     "const originalSpawn = childProcess.spawn;",
     "function isAllowedCompilerSpawn(command, args) {",
     "  if (!isForbiddenPath(allowedAnalysisProcessEntries, process.argv[1]) || !isForbiddenPath(allowedCompilerExecutables, command)) return false;",
-    "  if (!Array.isArray(args) || (args.length !== 5 && !(process.platform === 'win32' && args.length === 7 && args[5] === '--pipe' && typeof args[6] === 'string' && args[6].startsWith(String.raw`\\\\.\\pipe\\tsgo-sync-`)))) return false;",
-    "  if (args[0] !== '--api' || args[1] !== '--cwd' || args[2] !== process.cwd() || !/^--useCaseSensitiveFileNames=(true|false)$/.test(args[3])) return false;",
-    "  return args[4].startsWith('--callbacks=') && args[4].slice('--callbacks='.length).split(',').sort().join(',') === 'directoryExists,fileExists,getAccessibleEntries,readFile,realpath,removeFile,stat,writeFile';",
+    "  if (!Array.isArray(args) || args.length !== 6) return false;",
+    "  if (args[0] !== '--api' || args[1] !== '--async' || args[2] !== '--cwd' || args[3] !== process.cwd() || !/^--useCaseSensitiveFileNames=(true|false)$/.test(args[4])) return false;",
+    "  return args[5].startsWith('--callbacks=') && args[5].slice('--callbacks='.length).split(',').sort().join(',') === 'directoryExists,fileExists,getAccessibleEntries,readFile,realpath,removeFile,stat,writeFile';",
     "}",
     "childProcess.spawn = function guardedSpawn(command, args, options) {",
     '  if (!isAllowedAnalysisSpawn(command, args) && !isAllowedCompilerSpawn(command, args)) trip("process activity");',
@@ -259,16 +250,12 @@ const nodePathOption = function nodePathOption(
 
 export const staticInspectionNodeOptions = (
   preloadPath: string,
-  sentinel: string,
-  platform = process.platform
+  sentinel: string
 ): readonly string[] => [
   nodePathOption("--require", preloadPath),
   "--permission",
   "--allow-fs-read=*",
   nodePathOption("--allow-fs-write", sentinel),
-  ...(platform === "win32"
-    ? [nodePathOption("--allow-fs-write", String.raw`\\.\pipe\tsgo-sync-*`)]
-    : []),
   "--allow-child-process",
   "--allow-worker",
 ];
@@ -663,7 +650,7 @@ export const materializeStaticInspection =
         resolutionContext,
       }) => {
         const command =
-          adapter.kind === "installed"
+          adapter.kind === "installed" && process.platform !== "win32"
             ? adapter.executablePath
             : process.execPath;
 
@@ -679,7 +666,20 @@ export const materializeStaticInspection =
 
         const commandArguments =
           adapter.kind === "installed"
-            ? [...cliArguments, "--workspace", resolutionContext]
+            ? [
+                ...(process.platform === "win32"
+                  ? [
+                      nodePath.join(
+                        nodePath.dirname(adapter.analysisProcessEntryPath),
+                        "..",
+                        "cli.js"
+                      ),
+                    ]
+                  : []),
+                ...cliArguments,
+                "--workspace",
+                resolutionContext,
+              ]
             : [
                 nodePath.join(adapter.sourceCheckout, "src", "cli.ts"),
                 ...cliArguments,
@@ -687,28 +687,17 @@ export const materializeStaticInspection =
                 resolutionContext,
               ];
 
-        const windowsCommandShim =
-          process.platform === "win32" && /\.cmd$/iu.test(command);
-
         try {
-          const result = await runCommand(
-            windowsCommandShim ? `"${command}"` : command,
-            windowsCommandShim
-              ? commandArguments.map((argument) => `"${argument}"`)
-              : commandArguments,
-            {
-              cwd: resolutionContext,
-              env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
-                allowedAnalysisProcessEntry: analysisProcessEntryPath,
-                allowedCompilerExecutable: compilerExecutableFor(
-                  analysisProcessEntryPath
-                ),
-                denyWorkers: true,
-              }),
-              // Windows package-manager shims require Effect's shell option.
-              shell: windowsCommandShim,
-            }
-          );
+          const result = await runCommand(command, commandArguments, {
+            cwd: resolutionContext,
+            env: guardedEnvironment(preloadPath, sentinel, tripwirePolicy, {
+              allowedAnalysisProcessEntry: analysisProcessEntryPath,
+              allowedCompilerExecutable: await compilerExecutableFor(
+                analysisProcessEntryPath
+              ),
+              denyWorkers: true,
+            }),
+          });
 
           await verifyNoIo();
 

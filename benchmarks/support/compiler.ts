@@ -8,31 +8,30 @@ import {
   isVariableDeclaration,
   ScriptTarget,
 } from "tsrs/ast";
-import { createFileSystemLayer } from "tsrs/fs";
 import {
   API,
   ModuleKind,
   ModuleResolutionKind,
   SignatureKind,
   SymbolFlags,
-} from "tsrs/sync";
+} from "tsrs/async";
 import type {
   Checker,
   RawCompilerOptions,
   Symbol as CompilerSymbol,
-} from "tsrs/sync";
+} from "tsrs/async";
+import { createFileSystemLayer } from "tsrs/fs";
 
-import {
-  COMPILER_EXECUTABLE,
-  COMPILER_VERSION,
-} from "#typepeek/inspection/compiler-distribution";
+import { COMPILER_EXECUTABLE } from "#typepeek/inspection/compiler/compiler-distribution";
+import { COMPILER_VERSION } from "#typepeek/inspection/compiler/compiler-metadata";
 import {
   bindCompilerProgram,
   declarationsOf,
   valueDeclarationOf,
   signatureText,
-} from "#typepeek/inspection/compiler-session";
-import { bitwiseAnd } from "#typepeek/integer-bits";
+} from "#typepeek/inspection/compiler/compiler-session";
+import { forEachChildAsync } from "#typepeek/inspection/compiler/compiler-traversal";
+import { bitwiseAnd } from "#typepeek/shared/integer-bits";
 
 import { signatureFact } from "./signature.ts";
 import type { DiscoveryWorkload } from "./workloads.ts";
@@ -48,14 +47,16 @@ export interface CompilerAnswer {
   readonly exportDeclarations: readonly string[];
 }
 
-const publicSignatures = function publicSignatures(
+const publicSignatures = async function publicSignatures(
   checker: Checker,
   exports: readonly CompilerSymbol[],
   name: string
-): readonly {
-  readonly fact: string;
-  readonly text: string;
-}[] {
+): Promise<
+  readonly {
+    readonly fact: string;
+    readonly text: string;
+  }[]
+> {
   const exported = exports.find((symbol) => symbol.name === name);
 
   if (exported === undefined) {
@@ -63,89 +64,106 @@ const publicSignatures = function publicSignatures(
   }
 
   const symbol = bitwiseAnd(exported.flags, SymbolFlags.Alias)
-    ? checker.getAliasedSymbol(exported)
+    ? await checker.getAliasedSymbol(exported)
     : exported;
 
-  const declaration = valueDeclarationOf(symbol) ?? declarationsOf(symbol)[0];
+  let declaration = await valueDeclarationOf(symbol);
+
+  if (declaration === undefined) {
+    const declarations = await declarationsOf(symbol);
+    [declaration] = declarations;
+  }
 
   if (declaration === undefined) {
     throw new Error(`No declaration for ${name}.`);
   }
 
-  const type = checker.getTypeOfSymbolAtLocation(symbol, declaration);
+  const type = await checker.getTypeOfSymbolAtLocation(symbol, declaration);
 
-  return [SignatureKind.Call, SignatureKind.Construct].flatMap((kind) =>
-    checker.getSignaturesOfType(type, kind).map((signature) => {
-      const source = signature.declaration?.resolve();
+  const mappedValues = await Array.fromAsync(
+    [SignatureKind.Call, SignatureKind.Construct],
+    async (kind) =>
+      await Array.fromAsync(
+        await checker.getSignaturesOfType(type, kind),
+        async (signature) => {
+          const source = await signature.declaration?.resolve();
 
-      if (source === undefined) {
-        throw new Error(`No source declaration for ${name}.`);
-      }
+          if (source === undefined) {
+            throw new Error(`No source declaration for ${name}.`);
+          }
 
-      const witness =
-        isFunctionTypeNode(source) && isVariableDeclaration(source.parent)
-          ? source.parent
-          : source;
+          const witness =
+            isFunctionTypeNode(source) && isVariableDeclaration(source.parent)
+              ? source.parent
+              : source;
 
-      return {
-        fact: signatureFact(
-          kind === SignatureKind.Call ? "call" : "construct",
-          signatureText(
-            checker,
-            signature,
-            signature.declaration?.resolve(),
-            kind
-          )
-        ),
-        text: witness.getText(),
-      };
-    })
+          return {
+            fact: signatureFact(
+              kind === SignatureKind.Call ? "call" : "construct",
+              await signatureText(
+                checker,
+                signature,
+                await signature.declaration?.resolve(),
+                kind
+              )
+            ),
+            text: witness.getText(),
+          };
+        }
+      )
   );
+
+  return mappedValues.flat();
 };
 
-const exportIndex = function exportIndex(
+const exportIndex = async function exportIndex(
   checker: Checker,
   moduleSymbol: CompilerSymbol
-): readonly string[] {
+): Promise<readonly string[]> {
   const seen = new Set<CompilerSymbol>();
   const texts = new Set<string>();
 
-  const visit = (symbol: CompilerSymbol): void => {
+  const visit = async (symbol: CompilerSymbol): Promise<void> => {
     if (seen.has(symbol)) {
       return;
     }
 
     seen.add(symbol);
 
-    for (const declaration of declarationsOf(symbol) ?? []) {
-      texts.add(declaration.getText());
-      declaration.forEachChild((node) => {
-        if (
-          isExportDeclaration(node) &&
-          node.exportClause === undefined &&
-          node.moduleSpecifier !== undefined
-        ) {
-          const target = checker.getSymbolAtLocation(node.moduleSpecifier);
+    await Array.fromAsync(
+      (await declarationsOf(symbol)) ?? [],
+      async (declaration) => {
+        texts.add(declaration.getText());
+        await forEachChildAsync(declaration, async (node) => {
+          if (
+            isExportDeclaration(node) &&
+            node.exportClause === undefined &&
+            node.moduleSpecifier !== undefined
+          ) {
+            const target = await checker.getSymbolAtLocation(
+              node.moduleSpecifier
+            );
 
-          if (target === undefined) {
-            throw new Error("Cannot resolve export-star evidence.");
+            if (target === undefined) {
+              throw new Error("Cannot resolve export-star evidence.");
+            }
+
+            await visit(target);
           }
-
-          visit(target);
-        }
-      });
-    }
+        });
+      }
+    );
   };
 
-  visit(moduleSymbol);
+  await visit(moduleSymbol);
 
   return [...texts];
 };
 
-export const inspectWithCompiler = function inspectWithCompiler(
+export const inspectWithCompiler = async function inspectWithCompiler(
   workspace: string,
   workload: DiscoveryWorkload
-): CompilerAnswer {
+): Promise<CompilerAnswer> {
   const probePath = nodePath.resolve(
     workspace,
     "__typepeek_benchmark_consumer__.mts"
@@ -181,13 +199,13 @@ export const inspectWithCompiler = function inspectWithCompiler(
     );
   }
 
-  using api = new API({
+  await using api = new API({
     cwd: nodePath.resolve(workspace),
     runExternalCode: false,
     tsserverPath: COMPILER_EXECUTABLE,
   });
 
-  const snapshot = api.createSnapshot({
+  const snapshot = await api.createSnapshot({
     createPrograms: [{ compilerOptions: options, rootFiles: roots }],
     fileSystem: createFileSystemLayer([[probePath, probeText]]),
   });
@@ -199,13 +217,13 @@ export const inspectWithCompiler = function inspectWithCompiler(
   }
 
   const program = bindCompilerProgram(created, api);
-  const probe = program.getSourceFile(probePath);
+  const probe = await program.getSourceFile(probePath);
 
   if (probe === undefined) {
     throw new Error("Compiler probe was not materialized.");
   }
 
-  const diagnostics = program.getSemanticDiagnostics(probe.fileName);
+  const diagnostics = await program.getSemanticDiagnostics(probe.fileName);
 
   if (diagnostics.length > 0) {
     throw new Error(diagnostics.map((item) => item.text).join("\n"));
@@ -222,7 +240,7 @@ export const inspectWithCompiler = function inspectWithCompiler(
 
   const { checker } = program.getProject();
 
-  const moduleSymbol = checker.getSymbolAtLocation(
+  const moduleSymbol = await checker.getSymbolAtLocation(
     importDeclaration.moduleSpecifier
   );
 
@@ -230,12 +248,12 @@ export const inspectWithCompiler = function inspectWithCompiler(
     throw new Error(`Cannot resolve ${workload.specifier} from ${workspace}.`);
   }
 
-  const exports = checker.getExportsOfModule(moduleSymbol);
+  const exports = await checker.getExportsOfModule(moduleSymbol);
 
   const declarations =
     workload.kind === "search"
       ? []
-      : publicSignatures(checker, exports, workload.target);
+      : await publicSignatures(checker, exports, workload.target);
 
   const facts =
     workload.kind === "search"
@@ -256,15 +274,16 @@ export const inspectWithCompiler = function inspectWithCompiler(
     );
   }
 
+  const sourceFileNames = await program.getSourceFileNames();
+
   return {
     compilerVersion: COMPILER_VERSION,
     declarations,
     exportDeclarations:
-      workload.kind === "search" ? exportIndex(checker, moduleSymbol) : [],
+      workload.kind === "search"
+        ? await exportIndex(checker, moduleSymbol)
+        : [],
     facts,
-    files: program
-      .getSourceFileNames()
-      .filter((path) => path !== probePath)
-      .toSorted(),
+    files: sourceFileNames.filter((path) => path !== probePath).toSorted(),
   };
 };

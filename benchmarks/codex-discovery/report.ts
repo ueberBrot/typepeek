@@ -1,6 +1,6 @@
 import { Predicate } from "effect";
 
-import { requireDefined } from "#typepeek/defined-value";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import type { DiscoveryIdentity } from "../support/identity.ts";
 import {

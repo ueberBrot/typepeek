@@ -3,7 +3,7 @@ import nodePath from "node:path";
 
 import { version } from "tsrs";
 
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
 
 const launcher = nodePath.join(
   nodePath.dirname(

@@ -4,8 +4,8 @@ import nodePath from "node:path";
 import { Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
-import { decodeJson } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import { registerCacheAuthorityTests } from "./cli/cache-authority.test.suite.ts";
 import { registerCacheEvidenceTests } from "./cli/cache-evidence.test.suite.ts";

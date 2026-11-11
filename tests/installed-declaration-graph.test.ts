@@ -1,15 +1,15 @@
 import { isModuleDeclaration } from "tsrs/ast";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
-import { createCompilerWorkSession } from "#typepeek/inspection/compiler-work-session";
-import { InstalledDeclarationGraph } from "#typepeek/inspection/installed-declaration-graph";
-import { InstalledProgramLoader } from "#typepeek/inspection/installed-program-loader";
+import { createCompilerWorkSession } from "#typepeek/inspection/compiler/compiler-work-session";
+import { InstalledProgramLoader } from "#typepeek/inspection/compiler/installed-program-loader";
+import { InstalledDeclarationGraph } from "#typepeek/inspection/projection/installed-declaration-graph";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { createFixtureProgram } from "./helpers/native-compiler.ts";
 
 describe("installed declaration graph", () => {
-  it("validates ambient import dependencies without one native lookup per reference", () => {
+  it("validates ambient import dependencies without one native lookup per reference", async () => {
     const fileName = "/declaration-batches/index.d.ts";
 
     const text = [
@@ -22,21 +22,21 @@ describe("installed declaration graph", () => {
       'declare module "dependency" { export interface Value { readonly id: string; } }',
     ].join("\n");
 
-    const program = createFixtureProgram(
+    const program = await createFixtureProgram(
       [fileName],
       { noEmit: true, noLib: true },
       [[fileName, text]]
     );
 
     const { checker } = program.getProject();
-    const source = requireDefined(program.getSourceFile(fileName));
+    const source = requireDefined(await program.getSourceFile(fileName));
 
     const declaration = requireDefined(
       source.statements.find(isModuleDeclaration)
     );
 
     const target = requireDefined(
-      checker.getSymbolAtLocation(declaration.name)
+      await checker.getSymbolAtLocation(declaration.name)
     );
 
     const graph = new InstalledDeclarationGraph(
@@ -49,17 +49,17 @@ describe("installed declaration graph", () => {
     const nativeRead = vi.spyOn(checker, "getSymbolAtLocation");
 
     try {
-      graph.assertAmbientModuleResolved(program, checker, target);
+      await graph.assertAmbientModuleResolved(program, checker, target);
       expect(nativeRead.mock.calls.length).toBeLessThan(10);
     } finally {
       nativeRead.mockRestore();
     }
   });
 
-  it("still rejects unresolved imports in an ambient declaration", () => {
+  it("still rejects unresolved imports in an ambient declaration", async () => {
     const fileName = "/unresolved-declarations/index.d.ts";
 
-    const program = createFixtureProgram(
+    const program = await createFixtureProgram(
       [fileName],
       { noEmit: true, noLib: true },
       [
@@ -71,14 +71,14 @@ describe("installed declaration graph", () => {
     );
 
     const { checker } = program.getProject();
-    const source = requireDefined(program.getSourceFile(fileName));
+    const source = requireDefined(await program.getSourceFile(fileName));
 
     const declaration = requireDefined(
       source.statements.find(isModuleDeclaration)
     );
 
     const target = requireDefined(
-      checker.getSymbolAtLocation(declaration.name)
+      await checker.getSymbolAtLocation(declaration.name)
     );
 
     const graph = new InstalledDeclarationGraph(
@@ -88,9 +88,9 @@ describe("installed declaration graph", () => {
       )
     );
 
-    expect(() => {
-      graph.assertAmbientModuleResolved(program, checker, target);
-    }).toThrow(
+    await expect(
+      graph.assertAmbientModuleResolved(program, checker, target)
+    ).rejects.toThrow(
       "A declaration re-export could not be resolved from Installed Evidence."
     );
   });

@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
 import {
   comparePublicInterfaces,
   inspectExport,
   inspectInterfaceOverview,
 } from "#typepeek/inspection";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import { match } from "./helpers/matchers.ts";
 import { PACKAGE_MANAGER_PINS } from "./helpers/package-toolchain.ts";

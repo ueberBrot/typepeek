@@ -6,8 +6,8 @@ import type {
 } from "@tanstack/ai-sandbox";
 import { sbxSandbox } from "@tanstack/ai-sandbox-docker";
 
-import { runCommand } from "#typepeek/process-command";
-import type { CommandCaptureOptions } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import type { CommandCaptureOptions } from "#typepeek/platform/process-command";
 
 import type { SandboxResourceEvent } from "./resources.ts";
 import { removeSandboxResources } from "./resources.ts";

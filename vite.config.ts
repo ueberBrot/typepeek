@@ -10,9 +10,10 @@ import { selectJsPlugins } from "ultracite/oxlint/js-plugins";
 import ultraciteVitest from "ultracite/oxlint/vitest";
 import { defineConfig } from "vite-plus";
 
-import { COMPILER_VERSION } from "./src/inspection/compiler-distribution.ts";
-import { readStandardGlobalCatalog } from "./src/inspection/standard-global-catalog.ts";
-import { decodeJson } from "./src/json-data.ts";
+import { COMPILER_VERSION } from "./src/inspection/compiler/compiler-metadata.ts";
+import { readStandardGlobalCatalog } from "./src/inspection/compiler/standard-global-catalog.ts";
+import { createRequire } from "./src/platform/node-module.ts";
+import { decodeJson } from "./src/shared/json-data.ts";
 
 const presetImportOrder = ultraciteFormat.sortImports;
 
@@ -42,19 +43,21 @@ const packageManifest = decodeJson(
 const packageVersionDefine = {
   "globalThis.__TYPEPEEK_COMPILER_VERSION__": JSON.stringify(COMPILER_VERSION),
   "globalThis.__TYPEPEEK_STANDARD_GLOBALS__": JSON.stringify(
-    readStandardGlobalCatalog()
+    await readStandardGlobalCatalog()
   ),
   "globalThis.__TYPEPEEK_VERSION__": JSON.stringify(packageManifest.version),
 };
 
 const releaseProfileAdapter = fileURLToPath(
-  new URL("src/inspection/performance-profile-disabled.ts", import.meta.url)
+  new URL(
+    "src/inspection/execution/performance-profile-disabled.ts",
+    import.meta.url
+  )
 );
 
-const effectBarrel = fileURLToPath(import.meta.resolve("effect")).replaceAll(
-  "\\",
-  "/"
-);
+const effectBarrel = createRequire(import.meta.url)
+  .resolve("effect")
+  .replaceAll("\\", "/");
 
 // Tree-shake the barrel while keeping the selected public modules external.
 const effectSubpathImports = {
@@ -79,6 +82,8 @@ const effectSubpathImports = {
 // Explicit inputs avoid tracing conflicts with the native checker subprocesses.
 const validationInputs = [
   "src/**",
+  "packages/**",
+  "scripts/**",
   "tests/**",
   "benchmarks/**",
   "docs/**",
@@ -97,7 +102,9 @@ const validationInputs = [
 const inspectionCoreChunk = function inspectionCoreChunk(
   moduleId: string
 ): string | undefined {
-  return moduleId.replaceAll("\\", "/").endsWith("/src/inspection/protocol.ts")
+  return moduleId
+    .replaceAll("\\", "/")
+    .endsWith("/src/inspection/model/protocol.ts")
     ? "inspection-outcome-codec"
     : undefined;
 };
@@ -118,7 +125,7 @@ export default defineConfig({
       external: [
         /^node:/u,
         /^effect\//u,
-        /^@effect\/platform-node-shared(?:\/|$)/u,
+        /^@effect\/platform-bun(?:\/|$)/u,
         /^tsrs(?:\/|$)/u,
         "semver",
       ],
@@ -228,7 +235,8 @@ export default defineConfig({
   },
   pack: {
     alias: {
-      "#typepeek/inspection/performance-profile": releaseProfileAdapter,
+      "#typepeek/inspection/execution/performance-profile":
+        releaseProfileAdapter,
     },
     define: packageVersionDefine,
     // Keep SDK subpath imports external and resolvable in installed consumers.
@@ -239,7 +247,11 @@ export default defineConfig({
     },
     // This package exposes CLI binaries; validation checks types separately.
     dts: false,
-    entry: ["src/cli.ts", "src/inspection/analysis-process-entry.ts"],
+    entry: [
+      "src/launcher.ts",
+      "src/cli.ts",
+      "src/inspection/analysis-process-entry.ts",
+    ],
     format: ["esm"],
     outExtensions: () => ({
       dts: ".d.ts",
@@ -261,7 +273,8 @@ export default defineConfig({
   // Packaged builds disable phase tracing.
   resolve: {
     alias: {
-      "#typepeek/inspection/performance-profile": releaseProfileAdapter,
+      "#typepeek/inspection/execution/performance-profile":
+        releaseProfileAdapter,
     },
   },
   run: {
@@ -290,6 +303,10 @@ export default defineConfig({
         command: "node tests/build-output-smoke.ts",
         dependsOn: ["build"],
       },
+      "build:aot": {
+        cache: false,
+        command: "bun scripts/build-aot.ts",
+      },
       check: {
         cache: { input: validationInputs, output: [] },
         command: ["tsrs --noEmit -p tsconfig.json", "vp check"],
@@ -304,7 +321,7 @@ export default defineConfig({
       },
       "effect-check": {
         cache: { input: validationInputs, output: [] },
-        command: "node tests/effect-diagnostics.ts",
+        command: "bun tests/effect-diagnostics.ts",
       },
       fallow: {
         cache: false,

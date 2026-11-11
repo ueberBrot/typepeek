@@ -8,7 +8,7 @@ import {
   inspectExportSignatures,
   inspectInterfaceOverview,
 } from "#typepeek/inspection";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
 
 import type { CompiledPackageFixture } from "../helpers/compiled-package-fixture.ts";
 import { match } from "../helpers/matchers.ts";

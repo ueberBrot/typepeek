@@ -1,0 +1,361 @@
+import { Predicate, Result, Schema, SchemaGetter } from "effect";
+
+import { COMPILER_VERSION } from "#typepeek/inspection/compiler/compiler-metadata";
+import { installedEvidenceProofSchema } from "#typepeek/inspection/evidence/installed-evidence-fingerprint";
+import {
+  compactEvidenceProof,
+  compactEvidenceProofSchema,
+  EVIDENCE_PROOF_LIMITS,
+  expandEvidenceProof,
+  MAX_INSTALLED_EVIDENCE_PROOF_BYTES,
+} from "#typepeek/inspection/evidence/installed-evidence-format";
+import {
+  INSPECTION_BUDGET_POLICY,
+  MAX_ANALYSIS_RESULT_BYTES,
+} from "#typepeek/inspection/model/budget-policy";
+import {
+  packageInspectionResultIdentitySchema,
+  platformInspectionResultIdentitySchema,
+} from "#typepeek/inspection/model/protocol";
+import { analysisRequestSchema } from "#typepeek/inspection/model/request-definitions";
+import { snapshotBoundedDataPropertyGraph } from "#typepeek/inspection/model/untrusted-data";
+import { TYPEPEEK_VERSION } from "#typepeek/platform/package-metadata";
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Cache codecs validate untrusted disk and IPC values after bounded snapshots, including malformed and cyclic inputs. */
+import { platformPath as nodePath } from "#typepeek/platform/platform-path";
+import { isJsonArray, isJsonObject } from "#typepeek/shared/json-data";
+
+export const CACHE_SCHEMA_VERSION = 2;
+
+/** Identifies the evidence rules that permit cache reuse. */
+export const INSPECTION_CACHE_SEMANTICS =
+  "installed-evidence-proof-file-presence-and-signature-constraints";
+
+export const MAX_CACHE_RECEIPT_BYTES =
+  MAX_INSTALLED_EVIDENCE_PROOF_BYTES + 32 * 1024;
+
+export const MAX_CACHE_ENTRY_BYTES =
+  MAX_CACHE_RECEIPT_BYTES + MAX_ANALYSIS_RESULT_BYTES + 8 * 1024;
+
+const MAX_CACHE_PATH_BYTES = 4 * 1024;
+const MAX_CACHE_IPC_GRAPH_OBJECTS = EVIDENCE_PROOF_LIMITS.objects + 4096;
+const MAX_CACHE_IPC_GRAPH_VALUES = EVIDENCE_PROOF_LIMITS.values + 32_768;
+const MAX_CACHE_HIT_NOTICE_BYTES = 1024;
+const SHA256_PATTERN = /^[\da-f]{64}$/u;
+const STRICT_CACHE_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
+
+const boundedStringSchema = Schema.String.check(
+  Schema.makeFilter(
+    (value) => Buffer.byteLength(value) <= MAX_CACHE_PATH_BYTES,
+    {
+      expected: `a string no larger than ${MAX_CACHE_PATH_BYTES} UTF-8 bytes`,
+    }
+  )
+);
+
+const boundedAbsolutePathSchema = boundedStringSchema.check(
+  Schema.makeFilter((path) => nodePath.isAbsolute(path), {
+    expected: "a bounded absolute path",
+  })
+);
+
+const sha256Schema = Schema.String.check(
+  Schema.makeFilter((value) => SHA256_PATTERN.test(value), {
+    expected: "a lowercase SHA-256 digest",
+  })
+);
+
+const cacheEvidenceFields = {
+  declarationPath: boundedAbsolutePathSchema,
+  declarationRoot: boundedAbsolutePathSchema,
+  repositoryRoot: boundedAbsolutePathSchema,
+  resolutionContextDirectory: boundedAbsolutePathSchema,
+} as const;
+
+const hasOnlyBoundedStrings = function hasOnlyBoundedStrings(
+  value: Schema.Json
+): boolean {
+  const pending: (Schema.Json | undefined)[] = [value];
+  const visited = new Set<object>();
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+
+    if (Predicate.isString(current)) {
+      if (Buffer.byteLength(current) > MAX_CACHE_PATH_BYTES) {
+        return false;
+      }
+    } else if (
+      (isJsonArray(current) || isJsonObject(current)) &&
+      !visited.has(current)
+    ) {
+      visited.add(current);
+      pending.push(
+        ...(isJsonArray(current) ? current : Object.values(current))
+      );
+    }
+  }
+
+  return true;
+};
+
+const boundedPackageResultIdentitySchema =
+  packageInspectionResultIdentitySchema.check(
+    Schema.makeFilter(hasOnlyBoundedStrings, {
+      expected: "bounded Package Identity strings",
+    })
+  );
+
+const boundedPlatformResultIdentitySchema =
+  platformInspectionResultIdentitySchema.check(
+    Schema.makeFilter(hasOnlyBoundedStrings, {
+      expected: "bounded Package Identity strings",
+    })
+  );
+
+const cacheEvidenceIdentitySchema = Schema.Union([
+  Schema.Struct({
+    ...cacheEvidenceFields,
+    kind: Schema.Literal("package"),
+    resultIdentity: boundedPackageResultIdentitySchema,
+  }),
+  Schema.Struct({
+    ...cacheEvidenceFields,
+    kind: Schema.Literal("platform"),
+    resultIdentity: boundedPlatformResultIdentitySchema,
+  }),
+]);
+
+const boundedAnalysisRequestSchema = analysisRequestSchema.check(
+  Schema.makeFilter(hasOnlyBoundedStrings, {
+    expected: "bounded Analysis Request strings",
+  })
+);
+
+const inspectionCacheIdentityValueSchema = Schema.Struct({
+  budgetPolicy: Schema.Literal(INSPECTION_BUDGET_POLICY.identity),
+  cacheSemantics: Schema.Literal(INSPECTION_CACHE_SEMANTICS),
+  compilerVersion: Schema.Literal(COMPILER_VERSION),
+  evidence: cacheEvidenceIdentitySchema,
+  request: boundedAnalysisRequestSchema,
+  typepeekVersion: Schema.Literal(TYPEPEEK_VERSION),
+});
+
+const cacheProofSchema = Schema.Union([
+  compactEvidenceProofSchema,
+  installedEvidenceProofSchema,
+]).pipe(
+  Schema.decodeTo(installedEvidenceProofSchema, {
+    decode: SchemaGetter.transform((proof) =>
+      "paths" in proof ? expandEvidenceProof(proof) : proof
+    ),
+    encode: SchemaGetter.transform(compactEvidenceProof),
+  })
+);
+
+const inspectionCacheWriteReceiptSchema = Schema.Struct({
+  identity: inspectionCacheIdentityValueSchema,
+  kind: Schema.Literal("inspection-cache-write"),
+  proof: cacheProofSchema,
+});
+
+const inspectionCacheHitNoticeSchema = Schema.Struct({
+  key: sha256Schema,
+  kind: Schema.Literal("inspection-cache-hit"),
+});
+
+const inspectionCachePayloadSchema = Schema.Struct({
+  identity: inspectionCacheIdentityValueSchema,
+  outcome: Schema.Unknown,
+  proof: cacheProofSchema,
+});
+
+const inspectionCacheEnvelopeSchema = Schema.Struct({
+  integrity: sha256Schema,
+  payload: Schema.String.check(
+    Schema.makeFilter(
+      (value) => Buffer.byteLength(value) <= MAX_CACHE_ENTRY_BYTES,
+      {
+        expected: `a payload no larger than ${MAX_CACHE_ENTRY_BYTES} UTF-8 bytes`,
+      }
+    )
+  ),
+  schemaVersion: Schema.Literal(CACHE_SCHEMA_VERSION),
+});
+
+export type InspectionCacheIdentityValue =
+  typeof inspectionCacheIdentityValueSchema.Type;
+
+export type EncodedInspectionCacheIdentityValue =
+  typeof inspectionCacheIdentityValueSchema.Encoded;
+
+export type InspectionCacheWriteReceipt =
+  typeof inspectionCacheWriteReceiptSchema.Type;
+
+export type InspectionCacheHitNotice =
+  typeof inspectionCacheHitNoticeSchema.Type;
+
+export type InspectionCachePayload = typeof inspectionCachePayloadSchema.Type;
+
+export type InspectionCacheEnvelope = typeof inspectionCacheEnvelopeSchema.Type;
+
+const decodeCacheWriteReceipt = Schema.decodeUnknownResult(
+  inspectionCacheWriteReceiptSchema,
+  STRICT_CACHE_PARSE_OPTIONS
+);
+
+const decodeCacheIdentityValue = Schema.decodeUnknownResult(
+  inspectionCacheIdentityValueSchema,
+  STRICT_CACHE_PARSE_OPTIONS
+);
+
+const decodeCacheKey = Schema.decodeUnknownResult(sha256Schema);
+const decodeCachePath = Schema.decodeUnknownResult(boundedAbsolutePathSchema);
+
+const encodeCacheIdentityValue = Schema.encodeUnknownResult(
+  inspectionCacheIdentityValueSchema,
+  STRICT_CACHE_PARSE_OPTIONS
+);
+
+const encodeCacheWriteReceipt = Schema.encodeUnknownResult(
+  inspectionCacheWriteReceiptSchema,
+  STRICT_CACHE_PARSE_OPTIONS
+);
+
+const decodeCacheHitNotice = Schema.decodeUnknownResult(
+  inspectionCacheHitNoticeSchema,
+  STRICT_CACHE_PARSE_OPTIONS
+);
+
+const encodeCacheHitNotice = Schema.encodeUnknownResult(
+  inspectionCacheHitNoticeSchema,
+  STRICT_CACHE_PARSE_OPTIONS
+);
+
+const decodeCachePayload = Schema.decodeUnknownResult(
+  inspectionCachePayloadSchema,
+  STRICT_CACHE_PARSE_OPTIONS
+);
+
+const encodeCachePayload = Schema.encodeUnknownResult(
+  inspectionCachePayloadSchema,
+  STRICT_CACHE_PARSE_OPTIONS
+);
+
+const decodeCacheEnvelope = Schema.decodeUnknownResult(
+  inspectionCacheEnvelopeSchema,
+  STRICT_CACHE_PARSE_OPTIONS
+);
+
+const encodeCacheEnvelope = Schema.encodeUnknownResult(
+  inspectionCacheEnvelopeSchema,
+  STRICT_CACHE_PARSE_OPTIONS
+);
+
+const snapshotCacheIpcValue = function snapshotCacheIpcValue(
+  value: unknown,
+  maximumSerializedBytes: number
+): unknown {
+  return snapshotBoundedDataPropertyGraph(value, {
+    maximumObjects: MAX_CACHE_IPC_GRAPH_OBJECTS,
+    maximumSerializedBytes,
+    maximumStringBytes: MAX_CACHE_PATH_BYTES,
+    maximumValues: MAX_CACHE_IPC_GRAPH_VALUES,
+  });
+};
+
+export const readInspectionCacheWriteReceiptMessage =
+  function readInspectionCacheWriteReceiptMessage(
+    value: unknown
+  ): InspectionCacheWriteReceipt | undefined {
+    const snapshot = snapshotCacheIpcValue(value, MAX_CACHE_RECEIPT_BYTES);
+
+    return snapshot === undefined
+      ? undefined
+      : Result.getOrUndefined(decodeCacheWriteReceipt(snapshot));
+  };
+
+export const readInspectionCacheKey = function readInspectionCacheKey(
+  value: unknown
+): string | undefined {
+  return Result.getOrUndefined(decodeCacheKey(value));
+};
+
+export const readInspectionCachePath = function readInspectionCachePath(
+  value: unknown
+): string | undefined {
+  return Result.getOrUndefined(decodeCachePath(value));
+};
+
+const decodeThenEncode = function decodeThenEncode<Decoded, Encoded>(
+  value: unknown,
+  decode: (value: unknown) => Result.Result<Decoded, unknown>,
+  encode: (value: Decoded) => Result.Result<Encoded, unknown>
+): Encoded | undefined {
+  const decoded = Result.getOrUndefined(decode(value));
+
+  return decoded === undefined
+    ? undefined
+    : Result.getOrUndefined(encode(decoded));
+};
+
+export const encodeInspectionCacheIdentityValue =
+  function encodeInspectionCacheIdentityValue(
+    value: unknown
+  ): EncodedInspectionCacheIdentityValue | undefined {
+    return decodeThenEncode(
+      value,
+      decodeCacheIdentityValue,
+      encodeCacheIdentityValue
+    );
+  };
+
+export const encodeInspectionCacheWriteReceipt =
+  function encodeInspectionCacheWriteReceipt(
+    value: unknown
+  ): typeof inspectionCacheWriteReceiptSchema.Encoded | undefined {
+    return Result.getOrUndefined(encodeCacheWriteReceipt(value));
+  };
+
+export const readInspectionCacheHitNoticeMessage =
+  function readInspectionCacheHitNoticeMessage(
+    value: unknown
+  ): InspectionCacheHitNotice | undefined {
+    const snapshot = snapshotCacheIpcValue(value, MAX_CACHE_HIT_NOTICE_BYTES);
+
+    return snapshot === undefined
+      ? undefined
+      : Result.getOrUndefined(decodeCacheHitNotice(snapshot));
+  };
+
+export const encodeInspectionCacheHitNotice =
+  function encodeInspectionCacheHitNotice(
+    value: unknown
+  ): InspectionCacheHitNotice | undefined {
+    return decodeThenEncode(value, decodeCacheHitNotice, encodeCacheHitNotice);
+  };
+
+export const readInspectionCachePayload = function readInspectionCachePayload(
+  value: unknown
+): InspectionCachePayload | undefined {
+  return Result.getOrUndefined(decodeCachePayload(value));
+};
+
+export const encodeInspectionCachePayload =
+  function encodeInspectionCachePayload(
+    value: unknown
+  ): typeof inspectionCachePayloadSchema.Encoded | undefined {
+    return Result.getOrUndefined(encodeCachePayload(value));
+  };
+
+export const readInspectionCacheEnvelope = function readInspectionCacheEnvelope(
+  value: unknown
+): InspectionCacheEnvelope | undefined {
+  return Result.getOrUndefined(decodeCacheEnvelope(value));
+};
+
+export const encodeInspectionCacheEnvelope =
+  function encodeInspectionCacheEnvelope(
+    value: unknown
+  ): InspectionCacheEnvelope | undefined {
+    return decodeThenEncode(value, decodeCacheEnvelope, encodeCacheEnvelope);
+  };

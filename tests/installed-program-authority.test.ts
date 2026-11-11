@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
-import { requireDefined } from "#typepeek/defined-value";
 import {
   inspectExport,
   inspectExportDeclarations,
@@ -8,6 +7,7 @@ import {
   inspectInterfaceOverview,
   inspectPlan,
 } from "#typepeek/inspection";
+import { requireDefined } from "#typepeek/shared/defined-value";
 
 import type { InstalledProgramAuthorityFixture } from "./helpers/installed-program-authority-fixture.ts";
 import { materializeInstalledProgramAuthorityFixture } from "./helpers/installed-program-authority-fixture.ts";

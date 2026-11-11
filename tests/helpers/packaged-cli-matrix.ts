@@ -13,9 +13,9 @@ import nodePath from "node:path";
 
 import { Predicate, Schema } from "effect";
 
-import { bitwiseAnd, unsignedRightShift } from "#typepeek/integer-bits";
-import { decodeJson } from "#typepeek/json-data";
-import { runCommand } from "#typepeek/process-command";
+import { runCommand } from "#typepeek/platform/process-command";
+import { bitwiseAnd, unsignedRightShift } from "#typepeek/shared/integer-bits";
+import { decodeJson } from "#typepeek/shared/json-data";
 
 import type { PackageManagerPin } from "./package-toolchain.ts";
 import {
@@ -61,7 +61,6 @@ const buildAndPackTypepeek = async function buildAndPackTypepeek(
   fixtureRoot: string
 ): Promise<string> {
   const tarballsRoot = nodePath.join(fixtureRoot, "tarballs");
-  const npmCacheRoot = nodePath.join(fixtureRoot, "pack-cache");
   await mkdir(tarballsRoot, { recursive: true });
 
   try {
@@ -74,7 +73,6 @@ const buildAndPackTypepeek = async function buildAndPackTypepeek(
 
   return await packPackage({
     diagnosticContext: `production tarball from ${sourceCheckout}`,
-    npmCacheRoot,
     packageRoot: sourceCheckout,
     tarballsRoot,
   });
@@ -226,7 +224,7 @@ const verifyExecutableTarget = async function verifyExecutableTarget(
   const expectedCliEntry = nodePath.join(
     typepeekPhysicalPath,
     "dist",
-    "cli.js"
+    "launcher.js"
   );
 
   if (process.platform === "win32" && packageManager.manager === "bun") {
@@ -276,7 +274,7 @@ const verifyExecutableTarget = async function verifyExecutableTarget(
       installedModulesDirectory,
       "typepeek",
       "dist",
-      "cli.js"
+      "launcher.js"
     );
 
     const normalizedLinkedTarget = nodePath

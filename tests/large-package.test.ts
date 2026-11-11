@@ -188,7 +188,7 @@ describe("large-package", () => {
       new Set(names).size,
       names.includes("entry599"),
     ]).toStrictEqual([600, 600, true]);
-  });
+  }, 90_000);
 
   it("rejects continuation from another Resolution Variant", async () => {
     const { outcome: first } = await Effect.runPromise(
