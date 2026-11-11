@@ -78,25 +78,16 @@ jobs:
           pr-base-branch: main
           pr-title: Release package
 
-  native:
-    name: Build native release artifacts
-    if: needs.select-mode.outputs.mode == 'publish'
-    needs: select-mode
-    uses: ./.github/workflows/native-binaries.yml
-    with:
-      ref: ${{ github.event.workflow_run.head_sha }}
-    permissions:
-      contents: read
-
   pack:
     name: Build release artifact
     if: needs.select-mode.outputs.mode == 'publish'
-    needs: [select-mode, native]
+    needs: select-mode
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
       pack-dir-artifact-id: ${{ steps.pack.outputs.pack-dir-artifact-id }}
     permissions:
+      actions: read
       contents: read
 
     steps:
@@ -111,12 +102,24 @@ jobs:
         with:
           cache: "false"
 
-      - name: Download all native distributions
+      # Select mode only permits successful same-repository main pushes.
+      # Always use that exact CI run, even when a newer main run has finished.
+      - name: Download tested native distributions from CI
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: native-typepeek-*
-          path: packages
+          path: ${{ runner.temp }}/native-distributions
           merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Extract native distributions
+        env:
+          NATIVE_ARTIFACTS: ${{ runner.temp }}/native-distributions
+        run: |
+          for archive in "$NATIVE_ARTIFACTS"/*.tar.gz; do
+            tar -xzf "$archive" -C packages
+          done
 
       - name: Verify complete native distributions
         run: bun scripts/verify-native-packages.ts

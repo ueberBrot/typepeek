@@ -3,10 +3,11 @@ name: Native binaries
 on:
   workflow_call:
     inputs:
-      ref:
+      upload-artifacts:
+        description: Retain tested native packages for the release workflow.
         required: false
-        type: string
-        default: ""
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -54,10 +55,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ inputs.ref || github.sha }}
 
       - name: Set up validation
         uses: ./.github/actions/setup-validation
+        with:
+          pnpm: ${{ !matrix.musl }}
+          musl: ${{ matrix.musl }}
 
       - name: Build launcher
         run: vp pack
@@ -66,10 +69,6 @@ jobs:
         if: ${{ !matrix.musl }}
         shell: bash
         run: bun scripts/build-aot.ts --output "$NATIVE_DIRECTORY"
-
-      - name: Install musl build dependencies
-        if: matrix.musl
-        run: bun install --frozen-lockfile --ignore-scripts --libc '*'
 
       - name: Compile musl binaries
         if: matrix.musl
@@ -95,11 +94,19 @@ jobs:
         run: >-
           docker run --rm --volume "$PWD:/workspace" --workdir /workspace --env TYPEPEEK_NATIVE_MANAGER --env TYPEPEEK_NATIVE_NAME --env TYPEPEEK_NATIVE_PACKAGE --env TYPEPEEK_LAUNCHER_PACKAGE node:24-alpine3.22@sha256:191c9f0080fcbbc6547a85dc0ff7988072214a355aabdc1d2ec55a7dae5eea8a sh -eu -c 'npm install --global npm@11.19.1 --ignore-scripts && node node_modules/vitest/vitest.mjs run tests/native-cli-consumers.test.ts'
 
+      # Tar preserves executable permissions and isolates each platform's files.
+      - name: Archive native distribution
+        if: inputs.upload-artifacts
+        shell: bash
+        run: |
+          tar -cf - -C packages "$TYPEPEEK_NATIVE_NAME" | gzip -1 >"$RUNNER_TEMP/$TYPEPEEK_NATIVE_NAME.tar.gz"
+
       - name: Upload native distribution
+        if: inputs.upload-artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.package }}
-          path: packages/
+          path: ${{ runner.temp }}/${{ matrix.package }}.tar.gz
           if-no-files-found: error
           compression-level: 0
           retention-days: 7

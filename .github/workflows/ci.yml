@@ -20,6 +20,8 @@ jobs:
   native:
     name: Native distribution
     uses: ./.github/workflows/native-binaries.yml
+    with:
+      upload-artifacts: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
   changesets:
     name: Changeset release plan
@@ -89,6 +91,8 @@ jobs:
 
       - name: Set up validation
         uses: ./.github/actions/setup-validation
+        with:
+          pnpm: "true"
 
       - name: Test
         run: vp test --exclude tests/packaged-cli-consumers.test.ts --shard=${{ matrix.shard }} --maxWorkers=1
@@ -118,7 +122,6 @@ jobs:
 
   consumer-compatibility:
     name: Consumer compatibility (${{ matrix.os }})
-    needs: quality
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -137,6 +140,8 @@ jobs:
 
       - name: Set up validation
         uses: ./.github/actions/setup-validation
+        with:
+          pnpm: "true"
 
       - name: Test packaged CLI consumers
         run: vp test tests/static-inspection-tripwire.test.ts tests/packaged-cli-consumers.test.ts

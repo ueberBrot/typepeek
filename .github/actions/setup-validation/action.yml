@@ -3,8 +3,14 @@ description: Install the pinned validation toolchain and project dependencies.
 
 inputs:
   cache:
-    description: Cache the validation toolchain and project dependencies.
+    description: Restore cached toolchains and package downloads.
     default: "true"
+  pnpm:
+    description: Install pnpm for consumer compatibility tests.
+    default: "false"
+  musl:
+    description: Also install Linux musl dependencies for Alpine builds.
+    default: "false"
   registry-url:
     description: Optional npm registry URL used to configure publishing authentication.
     default: ""
@@ -23,11 +29,15 @@ runs:
         version: "1.4.0"
         node-version-file: ".node-version"
         cache: ${{ inputs.cache }}
+        cache-toolchain: ${{ inputs.cache }}
+        # Share main's caches with PRs without storing a copy for every PR.
+        cache-save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         registry-url: ${{ inputs.registry-url }}
         run-install: |
-          - args: ["--frozen-lockfile"]
+          - args: ${{ inputs.musl == 'true' && '["--frozen-lockfile", "--", "--libc", "*"]' || '["--frozen-lockfile"]' }}
 
     - name: Set up pnpm for consumer compatibility tests
+      if: inputs.pnpm == 'true'
       uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
       with:
         version: "12.16.1"
