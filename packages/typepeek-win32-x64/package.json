@@ -1,6 +1,6 @@
 {
   "name": "typepeek-win32-x64",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Typepeek AOT binaries for win32-x64.",
   "license": "ISC",
   "repository": {

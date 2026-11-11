@@ -53,49 +53,49 @@
     },
     "packages/typepeek-darwin-arm64": {
       "name": "typepeek-darwin-arm64",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "tsrs": "0.20.1-ts7.1.0-beta",
       },
     },
     "packages/typepeek-darwin-x64": {
       "name": "typepeek-darwin-x64",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "tsrs": "0.20.1-ts7.1.0-beta",
       },
     },
     "packages/typepeek-linux-arm64-gnu": {
       "name": "typepeek-linux-arm64-gnu",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "tsrs": "0.20.1-ts7.1.0-beta",
       },
     },
     "packages/typepeek-linux-arm64-musl": {
       "name": "typepeek-linux-arm64-musl",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "tsrs": "0.20.1-ts7.1.0-beta",
       },
     },
     "packages/typepeek-linux-x64-gnu": {
       "name": "typepeek-linux-x64-gnu",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "tsrs": "0.20.1-ts7.1.0-beta",
       },
     },
     "packages/typepeek-linux-x64-musl": {
       "name": "typepeek-linux-x64-musl",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "tsrs": "0.20.1-ts7.1.0-beta",
       },
     },
     "packages/typepeek-win32-x64": {
       "name": "typepeek-win32-x64",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "tsrs": "0.20.1-ts7.1.0-beta",
       },
