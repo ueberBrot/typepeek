@@ -1,5 +1,51 @@
 # typepeek
 
+## 0.6.0
+
+### Minor Changes
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Add an experimental Bun AOT build for host-native CLI and analysis-worker executables. Generated native packages run without an installed JavaScript runtime and retain the pinned TSRS compiler dependency. Keep the existing JavaScript package compatible with Node.js and npm, pnpm, and Bun installers.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Run prebuilt Bun AOT binaries through an Effect launcher on macOS, Linux, and Windows x64. Install only the matching optional platform package; retain JavaScript execution when optional binaries are omitted or the host is unsupported.
+
+### Patch Changes
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Run static inspections through the asynchronous TSRS transport and Effect platform operations so the CLI can execute under Bun as well as Node.js. Preserve bounded Installed Evidence reads and deterministic Inspection Outcomes.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Collect byte streams in Effect batches to reduce per-chunk overhead and repeated buffer growth for fragmented process and protocol output.
+
+- [#77](https://github.com/ueberBrot/typepeek/pull/77) [`3e016e4`](https://github.com/ueberBrot/typepeek/commit/3e016e45d7ad4cdaba7291057c3901d44eafc12b) - Keep benchmark scratch directories writable when TMPDIR points to them.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Enforce the Bun analysis heap limit even when the diagnostic stream fails or blocks. Bound diagnostic delivery and guarantee worker termination after the limit is exceeded.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Treat compiler cleanup failures during cache proof replay as cache misses, allowing a fresh inspection instead of returning an unsupported outcome.
+
+- [#79](https://github.com/ueberBrot/typepeek/pull/79) [`8301850`](https://github.com/ueberBrot/typepeek/commit/8301850f7e27b897f8a01df2671c7fe5086a42b1) - Reduce CLI startup work by loading selected Effect modules and avoiding repeated declaration and documentation queries.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Allow help, version, and capability discovery to run without the native compiler installed. Follow the pinned SDK’s GNU or musl selection on Linux, and embed that selection when building native executables.
+
+- [#77](https://github.com/ueberBrot/typepeek/pull/77) [`3e016e4`](https://github.com/ueberBrot/typepeek/commit/3e016e45d7ad4cdaba7291057c3901d44eafc12b) - Run inspections with bounded request, result, diagnostic, and cache channels. Finish worker and compiler-process cleanup before cancellation completes.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Keep protocol requests ordered and interruptible under Bun, with bounded UTF-8 framing and output backpressure. Preserve bounded workspace discovery and readable CLI diagnostics through Effect-managed I/O.
+
+- [#77](https://github.com/ueberBrot/typepeek/pull/77) [`3e016e4`](https://github.com/ueberBrot/typepeek/commit/3e016e45d7ad4cdaba7291057c3901d44eafc12b) - Add shell completions and guided command setup, with bounded machine-readable diagnostics and conventional inspection exit codes.
+
+- [#77](https://github.com/ueberBrot/typepeek/pull/77) [`3e016e4`](https://github.com/ueberBrot/typepeek/commit/3e016e45d7ad4cdaba7291057c3901d44eafc12b) - Stop in-flight protocol inspections when the CLI is interrupted, and wait for worker cleanup before exiting.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Keep native compiler processes and filesystem authority within each inspection. Serialize overlapping compiler operations, wait for active work during cleanup, and close every retained resource even when another close fails.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Update Effect and its platform packages to 4.1.2 and semver to 7.8.6. Use Effect's new digest and secure-random services, and preserve Windows command resolution when child environment values are redacted.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Group compiler inspection, Installed Evidence, queries, caching, and presentation by responsibility while preserving the public CLI and Inspection Protocol.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Skip workspace discovery when the current package declares the inspected dependency, avoiding unnecessary filesystem reads and failures caused by unrelated ancestor configuration.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Preserve process and protocol output when a stream reuses its byte buffer, and bound collection storage independently of the number of chunks.
+
+- [#77](https://github.com/ueberBrot/typepeek/pull/77) [`3e016e4`](https://github.com/ueberBrot/typepeek/commit/3e016e45d7ad4cdaba7291057c3901d44eafc12b) - Run tests and benchmarks in disposable Docker sandboxes with host-managed Codex authentication. Save logs, traces, and results, and clean up sandboxes after completion or interruption.
+
+- [#80](https://github.com/ueberBrot/typepeek/pull/80) [`1a5f445`](https://github.com/ueberBrot/typepeek/commit/1a5f44566ae69cb2ce13bf2f4871adda5956642c) - Resolve Windows package-manager commands using the child process’s PATH, working directory, and environment inheritance settings, including case-insensitive environment names and relative PATH entries.
+
 ## 0.5.0
 
 ### Minor Changes
